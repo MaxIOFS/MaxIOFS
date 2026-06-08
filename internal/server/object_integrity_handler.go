@@ -28,7 +28,7 @@ func (s *Server) handleVerifyBucketIntegrity(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can run integrity verification", http.StatusForbidden)
 		return
@@ -124,8 +124,8 @@ func (s *Server) handleGetIntegrityStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
-	isTenantAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID != ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	isTenantAdmin := auth.IsAdminUser(r.Context()) && user.TenantID != ""
 
 	if !isGlobalAdmin && !isTenantAdmin {
 		s.writeError(w, "Forbidden", http.StatusForbidden)
@@ -172,7 +172,7 @@ func (s *Server) handleSaveIntegrityStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can save integrity status", http.StatusForbidden)
 		return

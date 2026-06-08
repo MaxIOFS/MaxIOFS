@@ -379,6 +379,36 @@ func TestConsoleAPILimitsOversizedJSONBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestConsoleAPILimitsStructuredBodyWithoutContentType(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	router := mux.NewRouter()
+	server.setupConsoleAPIRoutes(router)
+
+	token := getAdminToken(t, server)
+	body := bytes.Buffer{}
+	body.WriteString(`{"indexDocument":"`)
+	body.Write(bytes.Repeat([]byte("a"), consoleJSONBodyLimitBytes+1))
+	body.WriteString(`"}`)
+
+	req := httptest.NewRequest("PUT", "/buckets/test/website", &body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestConsoleAPIBodyLimitExemptsObjectUploads(t *testing.T) {
+	req := httptest.NewRequest("PUT", "/api/v1/buckets/test/objects/large.bin", nil)
+	assert.False(t, shouldLimitConsoleBody(req))
+
+	req = httptest.NewRequest("PUT", "/api/v1/buckets/test/objects/large.bin/tags", nil)
+	assert.True(t, shouldLimitConsoleBody(req))
+}
+
 // TestHandleCreateUser tests the POST /users endpoint
 func TestHandleCreateUser(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)
@@ -1366,6 +1396,34 @@ func TestHandleListSettings(t *testing.T) {
 	err = json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
+}
+
+func TestHandleListSettingsUsesTenantForAdminScope(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	globalAdmin := &auth.User{
+		ID:       "global-admin-reordered-roles",
+		Username: "global-admin-reordered-roles",
+		Roles:    []string{"user", "admin"},
+	}
+	req := httptest.NewRequest("GET", "/api/v1/settings", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", globalAdmin))
+	rr := httptest.NewRecorder()
+	server.handleListSettings(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	tenantAdmin := &auth.User{
+		ID:       "tenant-admin-reordered-roles",
+		Username: "tenant-admin-reordered-roles",
+		TenantID: "tenant-a",
+		Roles:    []string{"user", "admin"},
+	}
+	req = httptest.NewRequest("GET", "/api/v1/settings", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", tenantAdmin))
+	rr = httptest.NewRecorder()
+	server.handleListSettings(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
 // TestHandleListAuditLogs tests the GET /audit-logs endpoint

@@ -120,25 +120,38 @@ func (w *metricsResponseWriter) Flush() {
 	}
 }
 
-func shouldLimitConsoleJSONBody(r *http.Request) bool {
+func consoleAPIRelativePath(path string) string {
+	const apiV1Segment = "/api/v1"
+	if idx := strings.Index(path, apiV1Segment); idx >= 0 {
+		path = path[idx+len(apiV1Segment):]
+		if path == "" {
+			path = "/"
+		}
+	}
+	return path
+}
+
+func isConsoleObjectUploadPath(method, relPath string) bool {
+	if method != http.MethodPut {
+		return false
+	}
+	if !strings.HasPrefix(relPath, "/buckets/") || !strings.Contains(relPath, "/objects/") {
+		return false
+	}
+
+	// Object subresource endpoints consume small structured bodies and should
+	// stay capped. The generic PUT object route is the large-body upload path.
+	return !strings.HasSuffix(relPath, "/tags") &&
+		!strings.HasSuffix(relPath, "/acl") &&
+		!strings.HasSuffix(relPath, "/legal-hold")
+}
+
+func shouldLimitConsoleBody(r *http.Request) bool {
 	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
 		return false
 	}
 
-	contentType := strings.ToLower(r.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "application/json") {
-		return true
-	}
-
-	const apiV1Segment = "/api/v1"
-	relPath := r.URL.Path
-	if idx := strings.Index(relPath, apiV1Segment); idx >= 0 {
-		relPath = relPath[idx+len(apiV1Segment):]
-		if relPath == "" {
-			relPath = "/"
-		}
-	}
-	return relPath == "/auth/login" || relPath == "/auth/refresh" || relPath == "/auth/2fa/verify"
+	return !isConsoleObjectUploadPath(r.Method, consoleAPIRelativePath(r.URL.Path))
 }
 
 // setupConsoleAPIRoutes registers all console API routes
@@ -167,7 +180,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Body != nil && shouldLimitConsoleJSONBody(r) {
+			if r.Body != nil && shouldLimitConsoleBody(r) {
 				r.Body = http.MaxBytesReader(w, r.Body, consoleJSONBodyLimitBytes)
 			}
 			next.ServeHTTP(w, r)
@@ -7185,7 +7198,7 @@ func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only global admins can view/edit settings
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
@@ -7230,7 +7243,7 @@ func (s *Server) handleListCategories(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only global admins can view/edit settings
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
@@ -7260,7 +7273,7 @@ func (s *Server) handleGetSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only global admins can view/edit settings
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can access settings", http.StatusForbidden)
@@ -7293,7 +7306,7 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only global admins can view/edit settings
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can modify settings", http.StatusForbidden)
@@ -7368,7 +7381,7 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	// Only global admins can view/edit settings
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can modify settings", http.StatusForbidden)
@@ -7427,7 +7440,7 @@ func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isGlobalAdmin := len(user.Roles) > 0 && user.Roles[0] == "admin" && user.TenantID == ""
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if !isGlobalAdmin {
 		s.writeError(w, "Forbidden: only global admins can test email settings", http.StatusForbidden)
 		return
