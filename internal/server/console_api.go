@@ -100,6 +100,8 @@ type MetricsResponse struct {
 	SystemStats  map[string]float64 `json:"system_stats"`
 }
 
+const consoleJSONBodyLimitBytes = 1 << 20
+
 // metricsResponseWriter wraps http.ResponseWriter to capture status code
 type metricsResponseWriter struct {
 	http.ResponseWriter
@@ -116,6 +118,27 @@ func (w *metricsResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func shouldLimitConsoleJSONBody(r *http.Request) bool {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		return false
+	}
+
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "application/json") {
+		return true
+	}
+
+	const apiV1Segment = "/api/v1"
+	relPath := r.URL.Path
+	if idx := strings.Index(relPath, apiV1Segment); idx >= 0 {
+		relPath = relPath[idx+len(apiV1Segment):]
+		if relPath == "" {
+			relPath = "/"
+		}
+	}
+	return relPath == "/auth/login" || relPath == "/auth/refresh" || relPath == "/auth/2fa/verify"
 }
 
 // setupConsoleAPIRoutes registers all console API routes
@@ -136,9 +159,21 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			// Record request metrics
 			latencyMs := uint64(time.Since(start).Milliseconds())
 			isError := wrapped.statusCode >= 500 // Only count 5xx as errors (server errors), not 4xx (client errors)
-			s.systemMetrics.RecordRequest(latencyMs, isError)
+			if s.systemMetrics != nil {
+				s.systemMetrics.RecordRequest(latencyMs, isError)
+			}
 		})
 	}) // Apply CORS middleware for Console API
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil && shouldLimitConsoleJSONBody(r) {
+				r.Body = http.MaxBytesReader(w, r.Body, consoleJSONBodyLimitBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Use the proper CORS middleware with origin validation instead of wildcard "*"
 	corsConfig := middleware.DefaultCORSConfig()
 	// Always allow direct local access, regardless of public_console_url.
@@ -2681,7 +2716,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for i, u := range filteredUsers {
 		response[i] = UserResponse{
 			ID:                  u.ID,
-			Username:            u.ID,
+			Username:            u.Username,
 			DisplayName:         u.DisplayName,
 			Email:               u.Email,
 			Status:              u.Status,

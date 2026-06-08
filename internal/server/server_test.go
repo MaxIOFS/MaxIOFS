@@ -5558,6 +5558,36 @@ func TestNotificationHubOperations(t *testing.T) {
 		// This should not panic even with no clients
 		hub.SendNotification(notification)
 	})
+
+	t.Run("tenant admin should only receive own tenant notifications", func(t *testing.T) {
+		hub := server.notificationHub
+		require.NotNil(t, hub)
+
+		tenantAdmin := &auth.User{
+			ID:       "tenant-admin-notifications",
+			Username: "tenant-admin-notifications",
+			TenantID: "tenant-a",
+			Roles:    []string{"admin"},
+		}
+
+		assert.True(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{TenantID: "tenant-a"}))
+		assert.False(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{TenantID: "tenant-b"}))
+		assert.False(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{}))
+	})
+
+	t.Run("global admin should receive all notifications", func(t *testing.T) {
+		hub := server.notificationHub
+		require.NotNil(t, hub)
+
+		globalAdmin := &auth.User{
+			ID:       "global-admin-notifications",
+			Username: "global-admin-notifications",
+			Roles:    []string{"admin"},
+		}
+
+		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{TenantID: "tenant-a"}))
+		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{}))
+	})
 }
 
 // Additional tests for increased coverage

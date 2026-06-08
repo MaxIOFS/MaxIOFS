@@ -108,14 +108,14 @@ func (h *NotificationHub) shouldReceiveNotification(user *auth.User, notif *Noti
 		return false
 	}
 
-	// Global admins see all notifications
+	// Global admins see all notifications.
 	for _, role := range user.Roles {
-		if role == "admin" {
+		if role == "admin" && user.TenantID == "" {
 			return true
 		}
 	}
 
-	// Tenant admins only see notifications for their tenant
+	// Tenant admins only see notifications for their tenant.
 	if user.TenantID != "" && notif.TenantID == user.TenantID {
 		return true
 	}

@@ -64,8 +64,8 @@ func setupTestServer(t *testing.T) (*Server, string, func()) {
 	require.NoError(t, err)
 
 	// Initialize metadata store
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: cfg.DataDir,
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: cfg.DataDir,
+		Logger: logrus.StandardLogger()})
 	require.NoError(t, err)
 
 	// Initialize managers
@@ -310,6 +310,73 @@ func TestHandleListUsers(t *testing.T) {
 	if ok {
 		assert.Greater(t, len(users), 0, "Should have at least one user")
 	}
+}
+
+func TestHandleListUsersReturnsUsernameNotID(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	externalUser := &auth.User{
+		ID:           "user-external-123",
+		Username:     "external@example.com",
+		DisplayName:  "External User",
+		Email:        "external@example.com",
+		Status:       auth.UserStatusActive,
+		Roles:        []string{"user"},
+		AuthProvider: "oauth:test-provider",
+		ExternalID:   "external-id-123",
+		CreatedAt:    time.Now().Unix(),
+		UpdatedAt:    time.Now().Unix(),
+	}
+	require.NoError(t, server.authManager.CreateUser(ctx, externalUser))
+
+	token := getAdminToken(t, server)
+	admin, err := server.authManager.ValidateJWT(ctx, token)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("GET", "/api/v1/users", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", admin))
+	rr := httptest.NewRecorder()
+	server.handleListUsers(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var response APIResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&response))
+	users, ok := response.Data.([]interface{})
+	require.True(t, ok)
+
+	for _, item := range users {
+		userMap, ok := item.(map[string]interface{})
+		if !ok || userMap["id"] != externalUser.ID {
+			continue
+		}
+		assert.Equal(t, externalUser.Username, userMap["username"])
+		return
+	}
+	t.Fatalf("expected user %q in /users response", externalUser.ID)
+}
+
+func TestConsoleAPILimitsOversizedJSONBody(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	router := mux.NewRouter()
+	server.setupConsoleAPIRoutes(router)
+
+	body := bytes.Buffer{}
+	body.WriteString(`{"username":"`)
+	body.Write(bytes.Repeat([]byte("a"), consoleJSONBodyLimitBytes+1))
+	body.WriteString(`","password":"x"}`)
+
+	req := httptest.NewRequest("POST", "/auth/login", &body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 // TestHandleCreateUser tests the POST /users endpoint
