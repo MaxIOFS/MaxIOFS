@@ -121,6 +121,27 @@ export function decodeJWTPayload(token: string): Record<string, any> | null {
   }
 }
 
+export function unwrapAPIData<T>(payload: T | APIResponse<T>): T {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'success' in payload &&
+    'data' in payload
+  ) {
+    return (payload as APIResponse<T>).data as T;
+  }
+  return payload as T;
+}
+
+type TokenPairResponse = {
+  access_token?: string;
+  refresh_token?: string;
+};
+
+export function extractTokenPair(payload: TokenPairResponse | APIResponse<TokenPairResponse>): TokenPairResponse {
+  return unwrapAPIData<TokenPairResponse>(payload) ?? {};
+}
+
 // Token management
 class TokenManager {
   private static instance: TokenManager;
@@ -258,7 +279,7 @@ class TokenManager {
             { refresh_token: rt },
             { headers: { 'Content-Type': 'application/json' } }
           );
-          const { access_token, refresh_token } = resp.data;
+          const { access_token, refresh_token } = extractTokenPair(resp.data);
           if (access_token) {
             // Success: setTokens reschedules with retryAttempt = 0 on the new token.
             this.setTokens(access_token, refresh_token);
@@ -333,7 +354,7 @@ const handleResponse = (response: AxiosResponse): AxiosResponse => {
       { refresh_token: rt },
       { headers: { 'Content-Type': 'application/json' } }
     ).then((resp) => {
-      const { access_token, refresh_token } = resp.data;
+      const { access_token, refresh_token } = extractTokenPair(resp.data);
       if (access_token) {
         tokenManager.setTokens(access_token, refresh_token);
         pendingRefreshCallbacks.forEach(cb => cb(access_token));
@@ -411,7 +432,10 @@ const handleError = async (error: AxiosError): Promise<unknown> => {
             { headers: { 'Content-Type': 'application/json' } }
           );
 
-          const { access_token, refresh_token } = resp.data;
+          const { access_token, refresh_token } = extractTokenPair(resp.data);
+          if (!access_token) {
+            throw new Error('Refresh response did not include an access token');
+          }
           tokenManager.setTokens(access_token, refresh_token);
           isRefreshing = false;
           // Resume queued requests with the new token
@@ -856,10 +880,10 @@ export class APIClient {
 
   static async getObjectTags(bucket: string, key: string, tenantId?: string): Promise<{ tags: Array<{ key: string; value: string }> }> {
     const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-    const response = await apiClient.get<{ tags: Array<{ key: string; value: string }> }>(
+    const response = await apiClient.get<APIResponse<{ tags: Array<{ key: string; value: string }> }> | { tags: Array<{ key: string; value: string }> }>(
       `/buckets/${bucket}/objects/${encodeURIComponent(key)}/tags${params}`
     );
-    return response.data;
+    return unwrapAPIData(response.data) ?? { tags: [] };
   }
 
   static async setObjectTags(bucket: string, key: string, tags: Array<{ key: string; value: string }>, tenantId?: string): Promise<void> {
