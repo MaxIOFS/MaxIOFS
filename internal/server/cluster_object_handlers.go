@@ -355,6 +355,7 @@ func (s *Server) handleReceiveBucketPermission(w http.ResponseWriter, r *http.Re
 	var permissionData struct {
 		ID              string `json:"id"`
 		BucketName      string `json:"bucket_name"`
+		BucketTenantID  string `json:"bucket_tenant_id"`
 		UserID          string `json:"user_id"`
 		TenantID        string `json:"tenant_id"`
 		PermissionLevel string `json:"permission_level"`
@@ -380,13 +381,14 @@ func (s *Server) handleReceiveBucketPermission(w http.ResponseWriter, r *http.Re
 	// Upsert permission in database (INSERT OR REPLACE)
 	query := `
 		INSERT OR REPLACE INTO bucket_permissions
-		(id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		(id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
 		permissionData.ID,
 		permissionData.BucketName,
+		permissionData.BucketTenantID,
 		permissionData.UserID,
 		permissionData.TenantID,
 		permissionData.PermissionLevel,
@@ -673,6 +675,7 @@ func (s *Server) handleReceiveBucketPermissionSync(w http.ResponseWriter, r *htt
 	var permissionData struct {
 		ID              string  `json:"id"`
 		BucketName      string  `json:"bucket_name"`
+		BucketTenantID  string  `json:"bucket_tenant_id"`
 		UserID          *string `json:"user_id,omitempty"`
 		TenantID        *string `json:"tenant_id,omitempty"`
 		PermissionLevel string  `json:"permission_level"`
@@ -705,13 +708,14 @@ func (s *Server) handleReceiveBucketPermissionSync(w http.ResponseWriter, r *htt
 	// Upsert permission in database (INSERT OR REPLACE)
 	query := `
 		INSERT OR REPLACE INTO bucket_permissions
-		(id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		(id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
 		permissionData.ID,
 		permissionData.BucketName,
+		permissionData.BucketTenantID,
 		permissionData.UserID,
 		permissionData.TenantID,
 		permissionData.PermissionLevel,

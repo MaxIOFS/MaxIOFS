@@ -138,6 +138,25 @@ type TokenPairResponse = {
   refresh_token?: string;
 };
 
+type GroupListResponse = {
+  groups: Group[];
+  total: number;
+};
+
+type GroupMemberListResponse = {
+  members: GroupMember[];
+  total: number;
+};
+
+type RenameObjectResponse = {
+  newKey: string;
+};
+
+type FolderSizeResponse = {
+  size: number;
+  count: number;
+};
+
 export function extractTokenPair(payload: TokenPairResponse | APIResponse<TokenPairResponse>): TokenPairResponse {
   return unwrapAPIData<TokenPairResponse>(payload) ?? {};
 }
@@ -871,11 +890,11 @@ export class APIClient {
 
   static async renameObject(bucket: string, key: string, newKey: string, tenantId?: string): Promise<{ newKey: string }> {
     const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-    const response = await apiClient.post<{ newKey: string }>(
+    const response = await apiClient.post<APIResponse<RenameObjectResponse> | RenameObjectResponse>(
       `/buckets/${bucket}/objects/${encodeURIComponent(key)}/rename${params}`,
       { newKey }
     );
-    return response.data;
+    return unwrapAPIData(response.data);
   }
 
   static async getObjectTags(bucket: string, key: string, tenantId?: string): Promise<{ tags: Array<{ key: string; value: string }> }> {
@@ -897,10 +916,10 @@ export class APIClient {
   static async getFolderSize(bucket: string, prefix: string, tenantId?: string): Promise<{ size: number; count: number }> {
     const params = new URLSearchParams({ prefix });
     if (tenantId) params.append('tenantId', tenantId);
-    const response = await apiClient.get<{ size: number; count: number }>(
+    const response = await apiClient.get<APIResponse<FolderSizeResponse> | FolderSizeResponse>(
       `/buckets/${bucket}/folder-size?${params.toString()}`
     );
-    return response.data;
+    return unwrapAPIData(response.data);
   }
 
   static async deleteObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<void> {
@@ -1527,23 +1546,23 @@ export class APIClient {
     let url = '/groups';
     if (tenantId) url += `?tenantId=${encodeURIComponent(tenantId)}`;
     else if (scopeGlobal) url += '?scope=global';
-    const response = await apiClient.get<{ groups: Group[]; total: number }>(url);
-    return response.data.groups || [];
+    const response = await apiClient.get<APIResponse<GroupListResponse> | GroupListResponse>(url);
+    return unwrapAPIData(response.data)?.groups || [];
   }
 
   static async createGroup(data: CreateGroupRequest): Promise<Group> {
-    const response = await apiClient.post<Group>('/groups', data);
-    return response.data;
+    const response = await apiClient.post<APIResponse<Group> | Group>('/groups', data);
+    return unwrapAPIData(response.data);
   }
 
   static async getGroup(groupId: string): Promise<Group> {
-    const response = await apiClient.get<Group>(`/groups/${groupId}`);
-    return response.data;
+    const response = await apiClient.get<APIResponse<Group> | Group>(`/groups/${groupId}`);
+    return unwrapAPIData(response.data);
   }
 
   static async updateGroup(groupId: string, data: UpdateGroupRequest): Promise<Group> {
-    const response = await apiClient.put<Group>(`/groups/${groupId}`, data);
-    return response.data;
+    const response = await apiClient.put<APIResponse<Group> | Group>(`/groups/${groupId}`, data);
+    return unwrapAPIData(response.data);
   }
 
   static async deleteGroup(groupId: string): Promise<void> {
@@ -1551,8 +1570,8 @@ export class APIClient {
   }
 
   static async listGroupMembers(groupId: string): Promise<GroupMember[]> {
-    const response = await apiClient.get<{ members: GroupMember[]; total: number }>(`/groups/${groupId}/members`);
-    return response.data.members || [];
+    const response = await apiClient.get<APIResponse<GroupMemberListResponse> | GroupMemberListResponse>(`/groups/${groupId}/members`);
+    return unwrapAPIData(response.data)?.members || [];
   }
 
   static async addGroupMember(groupId: string, userId: string): Promise<void> {
@@ -1564,8 +1583,8 @@ export class APIClient {
   }
 
   static async listUserGroups(userId: string): Promise<Group[]> {
-    const response = await apiClient.get<{ groups: Group[]; total: number }>(`/users/${userId}/groups`);
-    return response.data.groups || [];
+    const response = await apiClient.get<APIResponse<GroupListResponse> | GroupListResponse>(`/users/${userId}/groups`);
+    return unwrapAPIData(response.data)?.groups || [];
   }
 
   // Two-Factor Authentication methods

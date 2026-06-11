@@ -70,7 +70,7 @@ func TestMigrationManager_GetTargetVersion(t *testing.T) {
 
 	targetVersion := manager.GetTargetVersion()
 	assert.Greater(t, targetVersion, 0)
-	assert.Equal(t, 13, targetVersion)
+	assert.Equal(t, 14, targetVersion)
 }
 
 func TestMigrationManager_Migrate_EmptyDB(t *testing.T) {
@@ -442,6 +442,11 @@ func TestMigrationManager_FullMigration_AllTables(t *testing.T) {
 		err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&tableName)
 		assert.NoError(t, err, "Table %s should exist after full migration", table)
 	}
+
+	var bucketTenantColumn string
+	err = db.QueryRow("SELECT name FROM pragma_table_info('bucket_permissions') WHERE name = 'bucket_tenant_id'").Scan(&bucketTenantColumn)
+	assert.NoError(t, err, "bucket_permissions should include bucket_tenant_id")
+	assert.Equal(t, "bucket_tenant_id", bucketTenantColumn)
 
 	// Count total tables (should include all expected tables + schema_version)
 	var tableCount int

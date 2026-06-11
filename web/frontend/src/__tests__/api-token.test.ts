@@ -65,4 +65,49 @@ describe('API response normalization', () => {
 
     expect(tags.tags).toEqual([{ key: 'env', value: 'prod' }]);
   });
+
+  it('unwraps group list payloads returned by writeJSON', () => {
+    const payload = unwrapAPIData({
+      success: true,
+      data: {
+        groups: [
+          { id: 'group-1', name: 'ops', displayName: 'Ops', tenantId: '' },
+        ],
+        total: 1,
+      },
+    });
+
+    expect(payload.groups).toHaveLength(1);
+    expect(payload.groups[0].name).toBe('ops');
+  });
+
+  it('unwraps group member list payloads returned by writeJSON', () => {
+    const payload = unwrapAPIData({
+      success: true,
+      data: {
+        members: [
+          { groupId: 'group-1', userId: 'user-1', addedBy: 'admin-1' },
+        ],
+        total: 1,
+      },
+    });
+
+    expect(payload.members).toEqual([
+      { groupId: 'group-1', userId: 'user-1', addedBy: 'admin-1' },
+    ]);
+  });
+
+  it('unwraps object helper payloads returned by writeJSON', () => {
+    const rename = unwrapAPIData({
+      success: true,
+      data: { newKey: 'archive/report.txt' },
+    });
+    const folderSize = unwrapAPIData({
+      success: true,
+      data: { size: 4096, count: 2 },
+    });
+
+    expect(rename.newKey).toBe('archive/report.txt');
+    expect(folderSize).toEqual({ size: 4096, count: 2 });
+  });
 });

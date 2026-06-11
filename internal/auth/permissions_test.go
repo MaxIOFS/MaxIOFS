@@ -205,6 +205,67 @@ func TestGrantBucketAccess_UpdateExisting(t *testing.T) {
 	}
 }
 
+func TestBucketPermissionsAreScopedByBucketTenant(t *testing.T) {
+	store, tmpDir := setupTestStore(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+
+	testUser := &User{
+		ID:          "scoped-user",
+		Username:    "scopeduser",
+		Password:    "TestPassword123!",
+		DisplayName: "Scoped User",
+		Status:      UserStatusActive,
+		Roles:       []string{"user"},
+		TenantID:    "tenant-a",
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
+	}
+	if err := store.CreateTenant(&Tenant{
+		ID:        "tenant-a",
+		Name:      "Tenant A",
+		Status:    "active",
+		CreatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("Failed to create tenant: %v", err)
+	}
+	if err := store.CreateUser(testUser); err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+
+	const bucketName = "shared-name"
+	if err := store.GrantBucketAccessScoped(bucketName, "", testUser.ID, "", PermissionLevelRead, "admin", 0); err != nil {
+		t.Fatalf("Failed to grant global bucket permission: %v", err)
+	}
+	if err := store.GrantBucketAccessScoped(bucketName, "tenant-a", testUser.ID, "", PermissionLevelWrite, "admin", 0); err != nil {
+		t.Fatalf("Failed to grant tenant bucket permission: %v", err)
+	}
+
+	globalPerms, err := store.ListBucketPermissionsScoped(bucketName, "")
+	if err != nil {
+		t.Fatalf("Failed to list global bucket permissions: %v", err)
+	}
+	tenantPerms, err := store.ListBucketPermissionsScoped(bucketName, "tenant-a")
+	if err != nil {
+		t.Fatalf("Failed to list tenant bucket permissions: %v", err)
+	}
+
+	if len(globalPerms) != 1 || globalPerms[0].PermissionLevel != PermissionLevelRead || globalPerms[0].BucketTenantID != "" {
+		t.Fatalf("Unexpected global permissions: %+v", globalPerms)
+	}
+	if len(tenantPerms) != 1 || tenantPerms[0].PermissionLevel != PermissionLevelWrite || tenantPerms[0].BucketTenantID != "tenant-a" {
+		t.Fatalf("Unexpected tenant permissions: %+v", tenantPerms)
+	}
+
+	hasAccess, level, err := store.CheckBucketAccessScoped(bucketName, "tenant-a", testUser.ID)
+	if err != nil {
+		t.Fatalf("Failed to check tenant-scoped access: %v", err)
+	}
+	if !hasAccess || level != PermissionLevelWrite {
+		t.Fatalf("Expected tenant-scoped write access, got hasAccess=%v level=%q", hasAccess, level)
+	}
+}
+
 // TestRevokeBucketAccess tests revoking bucket access
 func TestRevokeBucketAccess(t *testing.T) {
 	store, tmpDir := setupTestStore(t)
@@ -604,9 +665,9 @@ func TestGeneratePermissionID(t *testing.T) {
 // TestNullInt64 tests the nullInt64 helper function
 func TestNullInt64(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    int64
-		wantNil  bool
+		name    string
+		input   int64
+		wantNil bool
 	}{
 		{
 			name:    "Zero value",

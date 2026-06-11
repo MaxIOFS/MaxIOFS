@@ -44,6 +44,7 @@ func TestBucketPermissionSyncManager_ListLocalBucketPermissions(t *testing.T) {
 		CREATE TABLE IF NOT EXISTS bucket_permissions (
 			id TEXT PRIMARY KEY,
 			bucket_name TEXT NOT NULL,
+			bucket_tenant_id TEXT NOT NULL DEFAULT '',
 			user_id TEXT,
 			tenant_id TEXT,
 			permission_level TEXT NOT NULL,
@@ -346,15 +347,15 @@ func TestBucketPermissionSyncManagerSchema(t *testing.T) {
 	defer rows.Close()
 
 	requiredColumns := map[string]bool{
-		"id":                   false,
-		"permission_id":        false,
-		"source_node_id":       false,
-		"destination_node_id":  false,
-		"permission_checksum":  false,
-		"status":               false,
-		"last_sync_at":         false,
-		"created_at":           false,
-		"updated_at":           false,
+		"id":                  false,
+		"permission_id":       false,
+		"source_node_id":      false,
+		"destination_node_id": false,
+		"permission_checksum": false,
+		"status":              false,
+		"last_sync_at":        false,
+		"created_at":          false,
+		"updated_at":          false,
 	}
 
 	for rows.Next() {
@@ -728,6 +729,7 @@ func TestBucketPermissionSyncManager_SyncLoop(t *testing.T) {
 		CREATE TABLE IF NOT EXISTS bucket_permissions (
 			id TEXT PRIMARY KEY,
 			bucket_name TEXT,
+			bucket_tenant_id TEXT NOT NULL DEFAULT '',
 			user_id TEXT,
 			tenant_id TEXT,
 			permission_level TEXT,
@@ -748,7 +750,7 @@ func TestBucketPermissionSyncManager_SyncLoop(t *testing.T) {
 	}
 
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO bucket_permissions VALUES ('perm-1', 'bucket-1', 'user-1', NULL, 'read', 'admin', ?, NULL)
+		INSERT INTO bucket_permissions VALUES ('perm-1', 'bucket-1', '', 'user-1', NULL, 'read', 'admin', ?, NULL)
 	`, now)
 	if err != nil {
 		t.Fatalf("Failed to insert permission: %v", err)

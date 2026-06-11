@@ -31,6 +31,11 @@ type PermissionManager interface {
 
 // GrantBucketAccess grants access to a bucket for a user or tenant
 func (s *SQLiteStore) GrantBucketAccess(bucketName, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return s.GrantBucketAccessScoped(bucketName, "", userID, tenantID, permissionLevel, grantedBy, expiresAt)
+}
+
+// GrantBucketAccessScoped grants access to a bucket within a specific bucket tenant scope.
+func (s *SQLiteStore) GrantBucketAccessScoped(bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
 	// Validate permission level
 	if permissionLevel != PermissionLevelRead && permissionLevel != PermissionLevelWrite && permissionLevel != PermissionLevelAdmin {
 		return fmt.Errorf("invalid permission level: %s", permissionLevel)
@@ -54,8 +59,8 @@ func (s *SQLiteStore) GrantBucketAccess(bucketName, userID, tenantID, permission
 	var existingID string
 	err = tx.QueryRow(`
 		SELECT id FROM bucket_permissions
-		WHERE bucket_name = ? AND (user_id = ? OR tenant_id = ?)
-	`, bucketName, nullString(userID), nullString(tenantID)).Scan(&existingID)
+		WHERE bucket_name = ? AND bucket_tenant_id = ? AND (user_id = ? OR tenant_id = ?)
+	`, bucketName, bucketTenantID, nullString(userID), nullString(tenantID)).Scan(&existingID)
 
 	if err == nil {
 		// Permission exists, update it
@@ -67,9 +72,9 @@ func (s *SQLiteStore) GrantBucketAccess(bucketName, userID, tenantID, permission
 	} else if err == sql.ErrNoRows {
 		// Permission doesn't exist, create it
 		_, err = tx.Exec(`
-			INSERT INTO bucket_permissions (id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, permissionID, bucketName, nullString(userID), nullString(tenantID), permissionLevel, grantedBy, now, nullInt64(expiresAt))
+			INSERT INTO bucket_permissions (id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, permissionID, bucketName, bucketTenantID, nullString(userID), nullString(tenantID), permissionLevel, grantedBy, now, nullInt64(expiresAt))
 	}
 
 	if err != nil {
@@ -81,6 +86,11 @@ func (s *SQLiteStore) GrantBucketAccess(bucketName, userID, tenantID, permission
 
 // RevokeBucketAccess revokes access to a bucket for a user or tenant
 func (s *SQLiteStore) RevokeBucketAccess(bucketName, userID, tenantID string) error {
+	return s.RevokeBucketAccessScoped(bucketName, "", userID, tenantID)
+}
+
+// RevokeBucketAccessScoped revokes access to a bucket within a specific bucket tenant scope.
+func (s *SQLiteStore) RevokeBucketAccessScoped(bucketName, bucketTenantID, userID, tenantID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -89,8 +99,8 @@ func (s *SQLiteStore) RevokeBucketAccess(bucketName, userID, tenantID string) er
 
 	_, err = tx.Exec(`
 		DELETE FROM bucket_permissions
-		WHERE bucket_name = ? AND (user_id = ? OR tenant_id = ?)
-	`, bucketName, nullString(userID), nullString(tenantID))
+		WHERE bucket_name = ? AND bucket_tenant_id = ? AND (user_id = ? OR tenant_id = ?)
+	`, bucketName, bucketTenantID, nullString(userID), nullString(tenantID))
 
 	if err != nil {
 		return fmt.Errorf("failed to revoke bucket access: %w", err)
@@ -102,6 +112,11 @@ func (s *SQLiteStore) RevokeBucketAccess(bucketName, userID, tenantID string) er
 // CheckBucketAccess checks if a user has access to a bucket and returns the permission level.
 // Evaluation order: user → user's groups → user's tenant.
 func (s *SQLiteStore) CheckBucketAccess(bucketName, userID string) (bool, string, error) {
+	return s.CheckBucketAccessScoped(bucketName, "", userID)
+}
+
+// CheckBucketAccessScoped checks bucket access within a specific bucket tenant scope.
+func (s *SQLiteStore) CheckBucketAccessScoped(bucketName, bucketTenantID, userID string) (bool, string, error) {
 	// Single query: best matching permission across user, groups, and tenant.
 	// Permission precedence (highest first): admin > write > read.
 	// We use MAX() on an ordered mapping via CASE to pick the strongest grant.
@@ -111,7 +126,7 @@ func (s *SQLiteStore) CheckBucketAccess(bucketName, userID string) (bool, string
 	err := s.db.QueryRow(`
 		SELECT permission_level, expires_at
 		FROM bucket_permissions
-		WHERE bucket_name = ?
+		WHERE bucket_name = ? AND bucket_tenant_id = ?
 		  AND (
 		    user_id = ?
 		    OR group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
@@ -125,7 +140,7 @@ func (s *SQLiteStore) CheckBucketAccess(bucketName, userID string) (bool, string
 		    ELSE 0
 		END DESC
 		LIMIT 1
-	`, bucketName, userID, userID, userID, time.Now().Unix()).Scan(&permissionLevel, &expiresAt)
+	`, bucketName, bucketTenantID, userID, userID, userID, time.Now().Unix()).Scan(&permissionLevel, &expiresAt)
 
 	if err == sql.ErrNoRows {
 		return false, "", nil
@@ -141,12 +156,17 @@ func (s *SQLiteStore) CheckBucketAccess(bucketName, userID string) (bool, string
 
 // ListBucketPermissions returns all permissions for a bucket
 func (s *SQLiteStore) ListBucketPermissions(bucketName string) ([]*BucketPermission, error) {
+	return s.ListBucketPermissionsScoped(bucketName, "")
+}
+
+// ListBucketPermissionsScoped returns all permissions for a bucket within a specific bucket tenant scope.
+func (s *SQLiteStore) ListBucketPermissionsScoped(bucketName, bucketTenantID string) ([]*BucketPermission, error) {
 	rows, err := s.db.Query(`
-		SELECT id, bucket_name, user_id, tenant_id, group_id, permission_level, granted_by, granted_at, expires_at
+		SELECT id, bucket_name, bucket_tenant_id, user_id, tenant_id, group_id, permission_level, granted_by, granted_at, expires_at
 		FROM bucket_permissions
-		WHERE bucket_name = ?
+		WHERE bucket_name = ? AND bucket_tenant_id = ?
 		ORDER BY granted_at DESC
-	`, bucketName)
+	`, bucketName, bucketTenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list bucket permissions: %w", err)
 	}
@@ -161,6 +181,7 @@ func (s *SQLiteStore) ListBucketPermissions(bucketName string) ([]*BucketPermiss
 		err := rows.Scan(
 			&perm.ID,
 			&perm.BucketName,
+			&perm.BucketTenantID,
 			&userID,
 			&tenantID,
 			&groupID,
@@ -197,7 +218,7 @@ func (s *SQLiteStore) ListBucketPermissions(bucketName string) ([]*BucketPermiss
 // direct user grants + group grants + tenant grants.
 func (s *SQLiteStore) ListUserBucketPermissions(userID string) ([]*BucketPermission, error) {
 	rows, err := s.db.Query(`
-		SELECT id, bucket_name, user_id, tenant_id, group_id, permission_level, granted_by, granted_at, expires_at
+		SELECT id, bucket_name, bucket_tenant_id, user_id, tenant_id, group_id, permission_level, granted_by, granted_at, expires_at
 		FROM bucket_permissions
 		WHERE user_id = ?
 		   OR group_id IN (SELECT group_id FROM group_members WHERE user_id = ?)
@@ -218,6 +239,7 @@ func (s *SQLiteStore) ListUserBucketPermissions(userID string) ([]*BucketPermiss
 		err := rows.Scan(
 			&perm.ID,
 			&perm.BucketName,
+			&perm.BucketTenantID,
 			&uid,
 			&tid,
 			&gid,
@@ -252,6 +274,11 @@ func (s *SQLiteStore) ListUserBucketPermissions(userID string) ([]*BucketPermiss
 
 // GrantGroupBucketAccess grants access to a bucket for a group
 func (s *SQLiteStore) GrantGroupBucketAccess(bucketName, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return s.GrantGroupBucketAccessScoped(bucketName, "", groupID, permissionLevel, grantedBy, expiresAt)
+}
+
+// GrantGroupBucketAccessScoped grants a group access to a bucket within a specific bucket tenant scope.
+func (s *SQLiteStore) GrantGroupBucketAccessScoped(bucketName, bucketTenantID, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
 	if permissionLevel != PermissionLevelRead && permissionLevel != PermissionLevelWrite && permissionLevel != PermissionLevelAdmin {
 		return fmt.Errorf("invalid permission level: %s", permissionLevel)
 	}
@@ -266,17 +293,17 @@ func (s *SQLiteStore) GrantGroupBucketAccess(bucketName, groupID, permissionLeve
 	defer tx.Rollback()
 
 	var existingID string
-	err = tx.QueryRow(`SELECT id FROM bucket_permissions WHERE bucket_name = ? AND group_id = ?`,
-		bucketName, groupID).Scan(&existingID)
+	err = tx.QueryRow(`SELECT id FROM bucket_permissions WHERE bucket_name = ? AND bucket_tenant_id = ? AND group_id = ?`,
+		bucketName, bucketTenantID, groupID).Scan(&existingID)
 
 	if err == nil {
 		_, err = tx.Exec(`UPDATE bucket_permissions SET permission_level = ?, granted_by = ?, granted_at = ?, expires_at = ? WHERE id = ?`,
 			permissionLevel, grantedBy, now, nullInt64(expiresAt), existingID)
 	} else if err == sql.ErrNoRows {
 		_, err = tx.Exec(`
-			INSERT INTO bucket_permissions (id, bucket_name, group_id, permission_level, granted_by, granted_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, permissionID, bucketName, groupID, permissionLevel, grantedBy, now, nullInt64(expiresAt))
+			INSERT INTO bucket_permissions (id, bucket_name, bucket_tenant_id, group_id, permission_level, granted_by, granted_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, permissionID, bucketName, bucketTenantID, groupID, permissionLevel, grantedBy, now, nullInt64(expiresAt))
 	}
 	if err != nil {
 		return fmt.Errorf("failed to grant group bucket access: %w", err)
@@ -286,13 +313,18 @@ func (s *SQLiteStore) GrantGroupBucketAccess(bucketName, groupID, permissionLeve
 
 // RevokeGroupBucketAccess revokes a group's access to a bucket
 func (s *SQLiteStore) RevokeGroupBucketAccess(bucketName, groupID string) error {
+	return s.RevokeGroupBucketAccessScoped(bucketName, "", groupID)
+}
+
+// RevokeGroupBucketAccessScoped revokes a group's access to a bucket within a specific bucket tenant scope.
+func (s *SQLiteStore) RevokeGroupBucketAccessScoped(bucketName, bucketTenantID, groupID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`DELETE FROM bucket_permissions WHERE bucket_name = ? AND group_id = ?`, bucketName, groupID)
+	_, err = tx.Exec(`DELETE FROM bucket_permissions WHERE bucket_name = ? AND bucket_tenant_id = ? AND group_id = ?`, bucketName, bucketTenantID, groupID)
 	if err != nil {
 		return fmt.Errorf("failed to revoke group bucket access: %w", err)
 	}
@@ -304,9 +336,17 @@ func (m *authManager) GrantGroupBucketAccess(ctx context.Context, bucketName, gr
 	return m.store.GrantGroupBucketAccess(bucketName, groupID, permissionLevel, grantedBy, expiresAt)
 }
 
+func (m *authManager) GrantGroupBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return m.store.GrantGroupBucketAccessScoped(bucketName, bucketTenantID, groupID, permissionLevel, grantedBy, expiresAt)
+}
+
 // RevokeGroupBucketAccess — authManager wrapper
 func (m *authManager) RevokeGroupBucketAccess(ctx context.Context, bucketName, groupID string) error {
 	return m.store.RevokeGroupBucketAccess(bucketName, groupID)
+}
+
+func (m *authManager) RevokeGroupBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, groupID string) error {
+	return m.store.RevokeGroupBucketAccessScoped(bucketName, bucketTenantID, groupID)
 }
 
 // GeneratePermissionID generates a unique permission ID

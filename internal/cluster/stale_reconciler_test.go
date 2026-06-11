@@ -102,6 +102,7 @@ func createEntityTablesForReconciler(ctx context.Context, db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS bucket_permissions (
 			id TEXT PRIMARY KEY,
 			bucket_name TEXT NOT NULL,
+			bucket_tenant_id TEXT NOT NULL DEFAULT '',
 			user_id TEXT,
 			tenant_id TEXT,
 			permission_level TEXT NOT NULL,
@@ -674,12 +675,12 @@ func TestReconcile_ModeOffline_DoesNotPushEntities(t *testing.T) {
 	var mu sync.Mutex
 	entityPushCalls := 0
 	entityPushPaths := map[string]struct{}{
-		"/api/internal/cluster/tenant-sync":           {},
-		"/api/internal/cluster/user-sync":             {},
-		"/api/internal/cluster/access-key-sync":       {},
+		"/api/internal/cluster/tenant-sync":            {},
+		"/api/internal/cluster/user-sync":              {},
+		"/api/internal/cluster/access-key-sync":        {},
 		"/api/internal/cluster/bucket-permission-sync": {},
-		"/api/internal/cluster/idp-provider-sync":     {},
-		"/api/internal/cluster/group-mapping-sync":    {},
+		"/api/internal/cluster/idp-provider-sync":      {},
+		"/api/internal/cluster/group-mapping-sync":     {},
 	}
 
 	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

@@ -4756,6 +4756,90 @@ func (s *Server) handleListTenantUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // Bucket permission handlers
+type scopedBucketPermissionManager interface {
+	GrantBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error
+	GrantGroupBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, groupID, permissionLevel, grantedBy string, expiresAt int64) error
+	RevokeBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID, tenantID string) error
+	RevokeGroupBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, groupID string) error
+	ListBucketPermissionsScoped(ctx context.Context, bucketName, bucketTenantID string) ([]*auth.BucketPermission, error)
+}
+
+func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Request, currentUser *auth.User, bucketName string) (string, bool) {
+	bucketTenantID := currentUser.TenantID
+	if s.isGlobalAdmin(currentUser) {
+		bucketTenantID = r.URL.Query().Get("bucketTenantId")
+		if bucketTenantID == "" {
+			bucketTenantID = r.URL.Query().Get("tenantId")
+		}
+	}
+
+	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil {
+		if s.isGlobalAdmin(currentUser) {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, "Access denied", http.StatusForbidden)
+		}
+		return "", false
+	}
+
+	return bucketTenantID, true
+}
+
+func (s *Server) scopedBucketPermissionManager() (scopedBucketPermissionManager, bool) {
+	mgr, ok := s.authManager.(scopedBucketPermissionManager)
+	return mgr, ok
+}
+
+func (s *Server) listScopedBucketPermissions(r *http.Request, bucketName, bucketTenantID string) ([]*auth.BucketPermission, error) {
+	if mgr, ok := s.scopedBucketPermissionManager(); ok {
+		return mgr.ListBucketPermissionsScoped(r.Context(), bucketName, bucketTenantID)
+	}
+	if bucketTenantID != "" {
+		return nil, fmt.Errorf("scoped bucket permissions are unavailable")
+	}
+	return s.authManager.ListBucketPermissions(r.Context(), bucketName)
+}
+
+func (s *Server) grantScopedBucketAccess(r *http.Request, bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
+	if mgr, ok := s.scopedBucketPermissionManager(); ok {
+		return mgr.GrantBucketAccessScoped(r.Context(), bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy, expiresAt)
+	}
+	if bucketTenantID != "" {
+		return fmt.Errorf("scoped bucket permissions are unavailable")
+	}
+	return s.authManager.GrantBucketAccess(r.Context(), bucketName, userID, tenantID, permissionLevel, grantedBy, expiresAt)
+}
+
+func (s *Server) grantScopedGroupBucketAccess(r *http.Request, bucketName, bucketTenantID, groupID, permissionLevel, grantedBy string, expiresAt int64) error {
+	if mgr, ok := s.scopedBucketPermissionManager(); ok {
+		return mgr.GrantGroupBucketAccessScoped(r.Context(), bucketName, bucketTenantID, groupID, permissionLevel, grantedBy, expiresAt)
+	}
+	if bucketTenantID != "" {
+		return fmt.Errorf("scoped bucket permissions are unavailable")
+	}
+	return s.authManager.GrantGroupBucketAccess(r.Context(), bucketName, groupID, permissionLevel, grantedBy, expiresAt)
+}
+
+func (s *Server) revokeScopedBucketAccess(r *http.Request, bucketName, bucketTenantID, userID, tenantID string) error {
+	if mgr, ok := s.scopedBucketPermissionManager(); ok {
+		return mgr.RevokeBucketAccessScoped(r.Context(), bucketName, bucketTenantID, userID, tenantID)
+	}
+	if bucketTenantID != "" {
+		return fmt.Errorf("scoped bucket permissions are unavailable")
+	}
+	return s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
+}
+
+func (s *Server) revokeScopedGroupBucketAccess(r *http.Request, bucketName, bucketTenantID, groupID string) error {
+	if mgr, ok := s.scopedBucketPermissionManager(); ok {
+		return mgr.RevokeGroupBucketAccessScoped(r.Context(), bucketName, bucketTenantID, groupID)
+	}
+	if bucketTenantID != "" {
+		return fmt.Errorf("scoped bucket permissions are unavailable")
+	}
+	return s.authManager.RevokeGroupBucketAccess(r.Context(), bucketName, groupID)
+}
+
 func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
 	if currentUser == nil || !s.isAdmin(currentUser) {
@@ -4765,17 +4849,12 @@ func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Tenant admins can only manage permissions for buckets in their tenant
-	if !s.isGlobalAdmin(currentUser) {
-		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
-		if err != nil {
-			s.writeError(w, "Access denied", http.StatusForbidden)
-			return
-		}
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	if !ok {
+		return
 	}
 
-	permissions, err := s.authManager.ListBucketPermissions(r.Context(), bucketName)
+	permissions, err := s.listScopedBucketPermissions(r, bucketName, bucketTenantID)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -4793,14 +4872,9 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Tenant admins can only grant permissions for buckets in their tenant
-	if !s.isGlobalAdmin(currentUser) {
-		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
-		if err != nil {
-			s.writeError(w, "Access denied", http.StatusForbidden)
-			return
-		}
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	if !ok {
+		return
 	}
 
 	var req struct {
@@ -4844,9 +4918,9 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 
 	var grantErr error
 	if req.GroupID != "" {
-		grantErr = s.authManager.GrantGroupBucketAccess(r.Context(), bucketName, req.GroupID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
+		grantErr = s.grantScopedGroupBucketAccess(r, bucketName, bucketTenantID, req.GroupID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
 	} else {
-		grantErr = s.authManager.GrantBucketAccess(r.Context(), bucketName, req.UserID, req.TenantID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
+		grantErr = s.grantScopedBucketAccess(r, bucketName, bucketTenantID, req.UserID, req.TenantID, req.PermissionLevel, req.GrantedBy, req.ExpiresAt)
 	}
 	if grantErr != nil {
 		s.writeError(w, grantErr.Error(), http.StatusInternalServerError)
@@ -4871,14 +4945,9 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Tenant admins can only revoke permissions for buckets in their tenant
-	if !s.isGlobalAdmin(currentUser) {
-		_, err := s.bucketManager.GetBucketInfo(r.Context(), currentUser.TenantID, bucketName)
-		if err != nil {
-			s.writeError(w, "Access denied", http.StatusForbidden)
-			return
-		}
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	if !ok {
+		return
 	}
 
 	// Extract userID, tenantID, or groupID from query params
@@ -4894,19 +4963,19 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 	// Look up the permission ID before deleting (needed for tombstone)
 	var permissionID string
 	if groupID != "" {
-		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND group_id = ?`, bucketName, groupID).Scan(&permissionID)
-		err := s.authManager.RevokeGroupBucketAccess(r.Context(), bucketName, groupID)
+		_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND bucket_tenant_id = ? AND group_id = ?`, bucketName, bucketTenantID, groupID).Scan(&permissionID)
+		err := s.revokeScopedGroupBucketAccess(r, bucketName, bucketTenantID, groupID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		if userID != "" {
-			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND user_id = ?`, bucketName, userID).Scan(&permissionID)
+			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND bucket_tenant_id = ? AND user_id = ?`, bucketName, bucketTenantID, userID).Scan(&permissionID)
 		} else {
-			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID).Scan(&permissionID)
+			_ = s.db.QueryRowContext(r.Context(), `SELECT id FROM bucket_permissions WHERE bucket_name = ? AND bucket_tenant_id = ? AND tenant_id = ?`, bucketName, bucketTenantID, tenantID).Scan(&permissionID)
 		}
-		err := s.authManager.RevokeBucketAccess(r.Context(), bucketName, userID, tenantID)
+		err := s.revokeScopedBucketAccess(r, bucketName, bucketTenantID, userID, tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -6021,13 +6090,13 @@ func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	user, exists := auth.GetUserFromContext(r.Context())
+	_, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := s.resolveTenantID(r)
 
 	// Construct bucket path
 	var bucketPath string
@@ -6056,7 +6125,7 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	user, exists := auth.GetUserFromContext(r.Context())
+	_, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
@@ -6065,7 +6134,7 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := s.resolveTenantID(r)
 
 	// Construct bucket path
 	var bucketPath string
@@ -6520,13 +6589,13 @@ func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	user, exists := auth.GetUserFromContext(r.Context())
+	_, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := s.resolveTenantID(r)
 
 	// Construct bucket path
 	var bucketPath string
@@ -6569,17 +6638,17 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tenantID := user.TenantID
+	tenantID := s.resolveTenantID(r)
 
-	// IMPORTANT: Only global admins or tenant admins can change legal hold
+	// IMPORTANT: Only global admins or tenant admins can change legal hold.
 	isGlobalAdmin := false
 	isTenantAdmin := false
 	for _, role := range user.Roles {
-		if role == "admin" {
+		if role == auth.RoleAdmin && user.TenantID == "" {
 			isGlobalAdmin = true
 			break
 		}
-		if role == "tenant-admin" && user.TenantID == tenantID {
+		if user.TenantID != "" && user.TenantID == tenantID && (role == auth.RoleAdmin || role == "tenant-admin") {
 			isTenantAdmin = true
 			break
 		}

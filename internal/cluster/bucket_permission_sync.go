@@ -20,6 +20,7 @@ import (
 type BucketPermissionData struct {
 	ID              string  `json:"id"`
 	BucketName      string  `json:"bucket_name"`
+	BucketTenantID  string  `json:"bucket_tenant_id"`
 	UserID          *string `json:"user_id,omitempty"`
 	TenantID        *string `json:"tenant_id,omitempty"`
 	PermissionLevel string  `json:"permission_level"`
@@ -248,7 +249,7 @@ func (m *BucketPermissionSyncManager) sendPermissionToNode(ctx context.Context, 
 // listLocalBucketPermissions retrieves all bucket permissions from the local database
 func (m *BucketPermissionSyncManager) listLocalBucketPermissions(ctx context.Context) ([]*BucketPermissionData, error) {
 	query := `
-		SELECT id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
+		SELECT id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
 		FROM bucket_permissions
 	`
 
@@ -267,6 +268,7 @@ func (m *BucketPermissionSyncManager) listLocalBucketPermissions(ctx context.Con
 		err := rows.Scan(
 			&permission.ID,
 			&permission.BucketName,
+			&permission.BucketTenantID,
 			&userID,
 			&tenantID,
 			&permission.PermissionLevel,
@@ -310,9 +312,10 @@ func (m *BucketPermissionSyncManager) computePermissionChecksum(permission *Buck
 		expiresAt = *permission.ExpiresAt
 	}
 
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%d|%d",
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%d|%d",
 		permission.ID,
 		permission.BucketName,
+		permission.BucketTenantID,
 		userID,
 		tenantID,
 		permission.PermissionLevel,

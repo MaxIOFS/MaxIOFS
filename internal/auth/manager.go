@@ -204,6 +204,7 @@ type Tenant struct {
 type BucketPermission struct {
 	ID              string `json:"id"`
 	BucketName      string `json:"bucketName"`
+	BucketTenantID  string `json:"bucketTenantId,omitempty"`
 	UserID          string `json:"userId,omitempty"`
 	TenantID        string `json:"tenantId,omitempty"`
 	GroupID         string `json:"groupId,omitempty"`
@@ -1421,16 +1422,32 @@ func (am *authManager) GrantBucketAccess(ctx context.Context, bucketName, userID
 	return am.store.GrantBucketAccess(bucketName, userID, tenantID, permissionLevel, grantedBy, expiresAt)
 }
 
+func (am *authManager) GrantBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, expiresAt int64) error {
+	return am.store.GrantBucketAccessScoped(bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy, expiresAt)
+}
+
 func (am *authManager) RevokeBucketAccess(ctx context.Context, bucketName, userID, tenantID string) error {
 	return am.store.RevokeBucketAccess(bucketName, userID, tenantID)
+}
+
+func (am *authManager) RevokeBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID, tenantID string) error {
+	return am.store.RevokeBucketAccessScoped(bucketName, bucketTenantID, userID, tenantID)
 }
 
 func (am *authManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
 	return am.store.CheckBucketAccess(bucketName, userID)
 }
 
+func (am *authManager) CheckBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID string) (bool, string, error) {
+	return am.store.CheckBucketAccessScoped(bucketName, bucketTenantID, userID)
+}
+
 func (am *authManager) ListBucketPermissions(ctx context.Context, bucketName string) ([]*BucketPermission, error) {
 	return am.store.ListBucketPermissions(bucketName)
+}
+
+func (am *authManager) ListBucketPermissionsScoped(ctx context.Context, bucketName, bucketTenantID string) ([]*BucketPermission, error) {
+	return am.store.ListBucketPermissionsScoped(bucketName, bucketTenantID)
 }
 
 func (am *authManager) ListUserBucketPermissions(ctx context.Context, userID string) ([]*BucketPermission, error) {

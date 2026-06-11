@@ -21,6 +21,7 @@ func getAllMigrations() []Migration {
 		migration11_v092_LoggingTargets(),
 		migration12_v100_Groups(),
 		migration13_v140_Capabilities(),
+		migration14_v141_BucketPermissionScope(),
 	}
 }
 

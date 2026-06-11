@@ -699,12 +699,12 @@ func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targ
 func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string, job *MigrationJob) error {
 	// Query all permissions for this bucket
 	query := `
-		SELECT id, bucket_name, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
+		SELECT id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
 		FROM bucket_permissions
-		WHERE bucket_name = ?
+		WHERE bucket_name = ? AND bucket_tenant_id = ?
 	`
 
-	rows, err := m.db.QueryContext(ctx, query, job.BucketName)
+	rows, err := m.db.QueryContext(ctx, query, job.BucketName, tenantID)
 	if err != nil {
 		return fmt.Errorf("failed to query bucket permissions: %w", err)
 	}
@@ -732,17 +732,17 @@ func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string,
 
 	// Iterate through all permissions and send them to target node
 	for rows.Next() {
-		var id, bucketName, userID, tenantIDVal, permissionLevel, grantedBy string
+		var id, bucketName, bucketTenantID, userID, tenantIDVal, permissionLevel, grantedBy string
 		var grantedAt, expiresAt sql.NullInt64
 
-		if err := rows.Scan(&id, &bucketName, &userID, &tenantIDVal, &permissionLevel, &grantedBy, &grantedAt, &expiresAt); err != nil {
+		if err := rows.Scan(&id, &bucketName, &bucketTenantID, &userID, &tenantIDVal, &permissionLevel, &grantedBy, &grantedAt, &expiresAt); err != nil {
 			logrus.WithError(err).Warn("Failed to scan bucket permission")
 			continue
 		}
 
 		// Send permission to target node
 		if err := m.sendBucketPermission(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken,
-			id, bucketName, userID, tenantIDVal, permissionLevel, grantedBy, grantedAt.Int64, expiresAt); err != nil {
+			id, bucketName, bucketTenantID, userID, tenantIDVal, permissionLevel, grantedBy, grantedAt.Int64, expiresAt); err != nil {
 			logrus.WithError(err).WithField("permission_id", id).Error("Failed to send bucket permission")
 			continue
 		}
@@ -764,7 +764,7 @@ func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string,
 
 // sendBucketPermission sends a bucket permission to the target node
 func (m *Manager) sendBucketPermission(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken string,
-	id, bucketName, userID, tenantID, permissionLevel, grantedBy string, grantedAt int64, expiresAt sql.NullInt64) error {
+	id, bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, grantedAt int64, expiresAt sql.NullInt64) error {
 
 	// Build URL for internal cluster API
 	url := fmt.Sprintf("%s/api/internal/cluster/bucket-permissions", targetEndpoint)
@@ -773,6 +773,7 @@ func (m *Manager) sendBucketPermission(ctx context.Context, proxyClient *ProxyCl
 	permissionData := map[string]interface{}{
 		"id":               id,
 		"bucket_name":      bucketName,
+		"bucket_tenant_id": bucketTenantID,
 		"user_id":          userID,
 		"tenant_id":        tenantID,
 		"permission_level": permissionLevel,

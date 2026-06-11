@@ -171,7 +171,7 @@ func TestManager_SendBucketPermission(t *testing.T) {
 	proxyClient := NewProxyClient(nil)
 
 	err := manager.sendBucketPermission(ctx, proxyClient, server.URL, "local-node", "test-token",
-		"perm-1", "test-bucket", "user-1", "tenant-1", "read,write", "admin", time.Now().Unix(), sql.NullInt64{})
+		"perm-1", "test-bucket", "tenant-bucket-1", "user-1", "tenant-1", "read,write", "admin", time.Now().Unix(), sql.NullInt64{})
 	require.NoError(t, err)
 }
 
