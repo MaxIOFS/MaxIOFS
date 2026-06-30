@@ -185,27 +185,37 @@ export function SidebarNav({
             const label = navLabels[item.name] ?? item.name;
 
             if (collapsed) {
-              // Collapsed: icon only with title tooltip
+              // Collapsed: icon-only. A parent with children is flattened so each
+              // child becomes its own top-level icon at the same level as every other
+              // item — otherwise everything under a submenu (e.g. Users) becomes
+              // unreachable when the sidebar is collapsed.
+              const collapsedEntries = item.children ?? [item];
               return (
-                <div key={item.name}>
-                  <button
-                    title={label}
-                    onClick={() => {
-                      // Parent href is the canonical section root (e.g. /users), not children[0],
-                      // so we never navigate to the wrong subsection if child order or filters change.
-                      navigate(item.href);
-                      onClose();
-                    }}
-                    className={cn(
-                      'flex items-center justify-center w-10 h-10 rounded-button transition-all duration-200 mx-auto',
-                      isActive || hasActiveChild
-                        ? 'bg-brand-600 text-white shadow-glow-sm'
-                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-                    )}
-                  >
-                    <item.icon className="h-5 w-5 flex-shrink-0" />
-                  </button>
-                </div>
+                <React.Fragment key={item.name}>
+                  {collapsedEntries.map((entry) => {
+                    const entryActive = isActiveRoute(entry.href, true);
+                    const entryLabel = navLabels[entry.name] ?? entry.name;
+                    return (
+                      <div key={entry.name}>
+                        <button
+                          title={entryLabel}
+                          onClick={() => {
+                            navigate(entry.href);
+                            onClose();
+                          }}
+                          className={cn(
+                            'flex items-center justify-center w-10 h-10 rounded-button transition-all duration-200 mx-auto',
+                            entryActive
+                              ? 'bg-brand-600 text-white shadow-glow-sm'
+                              : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                          )}
+                        >
+                          <entry.icon className="h-5 w-5 flex-shrink-0" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
               );
             }
 

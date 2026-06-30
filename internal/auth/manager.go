@@ -1259,7 +1259,12 @@ func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 			maxAttempts = 5
 		}
 
-		// Window is always 60 seconds (1 minute) to match the setting name
+		// Window is always 60 seconds (1 minute) to match the setting name.
+		// Stop the previously-constructed limiter first so its cleanup goroutine
+		// does not leak when we replace it (BUG-01).
+		if am.rateLimiter != nil {
+			am.rateLimiter.Stop()
+		}
 		am.rateLimiter = NewLoginRateLimiter(maxAttempts, 60)
 
 		logrus.WithFields(logrus.Fields{

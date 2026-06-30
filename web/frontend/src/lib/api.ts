@@ -1379,7 +1379,12 @@ export class APIClient {
     const url = tenantId ? `/buckets/${bucketName}/inventory?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/inventory`;
     try {
       const response = await apiClient.get(url);
-      return response.data?.data ?? response.data;
+      // When no config exists the backend responds `{ "success": true }` with NO `data`
+      // field, so return the unwrapped config when present and null otherwise. The old
+      // `response.data?.data ?? response.data` (and a naive unwrapAPIData) fell back to the
+      // whole `{ success: true }` wrapper — a truthy value — making the UI believe a
+      // configuration existed when it did not.
+      return response.data?.data ?? null;
     } catch (e: any) {
       if (e.response?.status === 404) return null;
       throw e;

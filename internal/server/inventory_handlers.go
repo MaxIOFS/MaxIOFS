@@ -73,22 +73,27 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.DestinationBucket == "" {
-		s.writeError(w, "Destination bucket is required", http.StatusBadRequest)
-		return
-	}
+	// The destination bucket is only required/validated when inventory is enabled.
+	// Disabling inventory (enabled=false) just persists the off state, so a save
+	// with the toggle unchecked must not fail for a missing destination.
+	if req.Enabled {
+		if req.DestinationBucket == "" {
+			s.writeError(w, "Destination bucket is required", http.StatusBadRequest)
+			return
+		}
 
-	// Check for circular reference
-	if req.DestinationBucket == bucketName {
-		s.writeError(w, "Circular reference: destination bucket cannot be the same as source bucket", http.StatusBadRequest)
-		return
-	}
+		// Check for circular reference
+		if req.DestinationBucket == bucketName {
+			s.writeError(w, "Circular reference: destination bucket cannot be the same as source bucket", http.StatusBadRequest)
+			return
+		}
 
-	// Validate destination bucket exists
-	_, err = s.bucketManager.GetBucketInfo(ctx, tenantID, req.DestinationBucket)
-	if err != nil {
-		s.writeError(w, "Destination bucket not found or access denied", http.StatusBadRequest)
-		return
+		// Validate destination bucket exists
+		_, err = s.bucketManager.GetBucketInfo(ctx, tenantID, req.DestinationBucket)
+		if err != nil {
+			s.writeError(w, "Destination bucket not found or access denied", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Validate included fields

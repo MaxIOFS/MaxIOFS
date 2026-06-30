@@ -437,18 +437,6 @@ export default function BucketSettingsPage() {
     },
   });
 
-  const deleteInventoryMutation = useMutation({
-    mutationFn: () => APIClient.deleteBucketInventory(bucketName, tenantId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bucket-inventory', bucketName, tenantId] });
-      refetchInventory();
-      ModalManager.toast('success', t('inventory.deletedSuccess'));
-    },
-    onError: (error: Error) => {
-      ModalManager.apiError(error);
-    },
-  });
-
   // Helper function to detect canned ACL from grants
   function detectCannedACL(grants: any[]): string {
     const hasAllUsersRead = grants.some((g: any) =>
@@ -629,7 +617,8 @@ export default function BucketSettingsPage() {
     included_fields: ['bucket_name', 'object_key', 'size', 'last_modified', 'etag'],
     schedule_time: '00:00',
   };
-  const inventoryForm = localInventoryEdits ?? (inventoryConfig
+  // Baseline = the currently-saved server state (or empty defaults when nothing is saved).
+  const inventoryBaseline = inventoryConfig
     ? {
         enabled: inventoryConfig.enabled,
         frequency: inventoryConfig.frequency || 'daily',
@@ -639,8 +628,22 @@ export default function BucketSettingsPage() {
         included_fields: inventoryConfig.included_fields || inventoryFormDefaults.included_fields,
         schedule_time: inventoryConfig.schedule_time || '00:00',
       }
-    : inventoryFormDefaults);
+    : inventoryFormDefaults;
+  const inventoryForm = localInventoryEdits ?? inventoryBaseline;
   const setInventoryForm = (newForm: any) => setLocalInventoryEdits(newForm);
+
+  // Save is enabled only when the form actually differs from the saved baseline —
+  // clicking with no changes would otherwise round-trip a no-op save and error.
+  const normalizeInventory = (f: any) => JSON.stringify({
+    enabled: f.enabled,
+    frequency: f.frequency,
+    format: f.format,
+    destination_bucket: f.destination_bucket,
+    destination_prefix: f.destination_prefix,
+    schedule_time: f.schedule_time,
+    included_fields: [...(f.included_fields ?? [])].sort(),
+  });
+  const inventoryDirty = normalizeInventory(inventoryForm) !== normalizeInventory(inventoryBaseline);
 
   // Handlers
   const isObjectLockEnabled = bucketData?.objectLock?.objectLockEnabled === true;
@@ -2227,32 +2230,21 @@ export default function BucketSettingsPage() {
                                 ))}
                               </div>
                             </div>
-
-                            <div className="flex gap-2">
-                              <Button
-                                onClick={() => saveInventoryMutation.mutate(inventoryForm)}
-                                disabled={isGlobalAdminInTenantBucket || !inventoryForm.destination_bucket}
-                                loading={saveInventoryMutation.isPending}
-                              >
-                                {t('inventory.saveConfiguration')}
-                              </Button>
-                              {inventoryConfig && (
-                                <Button
-                                  variant="destructive"
-                                  onClick={() => {
-                                    if (confirm(t('inventory.confirmDeleteMsg'))) {
-                                      deleteInventoryMutation.mutate();
-                                    }
-                                  }}
-                                  disabled={isGlobalAdminInTenantBucket}
-                                  loading={deleteInventoryMutation.isPending}
-                                >
-                                  {t('inventory.deleteConfiguration')}
-                                </Button>
-                              )}
-                            </div>
                           </>
                         )}
+
+                        {/* Single Save action, always visible. Unchecking "enabled" and
+                            saving turns inventory off — there is no separate delete. The
+                            button only requires a destination bucket while enabled. */}
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => saveInventoryMutation.mutate(inventoryForm)}
+                            disabled={isGlobalAdminInTenantBucket || !inventoryDirty || (inventoryForm.enabled && !inventoryForm.destination_bucket)}
+                            loading={saveInventoryMutation.isPending}
+                          >
+                            {t('inventory.saveConfiguration')}
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Inventory Reports */}

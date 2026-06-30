@@ -326,69 +326,65 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
-            <div className="border-l-4 border-red-600 pl-4">
+            <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security — OAuth Token Exposure Fixed
+                Bucket Inventory Can Be Turned Off Again
               </h3>
               <p className="text-sm text-muted-foreground">
-                The OAuth callback previously embedded JWT access and refresh tokens directly in the redirect
-                URL query string, exposing them in server access logs, browser history, and proxy logs
-                (violating RFC 6819 §4.2.2). The callback now issues a short-lived server-side one-time code
-                (TTL 60 s). The browser exchanges it for tokens via a direct API call that is not logged
-                or cached by intermediaries.
+                In the bucket settings Inventory tab, the Save button was nested inside the "enabled"
+                toggle, so un-checking it hid the only control that could persist the change and left
+                inventory stuck on. A single Save button now stays visible — un-checking "enabled" and
+                saving turns inventory off, and Save activates only when there are actual changes.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Security — Stronger Cryptography & Secrets at Rest
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Key derivation upgraded from single-pass SHA-256 to{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PBKDF2-SHA256</code>{' '}
+                (≥310 000 iterations), S3 access secret keys are now encrypted at rest with AES-256-GCM,
+                the legacy SHA-256 password path is retired for new passwords, and S3 secret-key comparison
+                is now constant-time to remove a timing side-channel.
               </p>
             </div>
 
             <div className="border-l-4 border-red-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security — Deactivated Users Now Blocked Immediately
+                Security — Console Hardening
               </h3>
               <p className="text-sm text-muted-foreground">
-                Deactivating a user previously had no immediate effect — their JWT tokens remained valid
-                until natural expiry (up to 15 min for access tokens, 24 h for refresh tokens). JWT
-                validation now checks{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">user.status == active</code>{' '}
-                on every request, so deactivation takes effect on the next API call.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-blue-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Multilingual UI — 9 Languages
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                The web console is now available in English, Spanish, French, German, Italian,
-                Brazilian Portuguese, Simplified Chinese, Japanese, and Russian. Language packs are
-                loaded on demand — switching language triggers a single small network request and the
-                main bundle is unaffected. Language preference is saved per-user and persists across
-                sessions.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">unsafe-eval</code>{' '}
+                removed from the Content-Security-Policy, HSTS now sent on the console endpoint, mutating
+                Console API requests capped at 1 MiB where uploads aren't expected, and tenant-scoped admins
+                no longer receive cross-tenant notifications. Refresh tokens are now rejected for
+                deactivated or suspended accounts.
               </p>
             </div>
 
             <div className="border-l-4 border-green-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Event-Driven Cluster Config Sync
+                Concurrency & Correctness Fixes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Cluster configuration changes (tenants, bucket permissions, IDP providers, group mappings)
-                now propagate to peer nodes immediately on success, eliminating the previous up-to-30-second
-                delay. Every sync manager exposes a{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">TriggerSync</code>{' '}
-                method that fans out in a background goroutine without blocking the HTTP response. The
-                periodic reconciliation loop is retained as a safety net.
+                Tenant quota TOCTOU eliminated with an atomic SQL compare-and-swap, a per-key shard mutex
+                serialises versioning metric updates, object-name validation now blocks path-traversal
+                segments, the inter-node proxy streams request bodies instead of buffering them in RAM
+                (up to 10 GB on large PUTs), and a rate-limiter cleanup goroutine no longer leaks when
+                reconfigured from settings.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Stability Fixes from Full Code Audit
+                Dependencies Updated
               </h3>
               <p className="text-sm text-muted-foreground">
-                A pre-release audit identified and fixed 9 confirmed bugs: tenant quota not enforced on
-                versioned-bucket uploads, a lost-update race in concurrent tag writes, a data race in the
-                replication rule scheduler, silent database error swallowing in replication cleanup, JSON
-                marshal errors silently ignored in HA metadata fanout, and double-call panics in lifecycle
-                and deletion-log managers. See the full{' '}
+                Go modules bumped to current minor/patch releases (AWS SDK, modernc SQLite, and transitive
+                dependencies) and frontend npm packages refreshed within their existing semver ranges. No
+                major-version changes; verified against the full Go and frontend test suites. See the full{' '}
                 <a
                   href="https://github.com/MaxioFS/MaxioFS/blob/main/CHANGELOG.md"
                   target="_blank"

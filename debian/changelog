@@ -1,3 +1,54 @@
+maxiofs (1:1.4.2) stable; urgency=medium
+
+  * Release v1.4.2 — Bug fixes, security hardening, and dependency updates
+
+  * [SECURITY] S3 secret-key comparison is now constant-time (crypto/subtle), removing a timing
+    side-channel.
+  * [SECURITY] Account-status enumeration fixed — active status is checked before bcrypt so valid
+    disabled accounts are not distinguishable by error/timing.
+  * [SECURITY] RBAC stub now logs a prominent startup warning and records every denial for audit.
+  * [SECURITY] S3 access secret keys are now encrypted at rest (AES-256-GCM); existing plaintext
+    keys remain readable for backward compatibility.
+  * [SECURITY] Inter-node proxy loop/identity headers (X-MaxIOFS-*) are stripped from inbound
+    external requests, preventing spoofing into cluster routing.
+  * [SECURITY] Key derivation upgraded from single-pass SHA-256 to PBKDF2-SHA256 (>= 310000
+    iterations).
+  * [SECURITY] Legacy SHA-256 password hashing retired for new passwords (bcrypt only).
+  * [SECURITY] Tenant-scoped admins no longer receive cross-tenant SSE notifications.
+  * [SECURITY] Mutating Console API requests capped at 1 MiB where uploads are not expected.
+  * [SECURITY] unsafe-eval removed from the console Content-Security-Policy; HSTS now sent on the
+    console endpoint.
+  * [SECURITY] Object storage directories created with 0750 (no longer world-readable).
+  * [SECURITY] Refresh tokens are now rejected for deactivated/suspended accounts.
+  * [FIX] Web console: bucket inventory can now be turned off once enabled — a single always-visible
+    Save button persists the change (the Save button was previously hidden when toggling off); Save
+    is enabled only when there are pending changes, and the backend no longer requires a destination
+    bucket when disabling.
+  * [FIX] Collapsed sidebar no longer hides the Users submenu entries — when collapsed, a parent's
+    children are shown as individual top-level icons instead of disappearing.
+  * [FIX] PutObject tenant-quota TOCTOU eliminated with an atomic SQL compare-and-swap.
+  * [FIX] Versioning metrics race fixed with a per-key shard mutex around read/write/metrics.
+  * [FIX] deleteSpecificVersion re-queries versions after delete instead of using a stale snapshot.
+  * [FIX] HA fanout replication is pinned to the exact locally-written version.
+  * [FIX] Login rate-limiter TOCTOU fixed with an atomic check-and-record.
+  * [FIX] Rate-limiter cleanup goroutines no longer leak (stoppable, and stopped on reconfigure).
+  * [FIX] Inter-node proxy streams request bodies instead of buffering them in RAM (up to 10 GB).
+  * [FIX] SearchObjects scan limit capped (max(maxKeys*10, 10000)) to avoid large-bucket OOM.
+  * [FIX] UpdateObjectMetadata no longer returns 404 for objects in versioning-enabled buckets.
+  * [FIX] validateObjectName rejects ".." path segments anywhere in the key (path-traversal).
+  * [FIX] Bucket permissions are scoped by bucket tenant; same-named buckets no longer collide.
+  * [FIX] Global admins can manage object ACL/legal-hold on tenant buckets via tenantId.
+  * [FIX] Global-admin checks no longer depend on role ordering.
+  * [FIX] GET /api/v1/users returns the real username instead of the internal user ID.
+  * [FIX] Frontend consistently unwraps wrapped { success, data } Console API responses
+    (token refresh, object tags, group screens, rename/folder-size).
+  * [FIX] share generateID now propagates crypto/rand errors instead of returning an all-zero ID.
+  * [CHANGE] Dependency updates — Go modules to current minor/patch releases; frontend npm
+    dependencies refreshed within existing semver ranges. No major-version changes; Pebble
+    untouched. Verified against the Go and frontend test suites.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Tue, 30 Jun 2026 12:00:00 -0300
+
 maxiofs (1:1.4.1) stable; urgency=high
 
   * Release v1.4.1 — Security fixes, multilingual UI (9 languages), event-driven cluster sync,

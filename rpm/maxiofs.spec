@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.4.1}
+%{!?version: %define version 1.4.2}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -266,6 +266,40 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Tue Jun 30 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.2-1
+- Release v1.4.2 — Bug fixes, security hardening, and dependency updates
+- [SECURITY] Constant-time S3 secret-key comparison (removes timing side-channel)
+- [SECURITY] Account-status enumeration fixed (status checked before bcrypt)
+- [SECURITY] RBAC stub logs a startup warning and records every denial for audit
+- [SECURITY] S3 access secret keys encrypted at rest (AES-256-GCM); plaintext keys still readable
+- [SECURITY] Inter-node proxy strips spoofable X-MaxIOFS-* headers from external requests
+- [SECURITY] Key derivation upgraded to PBKDF2-SHA256 (>= 310000 iterations)
+- [SECURITY] Legacy SHA-256 password hashing retired for new passwords (bcrypt only)
+- [SECURITY] Tenant-scoped admins no longer receive cross-tenant SSE notifications
+- [SECURITY] Mutating Console API requests capped at 1 MiB where uploads are not expected
+- [SECURITY] unsafe-eval removed from console CSP; HSTS now sent on the console endpoint
+- [SECURITY] Object storage directories created with 0750 (no longer world-readable)
+- [SECURITY] Refresh tokens rejected for deactivated/suspended accounts
+- [FIX] Web console: bucket inventory can now be turned off once enabled (always-visible Save button; Save enabled only with pending changes; destination not required when disabling)
+- [FIX] Collapsed sidebar no longer hides Users submenu entries (shown as top-level icons)
+- [FIX] PutObject tenant-quota TOCTOU eliminated with an atomic SQL compare-and-swap
+- [FIX] Versioning metrics race fixed with a per-key shard mutex
+- [FIX] deleteSpecificVersion re-queries versions after delete (no stale snapshot)
+- [FIX] HA fanout replication pinned to the exact locally-written version
+- [FIX] Login rate-limiter TOCTOU fixed with an atomic check-and-record
+- [FIX] Rate-limiter cleanup goroutines no longer leak (stoppable, stopped on reconfigure)
+- [FIX] Inter-node proxy streams request bodies instead of buffering them in RAM (up to 10 GB)
+- [FIX] SearchObjects scan limit capped to avoid large-bucket OOM
+- [FIX] UpdateObjectMetadata no longer returns 404 in versioning-enabled buckets
+- [FIX] validateObjectName rejects ".." path segments anywhere in the key (path-traversal)
+- [FIX] Bucket permissions scoped by bucket tenant; same-named buckets no longer collide
+- [FIX] Global admins can manage object ACL/legal-hold on tenant buckets via tenantId
+- [FIX] Global-admin checks no longer depend on role ordering
+- [FIX] GET /api/v1/users returns the real username instead of the internal user ID
+- [FIX] Frontend consistently unwraps wrapped { success, data } Console API responses
+- [FIX] share generateID propagates crypto/rand errors instead of returning an all-zero ID
+- [CHANGE] Dependency updates — Go minor/patch and frontend npm within semver ranges; no majors
+
 * Mon May 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.1-1
 - Release v1.4.1 — Security fixes, multilingual UI (9 languages), event-driven cluster sync, BadgerDB removal, stability fixes
 - [SECURITY] OAuth callback tokens moved from redirect URL to server-side one-time code exchange (RFC 6819)
