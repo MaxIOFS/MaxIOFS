@@ -75,18 +75,24 @@ func runServer(cmd *cobra.Command, args []string) error {
 		"date":    date,
 	}).Info("Starting MaxIOFS")
 
-	// Configure TLS if certificates are provided
+	// TLS resolution. config.Load (viper) has already merged cert_file/key_file
+	// with the correct precedence (CLI flag > env > config file). The --tls-cert/
+	// --tls-key flags additionally act as an explicit switch that *enables* TLS.
+	// When the flags are absent we must NOT force TLS off — that would override an
+	// `enable_tls: true` set in the config file (GitHub issue #6). Instead we
+	// respect cfg.EnableTLS as loaded, so config-file-driven TLS works.
 	if tlsCert != "" && tlsKey != "" {
-		logrus.WithFields(logrus.Fields{
-			"cert_file": tlsCert,
-			"key_file":  tlsKey,
-		}).Info("TLS enabled - servers will use HTTPS")
 		cfg.EnableTLS = true
 		cfg.CertFile = tlsCert
 		cfg.KeyFile = tlsKey
+	}
+	if cfg.EnableTLS {
+		logrus.WithFields(logrus.Fields{
+			"cert_file": cfg.CertFile,
+			"key_file":  cfg.KeyFile,
+		}).Info("TLS enabled - servers will use HTTPS")
 	} else {
 		logrus.Info("TLS disabled - servers will use HTTP")
-		cfg.EnableTLS = false
 	}
 
 	// Create server
