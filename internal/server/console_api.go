@@ -2408,6 +2408,27 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, response)
 }
 
+// s3EncodePath percent-encodes an S3 object key / bucket path for safe
+// inclusion in an HTTP(S) URL, matching AWS S3 and the S3 API's own decoding:
+// RFC 3986 unreserved chars (A-Z a-z 0-9 - . _ ~) and the '/' path separator
+// stay literal; every other byte becomes %XX. So space→%20, #→%23, and
+// multibyte UTF-8 (é, ❌, 💸) is encoded byte-by-byte. Without this, keys with
+// spaces or '#' produce broken share/download URLs (the '#' truncates the key).
+func s3EncodePath(s string) string {
+	const keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if strings.IndexByte(keep, c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
 func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -2467,7 +2488,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		// Generate clean S3 URL (bucket names are global; no tenant in path)
 		var s3URL string
 		if s.config.PublicAPIURL != "" {
-			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
+			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, s3EncodePath(bucketName), s3EncodePath(objectKey))
 		} else {
 			protocol := "http"
 			if r.TLS != nil {
@@ -2479,7 +2500,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			if !strings.Contains(host, ":") {
 				host = strings.Split(r.Host, ":")[0] + s.config.Listen
 			}
-			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
+			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, s3EncodePath(bucketName), s3EncodePath(objectKey))
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -2564,7 +2585,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 	// Bucket names are globally unique; URL is always /bucket/object (no tenant in path).
 	var s3URL string
 	if s.config.PublicAPIURL != "" {
-		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, bucketName, objectKey)
+		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, s3EncodePath(bucketName), s3EncodePath(objectKey))
 	} else {
 		protocol := "http"
 		if r.TLS != nil {
@@ -2576,7 +2597,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(host, ":") {
 			host = strings.Split(r.Host, ":")[0] + s.config.Listen
 		}
-		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, bucketName, objectKey)
+		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, s3EncodePath(bucketName), s3EncodePath(objectKey))
 	}
 
 	logrus.WithFields(logrus.Fields{

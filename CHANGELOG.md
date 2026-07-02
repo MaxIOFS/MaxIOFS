@@ -5,6 +5,11 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Object share URLs are now percent-encoded** — sharing an object whose key contained spaces, `#`, `[` `]`, or non-ASCII/UTF-8 characters (accents, emoji) produced a broken share URL: the key was interpolated raw, so the `#` truncated the key at the URL fragment and spaces/emoji made the link invalid, and the shared object failed to resolve. The share URL is now built with an AWS S3-compatible path encoder (`s3EncodePath`) that preserves `/` and RFC 3986 unreserved characters while percent-encoding every other byte (space→`%20`, `#`→`%23`, `❌`→`%E2%9D%8C`, `💸`→`%F0%9F%92%B8`, etc.), so the generated link round-trips back to the exact key and resolves the real object. Applied to all four URL constructions in `handleShareObject` (both the existing-share and new-share branches, with and without a configured `PublicAPIURL`). Verified end-to-end against the S3 API: uploading an object with such a key and opening its share URL now returns `200` with the correct content. (`internal/server/console_api.go`)
+
 ## [1.4.2] - 2026-06-30
 
 ### Changed
