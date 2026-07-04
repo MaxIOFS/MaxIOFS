@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "Настройки бакета",
-
   "tabs": {
     "general": {
       "label": "Общие",
@@ -29,11 +28,13 @@
     "website": {
       "label": "Статический сайт",
       "description": "Размещение статического сайта напрямую из этого бакета"
+    },
+    "quota": {
+      "label": "Quota",
+      "description": "Per-bucket storage limits"
     }
   },
-
   "globalAdminReadOnly": "Глобальные администраторы не могут изменять настройки бакетов тенантов",
-
   "versioning": {
     "title": "Версионирование",
     "versionControl": "Управление версиями",
@@ -48,7 +49,6 @@
     "updatedSuccess": "Версионирование успешно обновлено",
     "wormLocked": "Версионирование не может быть приостановлено, так как для этого бакета включён Object Lock (WORM)"
   },
-
   "objectLock": {
     "title": "Object Lock",
     "status": "Статус Object Lock",
@@ -87,7 +87,6 @@
       "errorPositive": "Срок хранения должен быть больше 0"
     }
   },
-
   "policy": {
     "title": "Политика бакета",
     "sectionTitle": "Политика доступа",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "Список управления доступом (ACL)",
     "sectionTitle": "Права доступа к бакету",
@@ -167,7 +165,6 @@
     "saveAcl": "Сохранить ACL",
     "savedSuccess": "ACL бакета успешно обновлён"
   },
-
   "tags": {
     "title": "Теги",
     "sectionTitle": "Теги бакета",
@@ -192,7 +189,6 @@
     "saving": "Сохранение...",
     "saveTags": "Сохранить теги"
   },
-
   "cors": {
     "title": "Конфигурация CORS",
     "sectionTitle": "Совместное использование ресурсов между источниками (CORS)",
@@ -246,7 +242,6 @@
     "methodRequired": "Требуется хотя бы один разрешённый метод",
     "addButton": "Добавить"
   },
-
   "lifecycle": {
     "title": "Правила жизненного цикла",
     "sectionTitle": "Управление жизненным циклом объектов",
@@ -270,7 +265,6 @@
     "saving": "Сохранение...",
     "saveRules": "Сохранить правила"
   },
-
   "notifications": {
     "title": "Уведомления о событиях",
     "sectionTitle": "Webhook-уведомления",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "Тайм-аут установлен на 10 секунд на запрос",
     "cancel": "Отмена",
     "saving": "Сохранение...",
-    "updateRule": "Обновить правило",
-    "addRule": "Добавить правило"
+    "updateRule": "Обновить правило"
   },
-
   "replication": {
     "title": "Репликация бакета",
     "sectionTitle": "Правила репликации",
@@ -433,10 +425,8 @@
     "requirementsItem4": "Правила можно временно отключить без удаления",
     "cancel": "Отмена",
     "saving": "Сохранение...",
-    "updateRule": "Обновить правило",
-    "addRule": "Добавить правило"
+    "updateRule": "Обновить правило"
   },
-
   "inventory": {
     "title": "Инвентаризация бакета",
     "loading": "Загрузка конфигурации...",
@@ -482,7 +472,6 @@
     "infoItem4": "Выбирайте конкретные поля для включения в отчёты об инвентаризации",
     "infoItem5": "Отчёты хранятся в указанном бакете назначения"
   },
-
   "website": {
     "title": "Размещение статического сайта",
     "toggleLabel": "Включить размещение статического сайта",
@@ -514,5 +503,20 @@
     "infoItem3": "Индексный документ обслуживается при запросе к пути директории",
     "infoItem4": "Документ об ошибке обслуживается при ненахождении запрошенного объекта (HTTP 404)",
     "infoItem5": "Доступ через эндпойнт сайта обходит S3-аутентификацию"
+  },
+  "quota": {
+    "title": "Storage Quota",
+    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
+    "currentUsage": "Current usage",
+    "objects": "objects",
+    "enableLabel": "Enable storage quota",
+    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
+    "maxSizeLabel": "Maximum size",
+    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
+    "maxObjectsLabel": "Maximum object count",
+    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
+    "unlimited": "Unlimited",
+    "saveConfiguration": "Save configuration",
+    "savedSuccess": "Bucket quota saved"
   }
 }

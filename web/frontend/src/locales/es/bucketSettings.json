@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "Configuración del Bucket",
-
   "tabs": {
     "general": {
       "label": "General",
@@ -29,11 +28,13 @@
     "website": {
       "label": "Web Estática",
       "description": "Aloja un sitio web estático directamente desde este bucket"
+    },
+    "quota": {
+      "label": "Cuota",
+      "description": "Límites de almacenamiento por bucket"
     }
   },
-
   "globalAdminReadOnly": "Los administradores globales no pueden modificar la configuración de buckets de inquilinos",
-
   "versioning": {
     "title": "Versionado",
     "versionControl": "Control de Versiones",
@@ -48,7 +49,6 @@
     "updatedSuccess": "Versionado actualizado correctamente",
     "wormLocked": "El versionado no se puede suspender porque Object Lock (WORM) está habilitado en este bucket"
   },
-
   "objectLock": {
     "title": "Object Lock",
     "status": "Estado de Object Lock",
@@ -87,7 +87,6 @@
       "errorPositive": "El período de retención debe ser mayor que 0"
     }
   },
-
   "policy": {
     "title": "Política del Bucket",
     "sectionTitle": "Política de Acceso",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "Lista de Control de Acceso (ACL)",
     "sectionTitle": "Permisos del Bucket",
@@ -167,7 +165,6 @@
     "saveAcl": "Guardar ACL",
     "savedSuccess": "ACL del bucket actualizada correctamente"
   },
-
   "tags": {
     "title": "Etiquetas",
     "sectionTitle": "Etiquetas del Bucket",
@@ -192,7 +189,6 @@
     "saving": "Guardando...",
     "saveTags": "Guardar Etiquetas"
   },
-
   "cors": {
     "title": "Configuración CORS",
     "sectionTitle": "Intercambio de Recursos de Origen Cruzado",
@@ -246,7 +242,6 @@
     "methodRequired": "Se requiere al menos un método permitido",
     "addButton": "Añadir"
   },
-
   "lifecycle": {
     "title": "Reglas de Ciclo de Vida",
     "sectionTitle": "Gestión del Ciclo de Vida de Objetos",
@@ -270,7 +265,6 @@
     "saving": "Guardando...",
     "saveRules": "Guardar Reglas"
   },
-
   "notifications": {
     "title": "Notificaciones de Eventos",
     "sectionTitle": "Notificaciones Webhook",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "El tiempo de espera es de 10 segundos por solicitud",
     "cancel": "Cancelar",
     "saving": "Guardando...",
-    "updateRule": "Actualizar Regla",
-    "addRule": "Añadir Regla"
+    "updateRule": "Actualizar Regla"
   },
-
   "replication": {
     "title": "Replicación del Bucket",
     "sectionTitle": "Reglas de Replicación",
@@ -433,10 +425,8 @@
     "requirementsItem4": "Las reglas pueden deshabilitarse temporalmente sin eliminarlas",
     "cancel": "Cancelar",
     "saving": "Guardando...",
-    "updateRule": "Actualizar Regla",
-    "addRule": "Añadir Regla"
+    "updateRule": "Actualizar Regla"
   },
-
   "inventory": {
     "title": "Inventario del Bucket",
     "loading": "Cargando configuración...",
@@ -482,7 +472,6 @@
     "infoItem4": "Selecciona campos específicos para incluir en tus informes de inventario",
     "infoItem5": "Los informes se almacenan en el bucket de destino que especifiques"
   },
-
   "website": {
     "title": "Alojamiento Web Estático",
     "toggleLabel": "Activar alojamiento web estático",
@@ -514,5 +503,20 @@
     "infoItem3": "El documento de índice se sirve cuando la petición apunta a un directorio",
     "infoItem4": "El documento de error se sirve cuando el objeto solicitado no existe (HTTP 404)",
     "infoItem5": "El acceso a través del endpoint web no requiere autenticación S3"
+  },
+  "quota": {
+    "title": "Cuota de almacenamiento",
+    "description": "Limita cuánto puede almacenar este bucket. Aplica a cualquier cliente (S3, consola, Veeam) y se valida al subir.",
+    "currentUsage": "Uso actual",
+    "objects": "objetos",
+    "enableLabel": "Habilitar cuota de almacenamiento",
+    "enableHint": "Cuando está activa, las subidas que superen el límite se rechazan con QuotaExceeded.",
+    "maxSizeLabel": "Tamaño máximo",
+    "maxSizeHint": "El total almacenado no puede superar esto. Deja 0 para no limitar el tamaño.",
+    "maxObjectsLabel": "Número máximo de objetos",
+    "maxObjectsHint": "Opcional. Número máximo de objetos. Déjalo vacío para ilimitado.",
+    "unlimited": "Ilimitado",
+    "saveConfiguration": "Guardar configuración",
+    "savedSuccess": "Cuota del bucket guardada"
   }
 }

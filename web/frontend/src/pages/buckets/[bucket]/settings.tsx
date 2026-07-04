@@ -25,15 +25,17 @@ import {
   XCircle,
   RefreshCw,
   Package,
+  Gauge,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { formatBytes } from '@/lib/utils';
 import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
 // Tab types
-type TabId = 'general' | 'security' | 'lifecycle' | 'notifications' | 'replication' | 'inventory' | 'website';
+type TabId = 'general' | 'security' | 'quota' | 'lifecycle' | 'notifications' | 'replication' | 'inventory' | 'website';
 
 interface TabInfo {
   id: TabId;
@@ -63,6 +65,12 @@ export default function BucketSettingsPage() {
       label: t('tabs.security.label'),
       icon: Shield,
       description: t('tabs.security.description'),
+    },
+    {
+      id: 'quota',
+      label: t('tabs.quota.label'),
+      icon: Gauge,
+      description: t('tabs.quota.description'),
     },
     {
       id: 'lifecycle',
@@ -519,6 +527,75 @@ export default function BucketSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['bucket-website', bucketName, tenantId] });
       refetchWebsite();
       ModalManager.toast('success', t('website.deletedSuccess'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  // ===== Per-bucket storage quota =====
+  const quotaSizeUnits = [
+    { label: 'MB', factor: 1000 * 1000 },
+    { label: 'GB', factor: 1000 * 1000 * 1000 },
+    { label: 'TB', factor: 1000 * 1000 * 1000 * 1000 },
+  ];
+  const [quotaEnabled, setQuotaEnabled] = useState(false);
+  const [quotaSizeValue, setQuotaSizeValue] = useState<string>('');
+  const [quotaSizeUnit, setQuotaSizeUnit] = useState<string>('GB');
+  const [quotaMaxObjects, setQuotaMaxObjects] = useState<string>('');
+
+  const { data: quotaState, refetch: refetchQuota } = useQuery({
+    queryKey: ['bucket-quota', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketQuota(bucketName, tenantId),
+    enabled: activeTab === 'quota',
+  });
+
+  // Sync quota form when the query loads: pick the largest unit that renders the
+  // configured size as a whole number so e.g. 5 GB shows as "5 GB", not "5000 MB".
+  useEffect(() => {
+    if (!quotaState) return;
+    if (quotaState.quota && quotaState.quota.maxSizeBytes > 0) {
+      const bytes = quotaState.quota.maxSizeBytes;
+      let chosen = quotaSizeUnits[0];
+      for (const u of quotaSizeUnits) {
+        if (bytes % u.factor === 0) chosen = u;
+      }
+      setQuotaEnabled(true);
+      setQuotaSizeValue(String(bytes / chosen.factor));
+      setQuotaSizeUnit(chosen.label);
+    } else {
+      setQuotaEnabled(false);
+      setQuotaSizeValue('');
+      setQuotaSizeUnit('GB');
+    }
+    setQuotaMaxObjects(
+      quotaState.quota && quotaState.quota.maxObjectCount > 0
+        ? String(quotaState.quota.maxObjectCount)
+        : ''
+    );
+  }, [quotaState]);
+
+  const quotaBytesFromForm = (): number => {
+    const val = parseFloat(quotaSizeValue);
+    if (!isFinite(val) || val <= 0) return 0;
+    const unit = quotaSizeUnits.find((u) => u.label === quotaSizeUnit) ?? quotaSizeUnits[1];
+    return Math.round(val * unit.factor);
+  };
+
+  const saveQuotaMutation = useMutation({
+    mutationFn: () =>
+      APIClient.putBucketQuota(
+        bucketName,
+        {
+          maxSizeBytes: quotaEnabled ? quotaBytesFromForm() : 0,
+          maxObjectCount: quotaEnabled && quotaMaxObjects ? Math.max(0, parseInt(quotaMaxObjects, 10) || 0) : 0,
+        },
+        tenantId
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucket-quota', bucketName, tenantId] });
+      refetchQuota();
+      ModalManager.toast('success', t('quota.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -1625,6 +1702,132 @@ export default function BucketSettingsPage() {
             </div>
           </div>
         </div>
+        </div>
+              </>
+            )}
+
+            {/* QUOTA TAB */}
+            {activeTab === 'quota' && (
+              <>
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-muted-foreground" />
+              {t('quota.title')}
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1">{t('quota.description')}</p>
+          </div>
+          <div className="p-6 space-y-6">
+            {/* Current usage bar */}
+            {quotaState && (
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-muted-foreground">{t('quota.currentUsage')}</span>
+                  <span className="font-medium">
+                    {formatBytes(quotaState.usage.totalSize)}
+                    {quotaState.quota && quotaState.quota.maxSizeBytes > 0
+                      ? ` / ${formatBytes(quotaState.quota.maxSizeBytes)}`
+                      : ''}
+                    {' · '}
+                    {quotaState.usage.objectCount.toLocaleString()} {t('quota.objects')}
+                    {quotaState.quota && quotaState.quota.maxObjectCount > 0
+                      ? ` / ${quotaState.quota.maxObjectCount.toLocaleString()}`
+                      : ''}
+                  </span>
+                </div>
+                {quotaState.quota && quotaState.quota.maxSizeBytes > 0 && (
+                  <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        quotaState.usage.totalSize >= quotaState.quota.maxSizeBytes
+                          ? 'bg-red-500'
+                          : quotaState.usage.totalSize / quotaState.quota.maxSizeBytes >= 0.9
+                          ? 'bg-amber-500'
+                          : 'bg-blue-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, (quotaState.usage.totalSize / quotaState.quota.maxSizeBytes) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Enable toggle */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={quotaEnabled}
+                disabled={isGlobalAdminInTenantBucket}
+                onChange={(e) => setQuotaEnabled(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <div>
+                <p className="font-medium">{t('quota.enableLabel')}</p>
+                <p className="text-sm text-muted-foreground">{t('quota.enableHint')}</p>
+              </div>
+            </label>
+
+            {quotaEnabled && (
+              <div className="space-y-4 pl-7">
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('quota.maxSizeLabel')}</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={quotaSizeValue}
+                      disabled={isGlobalAdminInTenantBucket}
+                      onChange={(e) => setQuotaSizeValue(e.target.value)}
+                      placeholder="0"
+                      className="w-40 px-3 py-2 border border-border rounded-md bg-card text-foreground"
+                    />
+                    <select
+                      value={quotaSizeUnit}
+                      disabled={isGlobalAdminInTenantBucket}
+                      onChange={(e) => setQuotaSizeUnit(e.target.value)}
+                      className="px-3 py-2 border border-border rounded-md bg-card text-foreground"
+                    >
+                      {quotaSizeUnits.map((u) => (
+                        <option key={u.label} value={u.label}>{u.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('quota.maxSizeHint')}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('quota.maxObjectsLabel')}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={quotaMaxObjects}
+                    disabled={isGlobalAdminInTenantBucket}
+                    onChange={(e) => setQuotaMaxObjects(e.target.value)}
+                    placeholder={t('quota.unlimited')}
+                    className="w-40 px-3 py-2 border border-border rounded-md bg-card text-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">{t('quota.maxObjectsHint')}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2 border-t border-border">
+              <Button
+                onClick={() => saveQuotaMutation.mutate()}
+                disabled={
+                  isGlobalAdminInTenantBucket ||
+                  (quotaEnabled && quotaBytesFromForm() <= 0 && (!quotaMaxObjects || parseInt(quotaMaxObjects, 10) <= 0))
+                }
+                loading={saveQuotaMutation.isPending}
+              >
+                {t('quota.saveConfiguration')}
+              </Button>
+            </div>
+          </div>
         </div>
               </>
             )}

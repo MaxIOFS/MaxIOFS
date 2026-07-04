@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "Bucket Settings",
-
   "tabs": {
     "general": {
       "label": "General",
@@ -29,11 +28,13 @@
     "website": {
       "label": "Static Website",
       "description": "Host a static website directly from this bucket"
+    },
+    "quota": {
+      "label": "Quota",
+      "description": "Per-bucket storage limits"
     }
   },
-
   "globalAdminReadOnly": "Global admins cannot modify tenant bucket settings",
-
   "versioning": {
     "title": "Versioning",
     "versionControl": "Version Control",
@@ -48,7 +49,6 @@
     "updatedSuccess": "Versioning updated successfully",
     "wormLocked": "Versioning cannot be suspended because Object Lock (WORM) is enabled on this bucket"
   },
-
   "objectLock": {
     "title": "Object Lock",
     "status": "Object Lock Status",
@@ -87,7 +87,6 @@
       "errorPositive": "Retention period must be greater than 0"
     }
   },
-
   "policy": {
     "title": "Bucket Policy",
     "sectionTitle": "Access Policy",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "Access Control List (ACL)",
     "sectionTitle": "Bucket Permissions",
@@ -167,7 +165,6 @@
     "saveAcl": "Save ACL",
     "savedSuccess": "Bucket ACL updated successfully"
   },
-
   "tags": {
     "title": "Tags",
     "sectionTitle": "Bucket Tags",
@@ -192,7 +189,6 @@
     "saving": "Saving...",
     "saveTags": "Save Tags"
   },
-
   "cors": {
     "title": "CORS Configuration",
     "sectionTitle": "Cross-Origin Resource Sharing",
@@ -246,7 +242,6 @@
     "methodRequired": "At least one allowed method is required",
     "addButton": "Add"
   },
-
   "lifecycle": {
     "title": "Lifecycle Rules",
     "sectionTitle": "Object Lifecycle Management",
@@ -270,7 +265,6 @@
     "saving": "Saving...",
     "saveRules": "Save Rules"
   },
-
   "notifications": {
     "title": "Event Notifications",
     "sectionTitle": "Webhook Notifications",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "Timeout is set to 10 seconds per request",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "updateRule": "Update Rule",
-    "addRule": "Add Rule"
+    "updateRule": "Update Rule"
   },
-
   "replication": {
     "title": "Bucket Replication",
     "sectionTitle": "Replication Rules",
@@ -433,10 +425,8 @@
     "requirementsItem4": "Rules can be temporarily disabled without deleting them",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "updateRule": "Update Rule",
-    "addRule": "Add Rule"
+    "updateRule": "Update Rule"
   },
-
   "inventory": {
     "title": "Bucket Inventory",
     "loading": "Loading configuration...",
@@ -482,7 +472,6 @@
     "infoItem4": "Select specific fields to include in your inventory reports",
     "infoItem5": "Reports are stored in the destination bucket you specify"
   },
-
   "website": {
     "title": "Static Website Hosting",
     "toggleLabel": "Enable static website hosting",
@@ -514,5 +503,20 @@
     "infoItem3": "Index document is served when a request targets a directory path",
     "infoItem4": "Error document is served when the requested object is not found (HTTP 404)",
     "infoItem5": "Access via the website endpoint bypasses S3 authentication"
+  },
+  "quota": {
+    "title": "Storage Quota",
+    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
+    "currentUsage": "Current usage",
+    "objects": "objects",
+    "enableLabel": "Enable storage quota",
+    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
+    "maxSizeLabel": "Maximum size",
+    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
+    "maxObjectsLabel": "Maximum object count",
+    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
+    "unlimited": "Unlimited",
+    "saveConfiguration": "Save configuration",
+    "savedSuccess": "Bucket quota saved"
   }
 }

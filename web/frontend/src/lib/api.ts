@@ -75,6 +75,7 @@ import type {
   BucketIntegrityReport,
   LastIntegrityScan,
   EffectiveCapability,
+  BucketQuotaState,
 } from '@/types';
 
 // API Configuration
@@ -1420,6 +1421,24 @@ export class APIClient {
 
   static async deleteBucketWebsite(bucketName: string, tenantId?: string): Promise<void> {
     const url = tenantId ? `/buckets/${bucketName}/website?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/website`;
+    await apiClient.delete(url);
+  }
+
+  // Per-bucket storage quota. GET always returns { quota, usage } (quota is null when unset).
+  static async getBucketQuota(bucketName: string, tenantId?: string): Promise<BucketQuotaState> {
+    const url = tenantId ? `/buckets/${bucketName}/quota?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/quota`;
+    const response = await apiClient.get(url);
+    return response.data.data as BucketQuotaState;
+  }
+
+  static async putBucketQuota(bucketName: string, quota: { maxSizeBytes: number; maxObjectCount: number }, tenantId?: string): Promise<BucketQuotaState> {
+    const url = tenantId ? `/buckets/${bucketName}/quota?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/quota`;
+    const response = await apiClient.put(url, quota);
+    return response.data.data as BucketQuotaState;
+  }
+
+  static async deleteBucketQuota(bucketName: string, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/quota?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/quota`;
     await apiClient.delete(url);
   }
 

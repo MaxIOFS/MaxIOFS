@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "Configurações do Bucket",
-
   "tabs": {
     "general": {
       "label": "Geral",
@@ -29,11 +28,13 @@
     "website": {
       "label": "Site Estático",
       "description": "Hospedar um site estático diretamente deste bucket"
+    },
+    "quota": {
+      "label": "Quota",
+      "description": "Per-bucket storage limits"
     }
   },
-
   "globalAdminReadOnly": "Administradores globais não podem modificar as configurações de buckets de tenant",
-
   "versioning": {
     "title": "Versionamento",
     "versionControl": "Controle de Versão",
@@ -48,7 +49,6 @@
     "updatedSuccess": "Versionamento atualizado com sucesso",
     "wormLocked": "O versionamento não pode ser suspenso porque o Object Lock (WORM) está ativado neste bucket"
   },
-
   "objectLock": {
     "title": "Object Lock",
     "status": "Status do Object Lock",
@@ -87,7 +87,6 @@
       "errorPositive": "O período de retenção deve ser maior que 0"
     }
   },
-
   "policy": {
     "title": "Política de Bucket",
     "sectionTitle": "Política de Acesso",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "Lista de Controle de Acesso (ACL)",
     "sectionTitle": "Permissões do Bucket",
@@ -167,7 +165,6 @@
     "saveAcl": "Salvar ACL",
     "savedSuccess": "ACL do bucket atualizada com sucesso"
   },
-
   "tags": {
     "title": "Tags",
     "sectionTitle": "Tags do Bucket",
@@ -192,7 +189,6 @@
     "saving": "Salvando...",
     "saveTags": "Salvar Tags"
   },
-
   "cors": {
     "title": "Configuração CORS",
     "sectionTitle": "Compartilhamento de Recursos de Origem Cruzada",
@@ -246,7 +242,6 @@
     "methodRequired": "Pelo menos um método permitido é obrigatório",
     "addButton": "Adicionar"
   },
-
   "lifecycle": {
     "title": "Regras de Ciclo de Vida",
     "sectionTitle": "Gerenciamento do Ciclo de Vida de Objetos",
@@ -270,7 +265,6 @@
     "saving": "Salvando...",
     "saveRules": "Salvar Regras"
   },
-
   "notifications": {
     "title": "Notificações de Eventos",
     "sectionTitle": "Notificações de Webhook",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "O timeout é definido como 10 segundos por requisição",
     "cancel": "Cancelar",
     "saving": "Salvando...",
-    "updateRule": "Atualizar Regra",
-    "addRule": "Adicionar Regra"
+    "updateRule": "Atualizar Regra"
   },
-
   "replication": {
     "title": "Replicação de Bucket",
     "sectionTitle": "Regras de Replicação",
@@ -433,10 +425,8 @@
     "requirementsItem4": "As regras podem ser temporariamente desativadas sem excluí-las",
     "cancel": "Cancelar",
     "saving": "Salvando...",
-    "updateRule": "Atualizar Regra",
-    "addRule": "Adicionar Regra"
+    "updateRule": "Atualizar Regra"
   },
-
   "inventory": {
     "title": "Inventário do Bucket",
     "loading": "Carregando configuração...",
@@ -482,7 +472,6 @@
     "infoItem4": "Selecione campos específicos para incluir nos relatórios de inventário",
     "infoItem5": "Os relatórios são armazenados no bucket de destino que você especifica"
   },
-
   "website": {
     "title": "Hospedagem de Site Estático",
     "toggleLabel": "Ativar hospedagem de site estático",
@@ -514,5 +503,20 @@
     "infoItem3": "O documento índice é servido quando uma requisição aponta para um caminho de diretório",
     "infoItem4": "O documento de erro é servido quando o objeto solicitado não é encontrado (HTTP 404)",
     "infoItem5": "O acesso via endpoint do site ignora a autenticação S3"
+  },
+  "quota": {
+    "title": "Storage Quota",
+    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
+    "currentUsage": "Current usage",
+    "objects": "objects",
+    "enableLabel": "Enable storage quota",
+    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
+    "maxSizeLabel": "Maximum size",
+    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
+    "maxObjectsLabel": "Maximum object count",
+    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
+    "unlimited": "Unlimited",
+    "saveConfiguration": "Save configuration",
+    "savedSuccess": "Bucket quota saved"
   }
 }

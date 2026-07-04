@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "存储桶设置",
-
   "tabs": {
     "general": {
       "label": "常规",
@@ -29,11 +28,13 @@
     "website": {
       "label": "静态网站",
       "description": "直接从此存储桶托管静态网站"
+    },
+    "quota": {
+      "label": "Quota",
+      "description": "Per-bucket storage limits"
     }
   },
-
   "globalAdminReadOnly": "全局管理员无法修改租户存储桶设置",
-
   "versioning": {
     "title": "版本控制",
     "versionControl": "版本控制",
@@ -48,7 +49,6 @@
     "updatedSuccess": "版本控制更新成功",
     "wormLocked": "由于此存储桶已启用对象锁定 (WORM)，版本控制无法暂停"
   },
-
   "objectLock": {
     "title": "对象锁定",
     "status": "对象锁定状态",
@@ -87,7 +87,6 @@
       "errorPositive": "保留期必须大于 0"
     }
   },
-
   "policy": {
     "title": "存储桶策略",
     "sectionTitle": "访问策略",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "访问控制列表 (ACL)",
     "sectionTitle": "存储桶权限",
@@ -167,7 +165,6 @@
     "saveAcl": "保存 ACL",
     "savedSuccess": "存储桶 ACL 更新成功"
   },
-
   "tags": {
     "title": "标签",
     "sectionTitle": "存储桶标签",
@@ -192,7 +189,6 @@
     "saving": "保存中...",
     "saveTags": "保存标签"
   },
-
   "cors": {
     "title": "CORS 配置",
     "sectionTitle": "跨域资源共享",
@@ -246,7 +242,6 @@
     "methodRequired": "至少需要一个允许的方法",
     "addButton": "添加"
   },
-
   "lifecycle": {
     "title": "生命周期规则",
     "sectionTitle": "对象生命周期管理",
@@ -270,7 +265,6 @@
     "saving": "保存中...",
     "saveRules": "保存规则"
   },
-
   "notifications": {
     "title": "事件通知",
     "sectionTitle": "Webhook 通知",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "每个请求的超时设置为 10 秒",
     "cancel": "取消",
     "saving": "保存中...",
-    "updateRule": "更新规则",
-    "addRule": "添加规则"
+    "updateRule": "更新规则"
   },
-
   "replication": {
     "title": "存储桶复制",
     "sectionTitle": "复制规则",
@@ -433,10 +425,8 @@
     "requirementsItem4": "规则可以临时禁用而不删除",
     "cancel": "取消",
     "saving": "保存中...",
-    "updateRule": "更新规则",
-    "addRule": "添加规则"
+    "updateRule": "更新规则"
   },
-
   "inventory": {
     "title": "存储桶清单",
     "loading": "正在加载配置...",
@@ -482,7 +472,6 @@
     "infoItem4": "选择要包含在清单报告中的特定字段",
     "infoItem5": "报告存储在您指定的目标存储桶中"
   },
-
   "website": {
     "title": "静态网站托管",
     "toggleLabel": "启用静态网站托管",
@@ -514,5 +503,20 @@
     "infoItem3": "当请求针对目录路径时提供索引文档",
     "infoItem4": "找不到请求的对象时（HTTP 404）提供错误文档",
     "infoItem5": "通过网站端点访问将绕过 S3 身份验证"
+  },
+  "quota": {
+    "title": "Storage Quota",
+    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
+    "currentUsage": "Current usage",
+    "objects": "objects",
+    "enableLabel": "Enable storage quota",
+    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
+    "maxSizeLabel": "Maximum size",
+    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
+    "maxObjectsLabel": "Maximum object count",
+    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
+    "unlimited": "Unlimited",
+    "saveConfiguration": "Save configuration",
+    "savedSuccess": "Bucket quota saved"
   }
 }

@@ -1,6 +1,5 @@
 {
   "pageSubtitle": "Paramètres du bucket",
-
   "tabs": {
     "general": {
       "label": "Général",
@@ -29,11 +28,13 @@
     "website": {
       "label": "Site web statique",
       "description": "Héberger un site web statique directement depuis ce bucket"
+    },
+    "quota": {
+      "label": "Quota",
+      "description": "Per-bucket storage limits"
     }
   },
-
   "globalAdminReadOnly": "Les administrateurs globaux ne peuvent pas modifier les paramètres des buckets des tenants",
-
   "versioning": {
     "title": "Gestion des versions",
     "versionControl": "Contrôle de version",
@@ -48,7 +49,6 @@
     "updatedSuccess": "Gestion des versions mise à jour avec succès",
     "wormLocked": "La gestion des versions ne peut pas être suspendue car Object Lock (WORM) est activé sur ce bucket"
   },
-
   "objectLock": {
     "title": "Object Lock",
     "status": "Statut d'Object Lock",
@@ -87,7 +87,6 @@
       "errorPositive": "La période de rétention doit être supérieure à 0"
     }
   },
-
   "policy": {
     "title": "Politique de bucket",
     "sectionTitle": "Politique d'accès",
@@ -137,7 +136,6 @@
       }
     }
   },
-
   "acl": {
     "title": "Liste de contrôle d'accès (ACL)",
     "sectionTitle": "Permissions du bucket",
@@ -167,7 +165,6 @@
     "saveAcl": "Enregistrer l'ACL",
     "savedSuccess": "ACL du bucket mise à jour avec succès"
   },
-
   "tags": {
     "title": "Étiquettes",
     "sectionTitle": "Étiquettes du bucket",
@@ -192,7 +189,6 @@
     "saving": "Enregistrement...",
     "saveTags": "Enregistrer les étiquettes"
   },
-
   "cors": {
     "title": "Configuration CORS",
     "sectionTitle": "Partage de ressources cross-origin",
@@ -246,7 +242,6 @@
     "methodRequired": "Au moins une méthode autorisée est requise",
     "addButton": "Ajouter"
   },
-
   "lifecycle": {
     "title": "Règles de cycle de vie",
     "sectionTitle": "Gestion du cycle de vie des objets",
@@ -270,7 +265,6 @@
     "saving": "Enregistrement...",
     "saveRules": "Enregistrer les règles"
   },
-
   "notifications": {
     "title": "Notifications d'événements",
     "sectionTitle": "Notifications par webhook",
@@ -338,10 +332,8 @@
     "webhookFormatItem4": "Le délai d'expiration est de 10 secondes par requête",
     "cancel": "Annuler",
     "saving": "Enregistrement...",
-    "updateRule": "Mettre à jour la règle",
-    "addRule": "Ajouter une règle"
+    "updateRule": "Mettre à jour la règle"
   },
-
   "replication": {
     "title": "Réplication de bucket",
     "sectionTitle": "Règles de réplication",
@@ -433,10 +425,8 @@
     "requirementsItem4": "Les règles peuvent être temporairement désactivées sans les supprimer",
     "cancel": "Annuler",
     "saving": "Enregistrement...",
-    "updateRule": "Mettre à jour la règle",
-    "addRule": "Ajouter une règle"
+    "updateRule": "Mettre à jour la règle"
   },
-
   "inventory": {
     "title": "Inventaire du bucket",
     "loading": "Chargement de la configuration...",
@@ -482,7 +472,6 @@
     "infoItem4": "Sélectionnez des champs spécifiques à inclure dans vos rapports d'inventaire",
     "infoItem5": "Les rapports sont stockés dans le bucket de destination que vous spécifiez"
   },
-
   "website": {
     "title": "Hébergement de site web statique",
     "toggleLabel": "Activer l'hébergement de site web statique",
@@ -514,5 +503,20 @@
     "infoItem3": "Le document d'index est servi lorsqu'une requête cible un chemin de répertoire",
     "infoItem4": "Le document d'erreur est servi lorsque l'objet demandé n'est pas trouvé (HTTP 404)",
     "infoItem5": "L'accès via le point de terminaison du site web contourne l'authentification S3"
+  },
+  "quota": {
+    "title": "Storage Quota",
+    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
+    "currentUsage": "Current usage",
+    "objects": "objects",
+    "enableLabel": "Enable storage quota",
+    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
+    "maxSizeLabel": "Maximum size",
+    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
+    "maxObjectsLabel": "Maximum object count",
+    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
+    "unlimited": "Unlimited",
+    "saveConfiguration": "Save configuration",
+    "savedSuccess": "Bucket quota saved"
   }
 }

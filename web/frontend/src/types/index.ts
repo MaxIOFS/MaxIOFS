@@ -431,6 +431,11 @@ export interface BucketVersionsResponse {
   isTruncated: boolean;
 }
 
+export interface BucketQuotaState {
+  quota: { maxSizeBytes: number; maxObjectCount: number } | null;
+  usage: { totalSize: number; objectCount: number };
+}
+
 export interface GeneratePresignedURLRequest {
   bucket: string;
   key: string;
