@@ -30,8 +30,8 @@
       "description": "このバケットから直接静的ウェブサイトをホスト"
     },
     "quota": {
-      "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "label": "クォータ",
+      "description": "バケットごとのストレージ制限"
     }
   },
   "globalAdminReadOnly": "グローバル管理者はテナントバケットの設定を変更できません",
@@ -505,18 +505,18 @@
     "infoItem5": "ウェブサイトエンドポイント経由のアクセスはS3認証をバイパスします"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "ストレージクォータ",
+    "description": "このバケットが保存できる容量を制限します。すべてのクライアント（S3、コンソール、Veeam）に適用され、アップロード時に強制されます。",
+    "currentUsage": "現在の使用量",
+    "objects": "オブジェクト",
+    "enableLabel": "ストレージクォータを有効にする",
+    "enableHint": "有効にすると、制限を超えるアップロードは QuotaExceeded で拒否されます。",
+    "maxSizeLabel": "最大サイズ",
+    "maxSizeHint": "保存された合計バイト数はこれを超えることはできません。サイズ制限なしの場合は 0 のままにします。",
+    "maxObjectsLabel": "最大オブジェクト数",
+    "maxObjectsHint": "任意。オブジェクトの最大数。無制限の場合は空欄にします。",
+    "unlimited": "無制限",
+    "saveConfiguration": "設定を保存",
+    "savedSuccess": "バケットのクォータを保存しました"
   }
 }

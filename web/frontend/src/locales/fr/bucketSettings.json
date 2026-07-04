@@ -31,7 +31,7 @@
     },
     "quota": {
       "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "description": "Limites de stockage par bucket"
     }
   },
   "globalAdminReadOnly": "Les administrateurs globaux ne peuvent pas modifier les paramètres des buckets des tenants",
@@ -505,18 +505,18 @@
     "infoItem5": "L'accès via le point de terminaison du site web contourne l'authentification S3"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "Quota de stockage",
+    "description": "Limite la quantité que ce bucket peut stocker. S'applique à tout client (S3, console, Veeam) et est appliqué lors de l'envoi.",
+    "currentUsage": "Utilisation actuelle",
+    "objects": "objets",
+    "enableLabel": "Activer le quota de stockage",
+    "enableHint": "Une fois activé, les envois qui dépasseraient la limite sont rejetés avec QuotaExceeded.",
+    "maxSizeLabel": "Taille maximale",
+    "maxSizeHint": "Le total stocké ne peut pas dépasser cette valeur. Laissez 0 pour aucune limite de taille.",
+    "maxObjectsLabel": "Nombre maximal d'objets",
+    "maxObjectsHint": "Facultatif. Nombre maximal d'objets. Laissez vide pour illimité.",
+    "unlimited": "Illimité",
+    "saveConfiguration": "Enregistrer la configuration",
+    "savedSuccess": "Quota du bucket enregistré"
   }
 }

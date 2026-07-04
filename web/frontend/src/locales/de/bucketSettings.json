@@ -30,8 +30,8 @@
       "description": "Eine statische Website direkt aus diesem Bucket hosten"
     },
     "quota": {
-      "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "label": "Kontingent",
+      "description": "Speicherlimits pro Bucket"
     }
   },
   "globalAdminReadOnly": "Globale Administratoren können Mandanten-Bucket-Einstellungen nicht ändern",
@@ -505,18 +505,18 @@
     "infoItem5": "Zugriff über den Website-Endpunkt umgeht die S3-Authentifizierung"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "Speicherkontingent",
+    "description": "Begrenzt, wie viel dieser Bucket speichern kann. Gilt für jeden Client (S3, Konsole, Veeam) und wird beim Hochladen erzwungen.",
+    "currentUsage": "Aktuelle Nutzung",
+    "objects": "Objekte",
+    "enableLabel": "Speicherkontingent aktivieren",
+    "enableHint": "Wenn aktiviert, werden Uploads, die das Limit überschreiten, mit QuotaExceeded abgelehnt.",
+    "maxSizeLabel": "Maximale Größe",
+    "maxSizeHint": "Die insgesamt gespeicherten Bytes dürfen dies nicht überschreiten. 0 für keine Größenbeschränkung.",
+    "maxObjectsLabel": "Maximale Objektanzahl",
+    "maxObjectsHint": "Optional. Maximale Anzahl von Objekten. Leer lassen für unbegrenzt.",
+    "unlimited": "Unbegrenzt",
+    "saveConfiguration": "Konfiguration speichern",
+    "savedSuccess": "Bucket-Kontingent gespeichert"
   }
 }

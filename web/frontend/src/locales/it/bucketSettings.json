@@ -31,7 +31,7 @@
     },
     "quota": {
       "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "description": "Limiti di archiviazione per bucket"
     }
   },
   "globalAdminReadOnly": "Gli amministratori globali non possono modificare le impostazioni dei bucket tenant",
@@ -505,18 +505,18 @@
     "infoItem5": "L'accesso tramite l'endpoint del sito web bypassa l'autenticazione S3"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "Quota di archiviazione",
+    "description": "Limita quanto questo bucket può archiviare. Si applica a qualsiasi client (S3, console, Veeam) e viene applicato durante il caricamento.",
+    "currentUsage": "Utilizzo attuale",
+    "objects": "oggetti",
+    "enableLabel": "Abilita quota di archiviazione",
+    "enableHint": "Se abilitata, i caricamenti che supererebbero il limite vengono rifiutati con QuotaExceeded.",
+    "maxSizeLabel": "Dimensione massima",
+    "maxSizeHint": "Il totale archiviato non può superare questo valore. Lascia 0 per nessun limite di dimensione.",
+    "maxObjectsLabel": "Numero massimo di oggetti",
+    "maxObjectsHint": "Facoltativo. Numero massimo di oggetti. Lascia vuoto per illimitato.",
+    "unlimited": "Illimitato",
+    "saveConfiguration": "Salva configurazione",
+    "savedSuccess": "Quota del bucket salvata"
   }
 }

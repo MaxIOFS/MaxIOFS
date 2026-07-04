@@ -30,8 +30,8 @@
       "description": "Hospedar um site estático diretamente deste bucket"
     },
     "quota": {
-      "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "label": "Cota",
+      "description": "Limites de armazenamento por bucket"
     }
   },
   "globalAdminReadOnly": "Administradores globais não podem modificar as configurações de buckets de tenant",
@@ -505,18 +505,18 @@
     "infoItem5": "O acesso via endpoint do site ignora a autenticação S3"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "Cota de armazenamento",
+    "description": "Limita quanto este bucket pode armazenar. Aplica-se a qualquer cliente (S3, console, Veeam) e é aplicada no envio.",
+    "currentUsage": "Uso atual",
+    "objects": "objetos",
+    "enableLabel": "Ativar cota de armazenamento",
+    "enableHint": "Quando ativada, os envios que excederem o limite são rejeitados com QuotaExceeded.",
+    "maxSizeLabel": "Tamanho máximo",
+    "maxSizeHint": "O total armazenado não pode exceder este valor. Deixe 0 para nenhum limite de tamanho.",
+    "maxObjectsLabel": "Número máximo de objetos",
+    "maxObjectsHint": "Opcional. Número máximo de objetos. Deixe vazio para ilimitado.",
+    "unlimited": "Ilimitado",
+    "saveConfiguration": "Salvar configuração",
+    "savedSuccess": "Cota do bucket salva"
   }
 }

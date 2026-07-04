@@ -30,8 +30,8 @@
       "description": "Размещение статического сайта напрямую из этого бакета"
     },
     "quota": {
-      "label": "Quota",
-      "description": "Per-bucket storage limits"
+      "label": "Квота",
+      "description": "Ограничения хранилища для бакета"
     }
   },
   "globalAdminReadOnly": "Глобальные администраторы не могут изменять настройки бакетов тенантов",
@@ -505,18 +505,18 @@
     "infoItem5": "Доступ через эндпойнт сайта обходит S3-аутентификацию"
   },
   "quota": {
-    "title": "Storage Quota",
-    "description": "Limit how much this bucket can store. Applies to any client (S3, console, Veeam) and is enforced on upload.",
-    "currentUsage": "Current usage",
-    "objects": "objects",
-    "enableLabel": "Enable storage quota",
-    "enableHint": "When enabled, uploads that would exceed the limit are rejected with QuotaExceeded.",
-    "maxSizeLabel": "Maximum size",
-    "maxSizeHint": "Total stored bytes cannot exceed this. Leave 0 for no size limit.",
-    "maxObjectsLabel": "Maximum object count",
-    "maxObjectsHint": "Optional. Maximum number of objects. Leave empty for unlimited.",
-    "unlimited": "Unlimited",
-    "saveConfiguration": "Save configuration",
-    "savedSuccess": "Bucket quota saved"
+    "title": "Квота хранилища",
+    "description": "Ограничивает объём хранения в этом бакете. Применяется к любому клиенту (S3, консоль, Veeam) и проверяется при загрузке.",
+    "currentUsage": "Текущее использование",
+    "objects": "объектов",
+    "enableLabel": "Включить квоту хранилища",
+    "enableHint": "Когда включено, загрузки, превышающие лимит, отклоняются с ошибкой QuotaExceeded.",
+    "maxSizeLabel": "Максимальный размер",
+    "maxSizeHint": "Общий объём хранения не может превышать это значение. Оставьте 0, чтобы не ограничивать размер.",
+    "maxObjectsLabel": "Максимальное количество объектов",
+    "maxObjectsHint": "Необязательно. Максимальное число объектов. Оставьте пустым для неограниченного.",
+    "unlimited": "Без ограничений",
+    "saveConfiguration": "Сохранить конфигурацию",
+    "savedSuccess": "Квота бакета сохранена"
   }
 }
