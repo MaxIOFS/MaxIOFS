@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -51,6 +52,12 @@ func (s *Server) handleGetBucketQuota(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// In a cluster the bucket (and its cached usage + quota config) lives on its
+	// owner node; proxy there so we read/enforce against the authoritative totals.
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
+
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
@@ -90,6 +97,12 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// Route to the bucket's owner node so the quota is persisted where the bucket
+	// metadata lives.
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
+
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
@@ -119,6 +132,22 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 	if req.MaxSizeBytes < 0 || req.MaxObjectCount < 0 {
 		s.writeError(w, "Quota limits cannot be negative", http.StatusBadRequest)
 		return
+	}
+
+	// A bucket that belongs to a tenant may not be given a size quota larger than
+	// the space assigned to that tenant — the tenant quota is the hard ceiling.
+	if req.MaxSizeBytes > 0 {
+		if info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName); err == nil && info != nil &&
+			info.OwnerType == "tenant" && info.OwnerID != "" {
+			if tenant, terr := s.authManager.GetTenant(ctx, info.OwnerID); terr == nil && tenant != nil && tenant.MaxStorageBytes > 0 {
+				if req.MaxSizeBytes > tenant.MaxStorageBytes {
+					s.writeError(w, fmt.Sprintf(
+						"Bucket quota (%d bytes) cannot exceed the tenant's storage quota (%d bytes)",
+						req.MaxSizeBytes, tenant.MaxStorageBytes), http.StatusBadRequest)
+					return
+				}
+			}
+		}
 	}
 
 	// Both limits zero means "no quota" — clear it rather than persisting an
@@ -172,6 +201,11 @@ func (s *Server) handleDeleteBucketQuota(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	// Route to the bucket's owner node.
+	if s.proxyConsoleRequest(w, r, bucketName) {
+		return
+	}
 
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {

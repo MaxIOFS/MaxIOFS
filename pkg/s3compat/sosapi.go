@@ -130,8 +130,10 @@ func generateCapacityXML(totalCapacity, availableCapacity int64) ([]byte, error)
 	return []byte(xml.Header + string(output)), nil
 }
 
-// getSOSAPIVirtualObject returns the content for SOSAPI virtual objects
-func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, objectKey string) ([]byte, string, error) {
+// getSOSAPIVirtualObject returns the content for SOSAPI virtual objects.
+// bucketName/tenantID identify the bucket VEEAM is querying so that a per-bucket
+// quota can be reported as the advertised capacity.
+func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenantID, objectKey string) ([]byte, string, error) {
 	// Check if it's a system.xml file (with or without prefix path)
 	if strings.HasSuffix(objectKey, systemXMLObject) || objectKey == systemXMLObject {
 		data, err := generateSystemXML()
@@ -143,59 +145,73 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, objectKey string) 
 
 	// Check if it's a capacity.xml file (with or without prefix path)
 	if strings.HasSuffix(objectKey, capacityXMLObject) || objectKey == capacityXMLObject {
-		// Calculate capacity from actual disk usage
 		totalCapacity := int64(1024 * 1024 * 1024 * 1024)    // Default: 1TB
 		availableCapacity := int64(900 * 1024 * 1024 * 1024) // Default: 900GB
 
-		// Get user from context to determine if we should use tenant quota
-		user, userExists := auth.GetUserFromContext(ctx)
+		// Precedence for the capacity VEEAM sees: per-bucket quota → tenant quota
+		// → physical disk. A bucket quota, when set, is the most specific limit and
+		// applies to global buckets too, so VEEAM sees the real target-bucket cap.
+		reported := false
 
-		useDisk := true
-
-		if userExists && user.TenantID != "" && h.authManager != nil {
-			// User is from a tenant - use tenant quota if one is configured
-			tenant, err := h.authManager.GetTenant(ctx, user.TenantID)
-			if err != nil {
-				logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for SOSAPI capacity")
-				// On error fall through to disk usage
-			} else if tenant.MaxStorageBytes > 0 {
-				// Quota is configured: report quota as capacity
-				totalCapacity = tenant.MaxStorageBytes
-				usedCapacity := tenant.CurrentStorageBytes
-				availableCapacity = totalCapacity - usedCapacity
+		// 1) Per-bucket quota.
+		if h.bucketManager != nil && bucketName != "" {
+			if info, err := h.bucketManager.GetBucketInfo(ctx, tenantID, bucketName); err == nil && info != nil && info.Quota != nil && info.Quota.MaxSizeBytes > 0 {
+				totalCapacity = info.Quota.MaxSizeBytes
+				used := info.TotalSize
+				availableCapacity = totalCapacity - used
 				if availableCapacity < 0 {
 					availableCapacity = 0
 				}
-				useDisk = false
+				reported = true
 				logrus.WithFields(logrus.Fields{
-					"tenant_id":   user.TenantID,
+					"bucket":      bucketName,
 					"quota_bytes": totalCapacity,
-					"used_bytes":  usedCapacity,
+					"used_bytes":  used,
 					"free_bytes":  availableCapacity,
-					"username":    user.Username,
-				}).Info("SOSAPI capacity calculated from tenant quota")
-			} else {
-				// No quota configured: fall through to actual disk usage
-				logrus.WithField("tenantID", user.TenantID).Info("SOSAPI: tenant has no quota configured, using disk capacity")
+				}).Info("SOSAPI capacity calculated from bucket quota")
 			}
 		}
 
-		if useDisk {
-			// Global user or tenant with no quota — use full disk capacity
-			if h.dataDir != "" {
-				diskInfo, err := disk.Usage(h.dataDir)
+		// 2) Tenant quota (only when the bucket has no quota of its own).
+		if !reported {
+			user, userExists := auth.GetUserFromContext(ctx)
+			if userExists && user.TenantID != "" && h.authManager != nil {
+				tenant, err := h.authManager.GetTenant(ctx, user.TenantID)
 				if err != nil {
-					logrus.WithError(err).Warn("Failed to get disk usage, using defaults")
-				} else {
-					totalCapacity = int64(diskInfo.Total)
-					availableCapacity = int64(diskInfo.Free)
+					logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for SOSAPI capacity")
+				} else if tenant.MaxStorageBytes > 0 {
+					totalCapacity = tenant.MaxStorageBytes
+					usedCapacity := tenant.CurrentStorageBytes
+					availableCapacity = totalCapacity - usedCapacity
+					if availableCapacity < 0 {
+						availableCapacity = 0
+					}
+					reported = true
 					logrus.WithFields(logrus.Fields{
-						"total_bytes": totalCapacity,
+						"tenant_id":   user.TenantID,
+						"quota_bytes": totalCapacity,
+						"used_bytes":  usedCapacity,
 						"free_bytes":  availableCapacity,
-						"used_bytes":  int64(diskInfo.Used),
-						"data_dir":    h.dataDir,
-					}).Info("SOSAPI capacity calculated from disk")
+						"username":    user.Username,
+					}).Info("SOSAPI capacity calculated from tenant quota")
 				}
+			}
+		}
+
+		// 3) Physical disk (no bucket or tenant quota configured).
+		if !reported && h.dataDir != "" {
+			diskInfo, err := disk.Usage(h.dataDir)
+			if err != nil {
+				logrus.WithError(err).Warn("Failed to get disk usage, using defaults")
+			} else {
+				totalCapacity = int64(diskInfo.Total)
+				availableCapacity = int64(diskInfo.Free)
+				logrus.WithFields(logrus.Fields{
+					"total_bytes": totalCapacity,
+					"free_bytes":  availableCapacity,
+					"used_bytes":  int64(diskInfo.Used),
+					"data_dir":    h.dataDir,
+				}).Info("SOSAPI capacity calculated from disk")
 			}
 		}
 

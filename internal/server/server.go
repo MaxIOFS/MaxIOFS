@@ -85,6 +85,7 @@ type Server struct {
 	deadNodeReconciler      *cluster.DeadNodeReconciler
 	notificationHub         *NotificationHub
 	quotaAlerts             *quotaAlertTracker
+	bucketQuotaAlerts       *bucketQuotaAlertTracker
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
 	inventoryManager        *inventory.Manager
@@ -269,8 +270,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize SSE notification hub
 	notificationHub := NewNotificationHub()
 
-	// Initialize quota alert tracker
+	// Initialize quota alert trackers
 	quotaAlerts := newQuotaAlertTracker()
+	bucketQuotaAlerts := newBucketQuotaAlertTracker()
 
 	// Initialize lifecycle worker
 	lifecycleWorker := lifecycle.NewWorker(bucketManager, objectManager, metadataStore)
@@ -496,6 +498,7 @@ func New(cfg *config.Config) (*Server, error) {
 		staleReconciler:         staleReconciler,
 		notificationHub:         notificationHub,
 		quotaAlerts:             quotaAlerts,
+		bucketQuotaAlerts:       bucketQuotaAlerts,
 		systemMetrics:           systemMetrics,
 		lifecycleWorker:         lifecycleWorker,
 		inventoryManager:        inventoryManager,
@@ -548,6 +551,17 @@ func New(cfg *config.Config) (*Server, error) {
 	authManager.SetStorageQuotaAlertCallback(func(tenantID string, currentBytes, maxBytes int64) {
 		server.checkQuotaAlert(tenantID, currentBytes, maxBytes)
 	})
+
+	// Connect per-bucket quota alert callback (SSE + email as a bucket nears its
+	// quota). The concrete bucket manager exposes the setter without widening the
+	// bucket.Manager interface, so we reach it via a narrow type assertion.
+	if bqm, ok := bucketManager.(interface {
+		SetBucketQuotaAlertCallback(cb func(tenantID, bucketName string, currentBytes, maxBytes int64))
+	}); ok {
+		bqm.SetBucketQuotaAlertCallback(func(tenantID, bucketName string, currentBytes, maxBytes int64) {
+			server.checkBucketQuotaAlert(tenantID, bucketName, currentBytes, maxBytes)
+		})
+	}
 
 	// Setup routes
 	if err := server.setupRoutes(); err != nil {

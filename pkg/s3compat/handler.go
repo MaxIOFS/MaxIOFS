@@ -1750,7 +1750,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 			"object": objectKey,
 		}).Info("HeadObject for VEEAM SOSAPI virtual object")
 
-		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
+		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), bucketName, tenantID, objectKey)
 		if err != nil {
 			h.writeError(w, "InternalError", err.Error(), objectKey, r)
 			return
@@ -2798,11 +2798,15 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 		return false
 	}
 
+	bucketName := mux.Vars(r)["bucket"]
+	tenantID := h.resolveBucketTenantID(r, bucketName)
+
 	logrus.WithFields(logrus.Fields{
+		"bucket": bucketName,
 		"object": objectKey,
 	}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
 
-	data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), objectKey)
+	data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), bucketName, tenantID, objectKey)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return true

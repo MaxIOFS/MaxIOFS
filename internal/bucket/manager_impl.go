@@ -20,6 +20,34 @@ type badgerBucketManager struct {
 	metadataStore metadata.Store
 	aclManager    acl.Manager
 	auditManager  *audit.Manager
+
+	// quotaAlertCb, when set, is invoked after a bucket's cached size changes so
+	// the server can fire SSE/email alerts as usage approaches the per-bucket
+	// quota. It receives the bucket's updated total size and its size cap.
+	quotaAlertCb func(tenantID, bucketName string, currentBytes, maxBytes int64)
+}
+
+// SetBucketQuotaAlertCallback registers a callback fired after every cached-size
+// change on a bucket, mirroring the tenant storage-quota alert mechanism.
+func (bm *badgerBucketManager) SetBucketQuotaAlertCallback(cb func(tenantID, bucketName string, currentBytes, maxBytes int64)) {
+	bm.quotaAlertCb = cb
+}
+
+// fireBucketQuotaAlert reads the bucket's current metadata and, if a size quota
+// is configured, invokes the alert callback with the updated usage. Runs the
+// read+callback asynchronously so it never blocks the upload path (same approach
+// as IncrementTenantStorage).
+func (bm *badgerBucketManager) fireBucketQuotaAlert(tenantID, name string) {
+	if bm.quotaAlertCb == nil {
+		return
+	}
+	go func() {
+		meta, err := bm.metadataStore.GetBucket(context.Background(), tenantID, name)
+		if err != nil || meta == nil || meta.Quota == nil || meta.Quota.MaxSizeBytes == 0 {
+			return // unlimited or bucket not found — nothing to alert on
+		}
+		bm.quotaAlertCb(tenantID, name, meta.TotalSize, meta.Quota.MaxSizeBytes)
+	}()
 }
 
 // newBucketManager creates a new bucket manager backed by any metadata.Store
@@ -836,7 +864,13 @@ func (bm *badgerBucketManager) SetObjectLockConfig(ctx context.Context, tenantID
 
 // IncrementObjectCount increments the cached object count for a bucket
 func (bm *badgerBucketManager) IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error {
-	return bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, 1, sizeBytes)
+	if err := bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, 1, sizeBytes); err != nil {
+		return err
+	}
+	if sizeBytes > 0 {
+		bm.fireBucketQuotaAlert(tenantID, name)
+	}
+	return nil
 }
 
 // DecrementObjectCount decrements the cached object count for a bucket
@@ -847,7 +881,13 @@ func (bm *badgerBucketManager) DecrementObjectCount(ctx context.Context, tenantI
 // AdjustBucketSize adjusts TotalSize by sizeDelta without changing ObjectCount.
 // Use for overwrites (same key) and additional versions where count is unchanged.
 func (bm *badgerBucketManager) AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error {
-	return bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, 0, sizeDelta)
+	if err := bm.metadataStore.UpdateBucketMetrics(ctx, tenantID, name, 0, sizeDelta); err != nil {
+		return err
+	}
+	if sizeDelta > 0 {
+		bm.fireBucketQuotaAlert(tenantID, name)
+	}
+	return nil
 }
 
 // RecalculateMetrics recalculates the object count and total size for a bucket

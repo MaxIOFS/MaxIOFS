@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -189,6 +190,33 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 					TenantID:  tenantID,
 				})
 			}
+			return true
+		})
+	}
+
+	// --- Bucket quota: send bucket_quota_resolved for any bucket that de-escalated ---
+	// Keys are "tenantID/bucketName"; split on the first '/' to recover both.
+	if s.bucketQuotaAlerts != nil {
+		s.bucketQuotaAlerts.levels.Range(func(key, value interface{}) bool {
+			k, ok := key.(string)
+			if !ok {
+				return true
+			}
+			level, ok := value.(alertLevel)
+			if !ok || level != alertLevelNone {
+				return true
+			}
+			tenantID, bucketName := "", k
+			if idx := strings.IndexByte(k, '/'); idx >= 0 {
+				tenantID, bucketName = k[:idx], k[idx+1:]
+			}
+			send(&Notification{
+				Type:      "bucket_quota_resolved",
+				Message:   fmt.Sprintf("Bucket %q storage quota is back to normal", bucketName),
+				Data:      map[string]interface{}{"bucket": bucketName, "tenantId": tenantID},
+				Timestamp: time.Now().Unix(),
+				TenantID:  tenantID,
+			})
 			return true
 		})
 	}

@@ -534,10 +534,12 @@ export default function BucketSettingsPage() {
   });
 
   // ===== Per-bucket storage quota =====
+  // Use binary (1024) factors so the value the user types matches what formatBytes
+  // (which is base-1024) renders back — e.g. "5 GB" shows as "5 GB", not "4.66 GB".
   const quotaSizeUnits = [
-    { label: 'MB', factor: 1000 * 1000 },
-    { label: 'GB', factor: 1000 * 1000 * 1000 },
-    { label: 'TB', factor: 1000 * 1000 * 1000 * 1000 },
+    { label: 'MB', factor: 1024 * 1024 },
+    { label: 'GB', factor: 1024 * 1024 * 1024 },
+    { label: 'TB', factor: 1024 * 1024 * 1024 * 1024 },
   ];
   const [quotaEnabled, setQuotaEnabled] = useState(false);
   const [quotaSizeValue, setQuotaSizeValue] = useState<string>('');
@@ -601,6 +603,15 @@ export default function BucketSettingsPage() {
       ModalManager.apiError(error);
     },
   });
+
+  // Dirty-check: the Save button is only enabled when the form differs from the
+  // persisted quota (and, when enabled, at least one limit is set). Mirrors the
+  // inventory tab so saving a no-op is not possible.
+  const quotaBaselineSize = quotaState?.quota?.maxSizeBytes ?? 0;
+  const quotaBaselineObjects = quotaState?.quota?.maxObjectCount ?? 0;
+  const quotaFormSize = quotaEnabled ? quotaBytesFromForm() : 0;
+  const quotaFormObjects = quotaEnabled && quotaMaxObjects ? Math.max(0, parseInt(quotaMaxObjects, 10) || 0) : 0;
+  const quotaDirty = quotaFormSize !== quotaBaselineSize || quotaFormObjects !== quotaBaselineObjects;
 
   // ACL mutations
   const saveACLMutation = useMutation({
@@ -1820,7 +1831,8 @@ export default function BucketSettingsPage() {
                 onClick={() => saveQuotaMutation.mutate()}
                 disabled={
                   isGlobalAdminInTenantBucket ||
-                  (quotaEnabled && quotaBytesFromForm() <= 0 && (!quotaMaxObjects || parseInt(quotaMaxObjects, 10) <= 0))
+                  !quotaDirty ||
+                  (quotaEnabled && quotaFormSize <= 0 && quotaFormObjects <= 0)
                 }
                 loading={saveQuotaMutation.isPending}
               >

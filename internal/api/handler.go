@@ -327,16 +327,17 @@ func (h *Handler) S3ClientMiddleware(next http.Handler) http.Handler {
 //   - Direct access by IP/hostname (no proxy headers): redirect to the same host but
 //     on the console listen port — the same way MinIO redirects to its console.
 func (h *Handler) effectiveConsoleRedirectURL(r *http.Request) string {
-	behindProxy := r.Header.Get("X-Forwarded-For") != "" ||
-		r.Header.Get("X-Forwarded-Host") != "" ||
-		r.Header.Get("X-Real-IP") != ""
-
-	if behindProxy {
-		if raw := strings.TrimSpace(h.publicConsoleURL); raw != "" {
-			return raw
-		}
+	// Honor an explicitly configured public console URL regardless of how the
+	// request arrives (reverse proxy, direct Docker/NAT port mapping, etc.). The
+	// admin sets public_console_url precisely so redirects point at the real
+	// external console URL, so it must NOT depend on X-Forwarded-* headers being
+	// present — e.g. a port mapping like 39000:8081 has no such headers yet the
+	// external port differs from the internal console listen port.
+	if raw := strings.TrimSpace(h.publicConsoleURL); raw != "" {
+		return raw
 	}
 
+	// Only when no public console URL is configured, derive one from the request.
 	return h.fallbackConsoleURLFromRequest(r)
 }
 

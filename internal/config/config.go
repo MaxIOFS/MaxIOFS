@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -247,6 +249,17 @@ func validate(cfg *Config) error {
 		}
 	}
 
+	// The S3 API and the web console are distinct services. If their public URLs
+	// are identical, generated links collide — S3 share/presigned URLs (which use
+	// public_api_url) would point at the console, and a reverse proxy cannot tell
+	// S3 traffic from console traffic. Require them to differ by host, port, or
+	// path prefix. (GitHub issue #6: user set the same URL for both.)
+	if cfg.PublicAPIURL != "" && cfg.PublicConsoleURL != "" {
+		if normalizeURLForCompare(cfg.PublicAPIURL) == normalizeURLForCompare(cfg.PublicConsoleURL) {
+			return fmt.Errorf("public_api_url and public_console_url must not be identical (%q): the S3 API and the web console need distinct public URLs — give each a different hostname, port, or path prefix", cfg.PublicAPIURL)
+		}
+	}
+
 	// Generate JWT secret if not provided
 	if cfg.Auth.EnableAuth && cfg.Auth.JWTSecret == "" {
 		cfg.Auth.JWTSecret = generateRandomString(32)
@@ -269,4 +282,17 @@ func generateRandomString(length int) string {
 		b[i] = charset[i%len(charset)]
 	}
 	return string(b)
+}
+
+// normalizeURLForCompare canonicalizes a public URL for equality comparison:
+// lowercased scheme+host, trailing slashes trimmed from the path. This makes
+// "http://x:8080" and "http://x:8080/" compare equal while keeping distinct
+// hosts, ports, or path prefixes (e.g. ".../s3") different.
+func normalizeURLForCompare(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.TrimRight(strings.ToLower(raw), "/")
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimRight(u.Path, "/")
 }
