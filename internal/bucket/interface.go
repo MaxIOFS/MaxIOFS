@@ -43,6 +43,9 @@ type Bucket struct {
 	ObjectCount int64 `json:"object_count"` // Cached object count
 	TotalSize   int64 `json:"total_size"`   // Cached total size in bytes
 
+	// Optional per-bucket storage quota — nil means no bucket-level limit.
+	Quota *metadata.BucketQuota `json:"quota,omitempty"`
+
 	// HA replication — nil means factor 1 (no HA, single node)
 	HA *metadata.BucketHA `json:"ha,omitempty"`
 }
@@ -113,6 +116,10 @@ type Manager interface {
 	// Object Lock
 	GetObjectLockConfig(ctx context.Context, tenantID, name string) (*ObjectLockConfig, error)
 	SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error
+
+	// Per-bucket storage quota
+	SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error
+	DeleteQuota(ctx context.Context, tenantID, name string) error
 
 	// ACL operations
 	GetBucketACL(ctx context.Context, tenantID, name string) (interface{}, error)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,12 @@ func (m *MockBucketManagerForLocation) RecalculateMetrics(ctx context.Context, t
 	return nil
 }
 func (m *MockBucketManagerForLocation) AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
+	return nil
+}
+func (m *MockBucketManagerForLocation) DeleteQuota(ctx context.Context, tenantID, name string) error {
 	return nil
 }
 func (m *MockBucketManagerForLocation) IsReady() bool {

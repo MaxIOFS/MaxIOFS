@@ -176,6 +176,16 @@ func (m *MockBucketManager) SetObjectLockConfig(ctx context.Context, tenantID, n
 	return args.Error(0)
 }
 
+func (m *MockBucketManager) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
+	args := m.Called(ctx, tenantID, name, quota)
+	return args.Error(0)
+}
+
+func (m *MockBucketManager) DeleteQuota(ctx context.Context, tenantID, name string) error {
+	args := m.Called(ctx, tenantID, name)
+	return args.Error(0)
+}
+
 func (m *MockBucketManager) GetBucketACL(ctx context.Context, tenantID, name string) (interface{}, error) {
 	args := m.Called(ctx, tenantID, name)
 	return args.Get(0), args.Error(1)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -517,6 +518,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/inventory", s.handlePutBucketInventory).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/inventory", s.handleDeleteBucketInventory).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/inventory/reports", s.handleListBucketInventoryReports).Methods("GET", "OPTIONS")
+
+	// Bucket storage quota endpoints
+	router.HandleFunc("/buckets/{bucket}/quota", s.handleGetBucketQuota).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/quota", s.handlePutBucketQuota).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/quota", s.handleDeleteBucketQuota).Methods("DELETE", "OPTIONS")
 
 	// Bucket static website hosting endpoints
 	router.HandleFunc("/buckets/{bucket}/website", s.handleGetBucketWebsite).Methods("GET", "OPTIONS")
@@ -2347,6 +2353,8 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		} else if errors.Is(err, object.ErrBucketQuotaExceeded) {
+			s.writeError(w, err.Error(), http.StatusForbidden)
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}

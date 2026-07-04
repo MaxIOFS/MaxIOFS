@@ -86,8 +86,22 @@ type BucketMetadata struct {
 	ObjectCount int64 `json:"object_count"`
 	TotalSize   int64 `json:"total_size"`
 
+	// Optional per-bucket storage quota — nil means no bucket-level limit.
+	// Applies to global buckets (TenantID == "") as well as tenant buckets,
+	// and is enforced independently of (and in addition to) any tenant quota.
+	Quota *BucketQuota `json:"quota,omitempty"`
+
 	// HA replication — nil means factor 1 (no HA, single node)
 	HA *BucketHA `json:"ha,omitempty"`
+}
+
+// BucketQuota defines optional storage limits for a single bucket. A zero value
+// for a field means "no limit" for that dimension. Enforcement compares the
+// bucket's cached TotalSize / ObjectCount plus the incoming write against these
+// caps and rejects the write with a quota error when it would exceed them.
+type BucketQuota struct {
+	MaxSizeBytes   int64 `json:"max_size_bytes,omitempty"`   // hard cap on total stored bytes (0 = unlimited)
+	MaxObjectCount int64 `json:"max_object_count,omitempty"` // hard cap on object count (0 = unlimited)
 }
 
 // BucketHA holds the high-availability replication state for a bucket.

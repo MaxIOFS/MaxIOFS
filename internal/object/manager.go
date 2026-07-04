@@ -598,33 +598,41 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	size := originalSize
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
 
-	// Validate tenant storage quota before committing.
-	// Skipped for HA replica writes: the primary already validated the quota; replicas
-	// must store the object unconditionally and only update their local counter.
-	if om.authManager != nil && tenantID != "" && !isBypassQuotaEnforcement(ctx) {
+	// Enforce storage quotas before committing. Skipped for HA replica writes:
+	// the primary already validated; replicas store unconditionally and only
+	// update their local counters. The tenant quota applies to tenant buckets;
+	// the per-bucket quota applies to global buckets too (its whole purpose).
+	if !isBypassQuotaEnforcement(ctx) {
 		var sizeIncrement int64
+		var isNewObject bool
 		if versioningEnabled {
 			// All previous versions are preserved — the new version adds its full size.
 			sizeIncrement = size
+			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+			isNewObject = existingObj == nil || isMetadataDeleteMarker(existingObj)
 		} else {
 			// Non-versioned: overwriting replaces the old object, so only the delta counts.
 			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
 			if existingObj == nil {
 				sizeIncrement = size
+				isNewObject = true
 			} else {
 				sizeIncrement = size - existingObj.Size
 			}
 		}
 
-		// Only validate if adding storage
-		if sizeIncrement > 0 {
+		// Tenant quota (tenant buckets only).
+		if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
 			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-				// Quota exceeded - delete the stored object file
-				if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
-					logrus.WithError(delErr).WithField("path", objectPath).Error("Failed to delete object after quota exceeded — orphaned file may remain")
-				}
+				om.discardStoredObject(ctx, objectPath, "tenant quota exceeded")
 				return nil, fmt.Errorf("storage quota exceeded: %w", err)
 			}
+		}
+
+		// Per-bucket quota (global and tenant buckets).
+		if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
+			om.discardStoredObject(ctx, objectPath, "bucket quota exceeded")
+			return nil, err
 		}
 	}
 
@@ -2933,51 +2941,102 @@ func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID stri
 
 // checkMultipartQuotaBeforeComplete validates tenant quota before combining parts
 func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, bucket, uploadID string, totalSize int64, existingObj *metadata.ObjectMetadata, versioningEnabled bool) error {
-	if om.authManager == nil {
-		return nil
-	}
-
-	tenantID, _ := om.parseBucketPath(bucket)
-	if tenantID == "" {
-		return nil
-	}
-
 	var sizeIncrement int64
 	if versioningEnabled || existingObj == nil {
 		sizeIncrement = totalSize
 	} else {
 		sizeIncrement = totalSize - existingObj.Size
 	}
+	isNewObject := existingObj == nil || isMetadataDeleteMarker(existingObj)
 
-	// Only check quota if adding storage
-	if sizeIncrement <= 0 {
-		return nil
-	}
+	tenantID, _ := om.parseBucketPath(bucket)
 
-	logrus.WithFields(logrus.Fields{
-		"tenantID":  tenantID,
-		"uploadID":  uploadID,
-		"totalSize": totalSize,
-		"existingSize": func() int64 {
-			if existingObj != nil {
-				return existingObj.Size
-			}
-			return 0
-		}(),
-		"sizeIncrement": sizeIncrement,
-	}).Info("Validating quota before completing multipart upload")
-
-	if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+	// Tenant quota (tenant buckets only), enforced when adding storage.
+	if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
 		logrus.WithFields(logrus.Fields{
 			"tenantID":      tenantID,
 			"uploadID":      uploadID,
+			"totalSize":     totalSize,
 			"sizeIncrement": sizeIncrement,
-			"error":         err,
-		}).Warn("Multipart upload quota validation failed")
-		return fmt.Errorf("storage quota exceeded: %w", err)
+		}).Info("Validating tenant quota before completing multipart upload")
+
+		if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"tenantID":      tenantID,
+				"uploadID":      uploadID,
+				"sizeIncrement": sizeIncrement,
+				"error":         err,
+			}).Warn("Multipart upload tenant quota validation failed")
+			return fmt.Errorf("storage quota exceeded: %w", err)
+		}
+	}
+
+	// Per-bucket quota (global and tenant buckets).
+	if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"bucket":   bucket,
+			"uploadID": uploadID,
+			"error":    err,
+		}).Warn("Multipart upload bucket quota validation failed")
+		return err
 	}
 
 	return nil
+}
+
+// checkBucketStorageQuota enforces the optional per-bucket quota. Unlike the
+// tenant quota it also applies to global buckets (TenantID == ""), which is the
+// whole point of bucket-level limits (e.g. a dedicated Veeam target bucket). It
+// compares the bucket's cached usage against the configured caps and rejects the
+// write when it would exceed them. A nil quota (or a zero cap) is a no-op.
+// sizeIncrement is the net bytes being added (overwrite deltas already applied);
+// newObject reports whether this write adds a new visible object key and gates
+// the object-count cap.
+func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket string, sizeIncrement int64, newObject bool) error {
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
+	if err != nil || bucketMeta == nil || bucketMeta.Quota == nil {
+		return nil
+	}
+	q := bucketMeta.Quota
+
+	if q.MaxSizeBytes > 0 && sizeIncrement > 0 {
+		if bucketMeta.TotalSize+sizeIncrement > q.MaxSizeBytes {
+			logrus.WithFields(logrus.Fields{
+				"bucket":        bucket,
+				"currentBytes":  bucketMeta.TotalSize,
+				"maxBytes":      q.MaxSizeBytes,
+				"sizeIncrement": sizeIncrement,
+			}).Warn("Bucket storage quota exceeded (size)")
+			return fmt.Errorf("%w: %d/%d bytes (attempting to add %d)",
+				ErrBucketQuotaExceeded, bucketMeta.TotalSize, q.MaxSizeBytes, sizeIncrement)
+		}
+	}
+
+	if q.MaxObjectCount > 0 && newObject {
+		if bucketMeta.ObjectCount+1 > q.MaxObjectCount {
+			logrus.WithFields(logrus.Fields{
+				"bucket":       bucket,
+				"currentCount": bucketMeta.ObjectCount,
+				"maxCount":     q.MaxObjectCount,
+			}).Warn("Bucket storage quota exceeded (object count)")
+			return fmt.Errorf("%w: %d/%d objects",
+				ErrBucketQuotaExceeded, bucketMeta.ObjectCount, q.MaxObjectCount)
+		}
+	}
+
+	return nil
+}
+
+// discardStoredObject removes an already-written object file after a pre-commit
+// rejection (e.g. quota), logging any failure so an orphan can be reconciled.
+func (om *objectManager) discardStoredObject(ctx context.Context, objectPath, reason string) {
+	if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+		logrus.WithError(delErr).WithFields(logrus.Fields{
+			"path":   objectPath,
+			"reason": reason,
+		}).Error("Failed to delete object after pre-commit rejection — orphaned file may remain")
+	}
 }
 
 // calculateMultipartHash streams combined file to temp while calculating MD5 hash

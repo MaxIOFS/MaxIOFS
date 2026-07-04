@@ -30,6 +30,7 @@ var (
 	ErrInvalidTag         = errors.New("invalid tag")
 	ErrTooManyTags        = errors.New("too many tags")
 	ErrAccessDenied       = errors.New("access denied")
+	ErrBucketQuotaExceeded = errors.New("bucket storage quota exceeded")
 
 	// Object Lock errors (simple)
 	ErrObjectUnderLegalHold     = errors.New("object is under legal hold")

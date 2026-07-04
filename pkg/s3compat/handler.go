@@ -1570,6 +1570,10 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
 		}
+		if errors.Is(err, object.ErrBucketQuotaExceeded) {
+			h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+			return
+		}
 		if strings.HasPrefix(err.Error(), "BadDigest:") {
 			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
 			return

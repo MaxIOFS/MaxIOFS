@@ -562,6 +562,27 @@ func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name
 	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
 }
 
+// SetQuota sets (or clears, when quota is nil) the per-bucket storage quota.
+// Reads the current metadata and rewrites only the Quota field, preserving the
+// cached metrics and every other config, following the same pattern as the other
+// Set* config operations.
+func (bm *badgerBucketManager) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
+	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
+	if err != nil {
+		if err == metadata.ErrBucketNotFound {
+			return ErrBucketNotFound
+		}
+		return err
+	}
+	metaBucket.Quota = quota
+	return bm.metadataStore.UpdateBucket(ctx, metaBucket)
+}
+
+// DeleteQuota removes the per-bucket storage quota (equivalent to SetQuota nil).
+func (bm *badgerBucketManager) DeleteQuota(ctx context.Context, tenantID, name string) error {
+	return bm.SetQuota(ctx, tenantID, name, nil)
+}
+
 // GetPublicAccessBlock retrieves the public access block configuration for a bucket.
 func (bm *badgerBucketManager) GetPublicAccessBlock(ctx context.Context, tenantID, name string) (*PublicAccessBlock, error) {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
