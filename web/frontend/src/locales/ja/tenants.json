@@ -54,5 +54,7 @@
   "tenantHasBucketsMsg": "このテナントとそのすべてのバケットおよびオブジェクトを強制削除しますか？この操作は元に戻せません。",
   "forceDeleteAll": "はい、すべて強制削除する",
   "forceDeletingTenant": "テナントを強制削除中...",
-  "forceDeletingTenantMsg": "テナントと関連するすべてのリソースを削除中"
+  "forceDeletingTenantMsg": "テナントと関連するすべてのリソースを削除中",
+  "maxBandwidthMbps": "最大帯域幅 (MB/s)",
+  "maxBandwidthHint": "このテナントのアップロード+ダウンロードの合計上限。0 = 無制限。"
 }

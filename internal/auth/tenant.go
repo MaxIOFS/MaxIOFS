@@ -47,10 +47,10 @@ func (s *SQLiteStore) CreateTenant(tenant *Tenant) error {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`
-		INSERT INTO tenants (id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_buckets, current_buckets, metadata, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO tenants (id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_bandwidth_bytes_per_sec, max_buckets, current_buckets, metadata, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, tenant.ID, tenant.Name, tenant.DisplayName, tenant.Description, tenant.Status,
-		tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.CurrentStorageBytes, tenant.MaxBuckets, tenant.CurrentBuckets,
+		tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.CurrentStorageBytes, tenant.MaxBandwidthBytesPerSec, tenant.MaxBuckets, tenant.CurrentBuckets,
 		string(metadataJSON), tenant.CreatedAt, tenant.UpdatedAt)
 
 	if err != nil {
@@ -69,7 +69,7 @@ func (s *SQLiteStore) GetTenant(tenantID string) (*Tenant, error) {
 	var metadataJSON string
 
 	err := s.db.QueryRow(`
-		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_buckets, current_buckets, metadata, created_at, updated_at
+		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_bandwidth_bytes_per_sec, max_buckets, current_buckets, metadata, created_at, updated_at
 		FROM tenants
 		WHERE id = ? AND status != 'deleted'
 	`, tenantID).Scan(
@@ -80,7 +80,7 @@ func (s *SQLiteStore) GetTenant(tenantID string) (*Tenant, error) {
 		&tenant.Status,
 		&tenant.MaxAccessKeys,
 		&tenant.MaxStorageBytes,
-		&tenant.CurrentStorageBytes,
+		&tenant.CurrentStorageBytes, &tenant.MaxBandwidthBytesPerSec,
 		&tenant.MaxBuckets,
 		&tenant.CurrentBuckets,
 		&metadataJSON,
@@ -117,7 +117,7 @@ func (s *SQLiteStore) GetTenantByName(name string) (*Tenant, error) {
 	var metadataJSON string
 
 	err := s.db.QueryRow(`
-		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_buckets, current_buckets, metadata, created_at, updated_at
+		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_bandwidth_bytes_per_sec, max_buckets, current_buckets, metadata, created_at, updated_at
 		FROM tenants
 		WHERE name = ? AND status != 'deleted'
 	`, name).Scan(
@@ -128,7 +128,7 @@ func (s *SQLiteStore) GetTenantByName(name string) (*Tenant, error) {
 		&tenant.Status,
 		&tenant.MaxAccessKeys,
 		&tenant.MaxStorageBytes,
-		&tenant.CurrentStorageBytes,
+		&tenant.CurrentStorageBytes, &tenant.MaxBandwidthBytesPerSec,
 		&tenant.MaxBuckets,
 		&tenant.CurrentBuckets,
 		&metadataJSON,
@@ -162,7 +162,7 @@ func (s *SQLiteStore) GetTenantByName(name string) (*Tenant, error) {
 // ListTenants returns all tenants
 func (s *SQLiteStore) ListTenants() ([]*Tenant, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_buckets, current_buckets, metadata, created_at, updated_at
+		SELECT id, name, display_name, description, status, max_access_keys, max_storage_bytes, current_storage_bytes, max_bandwidth_bytes_per_sec, max_buckets, current_buckets, metadata, created_at, updated_at
 		FROM tenants
 		WHERE status != 'deleted'
 		ORDER BY name
@@ -185,7 +185,7 @@ func (s *SQLiteStore) ListTenants() ([]*Tenant, error) {
 			&tenant.Status,
 			&tenant.MaxAccessKeys,
 			&tenant.MaxStorageBytes,
-			&tenant.CurrentStorageBytes,
+			&tenant.CurrentStorageBytes, &tenant.MaxBandwidthBytesPerSec,
 			&tenant.MaxBuckets,
 			&tenant.CurrentBuckets,
 			&metadataJSON,
@@ -229,9 +229,9 @@ func (s *SQLiteStore) UpdateTenant(tenant *Tenant) error {
 
 	_, err = tx.Exec(`
 		UPDATE tenants
-		SET display_name = ?, description = ?, status = ?, max_access_keys = ?, max_storage_bytes = ?, current_storage_bytes = ?, max_buckets = ?, current_buckets = ?, metadata = ?, updated_at = ?
+		SET display_name = ?, description = ?, status = ?, max_access_keys = ?, max_storage_bytes = ?, current_storage_bytes = ?, max_bandwidth_bytes_per_sec = ?, max_buckets = ?, current_buckets = ?, metadata = ?, updated_at = ?
 		WHERE id = ?
-	`, tenant.DisplayName, tenant.Description, tenant.Status, tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.CurrentStorageBytes, tenant.MaxBuckets, tenant.CurrentBuckets, string(metadataJSON), tenant.UpdatedAt, tenant.ID)
+	`, tenant.DisplayName, tenant.Description, tenant.Status, tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.CurrentStorageBytes, tenant.MaxBandwidthBytesPerSec, tenant.MaxBuckets, tenant.CurrentBuckets, string(metadataJSON), tenant.UpdatedAt, tenant.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update tenant: %w", err)

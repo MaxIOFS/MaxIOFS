@@ -1504,6 +1504,7 @@ export class APIClient {
       status: tenant.status,
       maxAccessKeys: tenant.max_access_keys,
       maxStorageBytes: tenant.max_storage_bytes,
+      maxBandwidthBytesPerSec: tenant.max_bandwidth_bytes_per_sec || 0,
       currentStorageBytes: tenant.current_storage_bytes || 0,
       maxBuckets: tenant.max_buckets,
       currentBuckets: tenant.current_buckets || 0,

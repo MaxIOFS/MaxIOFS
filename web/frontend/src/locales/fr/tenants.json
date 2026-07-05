@@ -54,5 +54,7 @@
   "tenantHasBucketsMsg": "Voulez-vous forcer la suppression de ce tenant ainsi que tous ses buckets et objets ? Cette action est irréversible.",
   "forceDeleteAll": "Oui, tout forcer la suppression",
   "forceDeletingTenant": "Suppression forcée du tenant...",
-  "forceDeletingTenantMsg": "Suppression du tenant et de toutes les ressources associées"
+  "forceDeletingTenantMsg": "Suppression du tenant et de toutes les ressources associées",
+  "maxBandwidthMbps": "Bande passante max (MB/s)",
+  "maxBandwidthHint": "Limite combinée envoi + téléchargement pour ce tenant. 0 = illimité."
 }

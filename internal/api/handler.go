@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bandwidth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/inventory"
@@ -79,6 +80,11 @@ func NewHandler(
 
 	// Configure dataDir for SOSAPI capacity calculations
 	s3Handler.SetDataDir(dataDir)
+
+	// Per-tenant bandwidth throttling. One shared manager for the handler's
+	// lifetime; it auto-updates each tenant's limiter rate from the cap read on
+	// every transfer, so admin changes take effect without an explicit signal.
+	s3Handler.SetBandwidthManager(bandwidth.NewManager())
 
 	// Configure cluster manager for cluster mode detection
 	if clusterManager != nil {

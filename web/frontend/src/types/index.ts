@@ -94,6 +94,7 @@ export interface Tenant {
   maxAccessKeys: number;
   currentAccessKeys: number;
   maxStorageBytes: number;
+  maxBandwidthBytesPerSec: number;
   currentStorageBytes: number;
   maxBuckets: number;
   currentBuckets: number;
@@ -108,6 +109,7 @@ export interface CreateTenantRequest {
   description?: string;
   maxAccessKeys?: number;
   maxStorageBytes?: number;
+  maxBandwidthBytesPerSec?: number;
   maxBuckets?: number;
   metadata?: Record<string, string>;
 }
@@ -118,6 +120,7 @@ export interface UpdateTenantRequest {
   status?: 'active' | 'inactive';
   maxAccessKeys?: number;
   maxStorageBytes?: number;
+  maxBandwidthBytesPerSec?: number;
   maxBuckets?: number;
   currentStorageBytes?: number;
   currentBuckets?: number;

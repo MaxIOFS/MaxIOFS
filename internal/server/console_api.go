@@ -4429,6 +4429,7 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		Description     string            `json:"description"`
 		MaxAccessKeys   int64             `json:"maxAccessKeys,omitempty"`
 		MaxStorageBytes int64             `json:"maxStorageBytes,omitempty"`
+		MaxBandwidthBytesPerSec int64     `json:"maxBandwidthBytesPerSec,omitempty"`
 		MaxBuckets      int64             `json:"maxBuckets,omitempty"`
 		Metadata        map[string]string `json:"metadata,omitempty"`
 	}
@@ -4442,6 +4443,10 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Tenant name is required", http.StatusBadRequest)
 		return
 	}
+	if req.MaxBandwidthBytesPerSec < 0 {
+		s.writeError(w, "maxBandwidthBytesPerSec cannot be negative", http.StatusBadRequest)
+		return
+	}
 
 	tenant := &auth.Tenant{
 		ID:              auth.GenerateTenantID(),
@@ -4451,6 +4456,7 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		Status:          "active",
 		MaxAccessKeys:   req.MaxAccessKeys,
 		MaxStorageBytes: req.MaxStorageBytes,
+		MaxBandwidthBytesPerSec: req.MaxBandwidthBytesPerSec,
 		MaxBuckets:      req.MaxBuckets,
 		Metadata:        req.Metadata,
 		CreatedAt:       time.Now().Unix(),
@@ -4546,6 +4552,7 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		Status              *string           `json:"status,omitempty"`
 		MaxAccessKeys       *int64            `json:"maxAccessKeys,omitempty"`
 		MaxStorageBytes     *int64            `json:"maxStorageBytes,omitempty"`
+		MaxBandwidthBytesPerSec *int64        `json:"maxBandwidthBytesPerSec,omitempty"`
 		MaxBuckets          *int64            `json:"maxBuckets,omitempty"`
 		CurrentStorageBytes *int64            `json:"currentStorageBytes,omitempty"`
 		CurrentBuckets      *int64            `json:"currentBuckets,omitempty"`
@@ -4582,6 +4589,13 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxStorageBytes != nil {
 		tenant.MaxStorageBytes = *req.MaxStorageBytes
+	}
+	if req.MaxBandwidthBytesPerSec != nil {
+		if *req.MaxBandwidthBytesPerSec < 0 {
+			s.writeError(w, "maxBandwidthBytesPerSec cannot be negative", http.StatusBadRequest)
+			return
+		}
+		tenant.MaxBandwidthBytesPerSec = *req.MaxBandwidthBytesPerSec
 	}
 	if req.MaxBuckets != nil {
 		tenant.MaxBuckets = *req.MaxBuckets

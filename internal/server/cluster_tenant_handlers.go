@@ -35,6 +35,7 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 		Status              string            `json:"status"`
 		MaxAccessKeys       int               `json:"max_access_keys"`
 		MaxStorageBytes     int64             `json:"max_storage_bytes"`
+		MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
 		CurrentStorageBytes int64             `json:"current_storage_bytes"`
 		MaxBuckets          int               `json:"max_buckets"`
 		CurrentBuckets      int               `json:"current_buckets"`
@@ -92,6 +93,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 	Status              string            `json:"status"`
 	MaxAccessKeys       int               `json:"max_access_keys"`
 	MaxStorageBytes     int64             `json:"max_storage_bytes"`
+	MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
 	CurrentStorageBytes int64             `json:"current_storage_bytes"`
 	MaxBuckets          int               `json:"max_buckets"`
 	CurrentBuckets      int               `json:"current_buckets"`
@@ -132,6 +134,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 				status = ?,
 				max_access_keys = ?,
 				max_storage_bytes = ?,
+				max_bandwidth_bytes_per_sec = ?,
 				current_storage_bytes = ?,
 				max_buckets = ?,
 				current_buckets = ?,
@@ -145,6 +148,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.Status,
 			tenant.MaxAccessKeys,
 			tenant.MaxStorageBytes,
+			tenant.MaxBandwidthBytesPerSec,
 			tenant.CurrentStorageBytes,
 			tenant.MaxBuckets,
 			tenant.CurrentBuckets,
@@ -162,9 +166,9 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO tenants (
 				id, name, display_name, description, status,
-				max_access_keys, max_storage_bytes, current_storage_bytes,
+				max_access_keys, max_storage_bytes, max_bandwidth_bytes_per_sec, current_storage_bytes,
 				max_buckets, current_buckets, metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			tenant.ID,
 			tenant.Name,
@@ -173,6 +177,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.Status,
 			tenant.MaxAccessKeys,
 			tenant.MaxStorageBytes,
+			tenant.MaxBandwidthBytesPerSec,
 			tenant.CurrentStorageBytes,
 			tenant.MaxBuckets,
 			tenant.CurrentBuckets,

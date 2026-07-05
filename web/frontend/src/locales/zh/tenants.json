@@ -54,5 +54,7 @@
   "tenantHasBucketsMsg": "您是否要强制删除此租户及其所有存储桶和对象？此操作无法撤销。",
   "forceDeleteAll": "是的，强制删除所有",
   "forceDeletingTenant": "正在强制删除租户...",
-  "forceDeletingTenantMsg": "正在删除租户和所有关联资源"
+  "forceDeletingTenantMsg": "正在删除租户和所有关联资源",
+  "maxBandwidthMbps": "最大带宽 (MB/s)",
+  "maxBandwidthHint": "该租户的上传+下载合计上限。0 = 无限制。"
 }

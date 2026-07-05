@@ -25,6 +25,7 @@ type TenantData struct {
 	Status              string            `json:"status"`
 	MaxAccessKeys       int               `json:"max_access_keys"`
 	MaxStorageBytes     int64             `json:"max_storage_bytes"`
+	MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
 	CurrentStorageBytes int64             `json:"current_storage_bytes"`
 	MaxBuckets          int               `json:"max_buckets"`
 	CurrentBuckets      int               `json:"current_buckets"`
@@ -252,7 +253,7 @@ func (m *TenantSyncManager) sendTenantToNode(ctx context.Context, tenant *Tenant
 func (m *TenantSyncManager) listLocalTenants(ctx context.Context) ([]*TenantData, error) {
 	query := `
 		SELECT id, name, display_name, description, status, max_access_keys,
-		       max_storage_bytes, current_storage_bytes, max_buckets, current_buckets,
+		       max_storage_bytes, max_bandwidth_bytes_per_sec, current_storage_bytes, max_buckets, current_buckets,
 		       metadata, created_at, updated_at
 		FROM tenants
 		WHERE status != 'deleted'
@@ -277,6 +278,7 @@ func (m *TenantSyncManager) listLocalTenants(ctx context.Context) ([]*TenantData
 			&tenant.Status,
 			&tenant.MaxAccessKeys,
 			&tenant.MaxStorageBytes,
+			&tenant.MaxBandwidthBytesPerSec,
 			&tenant.CurrentStorageBytes,
 			&tenant.MaxBuckets,
 			&tenant.CurrentBuckets,
@@ -307,7 +309,7 @@ func (m *TenantSyncManager) listLocalTenants(ctx context.Context) ([]*TenantData
 // computeTenantChecksum computes a SHA256 checksum of tenant data
 func (m *TenantSyncManager) computeTenantChecksum(tenant *TenantData) string {
 	// Create deterministic representation
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%d|%d|%d|%s|%s",
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%s|%s",
 		tenant.ID,
 		tenant.Name,
 		tenant.DisplayName,
@@ -315,6 +317,7 @@ func (m *TenantSyncManager) computeTenantChecksum(tenant *TenantData) string {
 		tenant.Status,
 		tenant.MaxAccessKeys,
 		tenant.MaxStorageBytes,
+		tenant.MaxBandwidthBytesPerSec,
 		tenant.MaxBuckets,
 		tenant.CurrentBuckets,
 		tenant.UpdatedAt.Format(time.RFC3339),

@@ -54,5 +54,7 @@
   "tenantHasBucketsMsg": "Möchten Sie diesen Mandanten und alle seine Buckets und Objekte erzwungen löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
   "forceDeleteAll": "Ja, alles erzwungen löschen",
   "forceDeletingTenant": "Mandant wird erzwungen gelöscht...",
-  "forceDeletingTenantMsg": "Mandant und alle zugehörigen Ressourcen werden gelöscht"
+  "forceDeletingTenantMsg": "Mandant und alle zugehörigen Ressourcen werden gelöscht",
+  "maxBandwidthMbps": "Max. Bandbreite (MB/s)",
+  "maxBandwidthHint": "Kombiniertes Upload-/Download-Limit für diesen Tenant. 0 = unbegrenzt."
 }

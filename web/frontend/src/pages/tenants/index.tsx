@@ -44,6 +44,7 @@ export default function TenantsPage() {
   const [newTenant, setNewTenant] = useState<Partial<CreateTenantRequest>>({
     maxAccessKeys: 10,
     maxStorageBytes: 107374182400, // 100GB
+    maxBandwidthBytesPerSec: 0, // 0 = unlimited
     maxBuckets: 100,
   });
   const queryClient = useQueryClient();
@@ -67,7 +68,7 @@ export default function TenantsPage() {
     onSuccess: (response, variables) => {
       queryClient.refetchQueries({ queryKey: ['tenants'] });
       setIsCreateModalOpen(false);
-      setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBuckets: 100 });
+      setNewTenant({ maxAccessKeys: 10, maxStorageBytes: 107374182400, maxBandwidthBytesPerSec: 0, maxBuckets: 100 });
       ModalManager.toast('success', t('tenantCreatedSuccess', { name: variables.displayName }));
     },
     onError: (error: Error) => {
@@ -492,6 +493,18 @@ export default function TenantsPage() {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('maxBandwidthMbps')}</label>
+            <Input
+              type="number"
+              value={Math.round((newTenant.maxBandwidthBytesPerSec || 0) / (1024 * 1024))}
+              onChange={(e) => setNewTenant({ ...newTenant, maxBandwidthBytesPerSec: Math.max(0, parseInt(e.target.value) || 0) * 1024 * 1024 })}
+              min="0"
+              className="bg-card text-foreground border-border"
+            />
+            <p className="text-xs text-muted-foreground mt-1">{t('maxBandwidthHint')}</p>
+          </div>
+
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)}>
               {t('cancel')}
@@ -578,6 +591,18 @@ export default function TenantsPage() {
                 min="1"
                 className="bg-card text-foreground border-border"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('maxBandwidthMbps')}</label>
+              <Input
+                type="number"
+                value={Math.round((selectedTenant.maxBandwidthBytesPerSec || 0) / (1024 * 1024))}
+                onChange={(e) => setSelectedTenant({ ...selectedTenant, maxBandwidthBytesPerSec: Math.max(0, parseInt(e.target.value) || 0) * 1024 * 1024 })}
+                min="0"
+                className="bg-card text-foreground border-border"
+              />
+              <p className="text-xs text-muted-foreground mt-1">{t('maxBandwidthHint')}</p>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

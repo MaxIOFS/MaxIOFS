@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bandwidth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -274,6 +275,10 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Header.Del("Content-Encoding")
 	}
+
+	// Throttle the part upload to the owning tenant's aggregate bandwidth budget
+	// (no-op when unlimited); shares the same tenant limiter as other transfers.
+	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
 
 	// Upload the part
 	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bodyReader)

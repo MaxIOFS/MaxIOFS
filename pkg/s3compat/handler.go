@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bandwidth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/inventory"
@@ -29,6 +30,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 )
 
 // getObjectKey extracts object key from mux vars (already decoded by Gorilla Mux)
@@ -139,9 +141,10 @@ type Handler struct {
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 	}
-	publicAPIURL    string
-	dataDir         string       // For calculating disk capacity in SOSAPI
-	notifHTTPClient *http.Client // HTTP client for notification webhooks; defaults to SSRF-blocking client
+	publicAPIURL     string
+	dataDir          string            // For calculating disk capacity in SOSAPI
+	notifHTTPClient  *http.Client      // HTTP client for notification webhooks; defaults to SSRF-blocking client
+	bandwidthManager *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -156,6 +159,29 @@ func NewHandler(bucketManager bucket.Manager, objectManager object.Manager) *Han
 // SetAuthManager sets the auth manager for permission checking
 func (h *Handler) SetAuthManager(am auth.Manager) {
 	h.authManager = am
+}
+
+// SetBandwidthManager sets the per-tenant bandwidth throttling manager.
+func (h *Handler) SetBandwidthManager(m *bandwidth.Manager) {
+	h.bandwidthManager = m
+}
+
+// tenantBandwidthLimiter returns the shared bandwidth limiter for the tenant that
+// owns bucketName, or nil when there is no tenant, no configured cap, or no
+// manager. Used to throttle object up/downloads to the tenant's aggregate budget.
+func (h *Handler) tenantBandwidthLimiter(ctx context.Context, r *http.Request, bucketName string) *rate.Limiter {
+	if h.bandwidthManager == nil || h.authManager == nil {
+		return nil
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
+	if tenantID == "" {
+		return nil
+	}
+	tenant, err := h.authManager.GetTenant(ctx, tenantID)
+	if err != nil || tenant == nil || tenant.MaxBandwidthBytesPerSec <= 0 {
+		return nil
+	}
+	return h.bandwidthManager.Limiter(tenantID, tenant.MaxBandwidthBytesPerSec)
 }
 
 // SetShareManager sets the share manager for validating presigned URLs
@@ -1429,14 +1455,18 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Set common response headers
 	h.setGetObjectResponseHeaders(w, obj)
 
+	// Throttle the download to the owning tenant's aggregate bandwidth budget
+	// (nil = unlimited; only the bytes actually streamed to the client count).
+	dlLimiter := h.tenantBandwidthLimiter(r.Context(), r, bucketName)
+
 	// Handle range request
 	if isRangeRequest {
-		if err := h.sendRangeResponse(w, reader, rangeStart, rangeEnd, obj.Size); err != nil {
+		if err := h.sendRangeResponse(r.Context(), w, reader, rangeStart, rangeEnd, obj.Size, dlLimiter); err != nil {
 			return
 		}
 	} else {
 		// Send entire object (no range request)
-		if err := h.sendFullResponse(w, reader, obj.Size); err != nil {
+		if err := h.sendFullResponse(r.Context(), w, reader, obj.Size, dlLimiter); err != nil {
 			return
 		}
 	}
@@ -1541,6 +1571,10 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	// Detect and decode AWS chunked encoding
 	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
+
+	// Throttle the upload to the owning tenant's aggregate bandwidth budget
+	// (no-op when the tenant has no cap / bucket is global).
+	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
 
 	requestTags, tagErr := parseS3TaggingHeader(r.Header.Get("x-amz-tagging"))
 	if tagErr != nil {
@@ -2891,7 +2925,7 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 }
 
 // sendRangeResponse sends a partial content response for Range requests
-func (h *Handler) sendRangeResponse(w http.ResponseWriter, reader io.ReadCloser, rangeStart, rangeEnd, totalSize int64) error {
+func (h *Handler) sendRangeResponse(ctx context.Context, w http.ResponseWriter, reader io.ReadCloser, rangeStart, rangeEnd, totalSize int64, limiter *rate.Limiter) error {
 	contentLength := rangeEnd - rangeStart + 1
 
 	// Set 206 Partial Content headers
@@ -2916,8 +2950,9 @@ func (h *Handler) sendRangeResponse(w http.ResponseWriter, reader io.ReadCloser,
 		}
 	}
 
-	// Copy only the requested range
-	if _, err := io.CopyN(w, reader, contentLength); err != nil && err != io.EOF {
+	// Copy only the requested range (throttled to the tenant budget if set).
+	// The seek/skip above ran on the raw reader; only the streamed bytes count.
+	if _, err := io.CopyN(w, bandwidth.ThrottleReader(ctx, reader, limiter), contentLength); err != nil && err != io.EOF {
 		logrus.WithError(err).Error("Failed to write partial object data")
 		return err
 	}
@@ -2926,11 +2961,11 @@ func (h *Handler) sendRangeResponse(w http.ResponseWriter, reader io.ReadCloser,
 }
 
 // sendFullResponse sends the complete object response
-func (h *Handler) sendFullResponse(w http.ResponseWriter, reader io.Reader, size int64) error {
+func (h *Handler) sendFullResponse(ctx context.Context, w http.ResponseWriter, reader io.Reader, size int64, limiter *rate.Limiter) error {
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 
-	// Copy object data to response
-	if _, err := io.Copy(w, reader); err != nil {
+	// Copy object data to response (throttled to the tenant budget if set).
+	if _, err := io.Copy(w, bandwidth.ThrottleReader(ctx, reader, limiter)); err != nil {
 		logrus.WithError(err).Error("Failed to write object data")
 		return err
 	}

@@ -4,16 +4,11 @@
 **Last Updated**: July 4, 2026
 **Status**: Stable — unreleased batch pending a version bump (next: likely v1.5.0)
 
-> Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work, plus a short pointer to the current unreleased batch so we don't lose the thread.
+> Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work.
 
-## 🧵 Unreleased on `main` (done, awaiting version bump)
+## 🔖 TODO — Release v1.5.0
 
-Full detail in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`. Summary:
-- **Per-bucket storage quota** — size + object-count caps for global & tenant buckets; enforced in object manager (PutObject + multipart); exposed to Veeam via SOSAPI `capacity.xml` (precedence bucket→tenant→disk); tenant-ceiling validation; SSE/email alerts; Quota tab in bucket settings (9 languages). Verified end-to-end.
-- **Issue #6 fixes** — (a) config-file `enable_tls: true` now honored without CLI flags; (b) S3 API→console redirect now uses `public_console_url` instead of hardcoded `:8081`; (c) startup rejects identical `public_api_url`/`public_console_url`. Verified in Docker with self-signed certs over HTTPS.
-- **Object share URLs** — percent-encoded (`s3EncodePath`) so keys with spaces/`#`/emoji resolve.
-
-**Next release checklist**: bump version everywhere (Makefile, cmd/maxiofs/main.go, package.json, debian, rpm, docker-compose, docs, About page), then tag.
+There is unreleased work on `main` (see [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`). To cut the release: bump the version everywhere (Makefile, `cmd/maxiofs/main.go`, `web/frontend/package.json`, `debian/`, `rpm/`, `docker-compose.yaml`, `docs/`, About page), then tag.
 
 ## 📊 Project Status
 
@@ -35,38 +30,6 @@ Full detail in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`. Summary:
 | internal/replication | 67.8% | CRUD, worker, credentials, adapter, sync, scheduler all tested. Remaining: `e2e_test` integration flows, `s3client` remote calls requiring live S3 endpoint |
 
 **Conclusion**: All testable business logic is covered. Remaining uncovered code falls into categories that cannot be meaningfully unit-tested: server lifecycle, remote node communication, live S3 endpoints, and encryption pipeline internals.
-
----
-
-## 🟢 Planned — Per-tenant bandwidth throttling
-
-**Goal**: let global admins cap a tenant's transfer bandwidth so one client can't saturate the link for others. **Throttle, not reject** (no false positives on legit bursts — slow down instead of failing).
-
-**Decisions (agreed):**
-- Limit is **aggregate per tenant** — all of a tenant's concurrent transfers share one budget (one shared limiter per tenant).
-- **Combined** up + download in a single limit.
-- Set by the **global admin** at the tenant level (like `max_storage_bytes`). Buckets inherit their tenant's limit; **no per-bucket limit**.
-- Global buckets (no tenant) are exempt.
-
-**Design:**
-- One `golang.org/x/time/rate.Limiter` (token bucket of bytes/s) per `tenantID`, in a mutex-guarded map (`TenantBandwidthManager`). Shared limiter = aggregate + combined behavior for free.
-- Enforcement wraps the byte stream in the S3 handler: download (GetObject/Range) and upload (PutObject/UploadPart) pass through a `throttledReader` doing `limiter.WaitN(ctx, n)` per ~32 KB chunk.
-- Model: new tenant field `max_bandwidth_bytes_per_sec` (`0` = unlimited) → SQLite column + migration.
-
-**Edge cases (resolved in design):**
-- **Cluster**: limit is **per-node** (each node throttles the tenant traffic passing through it). Cross-node aggregate global would need distributed coordination — out of scope; document it.
-- **Config change**: `limiter.SetLimit()` in-place (hot update, doesn't cut in-flight transfers).
-- `0` = unlimited → don't wrap the stream (zero cost).
-- Context cancellation: `WaitN` respects ctx; client abort releases immediately.
-
-**Phases:**
-1. Model: tenant field + SQLite migration.
-2. Core: `TenantBandwidthManager` (shared limiter + hot update).
-3. Enforcement: throttled wrappers + wiring into up/download in the S3 handler.
-4. API + UI: configure the tenant limit (global admin).
-5. Verify: measure real MB/s with/without limit, and with 2 concurrent transfers (must share the budget).
-
-Verify `golang.org/x/time/rate` is in `go.mod` (add if missing). Files (expected): `internal/auth/tenant.go`, `internal/auth/manager.go`, new `internal/auth/bandwidth.go` (or similar), `pkg/s3compat/handler.go` (up/download wiring), `internal/server/cluster_tenant_handlers.go` + tenant UI.
 
 ---
 

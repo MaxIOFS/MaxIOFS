@@ -22,6 +22,26 @@ func getAllMigrations() []Migration {
 		migration12_v100_Groups(),
 		migration13_v140_Capabilities(),
 		migration14_v141_BucketPermissionScope(),
+		migration15_v150_TenantBandwidth(),
+	}
+}
+
+// migration15_v150_TenantBandwidth adds the per-tenant aggregate bandwidth cap.
+// Corresponds to MaxIOFS v1.5.0 - Per-tenant bandwidth throttling.
+func migration15_v150_TenantBandwidth() Migration {
+	return Migration{
+		Version:     15,
+		Description: "v1.5.0 - Add max_bandwidth_bytes_per_sec to tenants (0 = unlimited)",
+		Up: func(tx *sql.Tx) error {
+			// Existing tenants default to 0 (unlimited); no throttling until an admin sets it.
+			if _, err := tx.Exec(`ALTER TABLE tenants ADD COLUMN max_bandwidth_bytes_per_sec INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 
