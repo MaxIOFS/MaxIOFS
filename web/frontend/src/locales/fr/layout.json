@@ -47,5 +47,7 @@
   "closeNavigation": "Fermer la navigation",
   "openNotifications": "Ouvrir les notifications",
   "collapseSidebar": "Réduire",
-  "expandSidebar": "Développer"
+  "expandSidebar": "Développer",
+  "recoveryBundleBanner": "La clé de chiffrement n'a pas encore de sauvegarde externe. Téléchargez le bundle de récupération et conservez-le en dehors de ce système.",
+  "recoveryBundleBannerLink": "Aller aux paramètres"
 }

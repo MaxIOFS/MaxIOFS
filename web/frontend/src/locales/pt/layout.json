@@ -47,5 +47,7 @@
   "closeNavigation": "Fechar navegação",
   "openNotifications": "Abrir notificações",
   "collapseSidebar": "Recolher",
-  "expandSidebar": "Expandir"
+  "expandSidebar": "Expandir",
+  "recoveryBundleBanner": "A chave de criptografia ainda não tem backup externo. Baixe o pacote de recuperação e guarde-o fora deste sistema.",
+  "recoveryBundleBannerLink": "Ir para Configurações"
 }

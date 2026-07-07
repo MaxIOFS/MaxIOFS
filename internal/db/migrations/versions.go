@@ -23,6 +23,34 @@ func getAllMigrations() []Migration {
 		migration13_v140_Capabilities(),
 		migration14_v141_BucketPermissionScope(),
 		migration15_v150_TenantBandwidth(),
+		migration16_v150_EncryptionKeys(),
+	}
+}
+
+// migration16_v150_EncryptionKeys creates the KEK (Key Encryption Key) storage table.
+// Corresponds to MaxIOFS v1.5.0 - Envelope encryption: the KEK moves from
+// config.yaml to the database. Multiple versions support KEK rotation; exactly
+// one row has is_current=1 (new objects wrap their DEK with that version).
+func migration16_v150_EncryptionKeys() Migration {
+	return Migration{
+		Version:     16,
+		Description: "v1.5.0 - Create encryption_keys table (KEK versions for envelope encryption)",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS encryption_keys (
+					version INTEGER PRIMARY KEY,
+					key_hex TEXT NOT NULL,
+					is_current INTEGER NOT NULL DEFAULT 0,
+					created_at INTEGER NOT NULL
+				)
+			`); err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

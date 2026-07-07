@@ -47,5 +47,7 @@
   "closeNavigation": "Закрыть навигацию",
   "openNotifications": "Открыть уведомления",
   "collapseSidebar": "Свернуть",
-  "expandSidebar": "Развернуть"
+  "expandSidebar": "Развернуть",
+  "recoveryBundleBanner": "У ключа шифрования ещё нет внешней резервной копии. Скачайте пакет восстановления и храните его вне этой системы.",
+  "recoveryBundleBannerLink": "Перейти в настройки"
 }

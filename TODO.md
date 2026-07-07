@@ -39,6 +39,78 @@ Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials 
 
 ---
 
+## 🔐 In progress — Envelope encryption: remaining phases
+
+Done so far (see CHANGELOG): **Phase 1** (KEK in DB via `internal/kek`, per-object DEK in the sidecar, multi-format reader, writes always encrypt), the **recovery bundle** (Settings → Security download + banner), and **Phase 2** (background encryption worker: converts legacy plaintext objects to envelope, load-aware, checkpointed, with Settings status + manual run).
+
+Design context that still applies to the remaining phases:
+- **The reader stays multi-format** — backward-compat linchpin. (1) plaintext → as-is; (2) legacy direct-encrypted → KEK-v1; (3) envelope → unwrap DEK. None can be dropped or existing data is lost.
+- The KEK lives in the DB in plaintext (root-key layering just relocates the single point of failure). Mitigation: restrict DB access + encrypt DB backups.
+- The worker (`internal/server/encryption_worker.go` + `internal/object/encryption_migration.go`) is the shared component that rotation will reuse: it walks per-object state, so rotation only adds a new state → action (old-KEK envelope → re-wrap DEK).
+
+### Phase 3 — Ciphertext HA replication
+
+`internal/cluster/ha_object_manager.go` `fanoutPut` still calls `GetObject` (decrypts) then PUTs to the peer, which re-encrypts. With the KEK shared via DB sync and envelope objects, replicate `ciphertext + wrapped DEK` as-is; the destination stores without decrypt/re-encrypt and decrypts only on read. Requires KEK sync across cluster nodes (encryption_keys table is not yet in the cluster tenant/config sync).
+
+### Phase 4 — KEK rotation
+
+New KEK version in `encryption_keys` + mark-current; extend the Phase 2 worker with two more per-object states: envelope-with-old-KEK → unwrap + re-wrap DEK (data never re-encrypted), and legacy direct-encrypted → full convert to envelope (needed before KEK-v1 can be retired). Retire old versions once nothing references them. Admin UI/API to trigger rotation.
+
+### Phase 5 — (Later) SSE-C / SSE-KMS
+
+On top of envelope: SSE-C = KEK is the customer key from the request header (over TLS, store only key MD5 + wrapped DEK); SSE-KMS = KEK in an external KMS via a pluggable provider (Vault Transit / AWS KMS).
+
+### Frontend cleanup (pending)
+
+- Remove the per-bucket "disable encryption" toggle from bucket creation (`web/frontend/src/pages/buckets/create.tsx`) — encryption is always on; unchecking never did anything.
+- Settings/encryption status pages should reflect "always on" (backend already reports `enableEncryption: true`).
+
+### Follow-up noticed during testing (separate issue, not encryption)
+
+- **Hard-kill loses the last seconds of Pebble metadata writes** (`batch.Commit(pebble.NoSync)`): an object PUT moments before a crash keeps its data file + sidecar but loses its Pebble entry (it still serves via the sidecar fallback, but doesn't appear in listings). Graceful shutdown is fine. Consider a periodic WAL sync / sync-on-N-writes, or let a startup scan reconcile sidecars → Pebble (overlaps with the recover tool's walk logic).
+
+---
+
+## 🆘 Planned — Disaster recovery / real support story (DB lost, filesystem intact)
+
+**Why**: many deployments are already in production. There must be a real recovery path for the common failure: **Pebble metadata (and/or the SQLite DB) is corrupted or lost, but the filesystem object store is intact.** Today there is **nothing** for this — even with the current (non-envelope) encryption, if Pebble is gone there is no way back. Auth/SQLite permissions don't matter in this mode; the goal is to get the object **data** back.
+
+### What already exists on disk (recovery is feasible)
+- Each object is stored at a path that encodes `bucket/key` (versioned: `bucket/.versions/key/versionID`), plus a per-object `.metadata` **sidecar** (size, etag, content-type, `encrypted` flag, `original-size`/`original-etag`, algorithm, last_modified). The filesystem backend already supports `WalkDirectory`. So Pebble is largely an index over data that also lives next to each object on disk.
+- **Done already** (Phase 1 + bundle work, see CHANGELOG): the sidecar carries the per-object crypto material (`wrapped-dek`, `wrapped-dek-iv`, `kek-version`), and the admin can download the **recovery bundle** (passphrase-encrypted KEK export, PBKDF2 + AES-GCM) from Settings → Security, with a console banner until it's downloaded. `kek.DecryptBundle()` already exists for the tooling below.
+
+### What remains to build
+
+1. **Pebble rebuild tool (offline recovery command).** Walk the filesystem object tree, read each object + its `.metadata` sidecar, and reconstruct a fresh Pebble metadata store from scratch (bucket, key, versionID, size, etag, content-type, encryption fields). Buckets are recreated from the directory structure. After rebuild + KEK restore, objects are servable again.
+
+2. **KEK restore path**: feed the recovery bundle back in (part of the recover CLI below; possibly also an admin endpoint for the "fresh install after disaster" flow — must replace the freshly-generated KEK before any new objects are written).
+
+3. Optional stronger bundle variants: recovery-key **escrow** (wrap the KEK with a separately-held recovery key for break-glass) and **Shamir** split (N shares, K to reconstruct).
+
+### Recovery command (the entry point)
+
+An offline CLI mode — run with the server stopped — that ties the pieces together. Shape (cobra subcommand; a `--recovery` flag form is equivalent):
+
+```
+maxiofs recover \
+  --data-dir /path/to/data \                 # where the object files + sidecars live (source of truth)
+  --recovery-bundle /path/to/kek-backup \    # the KEK recovery bundle (from #1)
+  --passphrase-file /path/to/pass \          # if the bundle is passphrase-encrypted (else prompt)
+  --out-db /path/to/new/pebble \             # rebuild into a FRESH store; never overwrite the corrupt one by default
+  --dry-run \                                # verify/report without writing
+  --verbose
+```
+
+Flow: load KEK from the bundle → walk the object tree under `--data-dir` → for each object + `.metadata` sidecar, reconstruct the Pebble entry (bucket, key, versionID, size, etag, content-type, crypto fields) → recreate buckets from the directory layout → (envelope) verify each wrapped DEK unwraps with the KEK. Report: buckets/objects rebuilt, and any files that couldn't be parsed. Must be **resumable/checkpointed** (could be millions of objects), **non-destructive by default** (fresh output store), and **offline**. Auth/SQLite is out of scope here — after rebuild the server starts fresh and the admin is re-provisioned (default admin/admin), since only the object data matters in recovery.
+
+### Recoverable vs not
+- **Recoverable from files**: the object data (bytes, key, version, size, etag, content-type, and — with sidecar crypto material — decryption). This is the important part.
+- **Not recoverable from files**: bucket-level config that lives only in Pebble (versioning, object-lock, lifecycle, ACL, policy, quotas). That's configuration, not data — objects come back and it gets re-applied. (If ever needed, critical config like object-lock could also be sidecar'd, but secondary.)
+
+Files (expected): new recovery/rebuild command under `cmd/` or an admin endpoint, `internal/storage/filesystem.go` (walk + sidecar read), `internal/metadata/` (bulk rebuild into a fresh Pebble), KEK backup/restore in the encryption bootstrap.
+
+---
+
 ## 🟣 Planned — Erasure Coding (replace N-way replication for large objects)
 
 **Goal**: cut disk overhead from `N×` (N-way replication) to `~1.5×` while preserving the same failure tolerance. Today a 1 GB object with `factor=3` consumes 3 GB cluster-wide; with EC `4+2` it consumes 1.5 GB and tolerates the same 2 node failures.

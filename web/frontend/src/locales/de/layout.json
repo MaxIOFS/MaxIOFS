@@ -47,5 +47,7 @@
   "closeNavigation": "Navigation schließen",
   "openNotifications": "Benachrichtigungen öffnen",
   "collapseSidebar": "Einklappen",
-  "expandSidebar": "Ausklappen"
+  "expandSidebar": "Ausklappen",
+  "recoveryBundleBanner": "Für den Verschlüsselungsschlüssel existiert noch keine externe Sicherung. Laden Sie das Wiederherstellungspaket herunter und bewahren Sie es außerhalb dieses Systems auf.",
+  "recoveryBundleBannerLink": "Zu den Einstellungen"
 }

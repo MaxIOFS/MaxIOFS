@@ -47,5 +47,7 @@
   "closeNavigation": "ナビゲーションを閉じる",
   "openNotifications": "通知を開く",
   "collapseSidebar": "折りたたむ",
-  "expandSidebar": "展開する"
+  "expandSidebar": "展開する",
+  "recoveryBundleBanner": "暗号化キーの外部バックアップがまだありません。リカバリーバンドルをダウンロードし、このシステムの外部に保管してください。",
+  "recoveryBundleBannerLink": "設定へ移動"
 }

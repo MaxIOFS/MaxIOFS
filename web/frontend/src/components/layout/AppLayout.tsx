@@ -11,6 +11,7 @@ import { BackgroundTaskBar } from '@/components/ui/BackgroundTaskBar';
 import { SidebarNav, navigation } from './SidebarNav';
 import { TopBar } from './TopBar';
 import { MaintenanceBanner } from './MaintenanceBanner';
+import { RecoveryBundleBanner } from './RecoveryBundleBanner';
 import type { ServerConfig } from '@/types';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -227,6 +228,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         />
 
         <MaintenanceBanner isMaintenanceMode={!!serverConfig?.maintenanceMode} />
+
+        <RecoveryBundleBanner isGlobalAdmin={isGlobalAdmin} />
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto">
           <div className="mx-auto max-w-screen-2xl 3xl:max-w-[95%] 4xl:max-w-[90%] 5xl:max-w-[85%] p-2 md:p-3 2xl:p-4">

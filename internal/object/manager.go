@@ -23,6 +23,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/maxiofs/maxiofs/pkg/encryption"
@@ -132,12 +133,16 @@ type completionFuture struct {
 
 // objectManager implements the Manager interface
 type objectManager struct {
-	storage           storage.Backend
-	config            config.StorageConfig
-	metadataStore     metadata.Store
-	aclManager        acl.Manager
-	encryptionService *encryption.EncryptionService
-	bucketManager     interface {
+	storage       storage.Backend
+	config        config.StorageConfig
+	metadataStore metadata.Store
+	aclManager    acl.Manager
+	// encryptor performs the raw AES-256-GCM stream/block operations.
+	// Key selection is envelope-based: each object has its own DEK wrapped
+	// by a KEK obtained from kekProvider.
+	encryptor   encryption.Encryptor
+	kekProvider kek.Provider
+	bucketManager interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		AdjustBucketSize(ctx context.Context, tenantID, name string, sizeDelta int64) error
@@ -171,64 +176,81 @@ func (om *objectManager) lockKey(bucket, key string) func() {
 	return om.muShards[h].Unlock
 }
 
-// NewManager creates a new object manager
-func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig) Manager {
+// Option configures the object manager at construction time.
+type Option func(*objectManager)
+
+// WithKEKProvider supplies the KEK provider used for envelope encryption
+// (normally the DB-backed kek.Store bootstrapped in server startup).
+func WithKEKProvider(p kek.Provider) Option {
+	return func(om *objectManager) { om.kekProvider = p }
+}
+
+// NewManager creates a new object manager.
+//
+// Encryption is always on: every new object is envelope-encrypted with a
+// per-object DEK wrapped by the current KEK. When no KEK provider is
+// supplied via WithKEKProvider, an in-process fallback is used: the
+// config.yaml encryption_key if present, otherwise a randomly generated
+// ephemeral key (tests / embedded use only — data written with an
+// ephemeral key is not decryptable after restart).
+func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig, opts ...Option) Manager {
 	var aclMgr acl.Manager
 	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
 		aclMgr = acl.NewManager(kvStore)
 	}
 
-	// Initialize encryption service with AES-256-GCM
-	encryptionConfig := encryption.DefaultEncryptionConfig()
-	encryptionService := encryption.NewEncryptionService(encryptionConfig)
+	om := &objectManager{
+		storage:       storage,
+		config:        config,
+		metadataStore: metadataStore,
+		aclManager:    aclMgr,
+		encryptor:     encryption.NewAESGCMEncryptor(encryption.DefaultEncryptionConfig()),
+		bucketManager: nil, // Will be set later via SetBucketManager
+		completions:   make(map[string]*completionFuture),
+	}
 
-	// Load master key from config if provided
-	// This key is needed for:
-	// 1. Encrypting new objects (if enable_encryption = true)
-	// 2. Decrypting existing encrypted objects (always, regardless of enable_encryption)
-	if config.EncryptionKey != "" {
-		// Validate key length (must be 32 bytes = 64 hex characters)
-		if len(config.EncryptionKey) != 64 {
-			logrus.Fatalf("Invalid encryption_key length: got %d characters, expected 64 (32 bytes in hex). "+
-				"Generate a secure key with: openssl rand -hex 32", len(config.EncryptionKey))
-		}
+	for _, opt := range opts {
+		opt(om)
+	}
 
-		// Convert hex string to bytes (32 bytes for AES-256)
-		keyBytes := make([]byte, 32)
-		_, err := fmt.Sscanf(config.EncryptionKey, "%64x", &keyBytes)
-		if err != nil {
-			logrus.WithError(err).Fatal("Invalid encryption_key format: must be 64 hex characters. " +
-				"Generate a secure key with: openssl rand -hex 32")
-		}
-
-		// Store the master key as the default encryption key
-		if err := encryptionService.GetKeyManager().StoreKey("default", keyBytes); err != nil {
-			logrus.WithError(err).Fatal("Failed to store master encryption key")
-		}
-
-		if config.EnableEncryption {
-			logrus.Info("✅ Encryption enabled: New objects will be encrypted with AES-256-CTR")
+	if om.kekProvider == nil {
+		if config.EncryptionKey != "" {
+			// Legacy path (no DB-backed KEK store wired): use the config key
+			// as KEK version 1, exactly as it was used before envelope
+			// encryption, so existing objects keep decrypting.
+			if len(config.EncryptionKey) != 64 {
+				logrus.Fatalf("Invalid encryption_key length: got %d characters, expected 64 (32 bytes in hex). "+
+					"Generate a secure key with: openssl rand -hex 32", len(config.EncryptionKey))
+			}
+			keyBytes, err := hex.DecodeString(config.EncryptionKey)
+			if err != nil {
+				logrus.WithError(err).Fatal("Invalid encryption_key format: must be 64 hex characters. " +
+					"Generate a secure key with: openssl rand -hex 32")
+			}
+			provider, err := kek.EphemeralFromKey(keyBytes)
+			if err != nil {
+				logrus.WithError(err).Fatal("Failed to initialize KEK from encryption_key")
+			}
+			om.kekProvider = provider
 		} else {
-			logrus.Info("⚠️  Encryption disabled for new objects (existing encrypted objects remain accessible)")
+			// No KEK at all: self-provision an ephemeral one so encryption
+			// still works. Only acceptable for tests/embedded use — the
+			// server always wires the persistent DB-backed store.
+			provider, err := kek.Ephemeral()
+			if err != nil {
+				logrus.WithError(err).Fatal("Failed to generate ephemeral KEK")
+			}
+			om.kekProvider = provider
+			logrus.Warn("⚠️  Using an ephemeral in-memory encryption key (no KEK provider wired). " +
+				"Objects written now will NOT be decryptable after restart.")
 		}
-	} else {
-		// No encryption key configured
-		if config.EnableEncryption {
-			logrus.Fatal("Encryption is enabled but encryption_key is not set in config. " +
-				"Generate a secure key with: openssl rand -hex 32")
-		}
-		logrus.Info("⚠️  No encryption key configured: All objects will be stored unencrypted")
 	}
 
-	return &objectManager{
-		storage:           storage,
-		config:            config,
-		metadataStore:     metadataStore,
-		aclManager:        aclMgr,
-		encryptionService: encryptionService,
-		bucketManager:     nil, // Will be set later via SetBucketManager
-		completions:       make(map[string]*completionFuture),
+	if !config.EnableEncryption {
+		logrus.Info("Encryption is now always enabled (envelope, AES-256-GCM); storage.enable_encryption is deprecated and ignored")
 	}
+
+	return om
 }
 
 // SetBucketManager sets the bucket manager for metrics updates
@@ -434,7 +456,16 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	}
 
 	if isEncrypted {
-		// Object is encrypted - decrypt stream
+		// Object is encrypted - decrypt stream.
+		// Resolve the decryption key first: envelope objects carry a wrapped
+		// DEK in the sidecar metadata; legacy objects were encrypted directly
+		// with KEK version 1 (the former config.yaml master key).
+		decryptKey, keyErr := om.decryptionKeyFor(storageMetadata)
+		if keyErr != nil {
+			encryptedReader.Close()
+			return nil, nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
+		}
+
 		pipeReader, pipeWriter := io.Pipe()
 
 		// Create encryption metadata for decryption.
@@ -463,7 +494,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 				}
 			}()
 
-			err := om.encryptionService.DecryptStream(encryptedReader, pipeWriter, encryptionMeta)
+			err := om.encryptor.DecryptStream(encryptedReader, pipeWriter, decryptKey, encryptionMeta)
 			close(done)
 
 			if err != nil {
@@ -576,14 +607,18 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
-	// Store object data (encrypted or unencrypted) using helper functions
-	shouldEncrypt := om.shouldEncryptObject(ctx, tenantID, bucketName)
-	if shouldEncrypt {
-		if err := om.storeEncryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+	// Store object data. Encryption is always on: every object is envelope-
+	// encrypted with its own DEK wrapped by the current KEK. Folder markers
+	// (keys ending in "/") carry no data — the filesystem backend never reads
+	// the data stream for them, so encrypting would leave the encryption pipe
+	// blocked forever; they are stored as plain directory markers instead.
+	isFolderMarker := strings.HasSuffix(key, "/")
+	if isFolderMarker {
+		if err := om.storeUnencryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := om.storeUnencryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+		if err := om.storeEncryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 	}
@@ -653,7 +688,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		ChecksumAlgorithm:  checksumAlgo,
 		ChecksumValue:      checksumValue,
 	}
-	if shouldEncrypt {
+	if !isFolderMarker {
 		object.SSEAlgorithm = "AES256"
 	}
 
@@ -1508,8 +1543,22 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return ErrObjectNotFound
 	}
 
-	// Update storage metadata
-	if err := om.storage.SetMetadata(ctx, objectPath, metadata); err != nil {
+	// Update storage metadata by MERGING into the existing sidecar.
+	// storage.SetMetadata replaces the sidecar wholesale — writing only the
+	// caller's keys would destroy the system entries (encrypted, original-size,
+	// wrapped-dek, kek-version, ...) and make an encrypted object permanently
+	// undecryptable. System keys can never be overridden by the caller.
+	existingMeta, err := om.storage.GetMetadata(ctx, objectPath)
+	if err != nil {
+		return fmt.Errorf("failed to read existing storage metadata: %w", err)
+	}
+	for k, v := range metadata {
+		if isProtectedStorageMetadataKey(k) {
+			continue
+		}
+		existingMeta[k] = v
+	}
+	if err := om.storage.SetMetadata(ctx, objectPath, existingMeta); err != nil {
 		return fmt.Errorf("failed to update storage metadata: %w", err)
 	}
 
@@ -2110,8 +2159,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	originalSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
-	// Apply encryption if enabled (requires reading plaintext → temp → encrypt → write back).
-	if om.shouldEncryptMultipartObject(ctx, multipart.Bucket) {
+	// Encryption is always on: re-encrypt the combined object (envelope)
+	// by reading the assembled plaintext → temp → encrypt → write back.
+	{
 		// Buffer plaintext to a temp file so objectPath can be safely overwritten on Windows.
 		tempPath, stageErr := om.stagePlaintextToTemp(ctx, objectPath)
 		if stageErr != nil {
@@ -2124,23 +2174,6 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		// Re-read metadata after encryption (encrypted size differs from plaintext size).
 		if sm, err2 := om.storage.GetMetadata(ctx, objectPath); err2 == nil {
 			lastModified, _ = strconv.ParseInt(sm["last_modified"], 10, 64)
-		}
-	} else {
-		// Unencrypted: just update the .metadata sidecar with the correct content-type
-		// and user metadata. The data file written by combineMultipartParts is already final —
-		// no need to re-read or re-write the entire file.
-		finalMeta := make(map[string]string, len(storageMetadata)+len(multipart.Metadata))
-		for k, v := range storageMetadata {
-			finalMeta[k] = v
-		}
-		// Multipart upload metadata (content-type, user headers) overrides the combine-time defaults.
-		for k, v := range multipart.Metadata {
-			finalMeta[k] = v
-		}
-		// Overwrite the storage-computed ETag with the S3-spec multipart ETag.
-		finalMeta["etag"] = multipartETag
-		if err := om.storage.SetMetadata(ctx, objectPath, finalMeta); err != nil {
-			return nil, fmt.Errorf("failed to update object metadata: %w", err)
 		}
 	}
 
@@ -2266,7 +2299,8 @@ func (om *objectManager) IsReady() bool {
 			return false
 		}
 	}
-	if om.config.EnableEncryption && om.encryptionService == nil {
+	// Encryption is always on — the encryptor and a KEK must be available.
+	if om.encryptor == nil || om.kekProvider == nil {
 		return false
 	}
 	return true
@@ -2680,40 +2714,106 @@ func filterStorageMetadataKeys(m map[string]string) map[string]string {
 	return out
 }
 
-// shouldEncryptObject determines if an object should be encrypted based on server and bucket configuration
-func (om *objectManager) shouldEncryptObject(ctx context.Context, tenantID, bucketName string) bool {
-	if !om.config.EnableEncryption {
-		return false
+// newEnvelope generates a fresh per-object DEK and returns it together with
+// the sidecar metadata entries that make the object decryptable later:
+// the DEK wrapped (AES-256-GCM) with the current KEK, the wrap IV, and the
+// KEK version. These entries live in the on-disk .metadata sidecar so the
+// object is recoverable from the filesystem alone (given a KEK backup),
+// even if the metadata database is lost.
+func (om *objectManager) newEnvelope() ([]byte, map[string]string, error) {
+	kekKey, kekVersion := om.kekProvider.CurrentKEK()
+	if len(kekKey) == 0 {
+		return nil, nil, fmt.Errorf("no current KEK available")
 	}
 
-	// Server encryption is enabled — check if the encryption service is actually ready
-	if om.encryptionService == nil {
-		return false
+	dek, err := om.encryptor.GenerateKey()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate DEK: %w", err)
 	}
 
-	// If bucket has an explicit encryption rule, honour it
-	bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	if err == nil && bucketInfo != nil && bucketInfo.Encryption != nil {
-		if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
-			sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
-			if sseConfig.SSEAlgorithm != "" {
-				return true
-			}
-		}
+	wrapped, err := om.encryptor.Encrypt(dek, kekKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to wrap DEK: %w", err)
 	}
 
-	// No bucket-level override: fall back to global encryption (key is configured)
-	return true
+	return dek, map[string]string{
+		"wrapped-dek":    hex.EncodeToString(wrapped.Data),
+		"wrapped-dek-iv": hex.EncodeToString(wrapped.IV),
+		"kek-version":    strconv.Itoa(kekVersion),
+	}, nil
 }
 
-// storeEncryptedObject encrypts and stores an object
+// decryptionKeyFor resolves the key that decrypts an encrypted object from
+// its sidecar metadata. Two encrypted formats coexist:
+//   - envelope (wrapped-dek present): unwrap the DEK with the recorded KEK version
+//   - legacy direct (no wrapped-dek): the object bytes were encrypted directly
+//     with KEK version 1 (the former config.yaml master key)
+func (om *objectManager) decryptionKeyFor(storageMetadata map[string]string) ([]byte, error) {
+	wrappedHex := storageMetadata["wrapped-dek"]
+	if wrappedHex == "" {
+		return om.kekProvider.KEKByVersion(1)
+	}
+
+	wrapped, err := hex.DecodeString(wrappedHex)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt wrapped-dek metadata: %w", err)
+	}
+	iv, err := hex.DecodeString(storageMetadata["wrapped-dek-iv"])
+	if err != nil {
+		return nil, fmt.Errorf("corrupt wrapped-dek-iv metadata: %w", err)
+	}
+
+	kekVersion := 1
+	if v := storageMetadata["kek-version"]; v != "" {
+		kekVersion, err = strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("corrupt kek-version metadata: %w", err)
+		}
+	}
+	kekKey, err := om.kekProvider.KEKByVersion(kekVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	dek, err := om.encryptor.Decrypt(&encryption.EncryptedData{Data: wrapped, IV: iv}, kekKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unwrap DEK: %w", err)
+	}
+	return dek, nil
+}
+
+// isProtectedStorageMetadataKey reports whether a sidecar metadata key is
+// system-managed and must never be overridden through UpdateObjectMetadata.
+// Losing the encryption entries would make the object undecryptable.
+func isProtectedStorageMetadataKey(key string) bool {
+	switch key {
+	case "encrypted", "original-size", "original-etag",
+		"wrapped-dek", "wrapped-dek-iv", "kek-version",
+		"size", "etag", "last_modified",
+		"x-amz-server-side-encryption", "x-amz-server-side-encryption-algorithm":
+		return true
+	}
+	return false
+}
+
+// storeEncryptedObject envelope-encrypts and stores an object: a fresh DEK
+// encrypts the data stream; the DEK, wrapped with the current KEK, is stored
+// in the sidecar metadata alongside the original (plaintext) size and ETag.
 func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
+	dek, envelopeMeta, err := om.newEnvelope()
+	if err != nil {
+		return err
+	}
+
 	// Save original metadata (size and etag are from UNENCRYPTED data)
 	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
 	storageMetadata["original-etag"] = originalETag
 	storageMetadata["encrypted"] = "true"
 	storageMetadata["x-amz-server-side-encryption"] = "AES256"
 	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-GCM-STREAM"
+	for k, v := range envelopeMeta {
+		storageMetadata[k] = v
+	}
 
 	// Open temp file for reading and encrypt while streaming to storage
 	tempFileRead, err := os.Open(tempPath)
@@ -2728,7 +2828,7 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 	// Encrypt in background goroutine
 	go func() {
 		defer pipeWriter.Close()
-		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+		if _, err := om.encryptor.EncryptStream(tempFileRead, pipeWriter, dek); err != nil {
 			logrus.WithError(err).Error("Failed to encrypt object during upload")
 			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
 		}
@@ -3071,28 +3171,15 @@ func (om *objectManager) calculateMultipartHash(ctx context.Context, objectPath 
 	return originalSize, originalETag, tempPath, nil
 }
 
-// shouldEncryptMultipartObject determines if multipart object should be encrypted
-func (om *objectManager) shouldEncryptMultipartObject(ctx context.Context, bucket string) bool {
-	if !om.config.EnableEncryption {
-		return false
-	}
-
-	tenantID, bucketName := om.parseBucketPath(bucket)
-	bucketInfo, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	if err != nil || bucketInfo == nil || bucketInfo.Encryption == nil {
-		return false
-	}
-
-	if len(bucketInfo.Encryption.Rules) > 0 && bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault != nil {
-		sseConfig := bucketInfo.Encryption.Rules[0].ApplyServerSideEncryptionByDefault
-		return sseConfig.SSEAlgorithm != ""
-	}
-
-	return false
-}
-
-// storeEncryptedMultipartObject encrypts and stores multipart object
+// storeEncryptedMultipartObject envelope-encrypts and stores the assembled
+// multipart object (fresh DEK wrapped by the current KEK, same format as
+// storeEncryptedObject).
 func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+	dek, envelopeMeta, err := om.newEnvelope()
+	if err != nil {
+		return err
+	}
+
 	tempFileRead, err := os.Open(tempPath)
 	if err != nil {
 		return fmt.Errorf("failed to open temp file for encryption: %w", err)
@@ -3105,7 +3192,7 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 	// Encrypt in background goroutine
 	go func() {
 		defer pipeWriter.Close()
-		if _, err := om.encryptionService.EncryptStream(tempFileRead, pipeWriter); err != nil {
+		if _, err := om.encryptor.EncryptStream(tempFileRead, pipeWriter, dek); err != nil {
 			logrus.WithError(err).Error("Failed to encrypt multipart object")
 			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
 		}
@@ -3124,6 +3211,9 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
 		"content-type":                           encryptedContentType,
 	}
+	for k, v := range envelopeMeta {
+		encryptionMetadata[k] = v
+	}
 
 	// Copy any user metadata from multipart upload
 	for k, v := range multipart.Metadata {
@@ -3141,46 +3231,6 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		"bucket":   multipart.Bucket,
 		"key":      multipart.Key,
 	}).Info("Multipart object encrypted and stored successfully (streaming)")
-
-	return nil
-}
-
-// storeUnencryptedMultipartObject stores multipart object without encryption
-func (om *objectManager) storeUnencryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
-	unencryptedContentType := multipart.Metadata["content-type"]
-	if unencryptedContentType == "" {
-		unencryptedContentType = "application/octet-stream"
-	}
-	unencryptedMetadata := map[string]string{
-		"size":         fmt.Sprintf("%d", originalSize),
-		"etag":         originalETag,
-		"content-type": unencryptedContentType,
-	}
-
-	// Copy any user metadata from multipart upload
-	for k, v := range multipart.Metadata {
-		if k != "content-type" {
-			unencryptedMetadata[k] = v
-		}
-	}
-
-	// Open temp file to replace combined file with proper metadata
-	tempFileRead, err := os.Open(tempPath)
-	if err != nil {
-		return fmt.Errorf("failed to open temp file: %w", err)
-	}
-	defer tempFileRead.Close()
-
-	// Replace with unencrypted version (streaming)
-	if err := om.storage.Put(ctx, objectPath, tempFileRead, unencryptedMetadata); err != nil {
-		return fmt.Errorf("failed to store multipart object: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"uploadID": uploadID,
-		"bucket":   multipart.Bucket,
-		"key":      multipart.Key,
-	}).Info("Multipart object stored successfully (unencrypted)")
 
 	return nil
 }

@@ -22,6 +22,8 @@ import { Loading } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import LoggingTargets from './LoggingTargets';
+import EncryptionRecovery from './EncryptionRecovery';
+import EncryptionWorkerStatus from './EncryptionWorkerStatus';
 import type { Setting, SettingCategory } from '@/types';
 
 // Category icon map — icons are static, labels/descriptions come from t()
@@ -366,6 +368,14 @@ export default function SettingsPage() {
               {categoryInfo[activeCategory].description}
             </p>
           </div>
+
+          {/* Encryption recovery bundle + worker — shown only in security category */}
+          {activeCategory === 'security' && (
+            <>
+              <EncryptionRecovery />
+              <EncryptionWorkerStatus />
+            </>
+          )}
 
           {/* Test Email button — shown only in email category */}
           {activeCategory === 'email' && (

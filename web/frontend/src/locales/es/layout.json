@@ -47,5 +47,7 @@
   "closeNavigation": "Cerrar navegación",
   "openNotifications": "Abrir notificaciones",
   "collapseSidebar": "Contraer",
-  "expandSidebar": "Expandir"
+  "expandSidebar": "Expandir",
+  "recoveryBundleBanner": "La clave de cifrado aún no tiene copia de seguridad externa. Descargue el bundle de recuperación y guárdelo fuera de este sistema.",
+  "recoveryBundleBannerLink": "Ir a Configuración"
 }

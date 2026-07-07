@@ -47,5 +47,7 @@
   "closeNavigation": "关闭导航",
   "openNotifications": "打开通知",
   "collapseSidebar": "折叠",
-  "expandSidebar": "展开"
+  "expandSidebar": "展开",
+  "recoveryBundleBanner": "加密密钥尚无外部备份。请下载恢复包并将其保存在本系统之外。",
+  "recoveryBundleBannerLink": "前往设置"
 }

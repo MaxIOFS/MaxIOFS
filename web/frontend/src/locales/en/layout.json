@@ -47,5 +47,7 @@
   "closeNavigation": "Close navigation",
   "openNotifications": "Open notifications",
   "collapseSidebar": "Collapse",
-  "expandSidebar": "Expand"
+  "expandSidebar": "Expand",
+  "recoveryBundleBanner": "The encryption key has no external backup yet. Download the recovery bundle and store it outside this system.",
+  "recoveryBundleBannerLink": "Go to Settings"
 }

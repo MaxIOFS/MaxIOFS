@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -186,95 +187,48 @@ func TestCheckMultipartQuotaBeforeComplete(t *testing.T) {
 	assert.True(t, mockAuth.checkCalled, "Should have checked quota")
 }
 
-// TestShouldEncryptObject tests encryption decision logic
-func TestShouldEncryptObject(t *testing.T) {
+// TestAlwaysEncrypt verifies that every stored object is envelope-encrypted
+// regardless of config flags or bucket-level rules (encryption is always on).
+func TestAlwaysEncrypt(t *testing.T) {
 	ctx := context.Background()
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 
-	bucketName := "encrypt-bucket"
-	tenantID := "tenant-1"
-
-	// Create bucket with encryption enabled
-	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucketName,
-		TenantID: tenantID,
-		OwnerID:  "user-1",
-		Encryption: &metadata.EncryptionMetadata{
-			Rules: []metadata.EncryptionRule{
-				{
-					ApplyServerSideEncryptionByDefault: &metadata.SSEConfig{
-						SSEAlgorithm: "AES256",
-					},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	// Test 1: Without EnableEncryption in config
-	om.config.EnableEncryption = false
-	shouldEncrypt := om.shouldEncryptObject(ctx, tenantID, bucketName)
-	assert.False(t, shouldEncrypt, "Should not encrypt when config.EnableEncryption is false")
-
-	// Test 2: With EnableEncryption in config and bucket encryption
-	om.config.EnableEncryption = true
-	shouldEncrypt = om.shouldEncryptObject(ctx, tenantID, bucketName)
-	assert.True(t, shouldEncrypt, "Should encrypt when enabled in config and bucket")
-
-	// Test 3: Bucket without encryption rules
-	bucketNameNoEncrypt := "no-encrypt-bucket"
-	err = metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucketNameNoEncrypt,
-		TenantID: tenantID,
-		OwnerID:  "user-1",
-	})
-	require.NoError(t, err)
-
-	shouldEncrypt = om.shouldEncryptObject(ctx, tenantID, bucketNameNoEncrypt)
-	assert.True(t, shouldEncrypt, "Should encrypt even without bucket-level rules when EnableEncryption is true globally")
-}
-
-// TestShouldEncryptMultipartObject tests multipart encryption decision
-func TestShouldEncryptMultipartObject(t *testing.T) {
-	ctx := context.Background()
-	om, metaStore, cleanup := setupTestManagerWithStore(t)
-	defer cleanup()
-
-	bucketName := "multipart-encrypt-bucket"
+	bucketName := "always-encrypt-bucket"
 	tenantID := "tenant-1"
 	bucket := tenantID + "/" + bucketName
 
-	// Create bucket with encryption enabled
+	// Bucket WITHOUT any encryption rules — objects must still be encrypted.
 	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name:     bucketName,
 		TenantID: tenantID,
 		OwnerID:  "user-1",
-		Encryption: &metadata.EncryptionMetadata{
-			Rules: []metadata.EncryptionRule{
-				{
-					ApplyServerSideEncryptionByDefault: &metadata.SSEConfig{
-						SSEAlgorithm: "AES256",
-					},
-				},
-			},
-		},
 	})
 	require.NoError(t, err)
 
-	// Test 1: Without EnableEncryption in config
+	// Even with the deprecated flag off, writes are encrypted.
 	om.config.EnableEncryption = false
-	shouldEncrypt := om.shouldEncryptMultipartObject(ctx, bucket)
-	assert.False(t, shouldEncrypt, "Should not encrypt multipart when config disabled")
 
-	// Test 2: With EnableEncryption in config
-	om.config.EnableEncryption = true
-	shouldEncrypt = om.shouldEncryptMultipartObject(ctx, bucket)
-	assert.True(t, shouldEncrypt, "Should encrypt multipart when enabled")
+	content := []byte("always encrypted content")
+	_, err = om.PutObject(ctx, bucket, "file.txt", bytes.NewReader(content), http.Header{})
+	require.NoError(t, err)
 
-	// Test 3: Non-existent bucket
-	shouldEncrypt = om.shouldEncryptMultipartObject(ctx, tenantID+"/nonexistent")
-	assert.False(t, shouldEncrypt, "Should not encrypt for non-existent bucket")
+	// Sidecar metadata must carry the envelope fields.
+	storageMeta, err := om.storage.GetMetadata(ctx, om.getObjectPath(bucket, "file.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "true", storageMeta["encrypted"])
+	assert.NotEmpty(t, storageMeta["wrapped-dek"], "envelope must store the wrapped DEK in the sidecar")
+	assert.NotEmpty(t, storageMeta["wrapped-dek-iv"])
+	assert.Equal(t, "1", storageMeta["kek-version"])
+
+	// And the object must read back decrypted.
+	obj, reader, err := om.GetObject(ctx, bucket, "file.txt")
+	require.NoError(t, err)
+	defer reader.Close()
+	readBack, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, content, readBack)
+	assert.Equal(t, "AES256", obj.SSEAlgorithm)
 }
 
 // TestDeleteSpecificVersion_VersionNotFound tests error handling

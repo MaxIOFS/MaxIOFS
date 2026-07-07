@@ -47,5 +47,7 @@
   "closeNavigation": "Chiudi navigazione",
   "openNotifications": "Apri notifiche",
   "collapseSidebar": "Comprimi",
-  "expandSidebar": "Espandi"
+  "expandSidebar": "Espandi",
+  "recoveryBundleBanner": "La chiave di crittografia non ha ancora un backup esterno. Scarica il bundle di recupero e conservalo fuori da questo sistema.",
+  "recoveryBundleBannerLink": "Vai alle impostazioni"
 }

@@ -668,6 +668,10 @@ func TestObjectManagerBucketMetricsIntegration(t *testing.T) {
 	}
 }
 
+// persistenceTestKEK is a fixed 32-byte (hex) KEK shared by both "sessions"
+// of the persistence test, standing in for the KEK persisted in the DB.
+const persistenceTestKEK = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+
 func TestObjectManagerPersistence(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-object-persistence-*")
 	if err != nil {
@@ -690,7 +694,11 @@ func TestObjectManagerPersistence(t *testing.T) {
 			Logger: logrus.StandardLogger()})
 
 		bm := bucket.NewManager(storageBackend, metadataStore)
-		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir}
+		// A persistent key is required across "restarts": encryption is always
+		// on, and an ephemeral KEK would make the second session unable to
+		// decrypt (mirrors a real deployment, where the KEK persists in the DB).
+		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir,
+			EncryptionKey: persistenceTestKEK}
 		om := NewManager(storageBackend, metadataStore, cfg)
 
 		// Create bucket
@@ -740,7 +748,8 @@ func TestObjectManagerPersistence(t *testing.T) {
 			Logger: logrus.StandardLogger()})
 		defer metadataStore.Close()
 
-		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir}
+		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir,
+			EncryptionKey: persistenceTestKEK}
 		om := NewManager(storageBackend, metadataStore, cfg)
 
 		// Get object

@@ -1714,6 +1714,46 @@ export class APIClient {
     return response.data.data ?? response.data as unknown as { success: boolean; message: string };
   }
 
+  // Encryption recovery bundle API (global admin only)
+  static async getEncryptionRecoveryStatus(): Promise<{ kekVersion: number; bundleDownloaded: boolean; downloadedAt?: string }> {
+    const response = await apiClient.get<APIResponse<{ kekVersion: number; bundleDownloaded: boolean; downloadedAt?: string }>>('/settings/encryption/recovery-status');
+    return response.data.data!;
+  }
+
+  static async getEncryptionWorkerStatus(): Promise<{
+    status: string;
+    currentBucket?: string;
+    bucketsDone: number;
+    bucketsTotal: number;
+    converted: number;
+    skipped: number;
+    failed: number;
+    lastRunStart?: number;
+    lastRunEnd?: number;
+    lastError?: string;
+    updatedAt: number;
+  }> {
+    const response = await apiClient.get<APIResponse<any>>('/settings/encryption/worker-status');
+    return response.data.data!;
+  }
+
+  static async runEncryptionWorker(): Promise<{ started: boolean; reason?: string }> {
+    const response = await apiClient.post<APIResponse<{ started: boolean; reason?: string }>>('/settings/encryption/worker-run', {});
+    return response.data.data!;
+  }
+
+  static async downloadRecoveryBundle(passphrase: string): Promise<Blob> {
+    const response = await apiClient.post(
+      '/settings/encryption/recovery-bundle',
+      { passphrase },
+      {
+        responseType: 'blob' as const,
+        headers: { 'Accept': '*/*' },
+      }
+    );
+    return response.data;
+  }
+
   // Logging Targets API
   static async listLoggingTargets(): Promise<LoggingTargetsResponse> {
     const response = await apiClient.get<APIResponse<LoggingTargetsResponse>>('/logs/targets');

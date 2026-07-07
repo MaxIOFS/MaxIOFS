@@ -473,6 +473,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/settings", s.handleListSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/categories", s.handleListCategories).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/email/test", s.handleTestEmail).Methods("POST", "OPTIONS")
+	router.HandleFunc("/settings/encryption/recovery-status", s.handleEncryptionRecoveryStatus).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/encryption/recovery-bundle", s.handleDownloadRecoveryBundle).Methods("POST", "OPTIONS")
+	router.HandleFunc("/settings/encryption/worker-status", s.handleEncryptionWorkerStatus).Methods("GET", "OPTIONS")
+	router.HandleFunc("/settings/encryption/worker-run", s.handleEncryptionWorkerRun).Methods("POST", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleGetSetting).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleUpdateSetting).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/settings/bulk", s.handleBulkUpdateSettings).Methods("POST", "OPTIONS")
@@ -1674,11 +1678,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		bucketInfo.ObjectLock = objLock
 	}
 
-	// Aplicar encriptación
+	// Aplicar encriptación. Server-side encryption is always on (envelope,
+	// AES-256-GCM), so every bucket reflects it in its metadata; an explicit
+	// request config (e.g. aws:kms type) takes precedence.
 	if req.Encryption != nil {
 		bucketInfo.Encryption = req.Encryption
-	} else if s.config.Storage.EnableEncryption {
-		// Global encryption is active — persist it on the bucket metadata
+	} else {
 		bucketInfo.Encryption = &bucket.EncryptionConfig{Type: "AES256"}
 	}
 
@@ -3491,9 +3496,11 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"websiteHostname":  s.config.WebsiteHostname,
 		},
 		"storage": map[string]interface{}{
-			"backend":          s.config.Storage.Backend,
-			"root":             s.config.Storage.Root,
-			"enableEncryption": s.config.Storage.EnableEncryption,
+			"backend": s.config.Storage.Backend,
+			"root":    s.config.Storage.Root,
+			// Encryption is always on (envelope, KEK in DB); the old
+			// enable_encryption flag is deprecated and ignored.
+			"enableEncryption": true,
 			"enableObjectLock": s.config.Storage.EnableObjectLock,
 		},
 		"auth": map[string]interface{}{
@@ -3509,7 +3516,7 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"multiTenancy":  true,
 			"objectLock":    s.config.Storage.EnableObjectLock,
 			"versioning":    true,
-			"encryption":    s.config.Storage.EnableEncryption,
+			"encryption":    true, // always on (envelope, KEK in DB)
 			"multipart":     true,
 			"presignedUrls": true,
 			"cors":          true,
@@ -4187,8 +4194,8 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 	}
 	tenantID := user.TenantID
 
-	// Get encryption status
-	encryptionEnabled := s.config.Storage.EnableEncryption
+	// Get encryption status (always on: envelope encryption, KEK in DB)
+	encryptionEnabled := true
 	algorithm := "AES-256-GCM"
 
 	// Get object lock statistics
@@ -7804,9 +7811,10 @@ func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.writeJSON(w, map[string]interface{}{
-		// Server-level encryption state (read from static config, not from DB settings)
-		"serverEncryptionEnabled":       s.config.Storage.EnableEncryption,
-		"serverEncryptionKeyConfigured": s.config.Storage.EncryptionKey != "",
+		// Server-level encryption is always on: envelope encryption with the
+		// KEK persisted in the database (bootstrapped at startup).
+		"serverEncryptionEnabled":       true,
+		"serverEncryptionKeyConfigured": true,
 		// Per-bucket SSE config (nil means "inherit server default")
 		"encryption": bucketInfo.Encryption,
 	})
@@ -7820,17 +7828,9 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Guard: server must have encryption enabled AND a key configured.
-	// Without the persistent master key objects under this bucket would be
-	// stored in plain text (or corrupt after a key rotation/loss).
-	if !s.config.Storage.EnableEncryption || s.config.Storage.EncryptionKey == "" {
-		s.writeError(w,
-			"Cannot configure bucket encryption: server-level encryption is not enabled. "+
-				"Set enable_encryption: true and a permanent encryption_key in config.yaml first.",
-			http.StatusBadRequest)
-		return
-	}
-
+	// No server-level guard needed: encryption is always on (envelope, KEK
+	// bootstrapped in the DB at startup), so a bucket SSE config is always
+	// backed by a real key.
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)

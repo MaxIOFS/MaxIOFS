@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -31,6 +32,7 @@ import (
 	_ "github.com/maxiofs/maxiofs/internal/idp/ldap"  // Register LDAP provider
 	_ "github.com/maxiofs/maxiofs/internal/idp/oauth" // Register OAuth provider
 	"github.com/maxiofs/maxiofs/internal/inventory"
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/lifecycle"
 	"github.com/maxiofs/maxiofs/internal/logging"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -60,6 +62,7 @@ type Server struct {
 	auditManager            *audit.Manager
 	metricsManager          metrics.Manager
 	settingsManager         *settings.Manager
+	kekStore                *kek.Store // DB-backed encryption KEK (envelope encryption)
 	loggingManager          *logging.Manager
 	shareManager            share.Manager
 	notificationManager     *notifications.Manager
@@ -97,6 +100,7 @@ type Server struct {
 	commit                  string          // Git commit hash
 	buildDate               string          // Build date
 	serverCtx               context.Context // lifecycle context, set in Start()
+	encWorkerRunning        atomic.Bool     // single-flight guard for the encryption worker pass
 	clusterBgOnce           sync.Once       // ensures cluster background services start exactly once
 	oauthCodeStore          sync.Map        // one-time OAuth exchange codes, keyed by random hex, TTL 60s
 }
@@ -126,7 +130,25 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
-	objectManager := object.NewManager(storageBackend, metadataStore, cfg.Storage)
+
+	// Auth manager first: it owns the SQLite DB, which the KEK bootstrap
+	// (below) needs before the object manager can be created.
+	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
+
+	// Initialize settings manager (uses same SQLite DB as auth)
+	db, ok := authManager.GetDB().(*sql.DB)
+	if !ok {
+		return nil, fmt.Errorf("failed to get SQLite database from auth manager")
+	}
+
+	// Bootstrap the encryption KEK: DB value → seed from config.yaml → generate.
+	// The DB is the source of truth; the config key is only ever a seed.
+	kekStore, err := kek.Bootstrap(db, cfg.Storage.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bootstrap encryption KEK: %w", err)
+	}
+
+	objectManager := object.NewManager(storageBackend, metadataStore, cfg.Storage, object.WithKEKProvider(kekStore))
 
 	// Connect object manager to bucket manager for metrics updates
 	if om, ok := objectManager.(interface {
@@ -137,14 +159,6 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	}); ok {
 		om.SetBucketManager(bucketManager)
-	}
-
-	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
-
-	// Initialize settings manager (uses same SQLite DB as auth)
-	db, ok := authManager.GetDB().(*sql.DB)
-	if !ok {
-		return nil, fmt.Errorf("failed to get SQLite database from auth manager")
 	}
 	settingsManager, err := settings.NewManager(db, logrus.StandardLogger())
 	if err != nil {
@@ -472,6 +486,7 @@ func New(cfg *config.Config) (*Server, error) {
 		auditManager:            auditManager,
 		metricsManager:          metricsManager,
 		settingsManager:         settingsManager,
+		kekStore:                kekStore,
 		loggingManager:          loggingManager,
 		shareManager:            shareManager,
 		notificationManager:     notificationManager,
@@ -621,6 +636,11 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start data integrity scrubber (runs every 24 hours)
 	s.startIntegrityScrubber(ctx)
 	logrus.Info("Integrity scrubber started")
+
+	// Start background encryption worker (converts pre-existing plaintext
+	// objects to envelope encryption; load-aware, checkpointed)
+	s.startEncryptionWorker(ctx)
+	logrus.Info("Encryption worker started")
 
 	// Start replication manager
 	if s.replicationManager != nil {
