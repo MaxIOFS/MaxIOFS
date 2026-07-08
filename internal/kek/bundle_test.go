@@ -102,7 +102,7 @@ func TestExportBundle_MultipleVersions(t *testing.T) {
 	// Simulate a rotated deployment: add a second key version.
 	second := strings.Repeat("ab", 32)
 	secondKey, _ := hex.DecodeString(second)
-	require.NoError(t, store.insertKey(2, secondKey, true))
+	require.NoError(t, store.insertKey(2, secondKey, true, false))
 
 	data, err := store.ExportBundle("a-decent-passphrase")
 	require.NoError(t, err)

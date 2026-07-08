@@ -431,7 +431,7 @@ func (s *AntiEntropyScrubber) processBatch(
 // Divergence classification + action
 // ---------------------------------------------------------------------------
 
-// ChecksumEntry is the per-key payload returned by /api/internal/ha/checksum-batch.
+// ChecksumEntry is the per-key payload returned by /api/internal/cluster/ha/checksum-batch.
 type ChecksumEntry struct {
 	Key          string `json:"key"`
 	Found        bool   `json:"found"`
@@ -568,7 +568,7 @@ func (s *AntiEntropyScrubber) applyAction(
 // Peer I/O
 // ---------------------------------------------------------------------------
 
-// fetchPeerChecksums calls POST /api/internal/ha/checksum-batch on the peer.
+// fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the peer.
 func (s *AntiEntropyScrubber) fetchPeerChecksums(
 	ctx context.Context,
 	client *ProxyClient,
@@ -584,7 +584,7 @@ func (s *AntiEntropyScrubber) fetchPeerChecksums(
 		return nil, err
 	}
 
-	url := fmt.Sprintf("%s/api/internal/ha/checksum-batch", peer.Endpoint)
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/checksum-batch", peer.Endpoint)
 	req, err := client.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), localID, peer.NodeToken)
 	if err != nil {
 		return nil, err
@@ -624,7 +624,7 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 	}
 	defer reader.Close()
 
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", peer.Endpoint, escapeHAObjectKey(key))
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", peer.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, peer.NodeToken)
 	if err != nil {
 		return err
@@ -674,7 +674,7 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	peer *Node,
 	localID, bucketPath, key string,
 ) error {
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s?bucket=%s", peer.Endpoint, escapeHAObjectKey(key), urlEscapeBucket(bucketPath))
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s?bucket=%s", peer.Endpoint, escapeHAObjectKey(key), urlEscapeBucket(bucketPath))
 	req, err := client.CreateAuthenticatedRequest(ctx, "GET", url, nil, localID, peer.NodeToken)
 	if err != nil {
 		return err

@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
@@ -251,6 +252,10 @@ type ClusterJoinPackage struct {
 	NodeEndpoint string             `json:"node_endpoint"` // Node A's 8082 URL
 	APIURL       string             `json:"api_url"`       // Node B's S3 API public URL
 	Nodes        []*JoinPackageNode `json:"nodes"`
+	// EncryptionKeys carries the cluster-shared KEK versions so every node
+	// wraps new objects with the same key — the basis for ciphertext HA
+	// replication (replicas store encrypted bytes as-is, no decrypt/re-encrypt).
+	EncryptionKeys []kek.KeyRecord `json:"encryption_keys,omitempty"`
 }
 
 // AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.

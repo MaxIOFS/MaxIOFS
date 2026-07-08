@@ -24,6 +24,28 @@ func getAllMigrations() []Migration {
 		migration14_v141_BucketPermissionScope(),
 		migration15_v150_TenantBandwidth(),
 		migration16_v150_EncryptionKeys(),
+		migration17_v150_ClusterSharedKEK(),
+	}
+}
+
+// migration17_v150_ClusterSharedKEK marks KEK versions that are shared across
+// cluster nodes. Corresponds to MaxIOFS v1.5.0 - Ciphertext HA replication:
+// a cluster-shared KEK (created at first join, distributed in the join
+// package) lets replicas store ciphertext as-is; per-node local keys stay
+// cluster_shared=0 and their objects use the legacy replication path.
+func migration17_v150_ClusterSharedKEK() Migration {
+	return Migration{
+		Version:     17,
+		Description: "v1.5.0 - Add cluster_shared flag to encryption_keys (ciphertext HA replication)",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`ALTER TABLE encryption_keys ADD COLUMN cluster_shared INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

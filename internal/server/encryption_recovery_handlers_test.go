@@ -30,7 +30,9 @@ func TestEncryptionRecoveryStatus(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, 1, resp.Data.KEKVersion)
+	// The shared server's current KEK may be v1 (bootstrap) or v2 (after the
+	// cluster-key test runs EnsureClusterKey) — only require that one exists.
+	assert.GreaterOrEqual(t, resp.Data.KEKVersion, 1)
 
 	// Tenant admin is rejected.
 	req = createAuthenticatedRequest("GET", "/api/v1/settings/encryption/recovery-status", nil, "tenant-1", "tenant-admin", true)

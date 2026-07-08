@@ -346,7 +346,7 @@ func (w *HASyncWorker) syncObject(
 	}
 	defer reader.Close()
 
-	url := fmt.Sprintf("%s/api/internal/ha/objects/%s", node.Endpoint, escapeHAObjectKey(key))
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", node.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, node.NodeToken)
 	if err != nil {
 		return err

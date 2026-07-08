@@ -41,16 +41,13 @@ Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials 
 
 ## 🔐 In progress — Envelope encryption: remaining phases
 
-Done so far (see CHANGELOG): **Phase 1** (KEK in DB via `internal/kek`, per-object DEK in the sidecar, multi-format reader, writes always encrypt), the **recovery bundle** (Settings → Security download + banner), and **Phase 2** (background encryption worker: converts legacy plaintext objects to envelope, load-aware, checkpointed, with Settings status + manual run).
+Done so far (see CHANGELOG): **Phase 1** (KEK in DB via `internal/kek`, per-object DEK in the sidecar, multi-format reader, writes always encrypt), the **recovery bundle** (Settings → Security download + banner), **Phase 2** (background encryption worker: converts legacy plaintext objects to envelope, load-aware, checkpointed, with Settings status + manual run), and **Phase 3** (ciphertext HA replication: cluster-shared KEK distributed in the join package, raw fanout with per-node legacy fallback).
 
 Design context that still applies to the remaining phases:
 - **The reader stays multi-format** — backward-compat linchpin. (1) plaintext → as-is; (2) legacy direct-encrypted → KEK-v1; (3) envelope → unwrap DEK. None can be dropped or existing data is lost.
 - The KEK lives in the DB in plaintext (root-key layering just relocates the single point of failure). Mitigation: restrict DB access + encrypt DB backups.
 - The worker (`internal/server/encryption_worker.go` + `internal/object/encryption_migration.go`) is the shared component that rotation will reuse: it walks per-object state, so rotation only adds a new state → action (old-KEK envelope → re-wrap DEK).
-
-### Phase 3 — Ciphertext HA replication
-
-`internal/cluster/ha_object_manager.go` `fanoutPut` still calls `GetObject` (decrypts) then PUTs to the peer, which re-encrypts. With the KEK shared via DB sync and envelope objects, replicate `ciphertext + wrapped DEK` as-is; the destination stores without decrypt/re-encrypt and decrypts only on read. Requires KEK sync across cluster nodes (encryption_keys table is not yet in the cluster tenant/config sync).
+- Cluster KEK model: each node keeps its **local v1** (never synced; its pre-join objects reference it); the **cluster-shared** key (v2+, `cluster_shared=1`) travels in the join package and wraps all new writes. Only cluster-shared envelopes replicate raw; the rest converge via rotation. Known limitation: a node that already holds a conflicting version number (e.g. ex-member of another cluster) cannot join without recovery — revisit with rotation's version-allocation strategy.
 
 ### Phase 4 — KEK rotation
 

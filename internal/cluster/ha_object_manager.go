@@ -3,12 +3,15 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -18,6 +21,14 @@ import (
 const HABucketHeader = "X-HA-Bucket"
 const HAObjectVersionHeader = "X-HA-Version-ID"
 const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
+
+// Raw (ciphertext) replication headers. When HARawHeader is "true" the body
+// is the stored ciphertext as-is; the sidecar and Pebble metadata travel
+// base64(JSON)-encoded so the replica stores an identical copy without
+// decrypting/re-encrypting.
+const HARawHeader = "X-HA-Raw"
+const HARawSidecarHeader = "X-HA-Raw-Sidecar"
+const HARawObjectMetaHeader = "X-HA-Raw-Object-Meta"
 
 // haReplicaKey is the unexported context key that marks a request as an HA replica write.
 type haReplicaKey struct{}
@@ -148,6 +159,39 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 	return obj, nil
 }
 
+// ---------------------------------------------------------------------------
+// RawObjectAccessor delegation
+// ---------------------------------------------------------------------------
+// HAObjectManager embeds the object.Manager INTERFACE, so methods outside that
+// interface are not promoted. Replica nodes hold the wrapper as their
+// objectManager, and the raw-replication receive path type-asserts
+// object.RawObjectAccessor — these delegating methods make the wrapper
+// satisfy it against the underlying manager.
+
+func (h *HAObjectManager) GetObjectRaw(ctx context.Context, bucket, key, versionID string) (io.ReadCloser, map[string]string, *metadata.ObjectMetadata, error) {
+	raw, ok := h.Manager.(object.RawObjectAccessor)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("underlying manager does not support raw access")
+	}
+	return raw.GetObjectRaw(ctx, bucket, key, versionID)
+}
+
+func (h *HAObjectManager) PutObjectRaw(ctx context.Context, bucket, key string, data io.Reader, sidecar map[string]string, metaObj *metadata.ObjectMetadata) error {
+	raw, ok := h.Manager.(object.RawObjectAccessor)
+	if !ok {
+		return fmt.Errorf("underlying manager does not support raw access")
+	}
+	return raw.PutObjectRaw(ctx, bucket, key, data, sidecar, metaObj)
+}
+
+func (h *HAObjectManager) CanReplicateRaw(sidecar map[string]string) bool {
+	raw, ok := h.Manager.(object.RawObjectAccessor)
+	if !ok {
+		return false
+	}
+	return raw.CanReplicateRaw(sidecar)
+}
+
 // rollbackLocalPut deletes the just-written local copy after a quorum failure.
 // Uses WithHARollbackContext to suppress fanout of the rollback delete.
 // Failures are logged but not surfaced — the original ErrClusterDegraded already
@@ -231,8 +275,24 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 	client := NewProxyClient(h.mgr.GetTLSConfig())
 	ch := make(chan fanoutResult, len(targets))
 
+	// Raw (ciphertext) transfer capability of the underlying manager.
+	rawAccessor, _ := h.Manager.(object.RawObjectAccessor)
+
 	for _, node := range targets {
 		go func(n *Node) {
+			// Prefer the raw ciphertext path: objects envelope-encrypted with a
+			// cluster-shared KEK replicate as stored bytes + sidecar, with no
+			// decrypt on this node and no re-encrypt on the replica.
+			if rawAccessor != nil {
+				sent, rawErr := h.sendRawReplica(ctx, client, rawAccessor, n, localID, bucket, key, versionID)
+				if sent {
+					ch <- fanoutResult{n.ID, rawErr}
+					return
+				}
+				// Not eligible (plaintext/legacy/local-KEK object) or the
+				// replica declined raw — fall through to the legacy path.
+			}
+
 			// RACE-04: pin the re-read to the version that was just written.
 			// Without versionID, a concurrent PutObject could have created a newer
 			// version by now, and we would replicate the wrong data.
@@ -250,7 +310,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 			}
 			defer reader.Close()
 
-			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
+			url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 			req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
 			if err != nil {
 				ch <- fanoutResult{n.ID, err}
@@ -299,6 +359,63 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, "PUT", bucket, key)
 }
 
+// sendRawReplica attempts the ciphertext transfer of the pinned version to
+// one replica. Returns sent=false (nil error) when the object is not eligible
+// for raw replication or the replica declined it (HTTP 412) — the caller then
+// falls back to the legacy decrypt/re-encrypt path. sent=true means the raw
+// attempt is authoritative: err (nil or not) is the node's fanout result.
+func (h *HAObjectManager) sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string) (sent bool, err error) {
+	reader, sidecar, metaObj, readErr := raw.GetObjectRaw(ctx, bucket, key, versionID)
+	if readErr != nil {
+		// Let the legacy path surface the read error consistently.
+		return false, nil
+	}
+	defer reader.Close()
+
+	if !raw.CanReplicateRaw(sidecar) {
+		return false, nil
+	}
+
+	sidecarJSON, jErr := json.Marshal(sidecar)
+	if jErr != nil {
+		return false, nil
+	}
+	metaJSON, jErr := json.Marshal(metaObj)
+	if jErr != nil {
+		return false, nil
+	}
+
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
+	req, rErr := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
+	if rErr != nil {
+		return true, rErr
+	}
+	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
+	req.Header.Set(HABucketHeader, bucket)
+	req.Header.Set(HARawHeader, "true")
+	req.Header.Set(HARawSidecarHeader, base64.StdEncoding.EncodeToString(sidecarJSON))
+	req.Header.Set(HARawObjectMetaHeader, base64.StdEncoding.EncodeToString(metaJSON))
+	if ciphertextSize, pErr := strconv.ParseInt(sidecar["size"], 10, 64); pErr == nil {
+		req.ContentLength = ciphertextSize
+	}
+
+	resp, dErr := client.DoAuthenticatedRequest(req)
+	if dErr != nil {
+		return true, dErr
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		// Replica cannot decrypt this KEK version (should not happen once the
+		// join distributed the cluster keys) — fall back to legacy transfer.
+		return false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return true, fmt.Errorf("raw replica status %d", resp.StatusCode)
+	}
+	return true, nil
+}
+
 // fanoutDelete synchronously replicates the deletion. Same semantics as
 // fanoutPut: returns ErrClusterDegraded when fewer than `needed` replicas
 // confirm.
@@ -313,7 +430,7 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specifi
 
 	for _, node := range targets {
 		go func(n *Node) {
-			url := fmt.Sprintf("%s/api/internal/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
+			url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 			req, err := client.CreateAuthenticatedRequest(ctx, "DELETE", url, nil, localID, n.NodeToken)
 			if err != nil {
 				ch <- fanoutResult{n.ID, err}
@@ -430,7 +547,7 @@ func (h *HAObjectManager) fanoutMetadataToNode(client *ProxyClient, node *Node, 
 	const perAttemptTimeout = 5 * time.Second
 	const baseRetryDelay = 200 * time.Millisecond
 
-	url := fmt.Sprintf("%s/api/internal/ha/metadata-op", node.Endpoint)
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/metadata-op", node.Endpoint)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		opCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)

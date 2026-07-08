@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 )
@@ -100,6 +101,17 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).Error("Failed to accept cluster join package")
 		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Adopt the cluster-shared encryption KEKs BEFORE anything else can write:
+	// a version conflict (this node already holds objects wrapped with a key
+	// of the same version but different material) must abort the join.
+	if len(pkg.EncryptionKeys) > 0 && s.kekStore != nil {
+		if err := s.kekStore.AdoptClusterKeys(pkg.EncryptionKeys); err != nil {
+			logrus.WithError(err).Error("Failed to adopt cluster encryption keys")
+			s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusConflict)
+			return
+		}
 	}
 
 	// Synchronize the cluster JWT secret so cross-node sessions work immediately.
@@ -403,20 +415,34 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	// Node B's S3 API URL: same host as console, port 8080
 	remoteAPIURL := "http://" + remoteParsed.Hostname() + ":8080"
 
+	// Ensure a cluster-shared encryption KEK exists (created on first join) so
+	// every node wraps new objects with the same key — the basis for
+	// ciphertext HA replication.
+	var clusterKeys []kek.KeyRecord
+	if s.kekStore != nil {
+		clusterKeys, err = s.kekStore.EnsureClusterKey()
+		if err != nil {
+			logrus.WithError(err).Error("Failed to ensure cluster encryption KEK")
+			s.writeError(w, "Failed to prepare cluster encryption key: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Node B generates its own cert+key using the CA once it receives this package.
 	// CAKeyPEM is included so Node B can sign a cert with its own IP in the SANs.
 	pkg := cluster.ClusterJoinPackage{
-		NodeID:       nodeID,
-		NodeName:     nodeName,
-		ClusterToken: config.ClusterToken,
-		Region:       config.Region,
-		CACertPEM:    caCertPEM,
-		CAKeyPEM:     caKeyPEM,
-		JWTSecret:    jwtSecret,
-		SelfEndpoint: remoteClusterURL,
-		NodeEndpoint: localClusterEndpoint,
-		APIURL:       remoteAPIURL,
-		Nodes:        cluster.NodesToJoinPackage(nodes),
+		NodeID:         nodeID,
+		NodeName:       nodeName,
+		ClusterToken:   config.ClusterToken,
+		Region:         config.Region,
+		CACertPEM:      caCertPEM,
+		CAKeyPEM:       caKeyPEM,
+		JWTSecret:      jwtSecret,
+		SelfEndpoint:   remoteClusterURL,
+		NodeEndpoint:   localClusterEndpoint,
+		APIURL:         remoteAPIURL,
+		Nodes:          cluster.NodesToJoinPackage(nodes),
+		EncryptionKeys: clusterKeys,
 	}
 
 	// Step 4: Push the join package to Node B via 8081

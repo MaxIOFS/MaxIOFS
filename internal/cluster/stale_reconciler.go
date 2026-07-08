@@ -772,7 +772,7 @@ func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID stri
 	return nil
 }
 
-// listChangedSince calls GET /api/internal/ha/objects/changed-since on the peer.
+// listChangedSince calls GET /api/internal/cluster/ha/objects/changed-since on the peer.
 func (r *StaleReconciler) listChangedSince(
 	ctx context.Context, peer *Node, localNodeID, localToken, bucketPath string,
 	since time.Time, marker string,
@@ -783,7 +783,7 @@ func (r *StaleReconciler) listChangedSince(
 	if marker != "" {
 		q.Set("marker", marker)
 	}
-	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/changed-since?%s", peer.Endpoint, q.Encode())
+	endpoint := fmt.Sprintf("%s/api/internal/cluster/ha/objects/changed-since?%s", peer.Endpoint, q.Encode())
 	req, err := r.proxyClient.CreateAuthenticatedRequest(ctx, "GET", endpoint, nil, localNodeID, localToken)
 	if err != nil {
 		return nil, "", false, err
@@ -819,7 +819,7 @@ func (r *StaleReconciler) pullObject(
 ) error {
 	q := url.Values{}
 	q.Set("bucket", bucketPath)
-	endpoint := fmt.Sprintf("%s/api/internal/ha/objects/%s?%s", peer.Endpoint, escapeHAObjectKey(key), q.Encode())
+	endpoint := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s?%s", peer.Endpoint, escapeHAObjectKey(key), q.Encode())
 	req, err := r.proxyClient.CreateAuthenticatedRequest(ctx, "GET", endpoint, nil, localNodeID, localToken)
 	if err != nil {
 		return err

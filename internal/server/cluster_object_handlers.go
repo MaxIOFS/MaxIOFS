@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1542,6 +1543,14 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = cluster.WithHAReplicaContext(ctx)
+
+	// Raw ciphertext transfer: store the encrypted bytes + sidecar + Pebble
+	// metadata exactly as sent by the primary — no decrypt/re-encrypt.
+	if r.Header.Get(cluster.HARawHeader) == "true" {
+		s.handleHAReceiveRawPut(w, r, ctx, bucketPath, key)
+		return
+	}
+
 	if versionID := r.Header.Get(cluster.HAObjectVersionHeader); versionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, versionID)
 	}
@@ -1549,6 +1558,54 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
 			Error("HA receive PUT failed")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleHAReceiveRawPut applies a raw ciphertext replica write. Responds 412
+// when this node cannot decrypt the object's KEK version (the primary then
+// falls back to the legacy transfer for this node).
+func (s *Server) handleHAReceiveRawPut(w http.ResponseWriter, r *http.Request, ctx context.Context, bucketPath, key string) {
+	raw, ok := s.objectManager.(object.RawObjectAccessor)
+	if !ok {
+		http.Error(w, "raw replication not supported", http.StatusPreconditionFailed)
+		return
+	}
+
+	sidecarJSON, err := base64.StdEncoding.DecodeString(r.Header.Get(cluster.HARawSidecarHeader))
+	if err != nil {
+		http.Error(w, "invalid raw sidecar header", http.StatusBadRequest)
+		return
+	}
+	var sidecar map[string]string
+	if err := json.Unmarshal(sidecarJSON, &sidecar); err != nil {
+		http.Error(w, "invalid raw sidecar payload", http.StatusBadRequest)
+		return
+	}
+
+	metaJSON, err := base64.StdEncoding.DecodeString(r.Header.Get(cluster.HARawObjectMetaHeader))
+	if err != nil {
+		http.Error(w, "invalid raw object-meta header", http.StatusBadRequest)
+		return
+	}
+	var metaObj metadata.ObjectMetadata
+	if err := json.Unmarshal(metaJSON, &metaObj); err != nil {
+		http.Error(w, "invalid raw object-meta payload", http.StatusBadRequest)
+		return
+	}
+
+	// Guard: this node must hold the cluster-shared KEK version that wraps the
+	// object's DEK, or it could never serve reads for it.
+	if !raw.CanReplicateRaw(sidecar) {
+		http.Error(w, "cannot decrypt this KEK version on this node", http.StatusPreconditionFailed)
+		return
+	}
+
+	if err := raw.PutObjectRaw(ctx, bucketPath, key, r.Body, sidecar, &metaObj); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
+			Error("HA receive raw PUT failed")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
