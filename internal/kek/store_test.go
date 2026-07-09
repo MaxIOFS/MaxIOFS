@@ -189,6 +189,63 @@ func TestAdoptClusterKeys(t *testing.T) {
 
 func hexEncode(b []byte) string { return hex.EncodeToString(b) }
 
+// TestRotate verifies rotation creates the next version, moves the current
+// marker, keeps old versions decryptable and survives reload.
+func TestRotate(t *testing.T) {
+	db := createTestDB(t)
+	// system_settings so the bundle-flag reset works.
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS system_settings (
+			key TEXT PRIMARY KEY, value TEXT NOT NULL, type TEXT NOT NULL,
+			category TEXT NOT NULL, description TEXT, editable INTEGER DEFAULT 1,
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)
+	`)
+	require.NoError(t, err)
+
+	store, err := Bootstrap(db, "")
+	require.NoError(t, err)
+	oldKey, oldVersion := store.CurrentKEK()
+	require.Equal(t, 1, oldVersion)
+
+	// Simulate a downloaded bundle, then rotate.
+	require.NoError(t, store.MarkBundleDownloaded())
+
+	newVersion, err := store.Rotate(false)
+	require.NoError(t, err)
+	assert.Equal(t, 2, newVersion)
+
+	newKey, current := store.CurrentKEK()
+	assert.Equal(t, 2, current)
+	assert.NotEqual(t, oldKey, newKey)
+	assert.False(t, store.IsClusterShared(2))
+
+	// The old version remains available for unwrapping existing DEKs.
+	v1, err := store.KEKByVersion(1)
+	require.NoError(t, err)
+	assert.Equal(t, oldKey, v1)
+
+	// Rotation invalidates the downloaded-bundle marker (banner reappears).
+	ts, err := store.BundleDownloadedAt()
+	require.NoError(t, err)
+	assert.Zero(t, ts, "rotation must reset the bundle-downloaded flag")
+
+	// Cluster-shared rotation flags the new version as shared.
+	sharedVersion, err := store.Rotate(true)
+	require.NoError(t, err)
+	assert.Equal(t, 3, sharedVersion)
+	assert.True(t, store.IsClusterShared(3))
+
+	// Survives reload.
+	store2, err := Bootstrap(db, "")
+	require.NoError(t, err)
+	_, current2 := store2.CurrentKEK()
+	assert.Equal(t, 3, current2)
+	assert.True(t, store2.IsClusterShared(3))
+	_, err = store2.KEKByVersion(1)
+	assert.NoError(t, err, "old versions are never deleted")
+}
+
 func TestEphemeralProvider(t *testing.T) {
 	p, err := Ephemeral()
 	require.NoError(t, err)

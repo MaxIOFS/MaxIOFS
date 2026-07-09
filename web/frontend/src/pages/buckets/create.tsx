@@ -81,7 +81,8 @@ export default function CreateBucketPage() {
     retentionMode: '',
     retentionDays: 0,
     retentionYears: 0,
-    encryptionEnabled: false,
+    // Server-side encryption is always on (envelope, AES-256-GCM)
+    encryptionEnabled: true,
     encryptionType: 'AES256',
     blockPublicAccess: true,
     blockPublicAcls: true,
@@ -99,8 +100,6 @@ export default function CreateBucketPage() {
     queryFn: APIClient.getServerConfig,
   });
 
-  // Check if server has encryption enabled
-  const serverEncryptionEnabled = serverConfig?.storage?.enableEncryption ?? false;
 
   // Check if cluster mode is active
   const isClusterMode = serverConfig?.cluster?.enabled === true;
@@ -127,13 +126,6 @@ export default function CreateBucketPage() {
     }
   }, [isClusterMode, clusterNodes]);
 
-  // When server config loads and encryption is globally active, auto-enable it for the new bucket
-  useEffect(() => {
-    if (serverEncryptionEnabled) {
-      setConfig(prev => ({ ...prev, encryptionEnabled: true }));
-    }
-  }, [serverEncryptionEnabled]);
-
   // Fetch tenants for ownership selection
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
@@ -152,9 +144,8 @@ export default function CreateBucketPage() {
         ownerType: config.ownerType || undefined,
         isPublic: config.isPublic,
         versioning: config.versioningEnabled ? { status: 'Enabled' } : undefined,
-        encryption: config.encryptionEnabled ? {
-          type: config.encryptionType,
-        } : undefined,
+        // Encryption is always on server-side; sent explicitly for clarity.
+        encryption: { type: config.encryptionType },
         objectLock: config.objectLockEnabled ? {
           enabled: true,
           mode: config.retentionMode,
@@ -727,79 +718,31 @@ export default function CreateBucketPage() {
             </div>
           )}
 
-          {/* Encryption Tab */}
+          {/* Encryption Tab — informational only: server-side encryption is
+              always on (envelope, AES-256-GCM); there is nothing to opt out of. */}
           {activeTab === 'encryption' && (
             <div className="space-y-4">
-                {/* Server encryption globally enabled — informational banner */}
-                {serverEncryptionEnabled && (
-                  <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md p-3">
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                          {t('serverEncryptionActive')}
-                        </p>
-                        <p
-                          className="text-xs text-green-700 dark:text-green-400 mt-1"
-                          dangerouslySetInnerHTML={{ __html: t('serverEncryptionActiveHelp') }}
-                        />
-                      </div>
+                <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md p-3">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                        {t('serverEncryptionActive')}
+                      </p>
+                      <p
+                        className="text-xs text-green-700 dark:text-green-400 mt-1"
+                        dangerouslySetInnerHTML={{ __html: t('serverEncryptionActiveHelp') }}
+                      />
                     </div>
                   </div>
-                )}
-
-                {/* Server encryption disabled — warning */}
-                {!serverEncryptionEnabled && (
-                  <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-md p-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                          {t('serverEncryptionDisabled')}
-                        </p>
-                        <p
-                          className="text-xs text-amber-700 dark:text-amber-400 mt-1"
-                          dangerouslySetInnerHTML={{ __html: t('serverEncryptionHelp') }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="encryption"
-                    checked={config.encryptionEnabled}
-                    onChange={(e) => updateConfig('encryptionEnabled', e.target.checked)}
-                    disabled={!serverEncryptionEnabled}
-                    className={`rounded border-border ${!serverEncryptionEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  />
-                  <label
-                    htmlFor="encryption"
-                    className={`text-sm font-medium ${!serverEncryptionEnabled ? 'text-muted-foreground cursor-not-allowed' : 'text-foreground'}`}
-                  >
-                    {t('enableEncryption')}
-                  </label>
                 </div>
 
-                {serverEncryptionEnabled && config.encryptionEnabled && (
-                  <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
-                    <p
-                      className="text-sm text-blue-800 dark:text-blue-300"
-                      dangerouslySetInnerHTML={{ __html: t('encryptionInfo') }}
-                    />
-                  </div>
-                )}
-
-                {serverEncryptionEnabled && !config.encryptionEnabled && (
-                  <div className="bg-gray-50 dark:bg-gray-800/30 border border-border rounded-md p-3">
-                    <p
-                      className="text-sm text-muted-foreground"
-                      dangerouslySetInnerHTML={{ __html: t('noEncryptionInfo') }}
-                    />
-                  </div>
-                )}
+                <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+                  <p
+                    className="text-sm text-blue-800 dark:text-blue-300"
+                    dangerouslySetInnerHTML={{ __html: t('encryptionInfo') }}
+                  />
+                </div>
             </div>
           )}
 

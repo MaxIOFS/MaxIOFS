@@ -53,8 +53,16 @@ trusted_proxies: []
 storage:
   backend: "filesystem"           # Only supported backend
   root: ""                        # Default: {data_dir}/objects
-  enable_encryption: false        # AES-256-GCM at rest
-  encryption_key: ""              # 64 hex chars (32 bytes). Generate: openssl rand -hex 32
+  # Encryption at rest (AES-256-GCM, envelope) is ALWAYS ON. The key (KEK)
+  # lives in the database and is generated automatically on first start —
+  # download the recovery bundle from Settings → Security and store it
+  # outside the system.
+  # enable_encryption is deprecated and ignored.
+  # encryption_key is only read ONCE, on the very first start, to seed the
+  # database KEK (upgrade path for pre-v1.5 deployments that already had a
+  # key here). After that the database is authoritative and this value is
+  # never consulted again. Leave empty on new deployments.
+  encryption_key: ""
   enable_object_lock: true        # S3 Object Lock / WORM retention
   metadata_cache_size_mb: 256     # Pebble block cache — increase for large/write-heavy buckets
 
@@ -327,12 +335,11 @@ public_api_url: https://s3.example.com
 public_console_url: https://console.example.com
 log_level: info
 
-storage:
-  enable_encryption: true
-  encryption_key: "a1b2c3d4e5f6...64_hex_chars"
-
 audit:
   retention_days: 180
+
+# Encryption is always on — no storage keys needed. Download the recovery
+# bundle from Settings → Security after the first start.
 ```
 
 ### Docker

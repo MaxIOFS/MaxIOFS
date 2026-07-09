@@ -98,9 +98,9 @@ console_listen: 127.0.0.1:8081
 public_api_url: https://s3.example.com
 public_console_url: https://console.example.com
 log_level: info
-storage:
-  enable_encryption: true
-  encryption_key: "$(openssl rand -hex 32)"
+# Encryption at rest is always on — the key is generated automatically and
+# stored in the database. After the first start, download the recovery
+# bundle from Settings → Security and keep it OUTSIDE this server.
 EOF
 
 # Install binary
@@ -342,7 +342,7 @@ sudo ufw allow 8080/tcp; sudo ufw allow 8081/tcp  # Firewall
 ## Security Checklist
 
 1. ☐ Change default admin password
-2. ☐ Enable encryption at rest (`storage.enable_encryption`)
+2. ☐ Download the encryption recovery bundle (Settings → Security) and store it outside the server — encryption at rest is always on
 3. ☐ Use HTTPS (reverse proxy or direct TLS)
 4. ☐ Configure firewall rules
 5. ☐ Run as non-root user (systemd service)

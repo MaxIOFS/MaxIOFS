@@ -428,6 +428,9 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize global config and node list synchronization manager
 	globalConfigSyncMgr := cluster.NewGlobalConfigSyncManager(db, clusterManager)
+	// Cluster-shared encryption KEKs ride the same periodic sync (covers
+	// nodes that were offline during a KEK rotation).
+	globalConfigSyncMgr.SetKEKProvider(kekStore)
 
 	// Initialize stale-node reconciler
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
@@ -1333,6 +1336,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/global-config-sync", s.handleReceiveGlobalConfigSync).Methods("POST")
 	hmac.HandleFunc("/node-list-sync", s.handleReceiveNodeListSync).Methods("POST")
 	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
+	hmac.HandleFunc("/kek-sync", s.handleReceiveKEKSync).Methods("POST")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleReceiveObjectReplication).Methods("PUT")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleReceiveObjectDeletion).Methods("DELETE")
 	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleHeadReplicatedObject).Methods("HEAD")

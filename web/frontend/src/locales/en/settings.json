@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Skipped: {{count}}",
   "encWorkerFailed": "Failed: {{count}}",
   "encWorkerLastRun": "Last pass: {{date}}",
-  "encWorkerRunNow": "Run now"
+  "encWorkerRunNow": "Run now",
+  "rotateKekTitle": "Encryption key rotation (current version: v{{version}})",
+  "rotateKekDesc": "Creates a new key version. Existing objects remain readable and are re-wrapped to the new key in the background. After rotating, download a fresh recovery bundle.",
+  "rotateKek": "Rotate key",
+  "rotateKekRotating": "Rotating...",
+  "rotateKekSuccess": "Key rotated to version v{{version}}. Download a new recovery bundle.",
+  "rotateKekFailed": "Failed to rotate the encryption key",
+  "rotateKekConfirmTitle": "Rotate encryption key?",
+  "rotateKekConfirmText": "A new key version will be created and used for all new objects. Existing objects stay readable and will be migrated in the background. The current recovery bundle will become outdated — you must download a new one."
 }

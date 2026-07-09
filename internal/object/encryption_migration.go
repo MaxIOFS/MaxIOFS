@@ -1,12 +1,14 @@
 package object
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -92,7 +94,10 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	if err != nil {
 		return false, nil
 	}
-	if meta["encrypted"] == "true" || meta["content-type"] == "application/x-directory" {
+	if meta["content-type"] == "application/x-directory" {
+		return false, nil
+	}
+	if action := om.migrationActionFor(meta); action == migrationSkip {
 		return false, nil
 	}
 
@@ -101,17 +106,26 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	defer om.lockKey(bucket, key)()
 
 	// Re-check under the lock — a client PUT may have replaced the object
-	// (new writes are always envelope-encrypted).
+	// (new writes are always current-KEK envelope).
 	meta, err = om.storage.GetMetadata(ctx, path)
 	if err != nil {
 		return false, nil
 	}
-	if meta["encrypted"] == "true" {
+	switch om.migrationActionFor(meta) {
+	case migrationSkip:
 		return false, nil
+	case migrationRewrap:
+		// Envelope wrapped with an old KEK version: only the wrapped DEK
+		// changes — object data is never touched.
+		return om.rewrapPathDEK(ctx, bucket, key, path, meta)
 	}
+	// migrationEncrypt: plaintext or legacy direct-encrypted → full envelope
+	// rewrite below.
+	isLegacyEncrypted := meta["encrypted"] == "true"
 
-	// Stage the plaintext to a temp file, hashing as we copy. The staged copy
-	// doubles as the restore source if verification fails.
+	// Stage the PLAINTEXT to a temp file, hashing as we copy (decrypting on
+	// the fly for legacy direct-encrypted objects). For legacy objects the
+	// original ciphertext is staged too, as the restore source.
 	reader, _, err := om.storage.Get(ctx, path)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
@@ -128,18 +142,58 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 
+	// restorePath is what gets written back if verification fails: the
+	// plaintext staging for plaintext objects, or the raw ciphertext copy for
+	// legacy ones (restoring plaintext under an encrypted sidecar would
+	// corrupt the object).
+	restorePath := tempPath
 	hasher := md5.New()
-	stagedSize, err := io.Copy(io.MultiWriter(tempFile, hasher), reader)
-	reader.Close()
-	tempFile.Close()
-	if err != nil {
-		return false, fmt.Errorf("failed to stage plaintext: %w", err)
+	var stagedSize int64
+
+	if isLegacyEncrypted {
+		rawFile, rErr := os.CreateTemp(om.config.Root, "maxiofs-encmigrate-raw-*")
+		if rErr != nil {
+			reader.Close()
+			return false, fmt.Errorf("failed to create raw staging file: %w", rErr)
+		}
+		rawPath := rawFile.Name()
+		defer os.Remove(rawPath)
+		restorePath = rawPath
+
+		// Tee the ciphertext to the raw staging file while decrypting it into
+		// the plaintext staging file.
+		decryptKey, kErr := om.decryptionKeyFor(meta)
+		if kErr != nil {
+			reader.Close()
+			rawFile.Close()
+			tempFile.Close()
+			return false, fmt.Errorf("failed to resolve legacy decryption key: %w", kErr)
+		}
+		tee := io.TeeReader(reader, rawFile)
+		plainWriter := io.MultiWriter(tempFile, hasher)
+		dErr := om.encryptor.DecryptStream(tee, &countingWriter{w: plainWriter, n: &stagedSize}, decryptKey, decryptMetaFor(meta))
+		reader.Close()
+		rawFile.Close()
+		tempFile.Close()
+		if dErr != nil {
+			return false, fmt.Errorf("failed to decrypt legacy object for conversion: %w", dErr)
+		}
+	} else {
+		stagedSize, err = io.Copy(io.MultiWriter(tempFile, hasher), reader)
+		reader.Close()
+		tempFile.Close()
+		if err != nil {
+			return false, fmt.Errorf("failed to stage plaintext: %w", err)
+		}
 	}
 	stagedMD5 := hex.EncodeToString(hasher.Sum(nil))
 
-	// Preserve the stored ETag (may be a multipart "<md5>-<N>" value); size is
-	// the real staged byte count.
-	originalETag := meta["etag"]
+	// Preserve the stored plaintext ETag (may be a multipart "<md5>-<N>"
+	// value); legacy sidecars carry it in original-etag.
+	originalETag := meta["original-etag"]
+	if originalETag == "" {
+		originalETag = meta["etag"]
+	}
 	if originalETag == "" {
 		originalETag = stagedMD5
 	}
@@ -166,8 +220,9 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 			return false, nil
 		}
 
-		// Real failure — restore the staged plaintext with the original sidecar.
-		restoreFile, rErr := os.Open(tempPath)
+		// Real failure — restore the original bytes (plaintext staging, or the
+		// raw ciphertext copy for legacy objects) with the original sidecar.
+		restoreFile, rErr := os.Open(restorePath)
 		if rErr == nil {
 			restoreMeta := make(map[string]string, len(meta))
 			for k, v := range meta {
@@ -181,10 +236,97 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 				Error("Encryption migration: verification failed AND restore failed")
 			return false, fmt.Errorf("verification failed (%v) and restore failed: %w", verifyErr, rErr)
 		}
-		return false, fmt.Errorf("verification failed, plaintext restored: %w", verifyErr)
+		return false, fmt.Errorf("verification failed, original restored: %w", verifyErr)
 	}
 
 	return true, nil
+}
+
+// migrationAction classifies what the worker must do with a stored file.
+type migrationAction int
+
+const (
+	migrationSkip    migrationAction = iota // already current-KEK envelope
+	migrationEncrypt                        // plaintext or legacy direct-encrypted → full envelope rewrite
+	migrationRewrap                         // envelope with an old KEK version → re-wrap DEK only
+)
+
+// migrationActionFor inspects a sidecar and returns the required action.
+func (om *objectManager) migrationActionFor(meta map[string]string) migrationAction {
+	if meta["encrypted"] != "true" {
+		return migrationEncrypt // plaintext
+	}
+	if meta["wrapped-dek"] == "" {
+		return migrationEncrypt // legacy direct-encrypted (no DEK)
+	}
+	version, err := strconv.Atoi(meta["kek-version"])
+	if err != nil {
+		return migrationSkip // corrupt marker — leave for the integrity tooling
+	}
+	_, current := om.kekProvider.CurrentKEK()
+	if version == current {
+		return migrationSkip
+	}
+	return migrationRewrap
+}
+
+// rewrapPathDEK re-wraps an envelope object's DEK with the current KEK.
+// Object data is never rewritten — only the sidecar changes, atomically
+// (temp+rename), and either sidecar state decrypts correctly.
+// Caller holds the per-key lock and passes the sidecar read under it.
+func (om *objectManager) rewrapPathDEK(ctx context.Context, bucket, key, path string, meta map[string]string) (bool, error) {
+	dek, err := om.decryptionKeyFor(meta)
+	if err != nil {
+		return false, fmt.Errorf("failed to unwrap DEK with old KEK: %w", err)
+	}
+
+	kekKey, kekVersion := om.kekProvider.CurrentKEK()
+	wrapped, err := om.encryptor.Encrypt(dek, kekKey)
+	if err != nil {
+		return false, fmt.Errorf("failed to re-wrap DEK: %w", err)
+	}
+
+	metaCopy := make(map[string]string, len(meta))
+	for k, v := range meta {
+		metaCopy[k] = v
+	}
+	metaCopy["wrapped-dek"] = hex.EncodeToString(wrapped.Data)
+	metaCopy["wrapped-dek-iv"] = hex.EncodeToString(wrapped.IV)
+	metaCopy["kek-version"] = strconv.Itoa(kekVersion)
+
+	if err := om.storage.SetMetadata(ctx, path, metaCopy); err != nil {
+		return false, fmt.Errorf("failed to update sidecar with re-wrapped DEK: %w", err)
+	}
+
+	// Verify: re-read the sidecar and unwrap with the current KEK — the DEK
+	// must be byte-identical (the data was never touched).
+	verifyMeta, err := om.storage.GetMetadata(ctx, path)
+	if err != nil {
+		return false, fmt.Errorf("re-wrap verification read failed: %w", err)
+	}
+	verifyDEK, err := om.decryptionKeyFor(verifyMeta)
+	if err != nil {
+		return false, fmt.Errorf("re-wrap verification unwrap failed: %w", err)
+	}
+	if !bytes.Equal(dek, verifyDEK) {
+		return false, fmt.Errorf("re-wrap verification failed: DEK mismatch after sidecar update")
+	}
+
+	logrus.WithFields(logrus.Fields{"bucket": bucket, "key": key, "kek_version": kekVersion}).
+		Debug("Encryption migration: DEK re-wrapped to current KEK")
+	return true, nil
+}
+
+// countingWriter counts bytes written through it.
+type countingWriter struct {
+	w io.Writer
+	n *int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	*c.n += int64(n)
+	return n, err
 }
 
 // decryptMetaFor builds the stream-decryption metadata from a sidecar (same

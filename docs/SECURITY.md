@@ -151,35 +151,48 @@ Protects individual accounts after repeated failed logins:
 
 ## Encryption at Rest
 
-### Object Encryption (AES-256-GCM)
+### Object Encryption (AES-256-GCM, envelope — always on)
 
-Authenticated encryption for objects stored on disk. Each object is encrypted in 64 KB chunks; each chunk has an independent nonce and GCM authentication tag — any tampered chunk is detected and rejected on read. Objects written with the legacy AES-256-CTR format are decrypted transparently on first access.
+Server-side encryption is **always active** (like AWS S3): every new object is
+encrypted with its own random Data Encryption Key (DEK) using authenticated
+AES-256-GCM in 64 KB chunks — any tampered chunk is detected and rejected on
+read. Each object's DEK is wrapped with the Key Encryption Key (KEK) and
+stored in the object's on-disk `.metadata` sidecar, so objects remain
+recoverable from the filesystem alone given a KEK backup.
 
-**Enable:**
-```yaml
-# config.yaml
-storage:
-  enable_encryption: true
-  encryption_key: "a1b2c3d4...64_hex_chars"  # 32 bytes = 256 bits
-```
+**Key management:**
+- The KEK lives in the database and is **generated automatically** on first
+  start — no configuration needed. (Pre-v1.5 deployments with
+  `storage.encryption_key` in config.yaml: that key is seeded into the
+  database as version 1 on the first start and never read again; existing
+  objects keep decrypting.)
+- **Recovery bundle**: download it from Settings → Security (passphrase-
+  encrypted export of every key version) and store it OUTSIDE the server —
+  the console shows a banner until you do. Without a bundle, losing the
+  database means losing every encrypted object.
+- **Key rotation**: Settings → Security → Rotate key (or
+  `POST /api/v1/settings/encryption/rotate-kek`). Object data is never
+  re-encrypted — the background worker re-wraps each object's DEK to the new
+  version. After rotating, download a fresh bundle.
+- Objects written before encryption became mandatory (plaintext or legacy
+  direct-encrypted) are converted in the background when server load is low;
+  progress is visible in Settings → Security.
 
-**Generate key:**
-```bash
-openssl rand -hex 32
-```
+**Cluster**: nodes share a cluster-wide KEK (distributed on join and on
+rotation), so HA replication moves ciphertext as-is — no decrypt/re-encrypt
+per hop.
+
+**Disaster recovery**: if the metadata database is lost but the object files
+survive, `maxiofs recover --data-dir <dir> --recovery-bundle <bundle>`
+rebuilds the metadata store from the filesystem and restores the keys. See
+`maxiofs recover --help`.
 
 **Characteristics:**
-- Dual-level control: Server-wide default + per-bucket override
 - Transparent: Automatic encrypt on upload, decrypt on download
-- Mixed mode: Encrypted and unencrypted objects coexist
+- Mixed mode: pre-existing plaintext/legacy objects keep reading correctly
 - Performance: ~5-10% latency increase for large files
 - S3 API compatible: No client changes needed
-
-**Key management best practices:**
-- Store encryption key outside data directory
-- Restrict file permissions (`chmod 400`)
-- Back up the key securely — data is irrecoverable without it
-- HSM integration is planned for a future release
+- SSE-C / external KMS (Vault, AWS KMS) are planned on top of the envelope
 
 ### IDP Secrets Encryption (AES-256-GCM)
 

@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Saltati: {{count}}",
   "encWorkerFailed": "Falliti: {{count}}",
   "encWorkerLastRun": "Ultimo passaggio: {{date}}",
-  "encWorkerRunNow": "Esegui ora"
+  "encWorkerRunNow": "Esegui ora",
+  "rotateKekTitle": "Rotazione della chiave di crittografia (versione attuale: v{{version}})",
+  "rotateKekDesc": "Crea una nuova versione della chiave. Gli oggetti esistenti restano leggibili e vengono ri-avvolti sulla nuova chiave in background. Dopo la rotazione, scarica un nuovo bundle di recupero.",
+  "rotateKek": "Ruota chiave",
+  "rotateKekRotating": "Rotazione...",
+  "rotateKekSuccess": "Chiave ruotata alla versione v{{version}}. Scarica un nuovo bundle di recupero.",
+  "rotateKekFailed": "Impossibile ruotare la chiave di crittografia",
+  "rotateKekConfirmTitle": "Ruotare la chiave di crittografia?",
+  "rotateKekConfirmText": "Verrà creata una nuova versione della chiave, usata per tutti i nuovi oggetti. Gli oggetti esistenti restano leggibili e saranno migrati in background. Il bundle di recupero attuale diventerà obsoleto — dovrai scaricarne uno nuovo."
 }

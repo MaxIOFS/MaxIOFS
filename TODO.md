@@ -1,110 +1,55 @@
 # MaxIOFS - Development Roadmap
 
 **Version**: 1.4.2 (+ unreleased work on `main`)
-**Last Updated**: July 4, 2026
+**Last Updated**: July 9, 2026
 **Status**: Stable — unreleased batch pending a version bump (next: likely v1.5.0)
 
 > Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work.
 
 ## 🔖 TODO — Release v1.5.0
 
-There is unreleased work on `main` (see [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`). To cut the release: bump the version everywhere (Makefile, `cmd/maxiofs/main.go`, `web/frontend/package.json`, `debian/`, `rpm/`, `docker-compose.yaml`, `docs/`, About page), then tag.
+There is unreleased work on `main` (see [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`). To cut the release: bump the version everywhere (Makefile, `cmd/maxiofs/main.go`, `web/frontend/package.json`, `debian/`, `rpm/`, `docker-compose.yaml`, `docs/`, About page), then tag. Review README/docs for the new encryption + recovery features while cutting it.
 
 ## 📊 Project Status
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | S3 Core API | ~99% | Full compatibility audit completed — 20 issues identified and resolved (March 2026) |
-| Backend Tests | 3,850+ | At practical ceiling — see details below |
+| Backend Tests | 3,900+ | At practical ceiling |
 | Frontend Tests | 106+ | |
 | Production Ready | ✅ Stable | v1.4.2 release-ready (June 30, 2026) |
-
-### Backend Test Coverage Reality
-
-| Module | Coverage | Notes |
-|--------|----------|-------|
-| internal/metadata | 87.4% | Remaining ~13% are Pebble internal error branches (WAL failures, I/O errors) — not simulable in unit tests |
-| internal/object | 73.6% | Remaining gaps: `NewManager` init (42.9%), `GetObject` encryption/range branches (45.5%), multipart helpers `stagePlaintextToTemp`/`storeUnencryptedMultipartObject`/`calculateMultipartHash` (0% — not exercisable without real encryption pipeline) |
-| cmd/maxiofs | 71.4% | `main()` is 0% (entrypoint, expected), `runServer` at 87.5% |
-| internal/server | 66.1% | `Start/startAPIServer/startConsoleServer/Shutdown` are 0% (HTTP server lifecycle, not unit-testable). Cluster handlers (30-55%) require real remote nodes |
-| internal/replication | 67.8% | CRUD, worker, credentials, adapter, sync, scheduler all tested. Remaining: `e2e_test` integration flows, `s3client` remote calls requiring live S3 endpoint |
-
-**Conclusion**: All testable business logic is covered. Remaining uncovered code falls into categories that cannot be meaningfully unit-tested: server lifecycle, remote node communication, live S3 endpoints, and encryption pipeline internals.
 
 ---
 
 ## ⚪ Backlog — IAM/STS (temporary credentials)
 
-Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Deferred until after bandwidth throttling; scope/design TBD.
+Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Scope/design TBD. Related: the RBAC permission system is still a stub (SEC-03 startup warning) — fine-grained permissions would land together with this.
 
 ---
 
-## 🔐 In progress — Envelope encryption: remaining phases
+## 🔐 Backlog — Encryption: SSE-C / SSE-KMS (Phase 5)
 
-Done so far (see CHANGELOG): **Phase 1** (KEK in DB via `internal/kek`, per-object DEK in the sidecar, multi-format reader, writes always encrypt), the **recovery bundle** (Settings → Security download + banner), **Phase 2** (background encryption worker: converts legacy plaintext objects to envelope, load-aware, checkpointed, with Settings status + manual run), and **Phase 3** (ciphertext HA replication: cluster-shared KEK distributed in the join package, raw fanout with per-node legacy fallback).
+The envelope system (KEK in DB, per-object DEK, worker, rotation, ciphertext HA replication, recovery bundle + `maxiofs recover`) shipped in the v1.5.0 batch. What remains is real per-request key support on top of it:
 
-Design context that still applies to the remaining phases:
-- **The reader stays multi-format** — backward-compat linchpin. (1) plaintext → as-is; (2) legacy direct-encrypted → KEK-v1; (3) envelope → unwrap DEK. None can be dropped or existing data is lost.
-- The KEK lives in the DB in plaintext (root-key layering just relocates the single point of failure). Mitigation: restrict DB access + encrypt DB backups.
-- The worker (`internal/server/encryption_worker.go` + `internal/object/encryption_migration.go`) is the shared component that rotation will reuse: it walks per-object state, so rotation only adds a new state → action (old-KEK envelope → re-wrap DEK).
-- Cluster KEK model: each node keeps its **local v1** (never synced; its pre-join objects reference it); the **cluster-shared** key (v2+, `cluster_shared=1`) travels in the join package and wraps all new writes. Only cluster-shared envelopes replicate raw; the rest converge via rotation. Known limitation: a node that already holds a conflicting version number (e.g. ex-member of another cluster) cannot join without recovery — revisit with rotation's version-allocation strategy.
+- **SSE-C**: the KEK is the customer key from the request headers (over TLS); store only the key MD5 + the wrapped DEK — the server never persists the customer key.
+- **SSE-KMS**: the KEK lives in an external KMS via a pluggable provider (Vault Transit / AWS KMS).
 
-### Phase 4 — KEK rotation
+Context that still applies:
+- The reader stays multi-format — (1) plaintext → as-is; (2) legacy direct-encrypted → KEK-v1; (3) envelope → unwrap DEK. None can be dropped or existing data is lost.
+- Old KEK versions are kept forever by design (tiny, included in the bundle, deleting one could orphan sidecar-only files that reference it).
+- Cluster known limitation: a node that already holds a conflicting KEK version number (e.g. ex-member of another cluster) cannot join without recovery.
 
-New KEK version in `encryption_keys` + mark-current; extend the Phase 2 worker with two more per-object states: envelope-with-old-KEK → unwrap + re-wrap DEK (data never re-encrypted), and legacy direct-encrypted → full convert to envelope (needed before KEK-v1 can be retired). Retire old versions once nothing references them. Admin UI/API to trigger rotation.
+### Smaller encryption/recovery follow-ups
 
-### Phase 5 — (Later) SSE-C / SSE-KMS
-
-On top of envelope: SSE-C = KEK is the customer key from the request header (over TLS, store only key MD5 + wrapped DEK); SSE-KMS = KEK in an external KMS via a pluggable provider (Vault Transit / AWS KMS).
-
-### Frontend cleanup (pending)
-
-- Remove the per-bucket "disable encryption" toggle from bucket creation (`web/frontend/src/pages/buckets/create.tsx`) — encryption is always on; unchecking never did anything.
-- Settings/encryption status pages should reflect "always on" (backend already reports `enableEncryption: true`).
-
-### Follow-up noticed during testing (separate issue, not encryption)
-
-- **Hard-kill loses the last seconds of Pebble metadata writes** (`batch.Commit(pebble.NoSync)`): an object PUT moments before a crash keeps its data file + sidecar but loses its Pebble entry (it still serves via the sidecar fallback, but doesn't appear in listings). Graceful shutdown is fine. Consider a periodic WAL sync / sync-on-N-writes, or let a startup scan reconcile sidecars → Pebble (overlaps with the recover tool's walk logic).
+- **`maxiofs recover` checkpoint/resume**: the current implementation is a single pass (safe: output store is fresh and non-empty output is refused, so a crash = delete the partial out-db and re-run). For multi-million-object deployments a checkpoint would avoid restarting the walk.
+- **Recovery-bundle stronger variants** (optional): recovery-key **escrow** (wrap the KEK with a separately-held break-glass key) and **Shamir** split (N shares, K to reconstruct).
+- **Admin restore endpoint** (optional): upload a bundle through the console for the "fresh install after disaster" flow — must replace the freshly-generated KEK before any new objects are written. Today this is covered by `maxiofs recover` offline.
 
 ---
 
-## 🆘 Planned — Disaster recovery / real support story (DB lost, filesystem intact)
+## 🔧 Follow-up — Pebble durability on hard kill
 
-**Why**: many deployments are already in production. There must be a real recovery path for the common failure: **Pebble metadata (and/or the SQLite DB) is corrupted or lost, but the filesystem object store is intact.** Today there is **nothing** for this — even with the current (non-envelope) encryption, if Pebble is gone there is no way back. Auth/SQLite permissions don't matter in this mode; the goal is to get the object **data** back.
-
-### What already exists on disk (recovery is feasible)
-- Each object is stored at a path that encodes `bucket/key` (versioned: `bucket/.versions/key/versionID`), plus a per-object `.metadata` **sidecar** (size, etag, content-type, `encrypted` flag, `original-size`/`original-etag`, algorithm, last_modified). The filesystem backend already supports `WalkDirectory`. So Pebble is largely an index over data that also lives next to each object on disk.
-- **Done already** (Phase 1 + bundle work, see CHANGELOG): the sidecar carries the per-object crypto material (`wrapped-dek`, `wrapped-dek-iv`, `kek-version`), and the admin can download the **recovery bundle** (passphrase-encrypted KEK export, PBKDF2 + AES-GCM) from Settings → Security, with a console banner until it's downloaded. `kek.DecryptBundle()` already exists for the tooling below.
-
-### What remains to build
-
-1. **Pebble rebuild tool (offline recovery command).** Walk the filesystem object tree, read each object + its `.metadata` sidecar, and reconstruct a fresh Pebble metadata store from scratch (bucket, key, versionID, size, etag, content-type, encryption fields). Buckets are recreated from the directory structure. After rebuild + KEK restore, objects are servable again.
-
-2. **KEK restore path**: feed the recovery bundle back in (part of the recover CLI below; possibly also an admin endpoint for the "fresh install after disaster" flow — must replace the freshly-generated KEK before any new objects are written).
-
-3. Optional stronger bundle variants: recovery-key **escrow** (wrap the KEK with a separately-held recovery key for break-glass) and **Shamir** split (N shares, K to reconstruct).
-
-### Recovery command (the entry point)
-
-An offline CLI mode — run with the server stopped — that ties the pieces together. Shape (cobra subcommand; a `--recovery` flag form is equivalent):
-
-```
-maxiofs recover \
-  --data-dir /path/to/data \                 # where the object files + sidecars live (source of truth)
-  --recovery-bundle /path/to/kek-backup \    # the KEK recovery bundle (from #1)
-  --passphrase-file /path/to/pass \          # if the bundle is passphrase-encrypted (else prompt)
-  --out-db /path/to/new/pebble \             # rebuild into a FRESH store; never overwrite the corrupt one by default
-  --dry-run \                                # verify/report without writing
-  --verbose
-```
-
-Flow: load KEK from the bundle → walk the object tree under `--data-dir` → for each object + `.metadata` sidecar, reconstruct the Pebble entry (bucket, key, versionID, size, etag, content-type, crypto fields) → recreate buckets from the directory layout → (envelope) verify each wrapped DEK unwraps with the KEK. Report: buckets/objects rebuilt, and any files that couldn't be parsed. Must be **resumable/checkpointed** (could be millions of objects), **non-destructive by default** (fresh output store), and **offline**. Auth/SQLite is out of scope here — after rebuild the server starts fresh and the admin is re-provisioned (default admin/admin), since only the object data matters in recovery.
-
-### Recoverable vs not
-- **Recoverable from files**: the object data (bytes, key, version, size, etag, content-type, and — with sidecar crypto material — decryption). This is the important part.
-- **Not recoverable from files**: bucket-level config that lives only in Pebble (versioning, object-lock, lifecycle, ACL, policy, quotas). That's configuration, not data — objects come back and it gets re-applied. (If ever needed, critical config like object-lock could also be sidecar'd, but secondary.)
-
-Files (expected): new recovery/rebuild command under `cmd/` or an admin endpoint, `internal/storage/filesystem.go` (walk + sidecar read), `internal/metadata/` (bulk rebuild into a fresh Pebble), KEK backup/restore in the encryption bootstrap.
+**Hard-kill loses the last seconds of Pebble metadata writes** (`batch.Commit(pebble.NoSync)`): an object PUT moments before a crash keeps its data file + sidecar but loses its Pebble entry (it still serves via the sidecar fallback, but doesn't appear in listings). Graceful shutdown is fine. Options: periodic WAL sync / sync-on-N-writes, or a startup scan that reconciles sidecars → Pebble (the walk logic now exists in `internal/recovery`).
 
 ---
 
@@ -134,6 +79,8 @@ Reed-Solomon `K + M`:
 For comparison, current `factor=3` replication is 3× overhead and tolerates 2 nodes — EC `4+2` is the same tolerance at half the disk cost.
 
 **Hybrid model**: small objects (< `ec.min_object_size`, default 1 MB) keep using N-way replication. Reed-Solomon has fixed per-object overhead (shard headers, metadata) that dominates for small files. MinIO does the same.
+
+**Encryption interaction**: EC shards carry ciphertext (objects are envelope-encrypted before sharding), so the shard distribution path reuses the raw-transfer machinery from ciphertext HA replication.
 
 ---
 
@@ -185,7 +132,7 @@ Extend object metadata to store EC layout. New fields on `metadata.Object`:
 ```go
 EncodingType  string  // "replication" | "ec"
 ECDataShards  int     // K
-ECParityShards int    // M
+ECParityShards int     // M
 ECStripeSize  int     // bytes per stripe
 ECShards      []ECShardLocation  // per-shard: NodeID, ShardIdx, Checksum
 ```

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyRound, Download, CheckCircle, AlertCircle, ShieldAlert } from 'lucide-react';
+import { KeyRound, Download, CheckCircle, AlertCircle, ShieldAlert, RotateCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import ModalManager from '@/lib/modals';
 
 const MIN_PASSPHRASE_LEN = 8;
 
@@ -67,6 +68,28 @@ export default function EncryptionRecovery() {
       return;
     }
     downloadMutation.mutate(passphrase);
+  };
+
+  const rotateMutation = useMutation({
+    mutationFn: () => APIClient.rotateEncryptionKEK(),
+    onSuccess: (result) => {
+      ModalManager.toast('success', t('rotateKekSuccess', { version: result.newVersion }));
+      // The old bundle lacks the new key → status flips to not-downloaded
+      // and the banner reappears prompting a fresh download.
+      queryClient.invalidateQueries({ queryKey: ['encryptionRecoveryStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['encryptionWorkerStatus'] });
+    },
+    onError: (err: any) => {
+      setError(err.response?.data?.error || t('rotateKekFailed'));
+    },
+  });
+
+  const handleRotate = () => {
+    ModalManager.confirm(
+      t('rotateKekConfirmTitle'),
+      t('rotateKekConfirmText'),
+      () => rotateMutation.mutate(),
+    );
   };
 
   return (
@@ -134,6 +157,26 @@ export default function EncryptionRecovery() {
           {t('recoveryBundleLastDownloaded', { date: new Date(status.downloadedAt).toLocaleString() })}
         </p>
       )}
+
+      {/* KEK rotation */}
+      <div className="mt-4 pt-4 border-t border-border/50 flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[16rem]">
+          <p className="text-xs font-medium text-foreground">
+            {t('rotateKekTitle', { version: status?.kekVersion ?? '—' })}
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {t('rotateKekDesc')}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={handleRotate}
+          disabled={rotateMutation.isPending}
+        >
+          <RotateCw className={`h-4 w-4 ${rotateMutation.isPending ? 'animate-spin' : ''}`} />
+          {rotateMutation.isPending ? t('rotateKekRotating') : t('rotateKek')}
+        </Button>
+      </div>
 
       {downloaded && (
         <div className="mt-3 flex items-center gap-2 text-sm text-green-700 dark:text-green-400">

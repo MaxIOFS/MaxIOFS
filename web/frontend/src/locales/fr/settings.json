@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Ignorés : {{count}}",
   "encWorkerFailed": "Échoués : {{count}}",
   "encWorkerLastRun": "Dernier passage : {{date}}",
-  "encWorkerRunNow": "Exécuter maintenant"
+  "encWorkerRunNow": "Exécuter maintenant",
+  "rotateKekTitle": "Rotation de la clé de chiffrement (version actuelle : v{{version}})",
+  "rotateKekDesc": "Crée une nouvelle version de la clé. Les objets existants restent lisibles et sont ré-enveloppés vers la nouvelle clé en arrière-plan. Après la rotation, téléchargez un nouveau bundle de récupération.",
+  "rotateKek": "Faire tourner la clé",
+  "rotateKekRotating": "Rotation...",
+  "rotateKekSuccess": "Clé passée à la version v{{version}}. Téléchargez un nouveau bundle de récupération.",
+  "rotateKekFailed": "Échec de la rotation de la clé de chiffrement",
+  "rotateKekConfirmTitle": "Faire tourner la clé de chiffrement ?",
+  "rotateKekConfirmText": "Une nouvelle version de la clé sera créée et utilisée pour tous les nouveaux objets. Les objets existants restent lisibles et seront migrés en arrière-plan. Le bundle de récupération actuel deviendra obsolète — vous devrez en télécharger un nouveau."
 }

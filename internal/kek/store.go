@@ -222,6 +222,48 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 	return nil
 }
 
+// Rotate creates a fresh KEK as the next free version and makes it current.
+// Existing versions are kept: objects wrapped with them stay decryptable and
+// the background worker re-wraps their DEKs to the new version over time.
+// Old versions are deliberately never deleted — they cost nothing, the
+// recovery bundle includes them, and removing one would orphan any file that
+// still references it (e.g. sidecar-only objects outside the metadata index).
+//
+// clusterShared must be true when the node is part of a cluster, so the new
+// key can be distributed to peers and keep raw (ciphertext) replication
+// working for new objects.
+func (s *Store) Rotate(clusterShared bool) (int, error) {
+	s.mu.RLock()
+	next := 1
+	for version := range s.keys {
+		if version >= next {
+			next = version + 1
+		}
+	}
+	s.mu.RUnlock()
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return 0, fmt.Errorf("failed to generate new KEK: %w", err)
+	}
+	if err := s.insertKey(next, key, false, clusterShared); err != nil {
+		return 0, fmt.Errorf("failed to persist new KEK: %w", err)
+	}
+	if err := s.markCurrent(next); err != nil {
+		return 0, fmt.Errorf("failed to mark new KEK current: %w", err)
+	}
+
+	// The existing recovery bundle does not contain the new key — clear the
+	// downloaded flag so the console banner prompts a fresh download.
+	if err := s.resetBundleDownloaded(); err != nil {
+		logrus.WithError(err).Warn("KEK rotated but failed to reset the recovery-bundle flag")
+	}
+
+	logrus.WithFields(logrus.Fields{"kek_version": next, "cluster_shared": clusterShared}).
+		Info("✅ Encryption KEK rotated — new objects wrap with the new version; the worker re-wraps existing DEKs")
+	return next, nil
+}
+
 // upsertClusterKey inserts (or re-marks) a key as cluster-shared.
 func (s *Store) upsertClusterKey(version int, key []byte) error {
 	_, err := s.db.Exec(`

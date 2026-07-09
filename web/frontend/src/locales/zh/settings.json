@@ -138,5 +138,13 @@
   "encWorkerSkipped": "已跳过：{{count}}",
   "encWorkerFailed": "失败：{{count}}",
   "encWorkerLastRun": "上次运行：{{date}}",
-  "encWorkerRunNow": "立即运行"
+  "encWorkerRunNow": "立即运行",
+  "rotateKekTitle": "加密密钥轮换（当前版本：v{{version}}）",
+  "rotateKekDesc": "创建新的密钥版本。现有对象仍可读取，并会在后台重新包装到新密钥。轮换后请下载新的恢复包。",
+  "rotateKek": "轮换密钥",
+  "rotateKekRotating": "轮换中...",
+  "rotateKekSuccess": "密钥已轮换至版本 v{{version}}。请下载新的恢复包。",
+  "rotateKekFailed": "加密密钥轮换失败",
+  "rotateKekConfirmTitle": "轮换加密密钥？",
+  "rotateKekConfirmText": "将创建新的密钥版本并用于所有新对象。现有对象仍可读取，并会在后台迁移。当前恢复包将过期——您必须下载新的恢复包。"
 }

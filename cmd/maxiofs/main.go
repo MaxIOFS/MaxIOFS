@@ -40,6 +40,9 @@ built in Go with an embedded React web interface.`,
 	rootCmd.PersistentFlags().StringP("tls-cert", "", "", "TLS certificate file (enables TLS if provided with --tls-key)")
 	rootCmd.PersistentFlags().StringP("tls-key", "", "", "TLS private key file (enables TLS if provided with --tls-cert)")
 
+	// Offline disaster-recovery subcommand (run with the server stopped)
+	rootCmd.AddCommand(newRecoverCmd())
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

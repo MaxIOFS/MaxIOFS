@@ -1737,6 +1737,11 @@ export class APIClient {
     return response.data.data!;
   }
 
+  static async rotateEncryptionKEK(): Promise<{ newVersion: number }> {
+    const response = await apiClient.post<APIResponse<{ newVersion: number }>>('/settings/encryption/rotate-kek', {});
+    return response.data.data!;
+  }
+
   static async runEncryptionWorker(): Promise<{ started: boolean; reason?: string }> {
     const response = await apiClient.post<APIResponse<{ started: boolean; reason?: string }>>('/settings/encryption/worker-run', {});
     return response.data.data!;

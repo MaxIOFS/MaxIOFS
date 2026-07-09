@@ -477,6 +477,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/settings/encryption/recovery-bundle", s.handleDownloadRecoveryBundle).Methods("POST", "OPTIONS")
 	router.HandleFunc("/settings/encryption/worker-status", s.handleEncryptionWorkerStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/encryption/worker-run", s.handleEncryptionWorkerRun).Methods("POST", "OPTIONS")
+	router.HandleFunc("/settings/encryption/rotate-kek", s.handleRotateKEK).Methods("POST", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleGetSetting).Methods("GET", "OPTIONS")
 	router.HandleFunc("/settings/{key}", s.handleUpdateSetting).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/settings/bulk", s.handleBulkUpdateSettings).Methods("POST", "OPTIONS")

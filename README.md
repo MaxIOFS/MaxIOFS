@@ -320,7 +320,7 @@ cd web/frontend && npm run test        # 95+ frontend tests
 - **No erasure coding** — single-node data redundancy relies on filesystem/RAID; cluster mode replicates full objects
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
-- **No per-tenant encryption keys** — single master key, no HSM integration
+- **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead
 - **No SOC 2 / ISO 27001 certification** — comprehensive internal audit completed

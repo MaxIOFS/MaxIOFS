@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,14 +21,22 @@ type GlobalConfigEntry struct {
 	UpdatedAt int64  `json:"updated_at"` // Unix timestamp
 }
 
+// KEKProvider exposes the cluster-shared encryption keys for periodic sync.
+type KEKProvider interface {
+	ClusterSharedKeys() []kek.KeyRecord
+}
+
 // GlobalConfigSyncManager synchronizes cluster_global_config and cluster_nodes
-// across all cluster members.
+// across all cluster members. When a KEK provider is set it also reconciles
+// the cluster-shared encryption keys (covers nodes that were offline during a
+// KEK rotation).
 type GlobalConfigSyncManager struct {
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
 	stopChan       chan struct{}
 	log            *logrus.Entry
+	kekProvider    KEKProvider
 }
 
 // NewGlobalConfigSyncManager creates a new global config sync manager.
@@ -39,6 +48,11 @@ func NewGlobalConfigSyncManager(db *sql.DB, clusterManager *Manager) *GlobalConf
 		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "global-config-sync"),
 	}
+}
+
+// SetKEKProvider wires the encryption key store for cluster-shared KEK sync.
+func (m *GlobalConfigSyncManager) SetKEKProvider(p KEKProvider) {
+	m.kekProvider = p
 }
 
 // Start begins the global config synchronization loop.
@@ -126,6 +140,69 @@ func (m *GlobalConfigSyncManager) syncAll(ctx context.Context) {
 		if err := m.sendNodeListToNode(ctx, allNodes, targetNode, localNodeID, nodeToken); err != nil {
 			m.log.WithError(err).WithField("node_id", targetNode.ID).Warn("Failed to sync node list to node")
 		}
+	}
+
+	// --- Phase 3: Reconcile cluster-shared encryption KEKs ---
+	// Covers nodes that were offline during a rotation: adoption is
+	// idempotent on the receiver, so re-sending the full set is cheap.
+	m.SyncKEKs(ctx)
+}
+
+// SyncKEKs pushes every cluster-shared encryption key to all healthy peers.
+// Also called synchronously right after a KEK rotation.
+func (m *GlobalConfigSyncManager) SyncKEKs(ctx context.Context) {
+	if m.kekProvider == nil || !m.clusterManager.IsClusterEnabled() {
+		return
+	}
+	records := m.kekProvider.ClusterSharedKeys()
+	if len(records) == 0 {
+		return
+	}
+
+	localNodeID, err := m.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		return
+	}
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		return
+	}
+	nodes, err := m.clusterManager.GetHealthyNodes(ctx)
+	if err != nil {
+		return
+	}
+
+	body, err := json.Marshal(map[string]interface{}{
+		"keys":           records,
+		"source_node_id": localNodeID,
+	})
+	if err != nil {
+		return
+	}
+
+	for _, node := range nodes {
+		if node.ID == localNodeID {
+			continue
+		}
+		url := fmt.Sprintf("%s/api/internal/cluster/kek-sync", node.Endpoint)
+		req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), localNodeID, nodeToken)
+		if err != nil {
+			m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to build KEK sync request")
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+		if err != nil {
+			m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to sync encryption KEKs to node")
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			m.log.WithFields(logrus.Fields{"node_id": node.ID, "status": resp.StatusCode, "body": string(respBody)}).
+				Warn("KEK sync rejected by node")
+		}
+		resp.Body.Close()
 	}
 }
 

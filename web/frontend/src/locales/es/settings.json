@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Omitidos: {{count}}",
   "encWorkerFailed": "Fallidos: {{count}}",
   "encWorkerLastRun": "Último pase: {{date}}",
-  "encWorkerRunNow": "Ejecutar ahora"
+  "encWorkerRunNow": "Ejecutar ahora",
+  "rotateKekTitle": "Rotación de la clave de cifrado (versión actual: v{{version}})",
+  "rotateKekDesc": "Crea una nueva versión de la clave. Los objetos existentes siguen siendo legibles y se re-envuelven a la nueva clave en segundo plano. Tras rotar, descargue un nuevo bundle de recuperación.",
+  "rotateKek": "Rotar clave",
+  "rotateKekRotating": "Rotando...",
+  "rotateKekSuccess": "Clave rotada a la versión v{{version}}. Descargue un nuevo bundle de recuperación.",
+  "rotateKekFailed": "Error al rotar la clave de cifrado",
+  "rotateKekConfirmTitle": "¿Rotar la clave de cifrado?",
+  "rotateKekConfirmText": "Se creará una nueva versión de la clave y se usará para todos los objetos nuevos. Los objetos existentes siguen siendo legibles y se migrarán en segundo plano. El bundle de recuperación actual quedará desactualizado — deberá descargar uno nuevo."
 }

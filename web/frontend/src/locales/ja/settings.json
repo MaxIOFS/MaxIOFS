@@ -138,5 +138,13 @@
   "encWorkerSkipped": "スキップ：{{count}}",
   "encWorkerFailed": "失敗：{{count}}",
   "encWorkerLastRun": "前回の実行：{{date}}",
-  "encWorkerRunNow": "今すぐ実行"
+  "encWorkerRunNow": "今すぐ実行",
+  "rotateKekTitle": "暗号化キーのローテーション（現在のバージョン：v{{version}}）",
+  "rotateKekDesc": "新しいキーバージョンを作成します。既存のオブジェクトは引き続き読み取り可能で、バックグラウンドで新しいキーに再ラップされます。ローテーション後は新しいリカバリーバンドルをダウンロードしてください。",
+  "rotateKek": "キーをローテーション",
+  "rotateKekRotating": "ローテーション中...",
+  "rotateKekSuccess": "キーをバージョン v{{version}} にローテーションしました。新しいリカバリーバンドルをダウンロードしてください。",
+  "rotateKekFailed": "暗号化キーのローテーションに失敗しました",
+  "rotateKekConfirmTitle": "暗号化キーをローテーションしますか？",
+  "rotateKekConfirmText": "新しいキーバージョンが作成され、すべての新規オブジェクトに使用されます。既存のオブジェクトは読み取り可能なまま、バックグラウンドで移行されます。現在のリカバリーバンドルは古くなるため、新しいものをダウンロードする必要があります。"
 }

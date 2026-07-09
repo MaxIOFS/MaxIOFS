@@ -181,6 +181,14 @@ func (s *Store) MarkBundleDownloaded() error {
 	return err
 }
 
+// resetBundleDownloaded clears the download marker (used after a rotation:
+// the previously downloaded bundle lacks the new key, so the banner must
+// prompt for a fresh download).
+func (s *Store) resetBundleDownloaded() error {
+	_, err := s.db.Exec(`DELETE FROM system_settings WHERE key = ?`, settingBundleDownloadedAt)
+	return err
+}
+
 // BundleDownloadedAt returns the Unix timestamp of the last bundle download,
 // or 0 if it has never been downloaded.
 func (s *Store) BundleDownloadedAt() (int64, error) {

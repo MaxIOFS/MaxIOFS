@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Übersprungen: {{count}}",
   "encWorkerFailed": "Fehlgeschlagen: {{count}}",
   "encWorkerLastRun": "Letzter Durchlauf: {{date}}",
-  "encWorkerRunNow": "Jetzt ausführen"
+  "encWorkerRunNow": "Jetzt ausführen",
+  "rotateKekTitle": "Rotation des Verschlüsselungsschlüssels (aktuelle Version: v{{version}})",
+  "rotateKekDesc": "Erstellt eine neue Schlüsselversion. Vorhandene Objekte bleiben lesbar und werden im Hintergrund auf den neuen Schlüssel umgeschlüsselt. Laden Sie nach der Rotation ein neues Wiederherstellungspaket herunter.",
+  "rotateKek": "Schlüssel rotieren",
+  "rotateKekRotating": "Wird rotiert...",
+  "rotateKekSuccess": "Schlüssel auf Version v{{version}} rotiert. Laden Sie ein neues Wiederherstellungspaket herunter.",
+  "rotateKekFailed": "Rotation des Verschlüsselungsschlüssels fehlgeschlagen",
+  "rotateKekConfirmTitle": "Verschlüsselungsschlüssel rotieren?",
+  "rotateKekConfirmText": "Eine neue Schlüsselversion wird erstellt und für alle neuen Objekte verwendet. Vorhandene Objekte bleiben lesbar und werden im Hintergrund migriert. Das aktuelle Wiederherstellungspaket wird ungültig — Sie müssen ein neues herunterladen."
 }

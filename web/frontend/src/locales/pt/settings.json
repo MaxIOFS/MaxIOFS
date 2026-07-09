@@ -138,5 +138,13 @@
   "encWorkerSkipped": "Ignorados: {{count}}",
   "encWorkerFailed": "Falharam: {{count}}",
   "encWorkerLastRun": "Última passagem: {{date}}",
-  "encWorkerRunNow": "Executar agora"
+  "encWorkerRunNow": "Executar agora",
+  "rotateKekTitle": "Rotação da chave de criptografia (versão atual: v{{version}})",
+  "rotateKekDesc": "Cria uma nova versão da chave. Os objetos existentes continuam legíveis e são re-envelopados para a nova chave em segundo plano. Após a rotação, baixe um novo pacote de recuperação.",
+  "rotateKek": "Rotacionar chave",
+  "rotateKekRotating": "Rotacionando...",
+  "rotateKekSuccess": "Chave rotacionada para a versão v{{version}}. Baixe um novo pacote de recuperação.",
+  "rotateKekFailed": "Falha ao rotacionar a chave de criptografia",
+  "rotateKekConfirmTitle": "Rotacionar a chave de criptografia?",
+  "rotateKekConfirmText": "Uma nova versão da chave será criada e usada para todos os novos objetos. Os objetos existentes continuam legíveis e serão migrados em segundo plano. O pacote de recuperação atual ficará desatualizado — você deverá baixar um novo."
 }
