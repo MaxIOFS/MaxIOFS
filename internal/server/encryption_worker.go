@@ -127,6 +127,29 @@ func (s *Server) runEncryptionPass(ctx context.Context) {
 	state.BucketsTotal = len(allBuckets)
 	s.saveEncryptionWorkerState(ctx, state)
 
+	// A checkpoint pointing at a bucket that no longer exists (deleted between
+	// runs) must not be honoured: skipUntilResume would never flip off and the
+	// whole pass would silently skip every bucket. Fall back to a full scan.
+	if resumeBucket != "" {
+		found := false
+		for _, bkt := range allBuckets {
+			bp := bkt.Name
+			if bkt.TenantID != "" {
+				bp = bkt.TenantID + "/" + bkt.Name
+			}
+			if bp == resumeBucket {
+				found = true
+				break
+			}
+		}
+		if !found {
+			logrus.WithField("bucket", resumeBucket).
+				Warn("Encryption worker: checkpoint bucket no longer exists — restarting a full pass")
+			resumeBucket = ""
+			resumeMarker = ""
+		}
+	}
+
 	logrus.WithField("buckets", len(allBuckets)).Info("Encryption worker: pass started")
 	started := time.Now()
 	skipUntilResume := resumeBucket != ""

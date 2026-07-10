@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/kek"
@@ -35,6 +36,7 @@ type GlobalConfigSyncManager struct {
 	clusterManager *Manager
 	proxyClient    *ProxyClient
 	stopChan       chan struct{}
+	stopOnce       sync.Once
 	log            *logrus.Entry
 	kekProvider    KEKProvider
 }
@@ -61,9 +63,9 @@ func (m *GlobalConfigSyncManager) Start(ctx context.Context) {
 	go m.syncLoop(ctx, 60*time.Second)
 }
 
-// Stop gracefully stops the sync loop.
+// Stop gracefully stops the sync loop. Safe to call more than once.
 func (m *GlobalConfigSyncManager) Stop() {
-	close(m.stopChan)
+	m.stopOnce.Do(func() { close(m.stopChan) })
 }
 
 func (m *GlobalConfigSyncManager) syncLoop(ctx context.Context, interval time.Duration) {

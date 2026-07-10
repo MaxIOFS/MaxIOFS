@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -42,6 +43,19 @@ func setHALastModified(h http.Header, obj *object.Object) {
 	if obj != nil && !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
 		h.Set(HALastModifiedHeader, strconv.FormatInt(obj.LastModified.Unix(), 10))
 	}
+}
+
+// setHAChecksum forwards the object's client checksum (x-amz-checksum-*) on a
+// legacy replica transfer so the replica's Pebble entry keeps the same
+// ChecksumAlgorithm/ChecksumValue as the primary (GetObjectAttributes parity).
+// The receiver recomputes the checksum over the plaintext body and validates
+// it against this value, so a corrupted transfer is also caught.
+func setHAChecksum(h http.Header, obj *object.Object) {
+	if obj == nil || obj.ChecksumAlgorithm == "" || obj.ChecksumValue == "" {
+		return
+	}
+	h.Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+	h.Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 }
 
 // HALastModifiedFromHeader parses the primary's modification timestamp from a
@@ -350,6 +364,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 				req.Header.Set(HAObjectVersionHeader, obj.VersionID)
 			}
 			setHALastModified(req.Header, obj)
+			setHAChecksum(req.Header, obj)
 			req.Header.Set("Content-Type", obj.ContentType)
 			if obj.ContentDisposition != "" {
 				req.Header.Set("Content-Disposition", obj.ContentDisposition)

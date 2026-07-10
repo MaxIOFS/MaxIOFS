@@ -3,31 +3,88 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
+
+// newIsolatedEncryptionServer builds a minimal dedicated Server (own SQLite
+// KEK store, Pebble, storage backend and worker slot). Rotation/worker tests
+// on the shared server are racy: another test's asynchronous pass can hold
+// the single-flight guard for minutes under suite CPU (load-aware backoff),
+// so a pass kicked here would silently no-op or never reach this bucket.
+func newIsolatedEncryptionServer(t *testing.T) *Server {
+	t.Helper()
+	tempDir := t.TempDir()
+
+	db, err := sql.Open("sqlite", filepath.Join(tempDir, "auth.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	_, err = db.Exec(`
+		CREATE TABLE encryption_keys (
+			version INTEGER PRIMARY KEY, key_hex TEXT NOT NULL,
+			is_current INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+			cluster_shared INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE system_settings (
+			key TEXT PRIMARY KEY, value TEXT NOT NULL, type TEXT NOT NULL,
+			category TEXT NOT NULL, description TEXT, editable INTEGER DEFAULT 1,
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		);
+	`)
+	require.NoError(t, err)
+	kekStore, err := kek.Bootstrap(db, "")
+	require.NoError(t, err)
+
+	backend, err := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
+	require.NoError(t, err)
+	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { metaStore.Close() })
+
+	om := object.NewManager(backend, metaStore, config.StorageConfig{
+		Backend: "filesystem", Root: tempDir,
+	}, object.WithKEKProvider(kekStore))
+
+	return &Server{
+		storageBackend: backend,
+		metadataStore:  metaStore,
+		objectManager:  om,
+		kekStore:       kekStore,
+		// systemMetrics nil → no load backoff; encWorkerRunning zero → free;
+		// clusterManager/globalConfigSyncMgr nil → no cluster distribution.
+	}
+}
 
 // TestRotateKEKEndpoint: rotation creates a new current version, resets the
 // bundle-downloaded flag, and old objects remain readable; the worker
 // re-wraps them on its next pass.
 func TestRotateKEKEndpoint(t *testing.T) {
-	server := getSharedServer()
+	server := newIsolatedEncryptionServer(t)
 	ctx := context.Background()
 
 	bucketName := "rotation-bucket"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
 	}))
-	cleanupTestData(t, "", bucketName)
 
 	// Object written under the pre-rotation KEK.
 	content := []byte("object written before the rotation")

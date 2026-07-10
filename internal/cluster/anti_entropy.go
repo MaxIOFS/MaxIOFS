@@ -635,6 +635,7 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
 	}
 	setHALastModified(req.Header, obj)
+	setHAChecksum(req.Header, obj)
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)

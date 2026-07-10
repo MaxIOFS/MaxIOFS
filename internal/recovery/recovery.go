@@ -11,6 +11,12 @@
 //
 // The rebuild always writes into a FRESH Pebble directory — it never touches
 // an existing (possibly corrupt) store.
+//
+// Known limitation (deliberate, data-recovery bias): delete markers exist
+// only in the metadata store, not on the filesystem. A versioned object whose
+// latest "version" was a deletion therefore comes back VISIBLE after a
+// rebuild — its stored versions are all real files, and the marker that hid
+// them is gone. The operator re-deletes if the deletion should stand.
 package recovery
 
 import (
@@ -280,7 +286,13 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 		obj, class, oErr := objectFromSidecar(path, bkt.bucketPath, key, versionID, encryptor, keys)
 		if oErr != nil {
 			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bkt.bucketPath, key, oErr))
-			return nil
+			if obj == nil {
+				return nil
+			}
+			// Partial failure (e.g. the wrapped DEK does not unwrap with the
+			// bundle keys): the bytes exist on disk, so the object is still
+			// indexed — hiding it from listings would make it unrecoverable
+			// forever. The failure stays in the report for the operator.
 		}
 
 		switch class {
@@ -530,19 +542,34 @@ func restoreKEKs(dbPath, bundlePath, passphrase string) (int, error) {
 		return 0, fmt.Errorf("failed to create encryption_keys table: %w", err)
 	}
 
+	// Does the DB already have a current key? A partially-surviving database
+	// is more recent than any external bundle, so its current marker wins;
+	// the bundle's current is only applied when the DB had none. Inserting the
+	// bundle's is_current flag blindly could leave TWO current rows and make
+	// the server's bootstrap pick one non-deterministically.
+	var existingCurrent int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM encryption_keys WHERE is_current = 1`).Scan(&existingCurrent); err != nil {
+		return 0, err
+	}
+
 	restored := 0
+	bundleCurrent := 0
+	maxVersion := 0
 	for _, r := range records {
+		if r.IsCurrent {
+			bundleCurrent = r.Version
+		}
+		if r.Version > maxVersion {
+			maxVersion = r.Version
+		}
 		var existing string
 		err := db.QueryRow(`SELECT key_hex FROM encryption_keys WHERE version = ?`, r.Version).Scan(&existing)
 		switch {
 		case err == sql.ErrNoRows:
-			isCurrent := 0
-			if r.IsCurrent {
-				isCurrent = 1
-			}
+			// Always inserted non-current; the marker is applied once, below.
 			if _, err := db.Exec(
-				`INSERT INTO encryption_keys (version, key_hex, is_current, created_at) VALUES (?, ?, ?, ?)`,
-				r.Version, r.KeyHex, isCurrent, time.Now().Unix(),
+				`INSERT INTO encryption_keys (version, key_hex, is_current, created_at) VALUES (?, ?, 0, ?)`,
+				r.Version, r.KeyHex, time.Now().Unix(),
 			); err != nil {
 				return restored, fmt.Errorf("failed to insert key v%d: %w", r.Version, err)
 			}
@@ -552,6 +579,30 @@ func restoreKEKs(dbPath, bundlePath, passphrase string) (int, error) {
 		case existing != r.KeyHex:
 			return restored, fmt.Errorf("key version %d already exists in %s with DIFFERENT material — refusing to overwrite", r.Version, dbPath)
 		}
+	}
+
+	if existingCurrent == 0 {
+		markCurrent := bundleCurrent
+		if markCurrent == 0 {
+			markCurrent = maxVersion // defensive: a bundle always carries a current
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return restored, err
+		}
+		if _, err := tx.Exec(`UPDATE encryption_keys SET is_current = 0`); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return restored, err
+		}
+		if _, err := tx.Exec(`UPDATE encryption_keys SET is_current = 1 WHERE version = ?`, markCurrent); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return restored, err
+		}
+		if err := tx.Commit(); err != nil {
+			return restored, err
+		}
+	} else {
+		logrus.Info("Database already has a current encryption key — keeping it (bundle keys added for decryption only)")
 	}
 
 	logrus.WithFields(logrus.Fields{"db": dbPath, "restored": restored, "total": len(records)}).

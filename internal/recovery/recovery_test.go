@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -282,4 +283,52 @@ func TestRecovery_WrongPassphrase(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wrong passphrase")
+}
+
+// An object whose wrapped DEK does not unwrap with the bundle keys must still
+// be indexed in the rebuilt store (the bytes exist on disk) — with the failure
+// reported — instead of silently disappearing from listings.
+func TestRecovery_UnverifiableDEKStillIndexed(t *testing.T) {
+	ctx := context.Background()
+	dataDir, bundlePath, passphrase := buildTestDeployment(t)
+
+	// Corrupt hello.txt's wrapped DEK: same length, different material — the
+	// unwrap with the bundle key will fail authentication.
+	sidecarPath := filepath.Join(dataDir, "objects", "global-bucket", "hello.txt.metadata")
+	raw, err := os.ReadFile(sidecarPath)
+	require.NoError(t, err)
+	var sidecar map[string]string
+	require.NoError(t, json.Unmarshal(raw, &sidecar))
+	wrapped := sidecar["wrapped-dek"]
+	require.NotEmpty(t, wrapped)
+	corrupted := []byte(wrapped)
+	for i := 0; i < 8; i++ { // flip a few hex digits
+		if corrupted[i] == 'f' {
+			corrupted[i] = '0'
+		} else {
+			corrupted[i] = 'f'
+		}
+	}
+	sidecar["wrapped-dek"] = string(corrupted)
+	updated, err := json.Marshal(sidecar)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(sidecarPath, updated, 0o640))
+
+	report, err := Run(Options{
+		DataDir:    dataDir,
+		BundlePath: bundlePath,
+		Passphrase: passphrase,
+		OutDB:      filepath.Join(dataDir, "metadata-recovered"),
+	})
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, report.Failures, "the unverifiable DEK must be reported")
+	assert.GreaterOrEqual(t, report.EncryptedUnverified, 1)
+
+	store := openRecoveredStore(t, report.OutDB)
+	defer store.Close()
+
+	obj, err := store.GetObject(ctx, "global-bucket", "hello.txt")
+	require.NoError(t, err, "the object must still be listed despite the unverifiable DEK")
+	assert.Equal(t, int64(len("global object content")), obj.Size)
 }

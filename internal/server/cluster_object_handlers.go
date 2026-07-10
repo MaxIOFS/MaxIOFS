@@ -1808,6 +1808,10 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	if !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
 		w.Header().Set(cluster.HALastModifiedHeader, fmt.Sprintf("%d", obj.LastModified.Unix()))
 	}
+	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+	}
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)
 	}

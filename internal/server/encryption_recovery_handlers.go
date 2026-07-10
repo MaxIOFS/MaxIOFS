@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -33,7 +34,13 @@ func (s *Server) handleReceiveKEKSync(w http.ResponseWriter, r *http.Request) {
 	if err := s.kekStore.AdoptClusterKeys(payload.Keys); err != nil {
 		logrus.WithError(err).WithField("source_node_id", payload.SourceNodeID).
 			Error("Failed to adopt synced encryption KEKs")
-		http.Error(w, err.Error(), http.StatusConflict)
+		// 409 only for a genuine key conflict (same version, different
+		// material); malformed or otherwise invalid payloads are 400.
+		status := http.StatusBadRequest
+		if errors.Is(err, kek.ErrKeyConflict) {
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -120,9 +127,16 @@ func (s *Server) handleRotateKEK(w http.ResponseWriter, r *http.Request) {
 	logrus.WithFields(logrus.Fields{"user": user.Username, "kek_version": newVersion}).
 		Info("Encryption KEK rotated by admin")
 
-	// Distribute to cluster peers right away.
+	// Distribute to cluster peers right away. Deliberately NOT tied to the
+	// request context: if the admin's connection drops mid-response the push
+	// must still complete (the periodic sync would cover it anyway, but a
+	// 60s window with peers wrapping on the old version is avoidable).
+	syncCtx := s.serverCtx
+	if syncCtx == nil {
+		syncCtx = context.Background()
+	}
 	if clusterEnabled && s.globalConfigSyncMgr != nil {
-		s.globalConfigSyncMgr.SyncKEKs(r.Context())
+		s.globalConfigSyncMgr.SyncKEKs(syncCtx)
 	}
 
 	// Kick the worker so existing DEKs start re-wrapping immediately.

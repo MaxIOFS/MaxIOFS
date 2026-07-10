@@ -118,6 +118,10 @@ func runRecover(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  2. Activate the recovered store:  mv %s <data-dir>/metadata\n", report.OutDB)
 	fmt.Println("  3. Start the server. Buckets/objects are back; users, permissions and bucket")
 	fmt.Println("     configuration (policies, lifecycle, quotas) must be re-applied by the admin.")
+	fmt.Println()
+	fmt.Println("Note: delete markers exist only in the metadata store, so versioned objects")
+	fmt.Println("whose latest \"version\" was a deletion come back VISIBLE (recovery is biased")
+	fmt.Println("towards recovering data). Re-delete them if the deletion should stand.")
 
 	if len(report.Failures) > 0 {
 		return fmt.Errorf("recovery completed with %d failure(s) — review the report above", len(report.Failures))

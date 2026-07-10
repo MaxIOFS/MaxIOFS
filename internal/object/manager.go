@@ -748,16 +748,25 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			StorageClass: object.StorageClass,
 		}
 
-		// Store version (this also updates the main object if IsLatest=true)
+		// Store version (this also updates the main object if IsLatest=true).
+		// A metadata failure must surface to the client: acknowledging a write
+		// that is invisible in listings breaks S3 semantics (backup clients
+		// verify by listing). The stored file is deliberately NOT deleted —
+		// on a non-versioned overwrite it is the only copy of the data, and
+		// sidecar-only files are exactly what `maxiofs recover` reindexes.
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
-			logrus.WithError(err).Warn("Failed to save object version metadata")
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+				Error("Failed to save object version metadata — failing the write (data file kept on disk)")
+			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
 	} else {
-		// No versioning - use regular PutObject
+		// No versioning - use regular PutObject (same failure contract as above)
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-			logrus.WithError(err).Warn("Failed to save object metadata")
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+				Error("Failed to save object metadata — failing the write (data file kept on disk)")
+			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
 	}
 

@@ -9,7 +9,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+
+	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/stretchr/testify/assert"
@@ -118,4 +124,73 @@ func TestEncryptionWorkerStatusEndpoint(t *testing.T) {
 	w = httptest.NewRecorder()
 	server.handleEncryptionWorkerStatus(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// A checkpoint pointing at a bucket that no longer exists (deleted between
+// runs) must fall back to a full pass instead of skipping every bucket.
+//
+// Runs against a DEDICATED minimal Server (own Pebble + storage + worker
+// slot): on the shared server another test's asynchronous pass can hold the
+// single-flight guard for minutes (load-aware backoff under suite CPU),
+// turning this synchronous run into a silent no-op.
+func TestEncryptionWorkerResumeWithDeletedBucket(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	backend, err := storage.NewFilesystemBackend(storage.Config{Root: tempDir})
+	require.NoError(t, err)
+	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { metaStore.Close() })
+
+	om := object.NewManager(backend, metaStore, config.StorageConfig{
+		Backend: "filesystem", Root: tempDir,
+	})
+	srv := &Server{
+		storageBackend: backend,
+		metadataStore:  metaStore,
+		objectManager:  om,
+		// systemMetrics nil → no load backoff; encWorkerRunning zero → free.
+	}
+
+	bucketName := "encworker-ghost-resume"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:    bucketName,
+		OwnerID: "admin",
+	}))
+
+	// One plaintext object that a full pass must pick up.
+	body := []byte("plaintext that must be converted despite the stale checkpoint")
+	md5sum := md5.Sum(body)
+	sidecar := map[string]string{
+		"size":         fmt.Sprintf("%d", len(body)),
+		"etag":         hex.EncodeToString(md5sum[:]),
+		"content-type": "text/plain",
+	}
+	require.NoError(t, backend.Put(ctx, bucketName+"/victim.txt", bytes.NewReader(body), sidecar))
+	require.NoError(t, metaStore.PutObject(ctx, &metadata.ObjectMetadata{
+		Bucket: bucketName, Key: "victim.txt",
+		Size: int64(len(body)), ETag: hex.EncodeToString(md5sum[:]), ContentType: "text/plain",
+	}))
+
+	// Simulate an interrupted pass checkpointed on a bucket that was deleted.
+	srv.saveEncryptionWorkerState(ctx, &encryptionWorkerState{
+		Status:        "running",
+		CurrentBucket: "ghost-bucket-that-was-deleted",
+		Marker:        "some/marker",
+	})
+
+	srv.runEncryptionPass(ctx)
+
+	state := srv.loadEncryptionWorkerState(ctx)
+	assert.Equal(t, "done", state.Status)
+
+	// The full pass must have converted the plaintext object.
+	meta, err := backend.GetMetadata(ctx, bucketName+"/victim.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "true", meta["encrypted"], "stale checkpoint must not skip the whole pass")
+	assert.NotEmpty(t, meta["wrapped-dek"])
 }

@@ -20,12 +20,18 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+// ErrKeyConflict marks a cluster-key adoption rejected because a version
+// already exists locally with DIFFERENT key material. Callers use it to tell
+// a genuine conflict (409) apart from a malformed request (400).
+var ErrKeyConflict = errors.New("encryption key conflict")
 
 // Provider exposes the KEK material needed by the object manager to wrap
 // and unwrap per-object DEKs. Implemented by Store (DB-backed) and by the
@@ -45,11 +51,17 @@ type Provider interface {
 // Store is the SQLite-backed KEK provider. All versions are loaded into
 // memory at bootstrap; the table is tiny (one row per rotation).
 type Store struct {
-	db            *sql.DB
+	db *sql.DB
+	// mu guards the in-memory maps (readers on every decrypt).
 	mu            sync.RWMutex
 	keys          map[int][]byte
 	clusterShared map[int]bool
 	current       int
+	// writeMu serialises multi-step mutations (Rotate, EnsureClusterKey,
+	// AdoptClusterKeys): two concurrent rotations would otherwise compute the
+	// same next version and collide on the UNIQUE constraint with a cryptic
+	// error. Never held while mu is held the other way around.
+	writeMu sync.Mutex
 }
 
 // Bootstrap resolves the KEK (see package doc for the priority order) and
@@ -141,6 +153,9 @@ func (s *Store) ClusterSharedKeys() []KeyRecord {
 // creating one (next free version) the first time a node joins the cluster.
 // Returns all cluster-shared keys ready to be embedded in the join package.
 func (s *Store) EnsureClusterKey() ([]KeyRecord, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	if records := s.ClusterSharedKeys(); len(records) > 0 {
 		return records, nil
 	}
@@ -180,6 +195,9 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 		return nil
 	}
 
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	// Validate everything before touching the DB.
 	type parsedRecord struct {
 		version int
@@ -197,8 +215,8 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 		}
 		if local, exists := s.keys[r.Version]; exists && hex.EncodeToString(local) != r.KeyHex {
 			s.mu.RUnlock()
-			return fmt.Errorf("encryption key version %d already exists on this node with different material — "+
-				"this node holds objects wrapped with its own key v%d and cannot join without recovery", r.Version, r.Version)
+			return fmt.Errorf("%w: encryption key version %d already exists on this node with different material — "+
+				"this node holds objects wrapped with its own key v%d and cannot join without recovery", ErrKeyConflict, r.Version, r.Version)
 		}
 		if r.IsCurrent {
 			currentVersion = r.Version
@@ -210,14 +228,43 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 		return fmt.Errorf("cluster key set has no current version")
 	}
 
+	// Apply the whole set atomically: upserts + current marker in one
+	// transaction, so a mid-way failure can never leave a partial adoption.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
 	for _, p := range parsed {
-		if err := s.upsertClusterKey(p.version, p.key); err != nil {
+		if _, err := tx.Exec(`
+			INSERT INTO encryption_keys (version, key_hex, is_current, created_at, cluster_shared)
+			VALUES (?, ?, 0, ?, 1)
+			ON CONFLICT(version) DO UPDATE SET cluster_shared = 1
+		`, p.version, hex.EncodeToString(p.key), time.Now().Unix()); err != nil {
+			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("failed to store cluster key v%d: %w", p.version, err)
 		}
 	}
-	if err := s.markCurrent(currentVersion); err != nil {
-		return fmt.Errorf("failed to mark cluster key v%d current: %w", currentVersion, err)
+	if _, err := tx.Exec(`UPDATE encryption_keys SET is_current = 0`); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
 	}
+	if _, err := tx.Exec(`UPDATE encryption_keys SET is_current = 1 WHERE version = ?`, currentVersion); err != nil {
+		tx.Rollback() //nolint:errcheck
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Reflect the committed state in memory.
+	s.mu.Lock()
+	for _, p := range parsed {
+		s.keys[p.version] = p.key
+		s.clusterShared[p.version] = true
+	}
+	s.current = currentVersion
+	s.mu.Unlock()
+
 	logrus.WithField("kek_version", currentVersion).Info("✅ Cluster encryption KEKs adopted from join package")
 	return nil
 }
@@ -233,6 +280,9 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 // key can be distributed to peers and keep raw (ciphertext) replication
 // working for new objects.
 func (s *Store) Rotate(clusterShared bool) (int, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	s.mu.RLock()
 	next := 1
 	for version := range s.keys {
@@ -264,22 +314,6 @@ func (s *Store) Rotate(clusterShared bool) (int, error) {
 	return next, nil
 }
 
-// upsertClusterKey inserts (or re-marks) a key as cluster-shared.
-func (s *Store) upsertClusterKey(version int, key []byte) error {
-	_, err := s.db.Exec(`
-		INSERT INTO encryption_keys (version, key_hex, is_current, created_at, cluster_shared)
-		VALUES (?, ?, 0, ?, 1)
-		ON CONFLICT(version) DO UPDATE SET cluster_shared = 1
-	`, version, hex.EncodeToString(key), time.Now().Unix())
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.keys[version] = key
-	s.clusterShared[version] = true
-	s.mu.Unlock()
-	return nil
-}
 
 // markCurrent atomically moves the is_current marker to the given version.
 func (s *Store) markCurrent(version int) error {

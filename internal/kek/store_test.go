@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -270,4 +271,37 @@ func TestEphemeralProvider(t *testing.T) {
 
 	_, err = EphemeralFromKey([]byte("short"))
 	assert.Error(t, err)
+}
+
+// Concurrent rotations must all succeed with distinct versions (the version
+// computation and insert are serialised) instead of colliding on the UNIQUE
+// constraint.
+func TestConcurrentRotations(t *testing.T) {
+	db := createTestDB(t)
+	store, err := Bootstrap(db, "")
+	require.NoError(t, err)
+
+	const n = 8
+	var wg sync.WaitGroup
+	versions := make([]int, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			versions[i], errs[i] = store.Rotate(false)
+		}(i)
+	}
+	wg.Wait()
+
+	seen := make(map[int]bool, n)
+	for i := 0; i < n; i++ {
+		require.NoError(t, errs[i], "rotation %d", i)
+		assert.False(t, seen[versions[i]], "version %d assigned twice", versions[i])
+		seen[versions[i]] = true
+	}
+
+	// Exactly one current row remains.
+	_, current := store.CurrentKEK()
+	assert.True(t, seen[current], "current must be one of the rotated versions")
 }

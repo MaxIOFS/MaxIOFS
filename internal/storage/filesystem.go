@@ -256,8 +256,20 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 			return NewErrorWithCause("DeleteDirectory", "Failed to delete directory", err)
 		}
 	} else {
-		if err := os.Remove(fullPath); err != nil {
-			return NewErrorWithCause("DeleteFile", "Failed to delete file", err)
+		// On Windows a just-written file may be briefly held by an external
+		// scanner (antivirus, search indexer) without FILE_SHARE_DELETE,
+		// making the first remove fail with a sharing violation and orphaning
+		// the object. Retry shortly before giving up; on POSIX a real error
+		// simply fails the same way a few milliseconds later.
+		var rmErr error
+		for attempt := 0; attempt < 5; attempt++ {
+			if rmErr = os.Remove(fullPath); rmErr == nil {
+				break
+			}
+			time.Sleep(time.Duration(10*(attempt+1)) * time.Millisecond)
+		}
+		if rmErr != nil {
+			return NewErrorWithCause("DeleteFile", "Failed to delete file", rmErr)
 		}
 	}
 

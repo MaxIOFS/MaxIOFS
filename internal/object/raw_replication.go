@@ -125,6 +125,9 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	metaObj.Bucket = bucket
 	metaObj.Key = key
 
+	// A metadata failure fails the replica write so the primary counts this
+	// node as unconfirmed and the sync worker/anti-entropy retries later —
+	// silently acknowledging would leave the replica invisible in listings.
 	if versioned {
 		version := &metadata.ObjectVersion{
 			VersionID:    metaObj.VersionID,
@@ -136,11 +139,15 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 			StorageClass: metaObj.StorageClass,
 		}
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
-			logrus.WithError(err).Warn("Raw replica: failed to save object version metadata")
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+				Error("Raw replica: failed to save object version metadata")
+			return fmt.Errorf("failed to save replica metadata: %w", err)
 		}
 	} else {
 		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
-			logrus.WithError(err).Warn("Raw replica: failed to save object metadata")
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+				Error("Raw replica: failed to save object metadata")
+			return fmt.Errorf("failed to save replica metadata: %w", err)
 		}
 	}
 
