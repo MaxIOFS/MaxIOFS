@@ -53,9 +53,6 @@ type Manager interface {
 	ValidateS3SignatureV2(ctx context.Context, r *http.Request) (*User, error)
 
 	// Authorization
-	CheckPermission(ctx context.Context, user *User, action, resource string) error
-	CheckBucketPermission(ctx context.Context, user *User, bucket, action string) error
-	CheckObjectPermission(ctx context.Context, user *User, bucket, object, action string) error
 
 	// User management
 	CreateUser(ctx context.Context, user *User) error
@@ -293,9 +290,6 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 
 	// Resolve JWT secret: explicit config > persisted DB value > auto-generated (save to DB)
 	manager.resolveJWTSecret()
-
-	// SEC-03: Warn that RBAC is in stub mode.
-	logrus.Warn("⚠️  SEC-03: RBAC permission system is in stub mode — only 'admin' role enforced. Fine-grained permissions are not active.")
 
 	// Create default admin user if not exists (without access keys)
 	_, err = store.GetUserByUsername("admin")
@@ -804,35 +798,6 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	am.store.UpdateAccessKeyLastUsed(accessKey.AccessKeyID, time.Now().Unix())
 
 	return user, nil
-}
-
-// CheckPermission checks if user has permission for action on resource.
-// SEC-03: RBAC is a stub. Only the "admin" role is enforced. Fine-grained
-// per-role permissions are not yet implemented.
-func (am *authManager) CheckPermission(ctx context.Context, user *User, action, resource string) error {
-	for _, role := range user.Roles {
-		if role == "admin" {
-			return nil
-		}
-	}
-	logrus.WithFields(logrus.Fields{
-		"username": user.Username,
-		"action":   action,
-		"resource": resource,
-	}).Debug("RBAC stub: access denied for non-admin user")
-	return ErrAccessDenied
-}
-
-// CheckBucketPermission checks bucket-level permissions
-func (am *authManager) CheckBucketPermission(ctx context.Context, user *User, bucket, action string) error {
-	// TODO: Implement in Fase 1.4 - Authentication Manager
-	return am.CheckPermission(ctx, user, action, "bucket:"+bucket)
-}
-
-// CheckObjectPermission checks object-level permissions
-func (am *authManager) CheckObjectPermission(ctx context.Context, user *User, bucket, object, action string) error {
-	// TODO: Implement in Fase 1.4 - Authentication Manager
-	return am.CheckPermission(ctx, user, action, "object:"+bucket+"/"+object)
 }
 
 // User management methods

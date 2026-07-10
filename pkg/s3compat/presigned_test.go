@@ -57,15 +57,6 @@ func (m *mockAuthManager) ValidateS3SignatureV4(ctx context.Context, r *http.Req
 func (m *mockAuthManager) ValidateS3SignatureV2(ctx context.Context, r *http.Request) (*auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
 }
-func (m *mockAuthManager) CheckPermission(ctx context.Context, user *auth.User, action, resource string) error {
-	return fmt.Errorf("not implemented")
-}
-func (m *mockAuthManager) CheckBucketPermission(ctx context.Context, user *auth.User, bucket, action string) error {
-	return fmt.Errorf("not implemented")
-}
-func (m *mockAuthManager) CheckObjectPermission(ctx context.Context, user *auth.User, bucket, object, action string) error {
-	return fmt.Errorf("not implemented")
-}
 func (m *mockAuthManager) CreateUser(ctx context.Context, user *auth.User) error {
 	return fmt.Errorf("not implemented")
 }

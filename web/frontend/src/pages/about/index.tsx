@@ -328,63 +328,66 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Bucket Inventory Can Be Turned Off Again
+                Always-On Envelope Encryption
               </h3>
               <p className="text-sm text-muted-foreground">
-                In the bucket settings Inventory tab, the Save button was nested inside the "enabled"
-                toggle, so un-checking it hid the only control that could persist the change and left
-                inventory stuck on. A single Save button now stays visible — un-checking "enabled" and
-                saving turns inventory off, and Save activates only when there are actual changes.
+                Server-side encryption is now always active, matching AWS S3's SSE-S3-by-default model.
+                Every object gets its own Data Encryption Key (AES-256-GCM streaming), wrapped by a Key
+                Encryption Key that lives in the database — no configuration needed. Objects written by
+                older versions (plaintext or legacy-encrypted) keep reading correctly and are converted
+                in the background when server load is low.
               </p>
             </div>
 
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security — Stronger Cryptography & Secrets at Rest
+                Recovery Bundle, Key Rotation & Disaster Recovery
               </h3>
               <p className="text-sm text-muted-foreground">
-                Key derivation upgraded from single-pass SHA-256 to{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PBKDF2-SHA256</code>{' '}
-                (≥310 000 iterations), S3 access secret keys are now encrypted at rest with AES-256-GCM,
-                the legacy SHA-256 password path is retired for new passwords, and S3 secret-key comparison
-                is now constant-time to remove a timing side-channel.
+                Download a passphrase-encrypted export of all encryption keys from Settings → Security
+                and store it off-server. Rotate the encryption key anytime — object data is never
+                re-encrypted; a background worker re-wraps each object's key. If the metadata database
+                is ever lost, the new{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs recover</code>{' '}
+                command rebuilds it entirely from the object files plus your bundle.
               </p>
             </div>
 
-            <div className="border-l-4 border-red-500 pl-4">
+            <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security — Console Hardening
+                Ciphertext Cluster Replication
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">unsafe-eval</code>{' '}
-                removed from the Content-Security-Policy, HSTS now sent on the console endpoint, mutating
-                Console API requests capped at 1 MiB where uploads aren't expected, and tenant-scoped admins
-                no longer receive cross-tenant notifications. Refresh tokens are now rejected for
-                deactivated or suspended accounts.
+                Cluster nodes now share a cluster-wide encryption key (distributed on join and on
+                rotation), so HA replication ships the stored ciphertext as-is — no decrypt on the
+                source, no re-encrypt on the destination. Also fixed: replication requests had been
+                silently failing against the dedicated cluster port, and replica timestamps no longer
+                diverge from the primary (eliminating perpetual re-sync of multipart objects).
               </p>
             </div>
 
             <div className="border-l-4 border-green-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Concurrency & Correctness Fixes
+                Per-Tenant Bandwidth & Per-Bucket Quotas
               </h3>
               <p className="text-sm text-muted-foreground">
-                Tenant quota TOCTOU eliminated with an atomic SQL compare-and-swap, a per-key shard mutex
-                serialises versioning metric updates, object-name validation now blocks path-traversal
-                segments, the inter-node proxy streams request bodies instead of buffering them in RAM
-                (up to 10 GB on large PUTs), and a rate-limiter cleanup goroutine no longer leaks when
-                reconfigured from settings.
+                Cap a tenant's aggregate transfer bandwidth (throttles, never rejects — all of the
+                tenant's transfers share one budget, hot-updatable). Buckets can now carry their own
+                size and object-count quotas — including global buckets like a dedicated Veeam target —
+                exposed to SOSAPI clients through capacity.xml, with SSE and email alerts as usage grows.
               </p>
             </div>
 
             <div className="border-l-4 border-orange-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Dependencies Updated
+                Data-Safety Fixes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Go modules bumped to current minor/patch releases (AWS SDK, modernc SQLite, and transitive
-                dependencies) and frontend npm packages refreshed within their existing semver ranges. No
-                major-version changes; verified against the full Go and frontend test suites. See the full{' '}
+                A quota-rejected overwrite no longer destroys the object it was replacing; object
+                overwrites are now crash-safe end to end (staged two-phase commit with self-healing
+                repair); a failed metadata save now fails the upload instead of returning a silent
+                success; deletes on Windows survive transient antivirus file locks; and the console's
+                notification stream reconnects automatically. See the full{' '}
                 <a
                   href="https://github.com/MaxioFS/MaxioFS/blob/main/CHANGELOG.md"
                   target="_blank"

@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-07-10
 
 ### Added
 - **Envelope encryption with the KEK in the database (always-on encryption)** — server-side encryption no longer depends on a fixed key in `config.yaml` and is now **always active**, matching AWS S3's SSE-S3-by-default model. Highlights:
@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Cluster**: quota is enforced/aggregated correctly per bucket without cross-node summing (buckets are placed on an owner node and HA replicas are full mirrors, so the owner's local total is authoritative — summing would double-count).
 
 ### Changed
+- **Removed the vestigial RBAC stub and its SEC-03 startup warning** — the `CheckPermission`/`CheckBucketPermission`/`CheckObjectPermission` chain was unreachable dead code from a superseded design: its only entry point (`AuthorizeRequest`) had no callers, while fine-grained authorization has been enforced since v1.4.0 by the live stack (roles + tenant scoping, the 11-capability role system on both S3 and console, bucket policies with Condition evaluation, and ACLs). The startup warning misled operators into believing permissions were inactive. `GetS3Action`/`GetResourceARN` are kept as primitives for the future IAM policy engine. (`internal/auth/manager.go`, `internal/auth/s3auth.go`, `SECURITY_AUDIT.md`)
 - **Removed the broken `make docker-cluster` targets** — `docker-cluster` and `docker-cluster-monitoring` referenced a `cluster` compose profile that never existed, so they silently started a single node while the Makefile and docs promised a 3-node cluster at :8081/:8083/:8085. Beyond being broken, a multi-node cluster inside one Docker host provides no real HA (shared disk/power/kernel) — the targets and their documentation are gone, and CLUSTER.md now carries explicit guidance for containerized deployments (one node per physical host, local volume pinning, port 8082 between hosts). (`Makefile`, `docker/README.md`, `docs/DEPLOYMENT.md`, `docs/CLUSTER.md`)
 - **Bucket creation no longer shows an encryption opt-out** — the "enable encryption" checkbox in the create-bucket dialog was misleading: unchecking it never stored anything in plaintext (server-side encryption is always on). The Encryption tab is now informational only, and the creation request always records `AES256` on the bucket. (`web/frontend/src/pages/buckets/create.tsx`)
 

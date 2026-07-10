@@ -1,14 +1,10 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 1.4.2 (+ unreleased work on `main`)
-**Last Updated**: July 9, 2026
-**Status**: Stable — unreleased batch pending a version bump (next: likely v1.5.0)
+**Version**: 1.5.0
+**Last Updated**: July 10, 2026
+**Status**: Stable — v1.5.0 (July 10, 2026)
 
 > Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work.
-
-## 🔖 TODO — Release v1.5.0
-
-There is unreleased work on `main` (see [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`). To cut the release: bump the version everywhere (Makefile, `cmd/maxiofs/main.go`, `web/frontend/package.json`, `debian/`, `rpm/`, `docker-compose.yaml`, `docs/`, About page), then tag. Review README/docs for the new encryption + recovery features while cutting it.
 
 ## 📊 Project Status
 
@@ -17,11 +13,13 @@ There is unreleased work on `main` (see [CHANGELOG.md](CHANGELOG.md) `[Unrelease
 | S3 Core API | ~99% | Full compatibility audit completed — 20 issues identified and resolved (March 2026) |
 | Backend Tests | 3,900+ | At practical ceiling |
 | Frontend Tests | 106+ | |
-| Production Ready | ✅ Stable | v1.4.2 release-ready (June 30, 2026) |
+| Production Ready | ✅ Stable | v1.5.0 release-ready (July 10, 2026) |
 
 ---
 
 ## ⚪ Backlog — IAM/STS (temporary credentials)
+
+> Note: the legacy `CheckPermission` RBAC stub (and its SEC-03 warning) was removed in v1.5.0 as unreachable dead code — current enforcement is roles + capabilities + bucket policies + ACLs. The IAM work defines its own policy-evaluation entry point (design to be validated before implementation); `GetS3Action`/`GetResourceARN` in `internal/auth/s3auth.go` are the kept action/ARN mapping primitives.
 
 Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Scope/design TBD. Related: the RBAC permission system is still a stub (SEC-03 startup warning) — fine-grained permissions would land together with this.
 

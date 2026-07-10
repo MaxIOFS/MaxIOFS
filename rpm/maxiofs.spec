@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.4.2}
+%{!?version: %define version 1.5.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -267,6 +267,24 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Fri Jul 10 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.0-1
+- Release v1.5.0 — Always-on envelope encryption, disaster recovery, ciphertext HA replication,
+  per-tenant bandwidth limits, per-bucket quotas, and major data-safety fixes
+- [FEATURE] Envelope encryption always on: per-object DEK wrapped by a database-stored KEK;
+  multi-format reader keeps plaintext/legacy objects readable
+- [FEATURE] Encryption recovery bundle (passphrase-encrypted key export) + console banner
+- [FEATURE] KEK rotation via background worker (re-wraps DEKs, never re-encrypts data)
+- [FEATURE] maxiofs recover: rebuilds the metadata store from the on-disk object tree
+- [FEATURE] Ciphertext HA replication with a cluster-shared KEK (no decrypt/re-encrypt per hop)
+- [FEATURE] Per-tenant bandwidth throttling and per-bucket storage quotas (Veeam SOSAPI)
+- [FIX] Quota-rejected overwrites no longer destroy the existing object
+- [FIX] Crash-safe overwrites via staged-sidecar two-phase commit with self-healing repair
+- [FIX] HA replication 404 (unregistered route prefix) fixed across all 13 sender URLs
+- [FIX] Replicas/recovery preserve LastModified (anti-entropy multipart churn eliminated)
+- [FIX] Metadata save failures now fail the S3 write instead of a silent 200
+- [FIX] Windows: transient AV/indexer locks no longer orphan deleted objects
+- [CHANGE] Encryption opt-out removed from bucket creation; docker-cluster targets removed
+
 * Tue Jun 30 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.4.2-1
 - Release v1.4.2 — Bug fixes, security hardening, and dependency updates
 - [SECURITY] Constant-time S3 secret-key comparison (removes timing side-channel)

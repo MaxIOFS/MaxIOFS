@@ -542,48 +542,6 @@ func TestAuthenticateRequest(t *testing.T) {
 	})
 }
 
-// TestAuthorizeRequest tests authorization check
-func TestAuthorizeRequest(t *testing.T) {
-	manager, tmpDir := setupTestAuthManager(t)
-	defer cleanupTestAuthManager(t, tmpDir)
-
-	helper := NewS3AuthHelper(manager)
-	ctx := context.Background()
-
-	// Create a test user
-	testUser := &User{
-		ID:       "test-user",
-		Username: "testuser",
-		Roles:    []string{"admin"},
-	}
-
-	t.Run("Admin user allowed", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/mybucket/file.txt", nil)
-
-		err := helper.AuthorizeRequest(ctx, testUser, req)
-		// Admin users should be allowed (CheckPermission allows admin)
-		if err != nil {
-			t.Errorf("Admin user should be authorized: %v", err)
-		}
-	})
-
-	t.Run("Regular user", func(t *testing.T) {
-		regularUser := &User{
-			ID:       "regular-user",
-			Username: "regular",
-			Roles:    []string{"user"},
-		}
-
-		req, _ := http.NewRequest("GET", "/mybucket/file.txt", nil)
-
-		err := helper.AuthorizeRequest(ctx, regularUser, req)
-		// Permission check will be performed
-		if err != nil {
-			// Expected for user without specific bucket permissions
-			t.Logf("Regular user denied as expected: %v", err)
-		}
-	})
-}
 
 // TestParseAuthorizationHeader tests authorization header parsing
 func TestParseAuthorizationHeader(t *testing.T) {

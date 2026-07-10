@@ -540,21 +540,6 @@ func (m *MockAuthManager) ValidateS3SignatureV2(ctx context.Context, r *http.Req
 	return args.Get(0).(*auth.User), args.Error(1)
 }
 
-func (m *MockAuthManager) CheckPermission(ctx context.Context, user *auth.User, action, resource string) error {
-	args := m.Called(ctx, user, action, resource)
-	return args.Error(0)
-}
-
-func (m *MockAuthManager) CheckBucketPermission(ctx context.Context, user *auth.User, bucket, action string) error {
-	args := m.Called(ctx, user, bucket, action)
-	return args.Error(0)
-}
-
-func (m *MockAuthManager) CheckObjectPermission(ctx context.Context, user *auth.User, bucket, object, action string) error {
-	args := m.Called(ctx, user, bucket, object, action)
-	return args.Error(0)
-}
-
 func (m *MockAuthManager) CreateUser(ctx context.Context, user *auth.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)

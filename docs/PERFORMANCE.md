@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 1.4.2 | **Last Updated**: May 18, 2026
+**Version**: 1.5.0 | **Last Updated**: July 10, 2026
 
 ## Performance Summary
 

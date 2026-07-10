@@ -1,3 +1,38 @@
+maxiofs (1:1.5.0) stable; urgency=medium
+
+  * Release v1.5.0 — Always-on envelope encryption, disaster recovery, ciphertext HA replication,
+    per-tenant bandwidth limits, per-bucket quotas, and major data-safety fixes.
+
+  * [FEATURE] Envelope encryption always on (AWS SSE-S3 model): per-object DEK (AES-256-GCM
+    streaming) wrapped by a KEK stored in the database; multi-format reader keeps plaintext and
+    legacy objects readable; config encryption_key now acts only as a one-time seed.
+  * [FEATURE] Encryption recovery bundle: passphrase-encrypted export of all key versions
+    (Settings -> Security); console banner until downloaded.
+  * [FEATURE] KEK rotation without re-encrypting data: background worker re-wraps per-object DEKs,
+    converts legacy/plaintext objects, load-aware with Pebble checkpoint.
+  * [FEATURE] maxiofs recover: offline disaster-recovery CLI that rebuilds the metadata store from
+    the on-disk object tree and restores encryption keys from the bundle.
+  * [FEATURE] Ciphertext HA replication: cluster-shared KEK (distributed on join/rotation) lets
+    nodes replicate stored ciphertext as-is; no decrypt/re-encrypt per hop.
+  * [FEATURE] Per-tenant bandwidth throttling (shared token bucket, hot-updatable) and per-bucket
+    storage quotas (size/object caps, Veeam SOSAPI capacity exposure, SSE/email alerts).
+  * [FIX] Quota-rejected overwrites no longer destroy the existing object (quota now checked
+    before the store step).
+  * [FIX] Crash-safe object overwrites: staged-sidecar two-phase commit with deterministic
+    roll-forward/roll-back repair (a crash mid-overwrite can no longer leave an undecryptable
+    object). Object keys ending in .metadata/.metadata-staging are now rejected.
+  * [FIX] HA replication senders targeted an unregistered route prefix and silently 404'd on every
+    call since the dedicated cluster port was introduced; all 13 sender URLs fixed.
+  * [FIX] Replicas/recovery no longer falsify LastModified (perpetual anti-entropy churn on
+    multipart objects eliminated; lifecycle timers survive recovery).
+  * [FIX] Metadata save failures now fail the S3 write instead of returning a silent 200.
+  * [FIX] Windows: transient antivirus/indexer file locks no longer orphan deleted objects.
+  * [FIX] Console notification stream reconnects automatically with backoff.
+  * [CHANGE] Bucket-creation encryption opt-out removed (encryption is always on).
+  * [CHANGE] Broken make docker-cluster targets removed; container guidance moved to CLUSTER.md.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Fri, 10 Jul 2026 12:00:00 -0300
+
 maxiofs (1:1.4.2) stable; urgency=medium
 
   * Release v1.4.2 — Bug fixes, security hardening, and dependency updates

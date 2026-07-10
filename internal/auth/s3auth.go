@@ -158,7 +158,10 @@ func (s *S3AuthHelper) ValidateTimestamp(r *http.Request, maxSkew time.Duration)
 	return ErrMissingSignature
 }
 
-// GetS3Action extracts S3 action from HTTP request
+// GetS3Action extracts S3 action from HTTP request.
+// Not wired into request authorization today (that is done by roles, the
+// capability system, bucket policies and ACLs) — kept as the action-mapping
+// primitive for the future IAM policy engine.
 func (s *S3AuthHelper) GetS3Action(r *http.Request) string {
 	method := r.Method
 	path := r.URL.Path
@@ -308,10 +311,3 @@ func (s *S3AuthHelper) AuthenticateRequest(ctx context.Context, r *http.Request)
 	return nil, err
 }
 
-// AuthorizeRequest checks if the authenticated user can perform the requested action
-func (s *S3AuthHelper) AuthorizeRequest(ctx context.Context, user *User, r *http.Request) error {
-	action := s.GetS3Action(r)
-	resource := s.GetResourceARN(r)
-
-	return s.manager.CheckPermission(ctx, user, action, resource)
-}
