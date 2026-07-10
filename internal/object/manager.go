@@ -350,6 +350,25 @@ func validateReplicatedVersionID(versionID string) error {
 	return nil
 }
 
+type replicatedLastModifiedKey struct{}
+
+// WithReplicatedLastModified pins the next write's LastModified to the
+// primary's timestamp, received through trusted internal replication paths.
+// Without it every replica stamps its own receive time, which diverges from
+// the primary and makes the anti-entropy LWW comparison flag (and endlessly
+// re-transfer) objects whose data is identical.
+func WithReplicatedLastModified(ctx context.Context, lastModified time.Time) context.Context {
+	return context.WithValue(ctx, replicatedLastModifiedKey{}, lastModified)
+}
+
+func replicatedLastModifiedFromContext(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(replicatedLastModifiedKey{}).(time.Time)
+	if !ok || t.IsZero() || t.Unix() <= 0 {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // GetObject retrieves an object (optionally a specific version)
 func (om *objectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
 	if err := om.validateObjectName(key); err != nil {
@@ -607,6 +626,46 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
+	// Enforce storage quotas BEFORE touching the final object path. A rejected
+	// write must leave the existing object untouched — checking after the store
+	// (as done previously) meant a quota rejection on a non-versioned overwrite
+	// deleted the object it had just replaced, destroying the original.
+	// Skipped for HA replica writes: the primary already validated; replicas
+	// store unconditionally and only update their local counters. The tenant
+	// quota applies to tenant buckets; the per-bucket quota applies to global
+	// buckets too (its whole purpose).
+	if !isBypassQuotaEnforcement(ctx) {
+		var sizeIncrement int64
+		var isNewObject bool
+		if versioningEnabled {
+			// All previous versions are preserved — the new version adds its full size.
+			sizeIncrement = originalSize
+			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+			isNewObject = existingObj == nil || isMetadataDeleteMarker(existingObj)
+		} else {
+			// Non-versioned: overwriting replaces the old object, so only the delta counts.
+			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
+			if existingObj == nil {
+				sizeIncrement = originalSize
+				isNewObject = true
+			} else {
+				sizeIncrement = originalSize - existingObj.Size
+			}
+		}
+
+		// Tenant quota (tenant buckets only).
+		if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
+			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
+				return nil, fmt.Errorf("storage quota exceeded: %w", err)
+			}
+		}
+
+		// Per-bucket quota (global and tenant buckets).
+		if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
+			return nil, err
+		}
+	}
+
 	// Store object data. Encryption is always on: every object is envelope-
 	// encrypted with its own DEK wrapped by the current KEK. Folder markers
 	// (keys ending in "/") carry no data — the filesystem backend never reads
@@ -632,50 +691,18 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	// Use ORIGINAL size and ETag (not encrypted ones)
 	size := originalSize
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
-
-	// Enforce storage quotas before committing. Skipped for HA replica writes:
-	// the primary already validated; replicas store unconditionally and only
-	// update their local counters. The tenant quota applies to tenant buckets;
-	// the per-bucket quota applies to global buckets too (its whole purpose).
-	if !isBypassQuotaEnforcement(ctx) {
-		var sizeIncrement int64
-		var isNewObject bool
-		if versioningEnabled {
-			// All previous versions are preserved — the new version adds its full size.
-			sizeIncrement = size
-			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
-			isNewObject = existingObj == nil || isMetadataDeleteMarker(existingObj)
-		} else {
-			// Non-versioned: overwriting replaces the old object, so only the delta counts.
-			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
-			if existingObj == nil {
-				sizeIncrement = size
-				isNewObject = true
-			} else {
-				sizeIncrement = size - existingObj.Size
-			}
-		}
-
-		// Tenant quota (tenant buckets only).
-		if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
-			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-				om.discardStoredObject(ctx, objectPath, "tenant quota exceeded")
-				return nil, fmt.Errorf("storage quota exceeded: %w", err)
-			}
-		}
-
-		// Per-bucket quota (global and tenant buckets).
-		if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
-			om.discardStoredObject(ctx, objectPath, "bucket quota exceeded")
-			return nil, err
-		}
+	modTime := time.Unix(lastModified, 0)
+	// Replica writes carry the primary's modification time — keep it so both
+	// nodes report identical timestamps (LWW correctness, lifecycle parity).
+	if replicatedLM, ok := replicatedLastModifiedFromContext(ctx); ok {
+		modTime = replicatedLM
 	}
 
 	object := &Object{
 		Key:                key,
 		Bucket:             bucket,
 		Size:               size, // Original size (unencrypted)
-		LastModified:       time.Unix(lastModified, 0),
+		LastModified:       modTime,
 		ETag:               originalETag, // Original ETag (MD5 of unencrypted data)
 		ContentType:        finalStorageMetadata["content-type"],
 		ContentDisposition: storageMetadata["content-disposition"],
@@ -2339,6 +2366,15 @@ func (om *objectManager) validateObjectName(key string) error {
 		return ErrInvalidObjectName
 	}
 
+	// The filesystem backend stores each object's sidecar at "<key>.metadata"
+	// (and stages commits at "<key>.metadata-staging"). A user key with one of
+	// those suffixes would collide with another object's sidecar files — reads
+	// would parse object data as metadata and the staged-commit repair could
+	// delete the user's object. Reject them outright.
+	if strings.HasSuffix(key, ".metadata") || strings.HasSuffix(key, ".metadata-staging") {
+		return ErrInvalidObjectName
+	}
+
 	return nil
 }
 
@@ -3126,17 +3162,6 @@ func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket str
 	}
 
 	return nil
-}
-
-// discardStoredObject removes an already-written object file after a pre-commit
-// rejection (e.g. quota), logging any failure so an orphan can be reconciled.
-func (om *objectManager) discardStoredObject(ctx context.Context, objectPath, reason string) {
-	if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
-		logrus.WithError(delErr).WithFields(logrus.Fields{
-			"path":   objectPath,
-			"reason": reason,
-		}).Error("Failed to delete object after pre-commit rejection — orphaned file may remain")
-	}
 }
 
 // calculateMultipartHash streams combined file to temp while calculating MD5 hash

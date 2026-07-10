@@ -128,37 +128,39 @@ func TestSearchObjects_DateRangeFilter(t *testing.T) {
 	store, cleanup := setupSearchTestData(t)
 	defer cleanup()
 
-	// PutObject sets LastModified to time.Now(), so all objects have ~current time.
-	// Test ModifiedAfter: all 5 objects were just created, so they should all be after 1 hour ago
-	after := time.Now().Add(-1 * time.Hour)
+	// PutObject preserves the seeded LastModified values (-72h, -48h, -24h,
+	// -12h, -1h), so the date filters operate on real distinct timestamps.
+	// ModifiedAfter -30h → photo(-24h), logo(-12h), small(-1h).
+	after := time.Now().Add(-30 * time.Hour)
 	filter := &ObjectFilter{
 		ModifiedAfter: &after,
 	}
 
 	objects, _, err := store.SearchObjects(context.Background(), "search-bucket", "", "", 100, filter)
 	require.NoError(t, err)
-	assert.Len(t, objects, 5, "All objects were just created, so all should match after 1h ago")
+	assert.Len(t, objects, 3, "objects modified within the last 30h: photo, logo, small")
 
-	// Test ModifiedBefore: none should be before 1 hour ago since they were just created
-	before := time.Now().Add(-1 * time.Hour)
+	// ModifiedBefore -30h → doc(-48h), video(-72h).
+	before := time.Now().Add(-30 * time.Hour)
 	filter = &ObjectFilter{
 		ModifiedBefore: &before,
 	}
 
 	objects, _, err = store.SearchObjects(context.Background(), "search-bucket", "", "", 100, filter)
 	require.NoError(t, err)
-	assert.Len(t, objects, 0, "No objects should be older than 1 hour")
+	assert.Len(t, objects, 2, "objects older than 30h: doc, video")
 
-	// Test range: all objects should be between 1h ago and 1h from now
-	future := time.Now().Add(1 * time.Hour)
+	// Range [-60h, -20h] → doc(-48h), photo(-24h).
+	rangeAfter := time.Now().Add(-60 * time.Hour)
+	rangeBefore := time.Now().Add(-20 * time.Hour)
 	filter = &ObjectFilter{
-		ModifiedAfter:  &after,
-		ModifiedBefore: &future,
+		ModifiedAfter:  &rangeAfter,
+		ModifiedBefore: &rangeBefore,
 	}
 
 	objects, _, err = store.SearchObjects(context.Background(), "search-bucket", "", "", 100, filter)
 	require.NoError(t, err)
-	assert.Len(t, objects, 5)
+	assert.Len(t, objects, 2, "objects between 60h and 20h ago: doc, photo")
 }
 
 func TestSearchObjects_TagFilter(t *testing.T) {

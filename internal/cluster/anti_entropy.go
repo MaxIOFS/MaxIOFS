@@ -634,6 +634,7 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 	if obj.VersionID != "" {
 		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
 	}
+	setHALastModified(req.Header, obj)
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -701,6 +702,9 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	repCtx := WithHAReplicaContext(ctx)
 	if versionID := resp.Header.Get(HAObjectVersionHeader); versionID != "" {
 		repCtx = object.WithReplicatedVersionID(repCtx, versionID)
+	}
+	if lm, ok := HALastModifiedFromHeader(resp.Header); ok {
+		repCtx = object.WithReplicatedLastModified(repCtx, lm)
 	}
 	_, err = s.objMgr.PutObject(repCtx, bucketPath, key, resp.Body, resp.Header.Clone())
 	return err

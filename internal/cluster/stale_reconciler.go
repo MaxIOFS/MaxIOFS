@@ -841,6 +841,9 @@ func (r *StaleReconciler) pullObject(
 	if versionID := resp.Header.Get(HAObjectVersionHeader); versionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, versionID)
 	}
+	if lm, ok := HALastModifiedFromHeader(resp.Header); ok {
+		ctx = object.WithReplicatedLastModified(ctx, lm)
+	}
 	_, err = r.objMgr.PutObject(ctx, bucketPath, key, resp.Body, resp.Header.Clone())
 	return err
 }

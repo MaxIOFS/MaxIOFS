@@ -245,6 +245,7 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 		// Markers, sidecars and staging leftovers.
 		if name == ".maxiofs-bucket" || name == ".maxiofs-folder" ||
 			strings.HasSuffix(name, ".metadata") ||
+			strings.HasSuffix(name, ".metadata-staging") ||
 			strings.HasPrefix(name, ".tmp_") ||
 			strings.HasPrefix(name, ".metadata-tmp-") ||
 			strings.HasPrefix(name, "maxiofs-upload-") ||

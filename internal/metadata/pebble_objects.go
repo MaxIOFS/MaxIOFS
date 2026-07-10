@@ -35,7 +35,14 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		obj.CreatedAt = now
 	}
 	obj.UpdatedAt = now
-	obj.LastModified = now
+	// Preserve a caller-provided LastModified: HA replicas and the disaster
+	// recovery rebuild must keep the PRIMARY/original modification time, or
+	// the anti-entropy LWW comparison sees every replica as "newer" and
+	// lifecycle timers reset. Only stamp when the caller left it unset
+	// (zero value or a non-positive epoch from a failed timestamp parse).
+	if obj.LastModified.IsZero() || obj.LastModified.Unix() <= 0 {
+		obj.LastModified = now
+	}
 
 	data, err := json.Marshal(obj)
 	if err != nil {

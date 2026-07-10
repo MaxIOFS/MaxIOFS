@@ -6,19 +6,33 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
+// metadataStagingSuffix is appended to a sidecar path to form the STAGED
+// sidecar written by Put before the data commit. Its presence on disk means a
+// Put crashed between its data and metadata commits; repairStagedCommit
+// resolves it (roll forward or roll back) on the next access to the path.
+const metadataStagingSuffix = "-staging" // full staged name: <object>.metadata-staging
+
+// pathLockShards is the number of striped mutexes serialising per-path
+// commit/repair sections. Collisions only serialise unrelated paths briefly.
+const pathLockShards = 256
+
 // FilesystemBackend implements the Backend interface for local filesystem storage
 type FilesystemBackend struct {
-	rootPath string
-	config   Config
+	rootPath  string
+	config    Config
+	pathLocks [pathLockShards]sync.Mutex
 }
 
 // NewFilesystemBackend creates a new filesystem storage backend
@@ -143,26 +157,44 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	metadata["etag"] = hex.EncodeToString(hasher.Sum(nil))
 	metadata["last_modified"] = fmt.Sprintf("%d", time.Now().Unix())
 
+	// Two-phase commit via a STAGED sidecar. The old order (sidecar rename,
+	// then data rename) corrupted overwrites: a crash between the two renames
+	// left the NEW sidecar (new DEK) over the OLD bytes — undecryptable — and
+	// a failed data rename deleted the previous object's sidecar entirely.
+	//
+	//   1. stage the new sidecar at <object>.metadata-staging (atomic)
+	//   2. rename data into place            ← data commit
+	//   3. rename staged sidecar over final  ← metadata commit
+	//
+	// A crash before 2 leaves the old pair untouched (the stage is discarded
+	// by repairStagedCommit on the next access). A crash between 2 and 3 is
+	// rolled FORWARD by the repair: the staged etag matches the stored data,
+	// so the metadata commit is completed. The path lock keeps concurrent
+	// readers from repairing (and discarding) an in-flight stage.
+	unlock := fs.lockPath(path)
+	defer unlock()
+	fs.repairStagedCommit(path)
+
 	metadataTempPath, err := fs.prepareMetadataTemp(path, metadata)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(metadataTempPath)
 
-	// Rename metadata BEFORE data so that a partial failure is always safe:
-	//   • metadata rename fails  → data is still in the temp file; no change visible to readers.
-	//   • data rename fails      → metadata is at the final path but data is not; Get() does
-	//                               os.Stat on the data path and returns ErrObjectNotFound,
-	//                               so readers see a clean miss instead of stale metadata.
-	// The reverse order (data first) would leave the data file in place with no metadata,
-	// which causes Get() to open the file and then fail on the metadata read — silent corruption.
-	if err := os.Rename(metadataTempPath, fs.getMetadataPath(path)); err != nil {
-		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
+	stagingPath := fs.getStagingMetadataPath(path)
+	if err := os.Rename(metadataTempPath, stagingPath); err != nil {
+		return NewErrorWithCause("StageMetadata", "Failed to stage metadata file", err)
 	}
 
 	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
-		os.Remove(fs.getMetadataPath(path))
+		os.Remove(stagingPath) // old pair stays fully intact
 		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
+	}
+
+	if err := os.Rename(stagingPath, fs.getMetadataPath(path)); err != nil {
+		// Data is committed; leave the stage in place so the read-path repair
+		// rolls the metadata commit forward as soon as the rename can succeed.
+		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
 	}
 
 	return nil
@@ -173,6 +205,9 @@ func (fs *FilesystemBackend) Get(ctx context.Context, path string) (io.ReadClose
 	if err := fs.validatePath(path); err != nil {
 		return nil, nil, err
 	}
+
+	// Resolve any staged sidecar left by a crashed Put before serving.
+	fs.maybeRepair(path)
 
 	fullPath := fs.getFullPath(path)
 
@@ -226,11 +261,12 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 		}
 	}
 
-	// Delete metadata
+	// Delete metadata (and any staged sidecar from a crashed Put)
 	metadataPath := fs.getMetadataPath(path)
 	if _, err := os.Stat(metadataPath); err == nil {
 		os.Remove(metadataPath) // Ignore errors for metadata cleanup
 	}
+	os.Remove(fs.getStagingMetadataPath(path)) //nolint:errcheck
 
 	return nil
 }
@@ -271,8 +307,8 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			return nil // Skip errors
 		}
 
-		// Skip metadata files
-		if strings.HasSuffix(path, ".metadata") {
+		// Skip metadata files (final and staged)
+		if strings.HasSuffix(path, ".metadata") || strings.HasSuffix(path, ".metadata"+metadataStagingSuffix) {
 			return nil
 		}
 
@@ -380,6 +416,9 @@ func (fs *FilesystemBackend) GetMetadata(ctx context.Context, path string) (map[
 		return nil, err
 	}
 
+	// Resolve any staged sidecar left by a crashed Put before reading.
+	fs.maybeRepair(path)
+
 	metadataPath := fs.getMetadataPath(path)
 
 	// Check if metadata file exists
@@ -407,6 +446,12 @@ func (fs *FilesystemBackend) SetMetadata(ctx context.Context, path string, metad
 	if err := fs.validatePath(path); err != nil {
 		return err
 	}
+
+	// Resolve any staged sidecar first — a pending roll-forward applied AFTER
+	// this write would silently clobber the metadata being set here.
+	unlock := fs.lockPath(path)
+	defer unlock()
+	fs.repairStagedCommit(path)
 
 	return fs.saveMetadata(path, metadata)
 }
@@ -481,6 +526,100 @@ func (fs *FilesystemBackend) getFullPath(path string) string {
 // getMetadataPath returns the path for the metadata file
 func (fs *FilesystemBackend) getMetadataPath(path string) string {
 	return fs.getFullPath(path) + ".metadata"
+}
+
+// getStagingMetadataPath returns the deterministic staged-sidecar path used by
+// Put's two-phase commit.
+func (fs *FilesystemBackend) getStagingMetadataPath(path string) string {
+	return fs.getMetadataPath(path) + metadataStagingSuffix
+}
+
+// lockPath acquires the striped per-path mutex and returns its unlock func.
+// It serialises Put's commit section against repairStagedCommit so a reader
+// can never resolve (and discard) the staged sidecar of an in-flight write.
+func (fs *FilesystemBackend) lockPath(path string) func() {
+	h := fnv.New32a()
+	h.Write([]byte(path)) //nolint:errcheck // fnv Write never fails
+	mu := &fs.pathLocks[h.Sum32()%pathLockShards]
+	mu.Lock()
+	return mu.Unlock
+}
+
+// maybeRepair runs the staged-commit repair only when a staged sidecar exists.
+// The common case costs a single os.Stat and takes no lock.
+func (fs *FilesystemBackend) maybeRepair(path string) {
+	if _, err := os.Stat(fs.getStagingMetadataPath(path)); err != nil {
+		return
+	}
+	unlock := fs.lockPath(path)
+	defer unlock()
+	fs.repairStagedCommit(path)
+}
+
+// repairStagedCommit resolves a staged sidecar left behind by a Put that
+// crashed between its data commit and its metadata commit. The staged sidecar
+// records the etag (and size) of the data it belongs to, so the decision is
+// unambiguous:
+//   - stored data matches the staged etag → the data commit happened; finish
+//     the metadata commit (roll FORWARD).
+//   - anything else → the data commit never happened; the old pair on disk is
+//     intact and the stage is discarded (roll BACK).
+//
+// Caller must hold the path lock.
+func (fs *FilesystemBackend) repairStagedCommit(path string) {
+	stagingPath := fs.getStagingMetadataPath(path)
+	data, err := os.ReadFile(stagingPath)
+	if err != nil {
+		return // no stage (or unreadable this instant) — nothing to do
+	}
+
+	var staged map[string]string
+	if jErr := json.Unmarshal(data, &staged); jErr != nil || staged["etag"] == "" {
+		// A staged sidecar is always written atomically (temp+rename), so an
+		// unparseable one is foreign/corrupt — discard it.
+		os.Remove(stagingPath) //nolint:errcheck
+		return
+	}
+
+	fullPath := fs.getFullPath(path)
+	info, err := os.Stat(fullPath)
+	if err != nil || info.IsDir() {
+		// No data file to commit against (crash before the data commit of a
+		// brand-new object): the stage is dead.
+		os.Remove(stagingPath) //nolint:errcheck
+		return
+	}
+
+	// Cheap pre-check: a size mismatch already proves the data commit never
+	// happened — no need to hash a potentially large file.
+	if stagedSize, sErr := strconv.ParseInt(staged["size"], 10, 64); sErr == nil && stagedSize != info.Size() {
+		os.Remove(stagingPath) //nolint:errcheck
+		logrus.WithField("path", path).Warn("Staged sidecar rolled back (size mismatch — data commit never happened)")
+		return
+	}
+
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return // transient; retry on a later access
+	}
+	hasher := md5.New()
+	_, cErr := io.Copy(hasher, f)
+	f.Close()
+	if cErr != nil {
+		return // transient; retry on a later access
+	}
+
+	if hex.EncodeToString(hasher.Sum(nil)) == staged["etag"] {
+		if err := os.Rename(stagingPath, fs.getMetadataPath(path)); err != nil {
+			logrus.WithError(err).WithField("path", path).
+				Error("Staged sidecar roll-forward failed — object stays unreadable until repair succeeds")
+			return
+		}
+		logrus.WithField("path", path).Warn("Staged sidecar rolled forward (completed a crashed Put's metadata commit)")
+	} else {
+		os.Remove(stagingPath) //nolint:errcheck
+		logrus.WithField("path", path).Warn("Staged sidecar rolled back (data does not match — old object pair intact)")
+	}
 }
 
 // saveMetadata saves metadata to a file

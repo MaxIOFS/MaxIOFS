@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -162,6 +163,16 @@ func TestRecovery_FullRebuild(t *testing.T) {
 	obj, err := store.GetObject(ctx, "global-bucket", "hello.txt")
 	require.NoError(t, err)
 	assert.Equal(t, int64(len("global object content")), obj.Size)
+
+	// The rebuilt entry must keep the ORIGINAL modification time from the
+	// sidecar — not the recovery run's time (lifecycle timers and cluster LWW
+	// decisions depend on it).
+	sidecar, err := readSidecar(filepath.Join(dataDir, "objects", "global-bucket", "hello.txt"))
+	require.NoError(t, err)
+	sidecarLM, err := strconv.ParseInt(sidecar["last_modified"], 10, 64)
+	require.NoError(t, err)
+	assert.Equal(t, sidecarLM, obj.LastModified.Unix(),
+		"recovered LastModified must match the sidecar's original timestamp")
 
 	nested, err := store.GetObject(ctx, "global-bucket", "docs/nested/file.bin")
 	require.NoError(t, err)

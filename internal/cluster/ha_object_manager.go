@@ -22,6 +22,12 @@ const HABucketHeader = "X-HA-Bucket"
 const HAObjectVersionHeader = "X-HA-Version-ID"
 const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 
+// HALastModifiedHeader carries the primary's LastModified (unix seconds) on
+// legacy (decrypt/re-encrypt) transfers so replicas store the same timestamp
+// instead of their receive time. Raw transfers carry it inside the Pebble
+// metadata payload and do not need this header.
+const HALastModifiedHeader = "X-HA-Last-Modified"
+
 // Raw (ciphertext) replication headers. When HARawHeader is "true" the body
 // is the stored ciphertext as-is; the sidecar and Pebble metadata travel
 // base64(JSON)-encoded so the replica stores an identical copy without
@@ -29,6 +35,28 @@ const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 const HARawHeader = "X-HA-Raw"
 const HARawSidecarHeader = "X-HA-Raw-Sidecar"
 const HARawObjectMetaHeader = "X-HA-Raw-Object-Meta"
+
+// setHALastModified attaches the primary's modification timestamp to a legacy
+// replica transfer (request or response headers).
+func setHALastModified(h http.Header, obj *object.Object) {
+	if obj != nil && !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
+		h.Set(HALastModifiedHeader, strconv.FormatInt(obj.LastModified.Unix(), 10))
+	}
+}
+
+// HALastModifiedFromHeader parses the primary's modification timestamp from a
+// legacy replica transfer. Returns false when absent or malformed.
+func HALastModifiedFromHeader(h http.Header) (time.Time, bool) {
+	v := h.Get(HALastModifiedHeader)
+	if v == "" {
+		return time.Time{}, false
+	}
+	ts, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || ts <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(ts, 0), true
+}
 
 // haReplicaKey is the unexported context key that marks a request as an HA replica write.
 type haReplicaKey struct{}
@@ -321,6 +349,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 			if obj.VersionID != "" {
 				req.Header.Set(HAObjectVersionHeader, obj.VersionID)
 			}
+			setHALastModified(req.Header, obj)
 			req.Header.Set("Content-Type", obj.ContentType)
 			if obj.ContentDisposition != "" {
 				req.Header.Set("Content-Disposition", obj.ContentDisposition)

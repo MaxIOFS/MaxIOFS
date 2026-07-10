@@ -1554,6 +1554,9 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	if versionID := r.Header.Get(cluster.HAObjectVersionHeader); versionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, versionID)
 	}
+	if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok {
+		ctx = object.WithReplicatedLastModified(ctx, lm)
+	}
 	headers := r.Header.Clone()
 	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
@@ -1801,6 +1804,9 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	if obj.VersionID != "" {
 		w.Header().Set(cluster.HAObjectVersionHeader, obj.VersionID)
 		w.Header().Set("x-amz-version-id", obj.VersionID)
+	}
+	if !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
+		w.Header().Set(cluster.HALastModifiedHeader, fmt.Sprintf("%d", obj.LastModified.Unix()))
 	}
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)
