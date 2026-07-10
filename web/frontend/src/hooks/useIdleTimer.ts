@@ -27,6 +27,7 @@ export function useIdleTimer({
   const onIdleRef = useRef(onIdle);
   const isBlockedRef = useRef(isBlocked);
   const resetTimerRef = useRef<() => void>(() => {});
+  const lastPersistRef = useRef(0);
 
   useEffect(() => { onIdleRef.current = onIdle; }, [onIdle]);
   useEffect(() => { isBlockedRef.current = isBlocked; }, [isBlocked]);
@@ -36,8 +37,15 @@ export function useIdleTimer({
       clearTimeout(timeoutId.current);
     }
 
-    // Persist the timestamp so other tabs and page reloads know the user was active
-    try { localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now())); } catch { /* storage unavailable */ }
+    // Persist the timestamp so other tabs and page reloads know the user was
+    // active. Throttled to once per second: this fires on every mousemove
+    // (~60Hz) and localStorage writes are synchronous — a 1s-stale timestamp
+    // is irrelevant against idle windows measured in minutes.
+    const now = Date.now();
+    if (now - lastPersistRef.current >= 1000) {
+      lastPersistRef.current = now;
+      try { localStorage.setItem(LAST_ACTIVITY_KEY, String(now)); } catch { /* storage unavailable */ }
+    }
 
     timeoutId.current = setTimeout(() => {
       // If blocked (e.g. active upload in progress), postpone instead of firing

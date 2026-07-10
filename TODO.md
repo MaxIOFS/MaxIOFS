@@ -53,6 +53,15 @@ Context that still applies:
 
 ---
 
+## 🔧 Follow-up — Minor items deliberately deferred (July 2026 bug-hunt)
+
+Two low-impact items from the full-project review were left as-is on purpose:
+
+- **Bandwidth throttling spends tokens after the read** (`internal/bandwidth`): each 32 KB chunk is delivered, then waited for — transfers can run up to one chunk ahead of budget. Cosmetic smoothing only.
+- **Quota delta computed outside the per-key lock** (`object.PutObject`): two concurrent overwrites of the same key can compute the same delta, causing transient metrics drift. Fixing it would hold the sharded per-key lock across encryption + disk IO, serialising unrelated keys that share a shard — not worth it for a metrics-only drift.
+
+---
+
 ## 🟣 Planned — Erasure Coding (replace N-way replication for large objects)
 
 **Goal**: cut disk overhead from `N×` (N-way replication) to `~1.5×` while preserving the same failure tolerance. Today a 1 GB object with `factor=3` consumes 3 GB cluster-wide; with EC `4+2` it consumes 1.5 GB and tolerates the same 2 node failures.

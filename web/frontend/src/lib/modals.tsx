@@ -9,7 +9,10 @@ import i18n from '../i18n';
 // HTML sanitizer — strips dangerous tags, event handlers, and non-allowlisted URL schemes.
 // Uses the browser's own HTML parser so HTML-entity variants (&#106;avascript:) and
 // whitespace tricks are normalised automatically before any scheme check.
-function sanitizeHtml(html: string): string {
+// Exported so every dangerouslySetInnerHTML in the app can route through it —
+// i18n is configured with escapeValue:false, so interpolated values reach the
+// DOM unescaped and MUST be sanitized whenever rendered as raw HTML.
+export function sanitizeHtml(html: string): string {
   const div = document.createElement('div');
   div.innerHTML = html;
 

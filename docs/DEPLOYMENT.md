@@ -42,6 +42,7 @@ chmod +x maxiofs
 **Access:**
 - Web Console: http://localhost:8081
 - S3 API: http://localhost:8080
+- Cluster inter-node: :8082 (TLS; only listens once the node joins/initializes a cluster — never expose it publicly)
 - Default credentials: **admin / admin** (⚠️ change immediately)
 
 ### 2. Docker
@@ -53,9 +54,6 @@ make docker-up
 
 # With monitoring (Prometheus + Grafana)
 make docker-monitoring
-
-# 3-node cluster
-make docker-cluster
 ```
 
 **Docker Compose:**
@@ -68,13 +66,16 @@ services:
     restart: unless-stopped
     environment:
       MAXIOFS_DATA_DIR: /data
-      MAXIOFS_STORAGE_ENABLE_ENCRYPTION: "true"
-      MAXIOFS_STORAGE_ENCRYPTION_KEY: "your-64-hex-char-key"
+      # Encryption at rest is always on — the key is generated automatically
+      # and stored in the database. After the first start, download the
+      # recovery bundle from Settings → Security and keep it off this host.
     volumes:
       - maxiofs-data:/data
     ports:
       - "8080:8080"
       - "8081:8081"
+      # Cluster deployments only — inter-node port (restrict to node IPs):
+      # - "8082:8082"
 
 volumes:
   maxiofs-data:
@@ -97,6 +98,7 @@ listen: 127.0.0.1:8080
 console_listen: 127.0.0.1:8081
 public_api_url: https://s3.example.com
 public_console_url: https://console.example.com
+# cluster_listen: :8082    # Inter-node port (cluster deployments; firewall to node IPs)
 log_level: info
 # Encryption at rest is always on — the key is generated automatically and
 # stored in the database. After the first start, download the recovery
@@ -255,10 +257,11 @@ sudo certbot --nginx -d s3.example.com -d console.example.com
 
 See [CLUSTER.md](CLUSTER.md) for complete documentation. Quick overview:
 
-1. **Initialize cluster** on Node 1 (Web Console → Cluster → Initialize)
-2. **Join nodes** using the cluster token
-3. **Configure replication** for HA buckets
-4. **Set up load balancer** (HAProxy/Nginx) in front of all nodes
+1. **Open port 8082 between nodes** (inter-node TLS traffic) — restricted to cluster node IPs, never behind the client load balancer
+2. **Initialize cluster** on Node 1 (Web Console → Cluster → Initialize)
+3. **Join nodes** using the cluster token
+4. **Configure replication** for HA buckets
+5. **Set up load balancer** (HAProxy/Nginx) in front of all nodes — ports 8080/8081 only
 
 ---
 
@@ -329,6 +332,8 @@ sudo journalctl -u maxiofs -n 50
 ```bash
 curl http://localhost:8081/health        # Test endpoint
 sudo ufw allow 8080/tcp; sudo ufw allow 8081/tcp  # Firewall
+# Cluster deployments: open 8082 to cluster node IPs ONLY (inter-node TLS traffic)
+# sudo ufw allow from <node-ip> to any port 8082 proto tcp
 ```
 
 ### Login Issues

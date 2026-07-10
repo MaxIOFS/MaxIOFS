@@ -85,6 +85,7 @@ sudo nano /etc/maxiofs/config.yaml
 Key settings to configure:
 - `listen`: API server address (default: :8080)
 - `console_listen`: Web console address (default: :8081)
+- `cluster_listen`: Cluster inter-node address (default: :8082) — TLS, only listens when clustering is enabled; firewall it to cluster node IPs
 - `public_api_url`: Public S3 endpoint URL
 - `public_console_url`: Public web console URL
 - `enable_tls`: Enable HTTPS (recommended for production)

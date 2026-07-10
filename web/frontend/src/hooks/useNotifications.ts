@@ -72,8 +72,10 @@ export function useNotifications(enabled = true) {
     let aborted = false;
     const controller = new AbortController();
 
-    // Connect to SSE endpoint using fetch (supports Authorization header)
-    const connectSSE = async () => {
+    // Connect to SSE endpoint using fetch (supports Authorization header).
+    // Returns true when the connection was established (even if the stream
+    // ended later) so the reconnect loop can reset its backoff.
+    const connectSSE = async (): Promise<boolean> => {
       try {
         const baseURL = `${getBasePath()}/api/v1`;
         const url = `${baseURL}/notifications/stream`;
@@ -198,14 +200,31 @@ export function useNotifications(enabled = true) {
             }
           }
         }
+        return true;
       } catch {
         if (!aborted) {
           setConnected(false);
         }
+        return false;
       }
     };
 
-    connectSSE();
+    // Reconnect loop: a dropped stream (server restart, proxy idle timeout,
+    // network blip) must not silently end alert delivery for the rest of the
+    // session. Exponential backoff on consecutive failures (1s → 30s max);
+    // a successful connection resets the backoff so post-drop reconnects are
+    // fast.
+    (async () => {
+      let failures = 0;
+      while (!aborted) {
+        const hadConnected = await connectSSE();
+        if (aborted) break;
+        setConnected(false);
+        failures = hadConnected ? 0 : failures + 1;
+        const delayMs = Math.min(30_000, 1000 * 2 ** failures);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    })();
 
     return () => {
       aborted = true;

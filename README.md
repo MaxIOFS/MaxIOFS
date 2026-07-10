@@ -310,7 +310,7 @@ Tested with MinIO Warp on a single node (commodity hardware):
 
 ```bash
 go test ./...                          # 3,800+ backend tests
-cd web/frontend && npm run test        # 95+ frontend tests
+cd web/frontend && npm run test        # 106 frontend tests
 ```
 
 ---
@@ -321,6 +321,7 @@ cd web/frontend && npm run test        # 95+ frontend tests
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned
+- **Reserved object-key suffixes** — keys ending in `.metadata` or `.metadata-staging` are rejected (they collide with the on-disk metadata sidecar files)
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead
 - **No SOC 2 / ISO 27001 certification** — comprehensive internal audit completed

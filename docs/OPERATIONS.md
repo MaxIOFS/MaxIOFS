@@ -89,6 +89,9 @@ The following checks are recommended at least once per day in production.
   - All nodes are `Healthy`.
   - No node is marked as `Stale` or `Out of sync`.
   - Latency and replication delay are within acceptable bounds.
+- Inter-node connectivity: port **8082** must be reachable between all nodes
+  (TLS with the cluster's internal CA). If nodes show as unhealthy while
+  their consoles work fine, check firewall rules on 8082 first.
 
 ### 3. Disk & Capacity
 
@@ -372,6 +375,38 @@ Recommended approaches:
 5. **Verify**:
    - Tenants, users, buckets and objects appear as expected.
    - S3 and Console are functional.
+
+### Metadata-Store Disaster Recovery (`maxiofs recover`)
+
+If the Pebble metadata store (and even the SQLite database) is lost or corrupt
+but the `objects/` tree survived, a full backup restore is not required:
+
+```bash
+# Server stopped. Rebuilds a fresh metadata store from the object files.
+maxiofs recover --data-dir /var/lib/maxiofs                 --recovery-bundle /path/to/maxiofs-recovery-bundle.json
+# Then follow the printed next steps (mv the rebuilt store into place) and start.
+```
+
+Every object file carries a `.metadata` sidecar with everything needed to
+rebuild its entry (size, ETag, content-type, encryption envelope). With the
+recovery bundle, the tool verifies that every encrypted object's key material
+unwraps and restores the encryption keys into the database so the server can
+decrypt after the rebuild. `--dry-run` reports without writing anything.
+
+**Behaviour notes:**
+
+- **Deleted versioned objects come back visible**: delete markers exist only
+  in the metadata store, so a versioned object whose latest "version" was a
+  deletion is rebuilt from its real on-disk versions (recovery is biased
+  towards recovering data). Re-delete if the deletion should stand.
+- **Objects whose key material cannot be verified** (e.g. corrupt sidecar
+  entry) are still indexed — hiding them would make them unrecoverable — and
+  listed as failures in the report for the operator.
+- If the database still holds encryption keys, the restore never overwrites
+  existing key material (same version + different material aborts with an
+  error) and keeps the database's current-key marker.
+- Users, permissions and bucket configuration (policies, lifecycle, quotas)
+  live in SQLite and must be re-applied by the admin if that database was lost.
 
 ### Restore Procedure (Cluster)
 

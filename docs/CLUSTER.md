@@ -118,6 +118,15 @@ Each MaxIOFS node exposes three independent ports:
 - Firewall: port 8082 open between node IPs only (not to the public internet)
 - Admin access to all nodes
 
+> **Containers**: a multi-node cluster inside a single Docker host provides
+> no real HA — every "node" shares the same disk, power supply and kernel,
+> so replication multiplies storage cost without adding durability. If you
+> run nodes as containers (Docker/Swarm/Kubernetes), place **one node per
+> physical host**, pin each container to its host with a **local volume**
+> (a rescheduled container without its volume loses the node's identity and
+> data), and make port 8082 reachable between hosts. Container multi-host
+> orchestration is not part of the officially tested matrix.
+
 ### Setup Steps
 
 **1. Start both nodes**
@@ -339,14 +348,19 @@ Cluster replication enables **node-to-node replication** for HA. This is separat
 ### How It Works
 
 1. Object PUT on Node 1
-2. Decrypt (if encrypted)
-3. Sign with HMAC-SHA256
-4. Send to Node 2 (plaintext)
-5. Node 2 verifies HMAC signature
-6. Re-encrypt with Node 2's master key
-7. Store on Node 2
+2. Sign with HMAC-SHA256
+3. Send the stored **ciphertext as-is** to Node 2 (plus the object's metadata
+   and encryption sidecar — the primary's modification time and client
+   checksums travel with it)
+4. Node 2 verifies the HMAC signature
+5. Node 2 stores a byte-identical copy and decrypts only on read
 
-**Encryption Keys**: Each node has its own master key. Objects are decrypted on source, re-encrypted on destination.
+**Encryption Keys**: all cluster nodes share a **cluster-wide KEK**,
+distributed inside the join package and re-synced on every key rotation.
+Because every node can unwrap any object's DEK, replication never decrypts
+in transit. Objects wrapped with a node-local (pre-join) key transparently
+fall back to the legacy decrypt-on-source / re-encrypt-on-destination path
+until the background worker re-wraps them to the shared key.
 
 ### HMAC Authentication
 

@@ -46,29 +46,14 @@ Access:
 - Prometheus: http://localhost:9091
 - Grafana: http://localhost:3000 (admin/admin)
 
-### 3-Node Cluster
+### Clustering
 
-```bash
-make docker-build
-make docker-cluster
-```
-
-Access:
-- Node 1 Console: http://localhost:8081 (admin/admin)
-- Node 2 Console: http://localhost:8083 (admin/admin)
-- Node 3 Console: http://localhost:8085 (admin/admin)
-
-### Full Stack (Cluster + Monitoring)
-
-```bash
-make docker-build
-make docker-cluster-monitoring
-```
-
-Access:
-- Node 1-3 Consoles: http://localhost:8081, :8083, :8085
-- Prometheus: http://localhost:9091
-- Grafana: http://localhost:3000
+A multi-node cluster inside a single Docker host provides **no real HA**
+(every "node" shares the same disk, power and kernel) — MaxIOFS therefore
+ships no single-host cluster compose. For real clusters, deploy one node per
+host (containers included: expose port 8082 between hosts, restricted to
+cluster node IPs, and pin each node to its host with a local volume) and
+follow [docs/CLUSTER.md](../docs/CLUSTER.md).
 
 ## Grafana Dashboard
 

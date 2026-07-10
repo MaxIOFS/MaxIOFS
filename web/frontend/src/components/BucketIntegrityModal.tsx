@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Bucket, IntegrityResult, LastIntegrityScan } from '@/types';
+import { sanitizeHtml } from '@/lib/modals';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -190,7 +191,7 @@ export function BucketIntegrityModal({
             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <EyeOff className="h-3.5 w-3.5" />
-                <span dangerouslySetInnerHTML={{ __html: t('closingDoesNotStop') }} />
+                <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(t('closingDoesNotStop')) }} />
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={onHide}>
@@ -335,7 +336,7 @@ function RateLimitBanner({ until, compact }: { until: Date; compact?: boolean })
       <div>
         <p className="font-semibold">{t('rateLimitActive')}</p>
         <p className="text-xs mt-0.5">
-          <span dangerouslySetInnerHTML={{ __html: t('rateLimitDesc', { remaining }) }} />
+          <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(t('rateLimitDesc', { remaining })) }} />
         </p>
       </div>
     </div>

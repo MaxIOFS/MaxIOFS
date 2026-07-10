@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Lock, ShieldAlert, Info } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import ModalManager from '@/lib/modals';
+import ModalManager, { sanitizeHtml } from '@/lib/modals';
 
 interface ObjectLockConfigModalProps {
   isOpen: boolean;
@@ -110,8 +110,8 @@ export function ObjectLockConfigModal({
             <div className="text-sm text-amber-800 dark:text-amber-200">
               <p className="font-semibold mb-1">{t('objectLock.configModal.warningTitle')}</p>
               <ul className="list-disc list-inside space-y-1">
-                <li dangerouslySetInnerHTML={{ __html: t('objectLock.configModal.warningIncrease') }} />
-                <li dangerouslySetInnerHTML={{ __html: t('objectLock.configModal.warningModeImmutable', { mode: currentMode }) }} />
+                <li dangerouslySetInnerHTML={{ __html: sanitizeHtml(t('objectLock.configModal.warningIncrease')) }} />
+                <li dangerouslySetInnerHTML={{ __html: sanitizeHtml(t('objectLock.configModal.warningModeImmutable', { mode: currentMode })) }} />
                 <li>{t('objectLock.configModal.warningPermanent')}</li>
               </ul>
             </div>

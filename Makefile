@@ -1012,8 +1012,6 @@ help:
 	@echo "  docker-run                - Run MaxIOFS in Docker (standalone)"
 	@echo "  docker-up                 - Start basic MaxIOFS (docker-compose)"
 	@echo "  docker-monitoring         - Start with Prometheus + Grafana"
-	@echo "  docker-cluster            - Start 3-node cluster"
-	@echo "  docker-cluster-monitoring - Start cluster + monitoring (full stack)"
 	@echo "  docker-ps                 - Show running containers"
 	@echo "  docker-logs               - View MaxIOFS logs"
 	@echo "  docker-down               - Stop all services"
@@ -1062,7 +1060,7 @@ docker-clean-ps:
 	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
 
 # Docker Compose targets (cross-platform)
-.PHONY: docker-up docker-down docker-logs docker-monitoring docker-cluster docker-cluster-monitoring docker-ps docker-clean
+.PHONY: docker-up docker-down docker-logs docker-monitoring docker-ps docker-clean
 
 # Start basic MaxIOFS (single node)
 docker-up:
@@ -1089,25 +1087,6 @@ docker-monitoring:
 	docker-compose --profile monitoring up -d
 
 # Start 3-node cluster setup
-docker-cluster:
-	@echo "Starting MaxIOFS 3-node cluster..."
-	@echo "Access:"
-	@echo "  - Node 1 Console:  http://localhost:8081 (admin/admin)"
-	@echo "  - Node 2 Console:  http://localhost:8083 (admin/admin)"
-	@echo "  - Node 3 Console:  http://localhost:8085 (admin/admin)"
-	docker-compose --profile cluster up -d
-
-# Start cluster with monitoring (full stack)
-docker-cluster-monitoring:
-	@echo "Starting MaxIOFS 3-node cluster with monitoring..."
-	@echo "Access:"
-	@echo "  - Node 1 Console:  http://localhost:8081"
-	@echo "  - Node 2 Console:  http://localhost:8083"
-	@echo "  - Node 3 Console:  http://localhost:8085"
-	@echo "  - Prometheus:      http://localhost:9091"
-	@echo "  - Grafana:         http://localhost:3000"
-	docker-compose --profile monitoring --profile cluster up -d
-
 # Show running containers
 docker-ps:
 	@echo "MaxIOFS Docker containers:"

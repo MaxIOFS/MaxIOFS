@@ -187,6 +187,7 @@ if [ $1 -eq 1 ]; then
     echo ""
     echo "Web Console: http://localhost:8081"
     echo "S3 API: http://localhost:8080"
+    echo "Cluster inter-node (if clustering): port 8082 (restrict to node IPs)"
     echo ""
     echo "════════════════════════════════════════════════════"
     echo "⚠️  CRITICAL SECURITY WARNING ⚠️"

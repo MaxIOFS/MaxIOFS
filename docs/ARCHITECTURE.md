@@ -76,8 +76,10 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 └────────────┘  └────────────┘  └────────────┘
        │               │               │
        └───────────────┼───────────────┘
-            HMAC-SHA256 Authenticated
-             Cluster Replication
+       HMAC-SHA256 Authenticated Cluster
+      Replication — dedicated port :8082
+        (TLS via internal CA; only S3
+       8080 / Console 8081 face the LB)
 ```
 
 > Complete cluster documentation: [CLUSTER.md](CLUSTER.md)
@@ -160,15 +162,31 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │   ├── OPTIONS-*          ←   Engine options snapshot
 │   └── WAL/               ←   Write-Ahead Log (crash safety)
 └── objects/                ← Filesystem: actual object data
-    ├── .maxiofs/           ←   Internal storage metadata
+    ├── .maxiofs/           ←   Internal storage metadata (multipart staging)
     ├── tenant-{hash}/      ←   Tenant-scoped directories
     │   ├── bucket-a/
+    │   │   ├── .maxiofs-bucket        ←   Bucket marker (records owning tenant)
     │   │   ├── file1.txt
-    │   │   └── dir/file2.pdf
+    │   │   ├── file1.txt.metadata     ←   Sidecar: size, etag, content-type,
+    │   │   │                              encryption fields (wrapped DEK)
+    │   │   ├── dir/file2.pdf
+    │   │   └── .versions/             ←   Stored versions (versioned buckets):
+    │   │       └── {key}/{versionID}  ←     one file + sidecar per version
     │   └── bucket-b/
     ├── global-bucket/      ←   Global admin buckets (no tenant prefix)
     └── ...
 ```
+
+Every object file has a `.metadata` **sidecar** next to it holding everything
+needed to reconstruct its metadata entry (including the encryption envelope) —
+this is what makes filesystem-only disaster recovery (`maxiofs recover`)
+possible. Writes commit in two phases: the new sidecar is staged at
+`<object>.metadata-staging`, the data file is renamed into place, then the
+staged sidecar replaces the final one. A crash at any point is resolved
+deterministically on the next access (roll forward when the stored bytes match
+the staged etag, roll back otherwise), so an interrupted overwrite can never
+leave a sidecar that does not match its data. A leftover `.metadata-staging`
+file after a hard crash is therefore normal and self-heals.
 
 ### Database Responsibilities
 

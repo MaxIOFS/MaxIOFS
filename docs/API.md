@@ -10,6 +10,7 @@ MaxIOFS exposes two HTTP servers:
 |--------|-------------|---------|----------------|
 | **S3 API** | 8080 | AWS S3-compatible REST API | AWS Signature v2/v4 |
 | **Console API** | 8081 | Web Console REST API + embedded frontend | JWT / OAuth2 |
+| **Cluster (internal)** | 8082 | Inter-node coordination/replication — not a client API | HMAC-SHA256 (node tokens) over cluster TLS |
 
 ---
 
@@ -86,6 +87,11 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | ListObjects | GET | `/{bucket}` |
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
+
+**Object key rules**: standard S3 keys up to 1024 characters. Keys ending in
+`.metadata` or `.metadata-staging` are rejected with `InvalidObjectName` —
+those suffixes are reserved for the on-disk metadata sidecar files and would
+collide with another object's sidecar.
 
 ### Multipart Upload Operations
 

@@ -48,6 +48,7 @@ The config file controls encryption at rest, SMTP, public URLs, TLS, and other s
 |------|-------------|
 | 8080 | S3-compatible API |
 | 8081 | Web Console & REST API |
+| 8082 | Cluster inter-node (TLS) — only listens when clustering is enabled; expose to cluster node IPs only, never publicly |
 
 ## Available Tags
 

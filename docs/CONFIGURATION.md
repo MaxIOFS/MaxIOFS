@@ -136,8 +136,8 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 **Storage:**
 - `MAXIOFS_STORAGE_BACKEND` — Storage backend
 - `MAXIOFS_STORAGE_ROOT` — Objects root directory
-- `MAXIOFS_STORAGE_ENABLE_ENCRYPTION` — Enable encryption
-- `MAXIOFS_STORAGE_ENCRYPTION_KEY` — Master encryption key (hex)
+- `MAXIOFS_STORAGE_ENABLE_ENCRYPTION` — Deprecated and ignored (encryption is always on)
+- `MAXIOFS_STORAGE_ENCRYPTION_KEY` — One-time seed only: read on the very first start to become KEK v1, never consulted again (the key lives in the database)
 - `MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB` — Pebble block cache size in MB (default: 256)
 
 **Auth:**
@@ -353,8 +353,8 @@ services:
       MAXIOFS_DATA_DIR: /data
       MAXIOFS_PUBLIC_API_URL: https://s3.example.com
       MAXIOFS_PUBLIC_CONSOLE_URL: https://console.example.com
-      MAXIOFS_STORAGE_ENABLE_ENCRYPTION: "true"
-      MAXIOFS_STORAGE_ENCRYPTION_KEY: "a1b2c3d4...64_hex_chars"
+      # Encryption at rest is always on — the key is generated automatically
+      # and stored in the database (download the recovery bundle after setup).
     volumes:
       - maxiofs-data:/data
     ports:

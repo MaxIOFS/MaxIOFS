@@ -184,8 +184,15 @@ per hop.
 
 **Disaster recovery**: if the metadata database is lost but the object files
 survive, `maxiofs recover --data-dir <dir> --recovery-bundle <bundle>`
-rebuilds the metadata store from the filesystem and restores the keys. See
-`maxiofs recover --help`.
+rebuilds the metadata store from the filesystem and restores the keys —
+original modification times included, so lifecycle timers and cluster
+reconciliation stay correct. Two deliberate biases towards recovering data:
+versioned objects whose latest "version" was a deletion come back visible
+(delete markers exist only in the lost database — re-delete if the deletion
+should stand), and objects whose key material cannot be verified are still
+indexed with the failure reported instead of silently disappearing from
+listings. See `maxiofs recover --help` and the runbook in
+[OPERATIONS.md](OPERATIONS.md#backups--disaster-recovery).
 
 **Characteristics:**
 - Transparent: Automatic encrypt on upload, decrypt on download
@@ -204,12 +211,19 @@ OAuth client secrets and LDAP bind passwords are encrypted at rest in the SQLite
 
 When objects are replicated between cluster nodes:
 
-1. Source node **decrypts** the object (if encrypted)
-2. Object data is sent over **TLS-encrypted** inter-node connection (automatic)
+1. The stored **ciphertext is sent as-is** — objects are never decrypted in
+   transit (all nodes share a cluster-wide KEK distributed on join/rotation,
+   so every node can unwrap the object's DEK at read time)
+2. The transfer additionally travels over the **TLS-encrypted** inter-node
+   connection (automatic)
 3. HMAC-SHA256 signature authenticates the transfer
-4. Destination node **re-encrypts** with its own master key
+4. The destination stores a byte-identical copy (metadata, timestamps and
+   client checksums included)
 
-Each node can have a different encryption key. Inter-node TLS is enabled automatically using the cluster's internal CA — no manual configuration needed.
+Objects wrapped with a node-local (pre-join) key fall back to a decrypt/
+re-encrypt transfer until the background worker re-wraps them to the shared
+key. Inter-node TLS is enabled automatically using the cluster's internal
+CA — no manual configuration needed.
 
 ---
 
