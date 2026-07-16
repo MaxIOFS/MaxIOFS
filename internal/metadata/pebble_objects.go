@@ -94,7 +94,7 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		}
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := s.commitNoSync(batch); err != nil {
 		return fmt.Errorf("failed to commit object: %w", err)
 	}
 
@@ -184,7 +184,10 @@ func (s *PebbleStore) DeleteObject(ctx context.Context, bucket, key string, vers
 		return fmt.Errorf("failed to delete object in batch: %w", err)
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	// Deletes are synced: the physical file is removed right after this
+	// commit, so losing the tombstone on a hard kill would leave a ghost
+	// entry that lists but can never be served.
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit delete: %w", err)
 	}
 
@@ -515,7 +518,7 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		}
 	}
 
-	return batch.Commit(pebble.NoSync)
+	return s.commitNoSync(batch)
 }
 
 // GetObjectVersions retrieves all versions of an object sorted newest-first.
@@ -742,7 +745,7 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 		_ = closer.Close()
 	}
 
-	return s.db.Delete(versionKey, pebble.NoSync)
+	return s.db.Delete(versionKey, pebble.Sync)
 }
 
 // ==================== Tags ====================
@@ -797,7 +800,7 @@ func (s *PebbleStore) PutObjectTags(ctx context.Context, bucket, key string, tag
 		return fmt.Errorf("failed to set object in batch: %w", err)
 	}
 
-	return batch.Commit(pebble.NoSync)
+	return s.commitNoSync(batch)
 }
 
 // GetObjectTags retrieves the tags for an object.

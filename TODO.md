@@ -21,7 +21,7 @@
 
 > Note: the legacy `CheckPermission` RBAC stub (and its SEC-03 warning) was removed in v1.5.0 as unreachable dead code — current enforcement is roles + capabilities + bucket policies + ACLs. The IAM work defines its own policy-evaluation entry point (design to be validated before implementation); `GetS3Action`/`GetResourceARN` in `internal/auth/s3auth.go` are the kept action/ARN mapping primitives.
 
-Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Scope/design TBD. Related: the RBAC permission system is still a stub (SEC-03 startup warning) — fine-grained permissions would land together with this.
+Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Scope/design TBD — the policy-evaluation design must be validated before implementation starts.
 
 ---
 
@@ -42,12 +42,6 @@ Context that still applies:
 - **`maxiofs recover` checkpoint/resume**: the current implementation is a single pass (safe: output store is fresh and non-empty output is refused, so a crash = delete the partial out-db and re-run). For multi-million-object deployments a checkpoint would avoid restarting the walk.
 - **Recovery-bundle stronger variants** (optional): recovery-key **escrow** (wrap the KEK with a separately-held break-glass key) and **Shamir** split (N shares, K to reconstruct).
 - **Admin restore endpoint** (optional): upload a bundle through the console for the "fresh install after disaster" flow — must replace the freshly-generated KEK before any new objects are written. Today this is covered by `maxiofs recover` offline.
-
----
-
-## 🔧 Follow-up — Pebble durability on hard kill
-
-**Hard-kill loses the last seconds of Pebble metadata writes** (`batch.Commit(pebble.NoSync)`): an object PUT moments before a crash keeps its data file + sidecar but loses its Pebble entry (it still serves via the sidecar fallback, but doesn't appear in listings). Graceful shutdown is fine. Options: periodic WAL sync / sync-on-N-writes, or a startup scan that reconciles sidecars → Pebble (the walk logic now exists in `internal/recovery`).
 
 ---
 

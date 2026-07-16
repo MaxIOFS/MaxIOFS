@@ -541,18 +541,23 @@ MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble 
 - The WAL may contain writes that were not fully flushed to SST files.
 - On the next start, Pebble **automatically replays the WAL** — no operator action required.
 - If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
-- In practice this means at most a few seconds of metadata changes may be lost.
+- The WAL is fsynced at least once per second while writes are flowing, and destructive operations (object/bucket deletes, multipart completion) are fsynced immediately — so at most ~1 second of non-destructive metadata changes can be lost.
 
-**Indicators of WAL recovery in logs**:
+**Unclean-shutdown reconciliation (automatic)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:
+- Objects whose metadata commit was lost in the final second are re-indexed from their `.metadata` sidecars (original timestamps preserved) — reads already worked via the sidecar fallback; listings converge as the scan progresses.
+- Ghost entries (metadata without a data file) and orphan sidecars from half-completed deletes are cleaned up.
+- Bucket statistics are recalculated for any repaired bucket.
+
+Log lines to look for:
 
 ```
-level=info msg="Opening metadata store" path=/var/lib/maxiofs/metadata
-level=info msg="Metadata store opened"
+level=warning msg="Unclean shutdown detected — reconciling metadata store against on-disk objects in the background"
+level=info msg="Unclean-shutdown reconciliation finished — store was consistent"
 ```
 
-No error messages during open means WAL replay succeeded. If you see `pebble: corruption` errors, treat them as a data integrity incident and restore from backup.
+No error messages during open means WAL replay succeeded. If you see `pebble: corruption` errors, treat them as a data integrity incident and restore from backup (or rebuild with `maxiofs recover`).
 
-**Best practice**: always stop MaxIOFS with `systemctl stop maxiofs` rather than SIGKILL to ensure a clean shutdown and avoid any WAL replay on next start.
+**Best practice**: always stop MaxIOFS with `systemctl stop maxiofs` rather than SIGKILL — a clean shutdown skips both WAL replay and the reconciliation scan on next start.
 
 ### On‑Demand Bucket Integrity Check
 

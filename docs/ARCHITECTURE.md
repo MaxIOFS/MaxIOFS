@@ -188,6 +188,16 @@ the staged etag, roll back otherwise), so an interrupted overwrite can never
 leave a sidecar that does not match its data. A leftover `.metadata-staging`
 file after a hard crash is therefore normal and self-heals.
 
+**Metadata durability**: hot-path Pebble commits are `NoSync` for throughput,
+with the WAL fsynced at least once per second while writes are flowing —
+bounding hard-kill metadata loss to ~1s. Destructive operations (object and
+bucket deletes, multipart complete/abort) fsync immediately, so a delete can
+never resurrect. The store writes a `CLEAN_SHUTDOWN` sentinel on close; when a
+boot finds it missing, the server reconciles Pebble against the on-disk object
+tree in the background (re-indexing sidecar pairs whose metadata commit was
+lost, removing ghost entries and orphan sidecars, recalculating bucket stats)
+while continuing to serve traffic.
+
 ### Database Responsibilities
 
 | Database | Technology | Contents |

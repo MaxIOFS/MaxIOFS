@@ -49,7 +49,7 @@ func (s *PebbleStore) CreateMultipartUpload(ctx context.Context, upload *Multipa
 		return fmt.Errorf("failed to set multipart index: %w", err)
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := s.commitNoSync(batch); err != nil {
 		return fmt.Errorf("failed to commit multipart upload: %w", err)
 	}
 
@@ -168,7 +168,7 @@ func (s *PebbleStore) AbortMultipartUpload(ctx context.Context, uploadID string)
 		return fmt.Errorf("failed to delete multipart upload in batch: %w", err)
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit abort: %w", err)
 	}
 
@@ -252,7 +252,10 @@ func (s *PebbleStore) CompleteMultipartUpload(ctx context.Context, uploadID stri
 		return fmt.Errorf("failed to delete multipart upload in batch: %w", err)
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	// Synced: completing an upload is the durability point the client paid
+	// for — the assembled object must survive a hard kill, and the upload
+	// tombstones must not resurrect a finished upload.
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit complete: %w", err)
 	}
 
@@ -296,7 +299,7 @@ func (s *PebbleStore) PutPart(ctx context.Context, part *PartMetadata) error {
 	}
 
 	key := partKey(part.UploadID, part.PartNumber)
-	if err := s.db.Set(key, data, pebble.NoSync); err != nil {
+	if err := s.setNoSync(key, data); err != nil {
 		return fmt.Errorf("failed to store part: %w", err)
 	}
 

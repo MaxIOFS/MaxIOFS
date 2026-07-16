@@ -5,6 +5,14 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Pebble durability on hard kill (bounded loss + self-healing boot)** — hot-path metadata commits were `NoSync`, so a hard kill (power loss, OOM, `kill -9`) could lose the last seconds of Pebble writes: a just-PUT object kept its data file + sidecar but vanished from listings, and a lost delete tombstone resurrected a ghost entry. Three-layer fix, none of which meaningfully costs throughput:
+  - **Periodic WAL fsync (everysec)**: a background loop in `PebbleStore` fsyncs the WAL once per second whenever there are unsynced writes (one fsync/second flat, regardless of write volume — Pebble's group commit makes everything before it durable), bounding hard-kill metadata loss to ≤1s. `WALBytesPerSync` smooths background flushing so the periodic fsync stays cheap. Interval configurable via `PebbleOptions.WALSyncInterval`.
+  - **Sync on destructive, low-frequency operations**: object/version deletes, bucket create/update/delete, multipart complete/abort and raw-KV deletes now commit with `pebble.Sync` — a lost delete tombstone would leave a ghost listing entry pointing at a removed file (unservable), and a completed multipart upload is the durability point the client paid for. Hot paths (object puts, parts, metrics) stay `NoSync` under the 1s loop.
+  - **Unclean-shutdown reconciliation**: `Close()` writes a `CLEAN_SHUTDOWN` sentinel that the next open consumes; when a pre-existing store opens without it, the server reconciles the metadata store against the on-disk object tree in the background while serving traffic (reads already work via the sidecar fallback). Repairs: entries lost in the crash window are rebuilt from their sidecars (original timestamps preserved), ghost entries whose data file is gone are removed, and orphan sidecars from half-completed deletes are cleaned (they would otherwise serve ghost HEAD/GET hits). Throttled like the integrity scrubber, guarded against live traffic by re-checking both sides before each repair, and bucket stats are recalculated after changes. Staged sidecars are left to the storage backend's two-phase-commit repair, and delete markers (no disk artifact by design) are never touched. (`internal/metadata/pebble_store.go`, `internal/recovery/reconcile.go`, `internal/server/unclean_shutdown_reconcile.go`)
+
 ## [1.5.0] - 2026-07-10
 
 ### Added

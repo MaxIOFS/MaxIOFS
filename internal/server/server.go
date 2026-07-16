@@ -645,6 +645,12 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startEncryptionWorker(ctx)
 	logrus.Info("Encryption worker started")
 
+	// After an unclean shutdown, hot-path metadata commits from the last
+	// ~1s may be lost while the object files survived — reconcile the store
+	// against the on-disk tree in the background (reads keep working via
+	// the sidecar fallback meanwhile).
+	s.startUncleanShutdownReconcile(ctx)
+
 	// Start replication manager
 	if s.replicationManager != nil {
 		s.replicationManager.Start(ctx)

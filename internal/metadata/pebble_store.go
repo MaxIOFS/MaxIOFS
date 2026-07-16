@@ -18,6 +18,13 @@ import (
 
 // PebbleStore implements the Store interface using Pebble (CockroachDB's LSM engine).
 // Pebble's WAL is used for crash-safe metadata persistence.
+//
+// Durability model: hot-path writes (object puts, parts, metrics) commit with
+// NoSync and a background loop fsyncs the WAL once per WALSyncInterval, so a
+// hard kill loses at most that window. Low-frequency destructive operations
+// (object/bucket deletes, multipart complete/abort) commit with Sync — losing
+// a delete tombstone would leave a ghost listing entry pointing at a removed
+// file, which no fallback can serve.
 type PebbleStore struct {
 	db               *pebble.DB
 	ready            atomic.Bool
@@ -27,6 +34,10 @@ type PebbleStore struct {
 	deletedBuckets   sync.Map   // map[string]struct{} — buckets deleted during this process lifetime
 	bucketCreateMu   sync.Mutex // serializes bucket creation for global uniqueness check
 	stopCh           chan struct{}
+	dbPath           string
+	walDirty         atomic.Bool // unsynced NoSync writes since the last WAL fsync
+	walSyncWG        sync.WaitGroup
+	wasCleanShutdown bool
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -34,7 +45,21 @@ type PebbleOptions struct {
 	DataDir     string
 	Logger      *logrus.Logger
 	CacheSizeMB int // Block cache size in MB (default 256)
+	// WALSyncInterval is how often the background loop fsyncs the WAL,
+	// bounding metadata loss on a hard kill. 0 uses the 1s default; a
+	// negative value disables the loop (tests).
+	WALSyncInterval time.Duration
 }
+
+// defaultWALSyncInterval bounds hard-kill metadata loss to ~1s at the cost of
+// at most one fsync per second — the "everysec" model.
+const defaultWALSyncInterval = time.Second
+
+// cleanShutdownSentinelFile marks that the store was closed cleanly. It is
+// written by Close after the DB closes and consumed (removed) on open; if a
+// pre-existing store opens without it, the previous process died hard and the
+// server should reconcile metadata against the on-disk object tree.
+const cleanShutdownSentinelFile = "CLEAN_SHUTDOWN"
 
 // NewPebbleStore creates a new Pebble-backed metadata store
 func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
@@ -56,6 +81,7 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 
 	pebbleOpts := &pebble.Options{
 		Cache:                       cache,
+		WALBytesPerSync:             512 << 10,                         // background-flush WAL pages so the periodic fsync stays cheap
 		MemTableSize:                64 << 20,                          // 64 MB per memtable
 		MemTableStopWritesThreshold: 12,                                // allow more memtables before stalling writes
 		L0CompactionThreshold:       4,                                 // compact L0 sooner (default 4)
@@ -75,6 +101,20 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 		Logger: &pebbleLogger{logger: opts.Logger},
 	}
 
+	// Clean-shutdown detection, decided BEFORE opening: a store existed here
+	// (our v2 format sentinel is written on every open, so it reliably marks
+	// a pre-existing store — Pebble itself has no CURRENT file) but the
+	// sentinel its Close should have written is missing → the previous
+	// process died hard. A fresh directory counts as clean (nothing to
+	// reconcile). The sentinel is consumed so a future crash cannot read a
+	// stale one.
+	_, formatErr := os.Stat(filepath.Join(dbPath, PebbleV2SentinelFile))
+	storeExisted := formatErr == nil
+	shutdownSentinel := filepath.Join(dbPath, cleanShutdownSentinelFile)
+	_, sentinelErr := os.Stat(shutdownSentinel)
+	wasClean := !storeExisted || sentinelErr == nil
+	_ = os.Remove(shutdownSentinel)
+
 	db, err := pebble.Open(dbPath, pebbleOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pebble db: %w", err)
@@ -87,17 +127,87 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	}
 
 	store := &PebbleStore{
-		db:     db,
-		logger: opts.Logger,
-		stopCh: make(chan struct{}),
+		db:               db,
+		logger:           opts.Logger,
+		stopCh:           make(chan struct{}),
+		dbPath:           dbPath,
+		wasCleanShutdown: wasClean,
 	}
 	store.ready.Store(true)
 
 	// Start TTL cleanup goroutine for multipart uploads.
 	go store.runMultipartCleanup()
 
+	// Start the periodic WAL fsync loop.
+	walSyncInterval := opts.WALSyncInterval
+	if walSyncInterval == 0 {
+		walSyncInterval = defaultWALSyncInterval
+	}
+	if walSyncInterval > 0 {
+		store.walSyncWG.Add(1)
+		go store.runWALSyncLoop(walSyncInterval)
+	}
+
 	opts.Logger.WithField("path", dbPath).Info("Pebble metadata store initialized")
 	return store, nil
+}
+
+// WasCleanShutdown reports whether the previous process closed this store
+// cleanly (or the store is brand new). False means the server should
+// reconcile metadata against the on-disk object tree.
+func (s *PebbleStore) WasCleanShutdown() bool {
+	return s.wasCleanShutdown
+}
+
+// runWALSyncLoop fsyncs the WAL once per interval while there are unsynced
+// writes. Pebble's group commit makes the empty LogData record below durable
+// together with everything committed before it.
+func (s *PebbleStore) runWALSyncLoop(interval time.Duration) {
+	defer s.walSyncWG.Done()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	failing := false
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			if !s.walDirty.Swap(false) {
+				continue
+			}
+			if err := s.db.LogData(nil, pebble.Sync); err != nil {
+				s.walDirty.Store(true) // retry next tick
+				if !failing {
+					s.logger.WithError(err).Warn("Periodic WAL sync failed; retrying every interval")
+					failing = true
+				}
+			} else if failing {
+				s.logger.Info("Periodic WAL sync recovered")
+				failing = false
+			}
+		}
+	}
+}
+
+// setNoSync / commitNoSync are the hot-path write helpers:
+// they commit without fsync and flag the WAL dirty so the periodic sync loop
+// makes the write durable within one interval. The dirty flag is set AFTER
+// the write lands in the WAL — a concurrent tick between the two at worst
+// syncs once more than needed, never misses the write.
+func (s *PebbleStore) setNoSync(key, value []byte) error {
+	err := s.db.Set(key, value, pebble.NoSync)
+	if err == nil {
+		s.walDirty.Store(true)
+	}
+	return err
+}
+
+func (s *PebbleStore) commitNoSync(batch *pebble.Batch) error {
+	err := batch.Commit(pebble.NoSync)
+	if err == nil {
+		s.walDirty.Store(true)
+	}
+	return err
 }
 
 // ==================== Key Helpers ====================
@@ -193,7 +303,7 @@ func (s *PebbleStore) CreateBucket(ctx context.Context, bucket *BucketMetadata) 
 		return fmt.Errorf("failed to marshal bucket: %w", err)
 	}
 
-	if err := s.db.Set(key, data, pebble.NoSync); err != nil {
+	if err := s.db.Set(key, data, pebble.Sync); err != nil {
 		return fmt.Errorf("failed to store bucket: %w", err)
 	}
 	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
@@ -244,7 +354,7 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 	if err != nil {
 		return fmt.Errorf("failed to marshal bucket: %w", err)
 	}
-	if err := s.db.Set(key, data, pebble.NoSync); err != nil {
+	if err := s.db.Set(key, data, pebble.Sync); err != nil {
 		return err
 	}
 	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
@@ -268,7 +378,7 @@ func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 		_ = closer.Close()
 	}
 
-	if err := s.db.Delete(key, pebble.NoSync); err != nil {
+	if err := s.db.Delete(key, pebble.Sync); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
 	s.deletedBuckets.Store(bucketPath, struct{}{})
@@ -321,7 +431,7 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 		return ErrBucketNotEmpty
 	}
 
-	if err := s.db.Delete(key, pebble.NoSync); err != nil {
+	if err := s.db.Delete(key, pebble.Sync); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
 	s.deletedBuckets.Store(bucketPath, struct{}{})
@@ -463,7 +573,7 @@ func (s *PebbleStore) UpdateBucketMetrics(ctx context.Context, tenantID, bucketN
 	if err != nil {
 		return fmt.Errorf("failed to marshal bucket: %w", err)
 	}
-	return s.db.Set(key, newData, pebble.NoSync)
+	return s.setNoSync(key, newData)
 }
 
 // GetBucketStats retrieves cached statistics for a bucket.
@@ -531,7 +641,7 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 	if err != nil {
 		return err
 	}
-	return s.db.Set(key, newData, pebble.NoSync)
+	return s.setNoSync(key, newData)
 }
 
 // ==================== Lifecycle ====================
@@ -540,8 +650,22 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 func (s *PebbleStore) Close() error {
 	s.ready.Store(false)
 	close(s.stopCh)
+	s.walSyncWG.Wait()
 	s.logger.Info("Closing Pebble metadata store")
-	return s.db.Close()
+	if s.walDirty.Swap(false) {
+		if err := s.db.LogData(nil, pebble.Sync); err != nil {
+			s.logger.WithError(err).Warn("Final WAL sync on close failed")
+		}
+	}
+	err := s.db.Close()
+	if err == nil {
+		// Mark the shutdown clean so the next open skips reconciliation.
+		sentinel := filepath.Join(s.dbPath, cleanShutdownSentinelFile)
+		if wErr := os.WriteFile(sentinel, []byte("clean\n"), 0644); wErr != nil {
+			s.logger.WithError(wErr).Warn("Failed to write clean-shutdown sentinel")
+		}
+	}
+	return err
 }
 
 // IsReady returns true when the store is ready to serve requests.
@@ -581,12 +705,13 @@ func (s *PebbleStore) GetRaw(ctx context.Context, key string) ([]byte, error) {
 
 // PutRaw stores a raw value.
 func (s *PebbleStore) PutRaw(ctx context.Context, key string, value []byte) error {
-	return s.db.Set([]byte(key), value, pebble.NoSync)
+	return s.setNoSync([]byte(key), value)
 }
 
-// DeleteRaw deletes a raw key.
+// DeleteRaw deletes a raw key. Deletes are rare and synced — a lost raw
+// tombstone (e.g. an ACL removal) would silently resurrect on a hard kill.
 func (s *PebbleStore) DeleteRaw(ctx context.Context, key string) error {
-	err := s.db.Delete([]byte(key), pebble.NoSync)
+	err := s.db.Delete([]byte(key), pebble.Sync)
 	if err == pebble.ErrNotFound {
 		return ErrNotFound
 	}
@@ -629,7 +754,7 @@ func (s *PebbleStore) RawBatch(ctx context.Context, sets map[string][]byte, dele
 			return fmt.Errorf("batch delete %q: %w", k, err)
 		}
 	}
-	return batch.Commit(pebble.NoSync)
+	return s.commitNoSync(batch)
 }
 
 // RawScan iterates keys with the given prefix starting from startKey.

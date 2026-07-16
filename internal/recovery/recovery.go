@@ -249,14 +249,7 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 		}
 		name := d.Name()
 		// Markers, sidecars and staging leftovers.
-		if name == ".maxiofs-bucket" || name == ".maxiofs-folder" ||
-			strings.HasSuffix(name, ".metadata") ||
-			strings.HasSuffix(name, ".metadata-staging") ||
-			strings.HasPrefix(name, ".tmp_") ||
-			strings.HasPrefix(name, ".metadata-tmp-") ||
-			strings.HasPrefix(name, "maxiofs-upload-") ||
-			strings.HasPrefix(name, "maxiofs-encmigrate") ||
-			strings.HasPrefix(name, "maxiofs-multipart-") {
+		if isInternalObjectName(name) {
 			report.Skipped++
 			return nil
 		}
@@ -322,6 +315,20 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 		}
 		return nil
 	})
+}
+
+// isInternalObjectName reports whether a filename under a bucket root is a
+// MaxIOFS-internal artifact (markers, sidecars, staging/temp files) rather
+// than object data. Shared by the offline rebuild and the online reconciler.
+func isInternalObjectName(name string) bool {
+	return name == ".maxiofs-bucket" || name == ".maxiofs-folder" ||
+		strings.HasSuffix(name, ".metadata") ||
+		strings.HasSuffix(name, ".metadata-staging") ||
+		strings.HasPrefix(name, ".tmp_") ||
+		strings.HasPrefix(name, ".metadata-tmp-") ||
+		strings.HasPrefix(name, "maxiofs-upload-") ||
+		strings.HasPrefix(name, "maxiofs-encmigrate") ||
+		strings.HasPrefix(name, "maxiofs-multipart-")
 }
 
 type objectClass int
