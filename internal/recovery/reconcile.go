@@ -115,7 +115,6 @@ func Reconcile(ctx context.Context, dataDir string, store metadata.Store, logger
 // the store's listing against the keys seen on disk (direction store→disk).
 func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store, report *ReconcileReport, logger *logrus.Logger) (bool, error) {
 	changed := false
-	diskKeys := make(map[string]struct{})
 
 	walkErr := filepath.WalkDir(bkt.dirPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -145,6 +144,10 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 			strings.HasPrefix(name, "maxiofs-multipart-"):
 			return nil
 		case strings.HasSuffix(name, ".metadata"):
+			// A sidecar's sibling data file is at the SAME path minus ".metadata"
+			// (this is inherently version-aware: a .versions/key/versionID.metadata
+			// sits next to its .versions/key/versionID data file). Only a sidecar
+			// with no sibling AND no metadata entry is a half-completed delete.
 			if reconcileOrphanSidecar(ctx, bkt, path, store, logger) {
 				report.SidecarsCleaned++
 			}
@@ -154,9 +157,6 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 		key, versionID, ok := keyFromRelPath(bkt.dirPath, path)
 		if !ok {
 			return nil
-		}
-		if versionID == "" {
-			diskKeys[key] = struct{}{}
 		}
 
 		_, gErr := store.GetObject(ctx, bkt.bucketPath, key, versionID)
@@ -220,7 +220,11 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 		return changed, walkErr
 	}
 
-	// Direction store→disk: entries whose data file no longer exists.
+	// Direction store→disk: remove entries whose real data file is gone.
+	// CRITICAL: the data path is resolved from the entry's own VersionID — a
+	// versioned object's bytes live at bucket/.versions/key/versionID, NOT at
+	// the plain path bucket/key. Checking the plain path was the bug that
+	// destroyed versioned (Object Lock / Veeam) buckets.
 	marker := ""
 	for {
 		if err := ctx.Err(); err != nil {
@@ -231,14 +235,7 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 			return changed, fmt.Errorf("list objects: %w", err)
 		}
 		for _, obj := range objs {
-			// Delete markers have no disk artifact by design.
-			if obj.ETag == "" && obj.Size == 0 {
-				continue
-			}
-			if _, seen := diskKeys[obj.Key]; seen {
-				continue
-			}
-			if reconcileGhostEntry(ctx, bkt, obj.Key, store, logger) {
+			if reconcileGhostEntry(ctx, bkt, obj, store, logger) {
 				report.GhostsRemoved++
 				changed = true
 			}
@@ -250,6 +247,16 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 	}
 
 	return changed, nil
+}
+
+// objectDataPath resolves the on-disk data path for an object metadata entry.
+// Versioned objects store their bytes under .versions/key/versionID; only a
+// non-versioned object lives at the plain bucket/key path.
+func objectDataPath(bucketDir, key, versionID string) string {
+	if versionID != "" {
+		return filepath.Join(bucketDir, ".versions", filepath.FromSlash(key), versionID)
+	}
+	return filepath.Join(bucketDir, filepath.FromSlash(key))
 }
 
 // keyFromRelPath converts an absolute file path under a bucket root into an
@@ -271,10 +278,54 @@ func keyFromRelPath(bucketDir, path string) (key, versionID string, ok bool) {
 	return rel, "", true
 }
 
-// reconcileOrphanSidecar finishes a delete that removed the data file but
-// died before the sidecar: sidecar present + data file gone + no metadata
-// entry → remove the sidecar (it would otherwise serve ghost HEAD/GET hits
-// through the sidecar fallback). Returns true when a sidecar was removed.
+// reconcileGhostEntry removes a metadata entry whose REAL data file is gone.
+// The data path is resolved from the entry's own VersionID (version-aware):
+// for a versioned object the bytes live at .versions/key/versionID, so checking
+// the plain path bucket/key — as the original code did — wrongly flagged every
+// versioned object as a ghost. Delete markers (no disk artifact by design) and
+// folder markers (a directory) are never removed. Returns true on removal.
+func reconcileGhostEntry(ctx context.Context, bkt *bucketEntry, obj *metadata.ObjectMetadata, store metadata.Store, logger *logrus.Logger) bool {
+	key := obj.Key
+
+	// Delete marker: exists only in metadata, has no disk file by design.
+	if obj.ETag == "" && obj.Size == 0 {
+		return false
+	}
+
+	// Folder marker (key ends in "/"): its artifact is the directory itself.
+	if strings.HasSuffix(key, "/") {
+		dirPath := filepath.Join(bkt.dirPath, filepath.FromSlash(strings.TrimSuffix(key, "/")))
+		if info, err := os.Stat(dirPath); err != nil || info.IsDir() {
+			return false // dir present, or unknown state — never destroy
+		}
+	}
+
+	// Resolve the REAL data path from the entry's VersionID.
+	dataPath := objectDataPath(bkt.dirPath, key, obj.VersionID)
+	if _, err := os.Stat(dataPath); err == nil || !os.IsNotExist(err) {
+		return false // data present (or unknown stat error) — keep the entry
+	}
+
+	// Data genuinely missing. Re-verify the entry still exists (a concurrent
+	// live delete removes metadata before the file), then remove only the
+	// latest pointer for this exact key.
+	if _, err := store.GetObject(ctx, bkt.bucketPath, key); err != nil {
+		return false
+	}
+	if err := store.DeleteObject(ctx, bkt.bucketPath, key); err != nil {
+		return false
+	}
+	logger.WithFields(logrus.Fields{
+		"bucket": bkt.bucketPath, "key": key, "version": obj.VersionID,
+	}).Info("Reconcile: removed ghost metadata entry (data file missing)")
+	return true
+}
+
+// reconcileOrphanSidecar removes a sidecar left by a delete that removed the
+// data file but died before the sidecar. It checks the sidecar's SIBLING data
+// file (same path minus ".metadata"), which is inherently version-aware — a
+// .versions/key/versionID.metadata sits next to its data file. Only a sidecar
+// with no sibling AND no metadata entry is removed. Returns true on removal.
 func reconcileOrphanSidecar(ctx context.Context, bkt *bucketEntry, sidecarPath string, store metadata.Store, logger *logrus.Logger) bool {
 	dataPath := strings.TrimSuffix(sidecarPath, ".metadata")
 	base := filepath.Base(dataPath)
@@ -282,7 +333,7 @@ func reconcileOrphanSidecar(ctx context.Context, bkt *bucketEntry, sidecarPath s
 		return false // marker/staging sidecars are not ours to judge
 	}
 	if _, err := os.Stat(dataPath); err == nil || !os.IsNotExist(err) {
-		return false // data file present (or unknown state): healthy pair
+		return false // sibling data file present (or unknown): healthy pair
 	}
 
 	key, versionID, ok := keyFromRelPath(bkt.dirPath, dataPath)
@@ -290,7 +341,7 @@ func reconcileOrphanSidecar(ctx context.Context, bkt *bucketEntry, sidecarPath s
 		return false
 	}
 	if _, err := store.GetObject(ctx, bkt.bucketPath, key, versionID); err == nil {
-		return false // entry exists → this is a ghost, handled by direction B
+		return false // a metadata entry still references it — not an orphan
 	}
 
 	if err := os.Remove(sidecarPath); err != nil {
@@ -299,35 +350,5 @@ func reconcileOrphanSidecar(ctx context.Context, bkt *bucketEntry, sidecarPath s
 	logger.WithFields(logrus.Fields{
 		"bucket": bkt.bucketPath, "key": key, "version": versionID,
 	}).Info("Reconcile: removed orphan sidecar from half-completed delete")
-	return true
-}
-
-// reconcileGhostEntry removes a metadata entry whose data file is gone.
-// Re-checks both sides immediately before acting so a concurrent live
-// operation always wins. Returns true when the entry was removed.
-func reconcileGhostEntry(ctx context.Context, bkt *bucketEntry, key string, store metadata.Store, logger *logrus.Logger) bool {
-	dataPath := filepath.Join(bkt.dirPath, filepath.FromSlash(key))
-
-	if strings.HasSuffix(key, "/") {
-		// Folder marker: its disk artifact is the directory itself.
-		if info, err := os.Stat(dataPath); err == nil && info.IsDir() {
-			return false
-		}
-	} else if _, err := os.Stat(dataPath); err == nil || !os.IsNotExist(err) {
-		return false // file exists (or unknown state — do not destroy)
-	}
-
-	// Live deletes remove metadata BEFORE the file, so if this entry was
-	// being deleted concurrently it is already gone by now.
-	if _, err := store.GetObject(ctx, bkt.bucketPath, key); err != nil {
-		return false
-	}
-	if err := store.DeleteObject(ctx, bkt.bucketPath, key); err != nil {
-		return false
-	}
-	_ = os.Remove(dataPath + ".metadata") // leftover sidecar, if any
-	logger.WithFields(logrus.Fields{
-		"bucket": bkt.bucketPath, "key": key,
-	}).Info("Reconcile: removed ghost metadata entry (data file missing)")
 	return true
 }

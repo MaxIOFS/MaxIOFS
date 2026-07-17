@@ -41,6 +41,7 @@ built in Go with an embedded React web interface.`,
 
 	// Offline disaster-recovery subcommand (run with the server stopped)
 	rootCmd.AddCommand(newRecoverCmd())
+	rootCmd.AddCommand(newRepairPointersCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

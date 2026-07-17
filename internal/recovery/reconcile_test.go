@@ -122,21 +122,70 @@ func TestReconcileRestoresLostEntry(t *testing.T) {
 	}
 }
 
+// TestReconcileNeverDeletesVersionedEntries reproduces the production incident:
+// a versioned (Object Lock) bucket stores object data under .versions/, so the
+// plain path bucket/key never exists as a file. Reconcile must NOT treat those
+// latest-version entries as ghosts. Regression for the reconcile that deleted
+// ~50k Veeam metadata entries.
+func TestReconcileNeverDeletesVersionedEntries(t *testing.T) {
+	dataDir, store, cleanup := setupReconcileTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	const versionID = "1775486761442908795.439e1cad"
+	// Versioned object: data + sidecar live ONLY under .versions/, and the
+	// store holds both the version entry and the "latest" pointer — exactly
+	// the on-disk shape a Veeam/immutable bucket produces. No plain-path file.
+	writeObjectPair(t, dataDir, ".versions/Veeam/Backup/blk-0001/"+versionID, "veeam-block-bytes", 1775486761)
+	obj := &metadata.ObjectMetadata{Bucket: "bkt", Key: "Veeam/Backup/blk-0001", VersionID: versionID, Size: 17, ETag: "test-etag", IsLatest: true}
+	version := &metadata.ObjectVersion{VersionID: versionID, IsLatest: true, Key: "Veeam/Backup/blk-0001", Size: 17, ETag: "test-etag"}
+	if err := store.PutObjectVersion(ctx, obj, version); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v (failures: %v)", err, report.Failures)
+	}
+	if report.GhostsRemoved != 0 {
+		t.Fatalf("GhostsRemoved = %d, want 0 — reconcile deleted a valid versioned entry", report.GhostsRemoved)
+	}
+
+	// The latest-pointer entry must still resolve after reconcile.
+	if _, err := store.GetObject(ctx, "bkt", "Veeam/Backup/blk-0001"); err != nil {
+		t.Errorf("versioned object's latest entry was destroyed by reconcile: %v", err)
+	}
+	if _, err := store.GetObject(ctx, "bkt", "Veeam/Backup/blk-0001", versionID); err != nil {
+		t.Errorf("versioned object's version entry was destroyed by reconcile: %v", err)
+	}
+}
+
+// TestReconcileRemovesGenuineGhost: a NON-versioned entry whose plain data
+// file is genuinely gone is a real ghost and is removed. A versioned entry
+// whose .versions/ data file IS present must survive the same pass (this is
+// the case that was destroyed in production).
 func TestReconcileRemovesGhostEntry(t *testing.T) {
 	dataDir, store, cleanup := setupReconcileTest(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	// Ghost: Pebble entry with no data file (pre-fix crash during delete).
+	// Genuine ghost: non-versioned entry, no data file on disk.
 	if err := store.PutObject(ctx, &metadata.ObjectMetadata{
 		Bucket: "bkt", Key: "ghost.txt", Size: 4, ETag: "ghost-etag",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Delete marker: entry with no disk artifact BY DESIGN — must be kept.
+	// Delete marker: no disk artifact by design — must be kept.
 	if err := store.PutObject(ctx, &metadata.ObjectMetadata{
-		Bucket: "bkt", Key: "deleted-versioned.txt", Size: 0, ETag: "",
+		Bucket: "bkt", Key: "deleted.txt", Size: 0, ETag: "",
 	}); err != nil {
+		t.Fatal(err)
+	}
+	// Versioned entry with data on disk under .versions/ — must be kept.
+	const versionID = "1775486761442908795.439e1cad"
+	writeObjectPair(t, dataDir, ".versions/live-versioned.bin/"+versionID, "bytes", 1775486761)
+	vobj := &metadata.ObjectMetadata{Bucket: "bkt", Key: "live-versioned.bin", VersionID: versionID, Size: 5, ETag: "e", IsLatest: true}
+	if err := store.PutObjectVersion(ctx, vobj, &metadata.ObjectVersion{VersionID: versionID, IsLatest: true, Key: "live-versioned.bin", Size: 5, ETag: "e"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,14 +194,16 @@ func TestReconcileRemovesGhostEntry(t *testing.T) {
 		t.Fatalf("Reconcile failed: %v", err)
 	}
 	if report.GhostsRemoved != 1 {
-		t.Fatalf("GhostsRemoved = %d, want 1 (failures: %v)", report.GhostsRemoved, report.Failures)
+		t.Fatalf("GhostsRemoved = %d, want 1 (only the genuine non-versioned ghost)", report.GhostsRemoved)
 	}
-
 	if _, err := store.GetObject(ctx, "bkt", "ghost.txt"); err != metadata.ErrObjectNotFound {
-		t.Errorf("ghost entry should be removed, got err=%v", err)
+		t.Errorf("genuine ghost should be removed, got err=%v", err)
 	}
-	if _, err := store.GetObject(ctx, "bkt", "deleted-versioned.txt"); err != nil {
-		t.Errorf("delete marker must survive reconciliation: %v", err)
+	if _, err := store.GetObject(ctx, "bkt", "deleted.txt"); err != nil {
+		t.Errorf("delete marker must survive: %v", err)
+	}
+	if _, err := store.GetObject(ctx, "bkt", "live-versioned.bin"); err != nil {
+		t.Errorf("versioned object with data on disk must survive: %v", err)
 	}
 }
 
@@ -161,29 +212,36 @@ func TestReconcileCleansOrphanSidecarKeepsStaging(t *testing.T) {
 	defer cleanup()
 	bucketDir := filepath.Join(dataDir, "objects", "bkt")
 
-	// Orphan sidecar: data file and entry both gone (half-completed delete).
+	// Orphan sidecar: no sibling data file, no metadata entry → half-completed
+	// delete, removed.
 	orphan := filepath.Join(bucketDir, "dead.txt.metadata")
 	if err := os.WriteFile(orphan, []byte(`{"size":"3"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	// Staged sidecar: owned by the storage backend's two-phase repair.
+	// Staged sidecar: owned by the storage backend's two-phase repair — untouched.
 	staging := filepath.Join(bucketDir, "staged.txt.metadata-staging")
 	if err := os.WriteFile(staging, []byte(`{"size":"3"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// Healthy versioned sidecar: its sibling data file exists → must be kept.
+	const vid = "1775486761442908795.aaaa"
+	writeObjectPair(t, dataDir, ".versions/keep.bin/"+vid, "bytes", 1775486761)
 
 	report, err := Reconcile(context.Background(), dataDir, store, logrus.StandardLogger())
 	if err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
 	}
 	if report.SidecarsCleaned != 1 {
-		t.Fatalf("SidecarsCleaned = %d, want 1 (failures: %v)", report.SidecarsCleaned, report.Failures)
+		t.Fatalf("SidecarsCleaned = %d, want 1 (only the true orphan)", report.SidecarsCleaned)
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Error("orphan sidecar should be removed")
 	}
 	if _, err := os.Stat(staging); err != nil {
-		t.Error("staged sidecar must NOT be touched by the reconciler")
+		t.Error("staged sidecar must NOT be touched")
+	}
+	if _, err := os.Stat(filepath.Join(bucketDir, ".versions", "keep.bin", vid+".metadata")); err != nil {
+		t.Error("healthy versioned sidecar (sibling data present) must NOT be removed")
 	}
 }
 
