@@ -574,12 +574,6 @@ func TestEvaluatePolicy_ConvenienceFunctions(t *testing.T) {
 	// Test IsActionAllowed
 	assert.True(t, IsActionAllowed(ctx, allowPolicy, request), "IsActionAllowed should return true for Allow policy")
 	assert.False(t, IsActionAllowed(ctx, denyPolicy, request), "IsActionAllowed should return false for Deny policy")
-
-	// Test IsActionDenied
-	request.Action = "s3:DeleteObject"
-	assert.True(t, IsActionDenied(ctx, denyPolicy, request), "IsActionDenied should return true for Deny policy")
-	request.Action = "s3:GetObject"
-	assert.False(t, IsActionDenied(ctx, allowPolicy, request), "IsActionDenied should return false for Allow policy")
 }
 
 // TestEvaluatePolicy_PrincipalFormats tests different principal formats

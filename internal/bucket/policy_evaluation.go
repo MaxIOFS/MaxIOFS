@@ -591,8 +591,3 @@ func IsActionAllowed(ctx context.Context, policy *Policy, request PolicyEvaluati
 	return decision == DecisionAllow
 }
 
-// IsActionDenied is a convenience function that returns true if action is explicitly denied
-func IsActionDenied(ctx context.Context, policy *Policy, request PolicyEvaluationRequest) bool {
-	decision := EvaluatePolicy(ctx, policy, request)
-	return decision == DecisionExplicitDeny
-}

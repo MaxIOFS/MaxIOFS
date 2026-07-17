@@ -135,7 +135,7 @@ func TestCollector_StartBackgroundCollection(t *testing.T) {
 	defer cancel()
 
 	// Create mock manager
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	// Start background collection
 	interval := 100 * time.Millisecond
@@ -158,7 +158,7 @@ func TestCollector_StartBackgroundCollection_AlreadyRunning(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	// Start first time
 	collector.StartBackgroundCollection(ctx, manager, 100*time.Millisecond)
@@ -181,7 +181,7 @@ func TestCollector_StopBackgroundCollection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	// Start collection
 	collector.StartBackgroundCollection(ctx, manager, 100*time.Millisecond)
@@ -197,7 +197,7 @@ func TestCollector_StopBackgroundCollection(t *testing.T) {
 
 func TestCollector_CanRestartAfterStop(t *testing.T) {
 	collector := NewCollector(os.TempDir())
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
@@ -230,7 +230,7 @@ func TestCollector_BackgroundCollectionInterval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	// Start with fast interval for testing
 	interval := 100 * time.Millisecond
@@ -252,7 +252,7 @@ func TestCollector_BackgroundCollectionCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	manager := NewManager(testMetricsConfig())
+	manager := NewManagerWithStore(testMetricsConfig(), "", nil)
 
 	// Start collection
 	collector.StartBackgroundCollection(ctx, manager, 50*time.Millisecond)

@@ -17,7 +17,7 @@ func TestNewManager(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg)
+	manager := NewManagerWithStore(cfg, "", nil)
 	require.NotNil(t, manager)
 
 	// Manager is not started yet, so it's not healthy
@@ -29,7 +29,7 @@ func TestNewManager_Disabled(t *testing.T) {
 		Enable: false,
 	}
 
-	manager := NewManager(cfg)
+	manager := NewManagerWithStore(cfg, "", nil)
 	require.NotNil(t, manager)
 
 	// Disabled manager should be noop
@@ -43,7 +43,7 @@ func TestRecordHTTPRequest(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Record successful request
@@ -60,7 +60,7 @@ func TestRecordHTTPRequest_Error(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Record error request
@@ -76,7 +76,7 @@ func TestRecordHTTPRequestSize(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Should not panic
@@ -89,7 +89,7 @@ func TestRecordHTTPResponseSize(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Should not panic
@@ -102,7 +102,7 @@ func TestRecordS3Operation(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Record successful operation
@@ -118,7 +118,7 @@ func TestRecordS3Error(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordS3Error("PutObject", "test-bucket", "NoSuchBucket")
@@ -130,7 +130,7 @@ func TestRecordStorageOperation(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordStorageOperation("write", true, 10*time.Millisecond)
@@ -143,7 +143,7 @@ func TestUpdateStorageUsage(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.UpdateStorageUsage("test-bucket", 100, 1024*1024)
@@ -155,7 +155,7 @@ func TestRecordObjectOperation(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordObjectOperation("put", "test-bucket", 1024, 10*time.Millisecond)
@@ -167,7 +167,7 @@ func TestRecordAuthAttempt(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordAuthAttempt("jwt", true)
@@ -180,7 +180,7 @@ func TestRecordAuthFailure(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordAuthFailure("jwt", "invalid_token")
@@ -192,7 +192,7 @@ func TestUpdateSystemMetrics(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.UpdateSystemMetrics(50.5, 75.2, 60.0)
@@ -204,7 +204,7 @@ func TestRecordSystemEvent(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	details := map[string]string{
@@ -220,7 +220,7 @@ func TestUpdateBucketMetrics(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.UpdateBucketMetrics("test-bucket", 50, 1024*1024*10)
@@ -232,7 +232,7 @@ func TestRecordBucketOperation(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordBucketOperation("create", "test-bucket", true)
@@ -245,7 +245,7 @@ func TestRecordObjectLockOperation(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordObjectLockOperation("set_retention", "test-bucket", true)
@@ -257,7 +257,7 @@ func TestUpdateRetentionMetrics(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.UpdateRetentionMetrics("test-bucket", 10, 5)
@@ -269,7 +269,7 @@ func TestRecordBackgroundTask(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.RecordBackgroundTask("lifecycle_cleanup", 2*time.Second, true)
@@ -281,7 +281,7 @@ func TestUpdateCacheMetrics(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	manager.UpdateCacheMetrics(0.85, 1024*1024*50)
@@ -293,7 +293,7 @@ func TestGetMetricsHandler(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	handler := manager.GetMetricsHandler()
@@ -306,7 +306,7 @@ func TestGetMetricsSnapshot(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	snapshot, err := manager.GetMetricsSnapshot()
@@ -322,7 +322,7 @@ func TestGetS3MetricsSnapshot(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Record some metrics first
@@ -343,7 +343,7 @@ func TestIsHealthy(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	// Before starting
@@ -367,7 +367,7 @@ func TestStartStop(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	ctx := context.Background()
@@ -395,7 +395,7 @@ func TestMiddleware(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	middleware := manager.Middleware()
@@ -408,7 +408,7 @@ func TestReset(t *testing.T) {
 		Interval: 10,
 	}
 
-	manager := NewManager(cfg).(*metricsManager)
+	manager := NewManagerWithStore(cfg, "", nil).(*metricsManager)
 	require.NotNil(t, manager)
 
 	err := manager.Reset()

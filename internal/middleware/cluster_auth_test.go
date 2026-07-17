@@ -556,44 +556,6 @@ func TestComputeSignature(t *testing.T) {
 	assert.NotEqual(t, sig1, sig7, "Different body hash should produce different signature")
 }
 
-func TestSignRequest(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/internal/cluster/test", nil)
-	nodeID := "test-node"
-	nodeToken := "test-token"
-
-	SignRequest(req, nodeID, nodeToken)
-
-	// Verify headers were added
-	assert.Equal(t, nodeID, req.Header.Get("X-MaxIOFS-Node-ID"))
-	assert.NotEmpty(t, req.Header.Get("X-MaxIOFS-Timestamp"))
-	assert.NotEmpty(t, req.Header.Get("X-MaxIOFS-Nonce"))
-	assert.NotEmpty(t, req.Header.Get("X-MaxIOFS-Signature"))
-
-	// Verify signature is valid
-	timestamp := req.Header.Get("X-MaxIOFS-Timestamp")
-	nonce := req.Header.Get("X-MaxIOFS-Nonce")
-	signature := req.Header.Get("X-MaxIOFS-Signature")
-
-	expectedSignature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce, emptyBodyHash)
-	assert.Equal(t, expectedSignature, signature, "Signature should match expected value")
-}
-
-func TestSignRequest_PreservesExistingHeaders(t *testing.T) {
-	req := httptest.NewRequest("POST", "/test", nil)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Custom-Header", "custom-value")
-
-	SignRequest(req, "node-1", "token-1")
-
-	// Verify existing headers are preserved
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-	assert.Equal(t, "custom-value", req.Header.Get("X-Custom-Header"))
-
-	// Verify auth headers were added
-	assert.NotEmpty(t, req.Header.Get("X-MaxIOFS-Node-ID"))
-	assert.NotEmpty(t, req.Header.Get("X-MaxIOFS-Signature"))
-}
-
 func TestGetNodeToken(t *testing.T) {
 	db := setupClusterAuthTestDB(t)
 	defer db.Close()
@@ -620,20 +582,3 @@ func TestGetNodeToken(t *testing.T) {
 	assert.Error(t, err, "Should not find token for removed node")
 }
 
-func TestGenerateNonce(t *testing.T) {
-	// Generate multiple nonces
-	nonces := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		nonce := generateNonce()
-		assert.NotEmpty(t, nonce)
-
-		// Check for uniqueness
-		assert.False(t, nonces[nonce], "Nonce should be unique")
-		nonces[nonce] = true
-
-		// Small delay to ensure different timestamps
-		time.Sleep(time.Microsecond)
-	}
-
-	assert.Equal(t, 100, len(nonces), "All nonces should be unique")
-}

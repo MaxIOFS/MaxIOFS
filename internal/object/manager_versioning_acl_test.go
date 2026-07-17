@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -345,38 +344,6 @@ func TestIsReady(t *testing.T) {
 	assert.False(t, om.IsReady(), "Object manager should not be ready after metadata store closes")
 }
 
-// TestCanModifyObject tests the CanModifyObject method
-func TestCanModifyObject(t *testing.T) {
-	ctx := context.Background()
-	om, metaStore, cleanup := setupTestManagerWithStore(t)
-	defer cleanup()
-
-	ol := NewObjectLocker(om, nil)
-
-	bucket := "test-bucket"
-	key := "test-object.txt"
-
-	// Create bucket
-	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucket,
-		TenantID: "tenant-1",
-		OwnerID:  "user-1",
-	})
-	require.NoError(t, err)
-
-	// Put an object
-	content := bytes.NewReader([]byte("test content"))
-	headers := http.Header{"Content-Type": []string{"text/plain"}}
-	_, err = om.PutObject(ctx, bucket, key, content, headers)
-	require.NoError(t, err)
-
-	// Test CanModifyObject (should succeed for object without lock)
-	user := &auth.User{ID: "user-1", Roles: []string{"user"}}
-	err = ol.CanModifyObject(ctx, bucket, key, user)
-	assert.NoError(t, err, "Should allow modification of unlocked object")
-}
-
-// TestError tests the Error method on RetentionError
 func TestError(t *testing.T) {
 	retentionDate := time.Date(2025, 12, 31, 23, 59, 59, 0, time.UTC)
 	retentionError := &RetentionError{

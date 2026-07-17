@@ -1,13 +1,11 @@
 package s3compat
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"hash/crc32"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -195,22 +193,3 @@ func TestChecksum_NoAlgorithm_NoHeader(t *testing.T) {
 	assert.Empty(t, w2.Header().Get("x-amz-checksum-algorithm"), "GET should not return checksum header for plain upload")
 }
 
-// makeS3RequestWithHeaders creates and signs an S3 request, then applies extra headers.
-// The extra headers are applied BEFORE signing so they are included in the signature.
-func (env *s3TestEnv) makeS3RequestWithHeaders(method, path string, body []byte, extraHeaders map[string]string) (*http.Request, *httptest.ResponseRecorder) {
-	var reqBody bytes.Reader
-	if body != nil {
-		reqBody = *bytes.NewReader(body)
-	}
-
-	req := httptest.NewRequest(method, path, &reqBody)
-	req.Host = "localhost"
-
-	// Apply extra headers before signing
-	for k, v := range extraHeaders {
-		req.Header.Set(k, v)
-	}
-
-	signRequestV4(req, env.accessKey, env.secretKey, "us-east-1", "s3")
-	return req, httptest.NewRecorder()
-}

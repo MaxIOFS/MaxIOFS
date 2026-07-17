@@ -92,14 +92,3 @@ func IsValidCannedACL(cannedACL string) bool {
 }
 
 // IsValidPermission checks if a permission string is valid
-func IsValidPermission(perm Permission) bool {
-	switch perm {
-	case PermissionRead,
-		PermissionWrite,
-		PermissionReadACP,
-		PermissionWriteACP,
-		PermissionFullControl:
-		return true
-	}
-	return false
-}

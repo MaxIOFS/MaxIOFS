@@ -71,7 +71,6 @@ type Server struct {
 	clusterRouter           *cluster.Router
 	bucketAggregator        *cluster.BucketAggregator
 	quotaAggregator         *cluster.QuotaAggregator
-	rateLimiter             *cluster.RateLimiter
 	apiRateLimiter          *auth.APIRateLimiter // per-user S3 API rate limiter
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
@@ -380,11 +379,6 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize quota aggregator for cross-node quota checking
 	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)
 
-	// Initialize rate limiter for internal cluster APIs
-	// 100 requests per second per IP, burst of 200
-	rateLimiter := cluster.NewRateLimiter(100, 200)
-	logrus.Info("Rate limiter initialized for internal cluster APIs (100 req/s, burst: 200)")
-
 	// Connect cluster manager and quota aggregator to auth manager for cluster-aware quota checking
 	if am, ok := authManager.(interface {
 		SetClusterManager(interface {
@@ -502,7 +496,6 @@ func New(cfg *config.Config) (*Server, error) {
 		deadNodeReconciler:      deadNodeReconciler,
 		bucketAggregator:        bucketAggregator,
 		quotaAggregator:         quotaAggregator,
-		rateLimiter:             rateLimiter,
 		apiRateLimiter:          auth.NewAPIRateLimiter(),
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,

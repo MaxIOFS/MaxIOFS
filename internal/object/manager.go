@@ -3173,38 +3173,6 @@ func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket str
 	return nil
 }
 
-// calculateMultipartHash streams combined file to temp while calculating MD5 hash
-func (om *objectManager) calculateMultipartHash(ctx context.Context, objectPath string) (int64, string, string, error) {
-	combinedReader, _, err := om.storage.Get(ctx, objectPath)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("failed to read combined object: %w", err)
-	}
-
-	// Create temp file for calculating metadata.
-	// Use DataDir to stay on the same filesystem as the final object path (BUG-05).
-	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-multipart-*")
-	if err != nil {
-		combinedReader.Close()
-		return 0, "", "", fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tempPath := tempFile.Name()
-
-	// Stream to temp file while calculating MD5 hash
-	hasher := md5.New()
-	multiWriter := io.MultiWriter(tempFile, hasher)
-	originalSize, err := io.Copy(multiWriter, combinedReader)
-	combinedReader.Close()
-	if err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
-		return 0, "", "", fmt.Errorf("failed to write to temp file: %w", err)
-	}
-	tempFile.Close()
-
-	originalETag := hex.EncodeToString(hasher.Sum(nil))
-	return originalSize, originalETag, tempPath, nil
-}
-
 // storeEncryptedMultipartObject envelope-encrypts and stores the assembled
 // multipart object (fresh DEK wrapped by the current KEK, same format as
 // storeEncryptedObject).

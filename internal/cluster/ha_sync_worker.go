@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -397,29 +396,3 @@ func bucketPath(b bucket.Bucket) string {
 	return b.Name
 }
 
-// httpHeadersFromObject builds the HTTP headers that represent the full
-// metadata of obj.  Shared by the sync worker and the fanout helpers so the
-// replica always receives a complete, consistent set of headers.
-func httpHeadersFromObject(obj *object.Object) http.Header {
-	h := http.Header{}
-	h.Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		h.Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		h.Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		h.Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		h.Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.StorageClass != "" {
-		h.Set("x-amz-storage-class", obj.StorageClass)
-	}
-	for k, v := range obj.Metadata {
-		h.Set("x-amz-meta-"+k, v)
-	}
-	return h
-}

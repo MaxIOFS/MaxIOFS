@@ -7,83 +7,11 @@ import (
 	"io"
 	"net/http"
 	"testing"
-	"time"
 
-	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestCleanupExpiredRetentions_WithExpiredObjects tests cleanup functionality
-func TestCleanupExpiredRetentions_WithExpiredObjects(t *testing.T) {
-	ctx := context.Background()
-	om, metaStore, cleanup := setupTestManagerWithStore(t)
-	defer cleanup()
-
-	ol := NewObjectLocker(om, nil)
-	rpm := NewRetentionPolicyManager(om, ol)
-
-	bucketName := "cleanup-bucket"
-	tenantID := "tenant-1"
-	bucket := tenantID + "/" + bucketName
-
-	// Create bucket
-	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucketName,
-		TenantID: tenantID,
-		OwnerID:  "user-1",
-	})
-	require.NoError(t, err)
-
-	user := &auth.User{ID: "user-1", Roles: []string{"admin"}}
-
-	// Create object 1 with retention that expires in 1 second
-	key1 := "expire-soon-1.txt"
-	content1 := bytes.NewReader([]byte("expiring soon 1"))
-	headers1 := http.Header{"Content-Type": []string{"text/plain"}}
-	_, err = om.PutObject(ctx, bucket, key1, content1, headers1)
-	require.NoError(t, err)
-
-	retention1 := &ObjectLockRetention{
-		Mode:            RetentionModeGovernance,
-		RetainUntilDate: time.Now().Add(1 * time.Second),
-	}
-	err = ol.PutObjectRetention(ctx, bucket, key1, retention1, false, user)
-	require.NoError(t, err)
-
-	// Create object 2 with active retention (future)
-	key2 := "keep-active.txt"
-	content2 := bytes.NewReader([]byte("keep active"))
-	headers2 := http.Header{"Content-Type": []string{"text/plain"}}
-	_, err = om.PutObject(ctx, bucket, key2, content2, headers2)
-	require.NoError(t, err)
-
-	retention2 := &ObjectLockRetention{
-		Mode:            RetentionModeGovernance,
-		RetainUntilDate: time.Now().Add(30 * 24 * time.Hour),
-	}
-	err = ol.PutObjectRetention(ctx, bucket, key2, retention2, false, user)
-	require.NoError(t, err)
-
-	// Wait for first retention to expire
-	time.Sleep(2 * time.Second)
-
-	// Call CleanupExpiredRetentions
-	cleaned, err := rpm.CleanupExpiredRetentions(ctx, bucket)
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, cleaned, "Should clean the expired retention only")
-
-	obj1, err := om.GetObjectMetadata(ctx, bucket, key1)
-	require.NoError(t, err)
-	assert.Nil(t, obj1.Retention, "Expired retention should be removed")
-
-	obj2, err := om.GetObjectMetadata(ctx, bucket, key2)
-	require.NoError(t, err)
-	require.NotNil(t, obj2.Retention, "Active retention should remain")
-	assert.Equal(t, retention2.RetainUntilDate.Unix(), obj2.Retention.RetainUntilDate.Unix())
-}
 
 // mockAuthManager for quota tests
 type mockQuotaAuthManager struct {

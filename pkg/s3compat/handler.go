@@ -342,31 +342,6 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 	return true
 }
 
-// ValidateAndApplyClusterProxyAuth checks if the request carries inter-node proxy auth headers.
-// If valid, it sets up the user context from forwarded headers and returns true.
-// This allows target nodes to accept proxied S3 requests without re-verifying SigV4.
-func (h *Handler) ValidateAndApplyClusterProxyAuth(r *http.Request, clusterToken string) (newCtx context.Context, ok bool) {
-	userID, tenantID, rolesStr, valid := cluster.ValidateClusterProxyAuth(r, clusterToken)
-	if !valid {
-		return r.Context(), false
-	}
-
-	roles := []string{}
-	if rolesStr != "" {
-		roles = strings.Split(rolesStr, ",")
-	}
-
-	// Build a minimal auth.User from the forwarded context
-	user := &auth.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Roles:    roles,
-	}
-	// Store user in context using the same key as the auth middleware
-	ctx := context.WithValue(r.Context(), "user", user)
-	return ctx, true
-}
-
 // SetMetadataStore sets the metadata store for accessing object versions
 func (h *Handler) SetMetadataStore(ms interface {
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -285,19 +284,6 @@ func (s *SQLiteStore) SetRoleCapabilities(role string, capabilities []string) er
 // --- authManager context helper ---
 
 // HasCapability resolves the capability for the user in context. Always returns true for admin users.
-func HasCapabilityInContext(ctx context.Context, store interface {
-	HasCapability(userID string, roles []string, capability string) (bool, error)
-}, capability string) bool {
-	user, ok := GetUserFromContext(ctx)
-	if !ok {
-		return false
-	}
-	allowed, err := store.HasCapability(user.ID, user.Roles, capability)
-	if err != nil {
-		return false
-	}
-	return allowed
-}
 
 func generateCapabilityID() string {
 	b := make([]byte, 12)

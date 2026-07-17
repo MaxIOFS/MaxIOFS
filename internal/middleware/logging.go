@@ -93,16 +93,6 @@ func DefaultLoggingConfig() *LoggingConfig {
 	}
 }
 
-// VerboseLoggingConfig returns a verbose logging configuration for debugging
-func VerboseLoggingConfig() *LoggingConfig {
-	return &LoggingConfig{
-		LogFormat:   "json",
-		SkipPaths:   []string{},
-		LogBody:     true,
-		MaxBodySize: 4096, // 4KB
-	}
-}
-
 // Logging returns a middleware that logs HTTP requests with default configuration
 func Logging() func(http.Handler) http.Handler {
 	return LoggingWithConfig(DefaultLoggingConfig())
@@ -327,27 +317,3 @@ func escapeJSON(s string) string {
 	return result
 }
 
-// S3LoggingMiddleware returns a logging middleware specifically configured for S3 operations
-func S3LoggingMiddleware() func(http.Handler) http.Handler {
-	config := &LoggingConfig{
-		LogFormat: "custom",
-		SkipPaths: []string{"/health"},
-		LogBody:   false, // S3 bodies can be large, so disable by default
-	}
-
-	// Custom formatter for S3 operations
-	config.CustomFormatter = func(entry LogEntry) string {
-		return fmt.Sprintf(
-			`[S3] %s %s %s - %d %dB %dms - %s`,
-			entry.Timestamp.Format("2006-01-02 15:04:05"),
-			entry.Method,
-			entry.URL,
-			entry.Status,
-			entry.Size,
-			entry.Duration.Milliseconds(),
-			entry.RemoteAddr,
-		)
-	}
-
-	return LoggingWithConfig(config)
-}

@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.5.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.5.0)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.5.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -251,13 +251,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.5.0_amd64.deb
+sudo dpkg -i maxiofs_1.5.1_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.5.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.5.1-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -332,7 +332,8 @@ cd web/frontend && npm run test        # 106 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.5.0** *(stable)* | **Always-on envelope encryption** (per-object DEK + database KEK, AWS SSE-S3 model, multi-format reader for full backward compatibility); encryption **recovery bundle** + `maxiofs recover` offline disaster-recovery CLI (rebuilds metadata from the object files alone); **KEK rotation** without re-encrypting data (background re-wrap worker); **ciphertext HA replication** with a cluster-shared KEK (no decrypt/re-encrypt per hop); **per-tenant bandwidth throttling**; **per-bucket storage quotas** with Veeam SOSAPI capacity exposure; major data-safety fixes (quota-rejected overwrites destroyed the original object, crash window in overwrites, HA replication silently 404ing, falsified replica timestamps causing perpetual anti-entropy churn, silent 200 on failed metadata saves, Windows AV-lock delete orphans); console SSE auto-reconnect |
+| **v1.5.1** *(stable)* | **Urgent fix: listing pagination lost one object per page of 1,000** (present since the Pebble migration; made backup verify/repair tools see existing files as missing — critical for Veeam/Duplicati targets); **Pebble hard-kill durability** (per-second WAL fsync, synchronous deletes, automatic metadata↔disk reconciliation after unclean shutdown); dead-code sweep across backend and frontend |
+| **v1.5.0** | **Always-on envelope encryption** (per-object DEK + database KEK, AWS SSE-S3 model, multi-format reader for full backward compatibility); encryption **recovery bundle** + `maxiofs recover` offline disaster-recovery CLI (rebuilds metadata from the object files alone); **KEK rotation** without re-encrypting data (background re-wrap worker); **ciphertext HA replication** with a cluster-shared KEK (no decrypt/re-encrypt per hop); **per-tenant bandwidth throttling**; **per-bucket storage quotas** with Veeam SOSAPI capacity exposure; major data-safety fixes (quota-rejected overwrites destroyed the original object, crash window in overwrites, HA replication silently 404ing, falsified replica timestamps causing perpetual anti-entropy churn, silent 200 on failed metadata saves, Windows AV-lock delete orphans); console SSE auto-reconnect |
 | **v1.4.2** | Bug fixes & hardening: web console bucket inventory can now be disabled/deleted once enabled; rate-limiter goroutine-leak fix; concurrency & correctness fixes from code audit (quota TOCTOU, versioning metrics race, refresh-token validation, object-name path-traversal, proxy memory use); security hardening (PBKDF2-SHA256 key derivation, access secrets encrypted at rest, CSP/HSTS, request-body caps); dependency updates (Go minor/patch + frontend npm within semver ranges) |
 | **v1.4.1** | Security: OAuth tokens no longer embedded in redirect URL (RFC 6819 one-time code exchange); deactivated users now blocked immediately on JWT validation. Multilingual UI — 9 languages (EN/ES/FR/DE/IT/PT/ZH/JA/RU), on-demand loading. Event-driven cluster config sync — immediate fan-out on all mutations. BadgerDB fully removed. Quota enforcement fixed for versioned buckets. 9 bugs fixed from full code audit |
 | **v1.4.0** | Role capabilities system (11 capabilities, per-role defaults, per-user overrides, S3 + console enforcement); multipart metadata security fix (request headers leaked into object user metadata); Object Lock retention/legal-hold now honor versionId; versioning metrics consistency; CopyObject tag directives; presigned URL improvements; S3 Select JSON Lines fix; multipart pagination; inventory fixes; lifecycle delete-marker cleanup; 50+ bug fixes |

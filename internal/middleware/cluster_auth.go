@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -150,27 +149,3 @@ func computeSignature(nodeToken, method, path, timestamp, nonce, bodyHash string
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// SignRequest adds HMAC authentication headers to an outgoing request.
-// This is used by the cluster manager when making requests to other nodes.
-func SignRequest(req *http.Request, nodeID, nodeToken string) {
-	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-	nonce := generateNonce()
-	bodyHash := readAndHashBody(req)
-
-	signature := computeSignature(nodeToken, req.Method, req.URL.Path, timestamp, nonce, bodyHash)
-
-	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
-	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
-	req.Header.Set("X-MaxIOFS-Nonce", nonce)
-	req.Header.Set("X-MaxIOFS-Signature", signature)
-}
-
-// generateNonce generates a cryptographically secure random nonce for request signatures.
-func generateNonce() string {
-	b := make([]byte, 16) // 128 bits of entropy
-	if _, err := rand.Read(b); err != nil {
-		// Fallback: combine timestamp with PID-ish data rather than silently using weak entropy
-		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixMicro())
-	}
-	return hex.EncodeToString(b)
-}

@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.5.0}
+%{!?version: %define version 1.5.1}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -267,6 +267,18 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Sat Jul 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.1-1
+- Release v1.5.1 — Urgent listing-pagination fix + Pebble hard-kill durability
+- [CRITICAL FIX] Listing pagination silently lost one object per page of 1,000 (present since
+  the Pebble migration): NextMarker pointed at the first key of the NEXT page while marker
+  consumption resumes strictly after the marker. Backup verify/repair tools (Veeam, Duplicati)
+  saw existing files as missing. Fixed in all paginated paths with round-trip regression tests
+- [FEATURE] Pebble durability on hard kill: per-second WAL fsync bounds metadata loss to ~1s;
+  destructive operations (deletes, multipart complete) fsync immediately; unclean shutdowns
+  are detected via a CLEAN_SHUTDOWN sentinel and the metadata store is reconciled against the
+  on-disk object tree in the background (lost entries restored from sidecars, ghosts removed)
+- [CHANGE] Dead-code sweep across backend and frontend (verified: zero production callers)
+
 * Fri Jul 10 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.0-1
 - Release v1.5.0 — Always-on envelope encryption, disaster recovery, ciphertext HA replication,
   per-tenant bandwidth limits, per-bucket quotas, and major data-safety fixes

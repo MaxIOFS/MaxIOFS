@@ -60,30 +60,6 @@ func TestIsValidCannedACL(t *testing.T) {
 }
 
 // TestIsValidPermission tests permission validation
-func TestIsValidPermission(t *testing.T) {
-	tests := []struct {
-		name       string
-		permission Permission
-		want       bool
-	}{
-		{"READ", PermissionRead, true},
-		{"WRITE", PermissionWrite, true},
-		{"READ_ACP", PermissionReadACP, true},
-		{"WRITE_ACP", PermissionWriteACP, true},
-		{"FULL_CONTROL", PermissionFullControl, true},
-		{"invalid", Permission("INVALID"), false},
-		{"empty", Permission(""), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsValidPermission(tt.permission)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-// TestCreateDefaultACL tests default ACL creation
 func TestCreateDefaultACL(t *testing.T) {
 	acl := CreateDefaultACL("user-123", "Test User")
 

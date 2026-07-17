@@ -198,34 +198,6 @@ func (ba *BucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tena
 	return allBuckets, nil
 }
 
-// deduplicateBucketsByTenantAndName returns one entry per (TenantID, Name).
-// Prefers the entry with NodeStatus == "local"; otherwise keeps the first by NodeID.
-func deduplicateBucketsByTenantAndName(buckets []BucketWithLocation) []BucketWithLocation {
-	type key struct {
-		tenantID string
-		name     string
-	}
-	byKey := make(map[key]BucketWithLocation)
-	for _, b := range buckets {
-		k := key{tenantID: b.TenantID, name: b.Name}
-		existing, ok := byKey[k]
-		if !ok {
-			byKey[k] = b
-			continue
-		}
-		// Prefer local; if both local or both remote, keep first (existing).
-		if b.NodeStatus == "local" && existing.NodeStatus != "local" {
-			byKey[k] = b
-		}
-		// If existing is local, keep it. If both remote, keep existing (first seen).
-	}
-	out := make([]BucketWithLocation, 0, len(byKey))
-	for _, b := range byKey {
-		out = append(out, b)
-	}
-	return out
-}
-
 // queryBucketsFromNode queries bucket list from a specific node via internal API
 func (ba *BucketAggregator) queryBucketsFromNode(ctx context.Context, node *Node, tenantID string) ([]BucketWithLocation, error) {
 	// Get local node credentials for authentication

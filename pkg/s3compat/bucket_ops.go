@@ -790,13 +790,6 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 // like aws-cli, Terraform, and SDK probes do not fall through to ListObjects.
 // ---------------------------------------------------------------------------
 
-// notifXMLTarget is the XML representation of a single notification target.
-type notifXMLTarget struct {
-	ID       string         `xml:"Id,omitempty"`
-	Endpoint string         `xml:",omitempty"` // TopicArn / Queue / CloudFunction depending on parent element
-	Events   []string       `xml:"Event"`
-	Filter   *notifXMLFilter `xml:"Filter,omitempty"`
-}
 type notifXMLFilter struct {
 	Rules []notifXMLFilterRule `xml:"S3Key>FilterRule"`
 }

@@ -200,6 +200,9 @@ const (
 	ObjectLockModeGovernance = "GOVERNANCE"
 	ObjectLockModeCompliance = "COMPLIANCE"
 
+	RetentionModeGovernance = "GOVERNANCE"
+	RetentionModeCompliance = "COMPLIANCE"
+
 	LegalHoldStatusOn  = "ON"
 	LegalHoldStatusOff = "OFF"
 )

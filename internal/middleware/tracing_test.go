@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,13 +17,13 @@ func TestTracingMiddleware_TraceIDGeneration(t *testing.T) {
 	// Create test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify trace ID exists in context
-		traceID := GetTraceID(r.Context())
+		traceID, _ := r.Context().Value(TraceIDKey).(string)
 		if traceID == "" {
 			t.Error("Expected non-empty trace ID")
 		}
 
 		// Verify start time exists
-		startTime := GetStartTime(r.Context())
+		startTime, _ := r.Context().Value(StartTimeKey).(time.Time)
 		if startTime.IsZero() {
 			t.Error("Expected non-zero start time")
 		}
@@ -122,83 +121,6 @@ func TestTracingMiddleware_StatusCodeCapture(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGetTraceID(t *testing.T) {
-	// Test with trace ID in context
-	ctx := context.WithValue(context.Background(), TraceIDKey, "test-trace-123")
-	traceID := GetTraceID(ctx)
-
-	if traceID != "test-trace-123" {
-		t.Errorf("Expected trace ID 'test-trace-123', got '%s'", traceID)
-	}
-
-	// Test with no trace ID
-	emptyCtx := context.Background()
-	emptyTraceID := GetTraceID(emptyCtx)
-
-	if emptyTraceID != "" {
-		t.Errorf("Expected empty trace ID, got '%s'", emptyTraceID)
-	}
-}
-
-func TestGetStartTime(t *testing.T) {
-	// Test with start time in context
-	now := time.Now()
-	ctx := context.WithValue(context.Background(), StartTimeKey, now)
-	startTime := GetStartTime(ctx)
-
-	if !startTime.Equal(now) {
-		t.Errorf("Expected start time %v, got %v", now, startTime)
-	}
-
-	// Test with no start time
-	emptyCtx := context.Background()
-	emptyStartTime := GetStartTime(emptyCtx)
-
-	if !emptyStartTime.IsZero() {
-		t.Errorf("Expected zero start time, got %v", emptyStartTime)
-	}
-}
-
-func TestGetOperation(t *testing.T) {
-	// Test with operation in context
-	ctx := context.WithValue(context.Background(), OperationKey, "PutObject")
-	operation := GetOperation(ctx)
-
-	if operation != "PutObject" {
-		t.Errorf("Expected operation 'PutObject', got '%s'", operation)
-	}
-
-	// Test with no operation
-	emptyCtx := context.Background()
-	emptyOperation := GetOperation(emptyCtx)
-
-	if emptyOperation != "" {
-		t.Errorf("Expected empty operation, got '%s'", emptyOperation)
-	}
-}
-
-func TestRecordCustomLatency(t *testing.T) {
-	// Initialize performance collector
-	collector := metrics.NewPerformanceCollector(100, 1*time.Hour)
-
-	// Manually set global collector for testing
-	// (normally done by InitGlobalPerformanceCollector)
-
-	// Record a database latency
-	RecordDatabaseLatency(15*time.Millisecond, true)
-
-	// Record a filesystem latency
-	RecordFilesystemLatency(5*time.Millisecond, true)
-
-	// Record a cluster proxy latency
-	RecordClusterProxyLatency(25*time.Millisecond, false)
-
-	// Verify global collector received the data (basic smoke test)
-	_ = collector.GetLatencyStats(metrics.OpDatabaseQuery)
-	// Stats might be 0 if global collector is different instance
-	// So we just verify no panics occurred
 }
 
 func TestIsS3Request(t *testing.T) {

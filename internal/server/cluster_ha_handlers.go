@@ -7,15 +7,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
-	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
 )
-
-
-// getDiskUsage returns disk usage stats for the partition containing the given path.
-func getDiskUsage(path string) (*disk.UsageStat, error) {
-	return disk.Usage(path)
-}
 
 
 // handleGetClusterHA returns the current cluster replication factor and node status.

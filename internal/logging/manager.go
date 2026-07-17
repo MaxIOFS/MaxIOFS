@@ -274,16 +274,6 @@ func (m *Manager) createOutputFromConfig(cfg *TargetConfig) (Output, error) {
 	}
 }
 
-// closeOutput closes and removes a single output by key
-func (m *Manager) closeOutput(name string) {
-	if output, exists := m.outputs[name]; exists {
-		output.Close()
-		delete(m.outputs, name)
-		delete(m.targetConfigs, name)
-		m.logger.WithField("output", name).Info("Output closed")
-	}
-}
-
 // Close closes all outputs
 func (m *Manager) Close() {
 	m.mu.Lock()

@@ -326,6 +326,38 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Urgent Fix: Listing Pagination Lost One Object Per Page
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Since the Pebble metadata engine was introduced, every paginated listing (console, S3
+                API, SOSAPI, search) silently skipped exactly one object per page of 1,000 — enough to
+                make backup verification tools like Veeam or Duplicati believe existing files were
+                missing. The pagination marker now follows strict S3 semantics in every listing path,
+                covered by round-trip regression tests. Upgrading is strongly recommended for any
+                deployment with buckets over 1,000 objects.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-amber-500 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Crash Durability & Self-Healing Startup
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                The metadata write-ahead log is now fsynced every second while writes are flowing, and
+                destructive operations (deletes, multipart completion) are synced immediately — a hard
+                kill or power loss can no longer resurrect deleted objects, and loses at most ~1 second
+                of metadata. After an unclean shutdown the server automatically reconciles its metadata
+                against the on-disk object files in the background: entries lost in the crash window are
+                restored from their sidecars, and stale entries pointing at removed files are cleaned up.
+              </p>
+            </div>
+
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">
+              From v1.5.0
+            </h3>
+
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
                 Always-On Envelope Encryption

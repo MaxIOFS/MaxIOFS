@@ -4996,13 +4996,6 @@ func TestHandleReceiveAccessKeySync(t *testing.T) {
 // Cluster Replication Handlers Tests
 // ============================================================================
 
-// createConsoleAuthenticatedRequest creates a request with console user authentication
-func createConsoleAuthenticatedRequest(method, url string, body io.Reader, username string) *http.Request {
-	req := httptest.NewRequest(method, url, body)
-	ctx := context.WithValue(req.Context(), "username", username)
-	return req.WithContext(ctx)
-}
-
 // ============================================================================
 // Additional Cluster Object Handlers Tests
 // ============================================================================

@@ -1,3 +1,26 @@
+maxiofs (1:1.5.1) stable; urgency=high
+
+  * Release v1.5.1 — Urgent listing-pagination fix + Pebble hard-kill durability.
+
+  * [CRITICAL FIX] Listing pagination silently lost one object per page of 1,000 (present since
+    the Pebble migration): NextMarker pointed at the first key of the NEXT page while marker
+    consumption resumes strictly after the marker, so every marker-loop client skipped one
+    object per page boundary (console listings, S3 ListObjects, SOSAPI, search). Backup
+    verify/repair tools (Veeam, Duplicati) saw existing files as missing. Fixed in all three
+    paginated paths with marker round-trip regression tests at page sizes 1-100.
+  * [FEATURE] Pebble durability on hard kill: WAL fsynced at least once per second while writes
+    flow (bounds metadata loss to ~1s); destructive operations (object/bucket deletes, multipart
+    complete/abort) fsync immediately so deletes can never resurrect; unclean shutdowns are
+    detected via a CLEAN_SHUTDOWN sentinel and the metadata store is reconciled against the
+    on-disk object tree in the background (entries lost in the crash window restored from their
+    sidecars with original timestamps, ghost entries and orphan sidecars cleaned up).
+  * [CHANGE] Dead-code sweep across backend and frontend: removed parallel implementations that
+    were never wired (unused rate limiters, legacy object-lock/retention duplicates, pre-envelope
+    EncryptionService, unused middleware variants), verified with reachability analysis plus the
+    full test suite; live enforcement paths untouched.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Sat, 18 Jul 2026 10:00:00 -0300
+
 maxiofs (1:1.5.0) stable; urgency=medium
 
   * Release v1.5.0 — Always-on envelope encryption, disaster recovery, ciphertext HA replication,

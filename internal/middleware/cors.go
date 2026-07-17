@@ -124,35 +124,6 @@ func DefaultCORSConfig() *CORSConfig {
 }
 
 // RestrictiveCORSConfig returns a more restrictive CORS configuration
-func RestrictiveCORSConfig() *CORSConfig {
-	return &CORSConfig{
-		AllowedOrigins: []string{}, // No origins allowed by default
-		AllowedMethods: []string{"GET", "HEAD", "OPTIONS"},
-		AllowedHeaders: []string{
-			"Accept",
-			"Content-Type",
-			"Authorization",
-		},
-		ExposedHeaders: []string{
-			"Content-Length",
-			"Content-Type",
-		},
-		MaxAge:           "1800",
-		AllowCredentials: false,
-	}
-}
-
-// DisabledCORSConfig returns a configuration that disables CORS
-func DisabledCORSConfig() *CORSConfig {
-	return &CORSConfig{
-		AllowedOrigins: []string{},
-		AllowedMethods: []string{},
-		AllowedHeaders: []string{},
-		ExposedHeaders: []string{},
-		MaxAge:         "0",
-	}
-}
-
 // CORS returns a middleware that handles CORS headers with default configuration
 func CORS() func(http.Handler) http.Handler {
 	return CORSWithConfig(DefaultCORSConfig())

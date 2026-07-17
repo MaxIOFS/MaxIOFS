@@ -233,6 +233,11 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 		valid = iter.First()
 	}
 
+	// lastKey tracks the last key consumed by this page. NextMarker must be
+	// the LAST key of the page (S3 semantics: the next request skips the
+	// marker key) — returning the first key of the NEXT page instead would
+	// make marker-loop clients silently lose one object per page boundary.
+	var lastKey string
 	for ; valid; valid = iter.Next() {
 		objKeyStr := extractObjectKeyFromKey(string(iter.Key()))
 
@@ -249,7 +254,7 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 		}
 
 		if count >= maxKeys {
-			nextMarker = objKeyStr
+			nextMarker = lastKey
 			break
 		}
 
@@ -263,6 +268,7 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 			continue
 		}
 		objects = append(objects, &obj)
+		lastKey = objKeyStr
 		count++
 	}
 
@@ -302,10 +308,26 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 	seenPrefixes := make(map[string]bool)
 	count := 0 // objects + common prefixes counted together
 
+	// lastItem tracks the last object key or common prefix RETURNED in this
+	// page. NextMarker must be the last returned item (S3 semantics: the next
+	// request resumes strictly after the marker) — returning the first item
+	// of the NEXT page would lose one entry per page boundary.
+	var lastItem string
+
 	var valid bool
 	started := marker == ""
 	if marker != "" {
-		valid = iter.SeekGE(objectKey(bucket, marker))
+		if delimiter != "" && strings.HasSuffix(marker, delimiter) {
+			// The marker is a common prefix returned by a previous page:
+			// resume after the entire prefix group.
+			skipTarget := prefixEnd(objectPrefixKey(bucket, marker))
+			if skipTarget != nil {
+				valid = iter.SeekGE(skipTarget)
+			}
+			started = true
+		} else {
+			valid = iter.SeekGE(objectKey(bucket, marker))
+		}
 	} else {
 		valid = iter.First()
 	}
@@ -331,11 +353,12 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 				if !seenPrefixes[commonPrefix] {
 					if count >= maxKeys {
 						result.IsTruncated = true
-						result.NextMarker = commonPrefix
+						result.NextMarker = lastItem
 						break
 					}
 					seenPrefixes[commonPrefix] = true
 					result.CommonPrefixes = append(result.CommonPrefixes, commonPrefix)
+					lastItem = commonPrefix
 					count++
 				}
 				// Skip past all keys under this common prefix using SeekGE.
@@ -368,11 +391,12 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 				if !seenPrefixes[commonPrefix] {
 					if count >= maxKeys {
 						result.IsTruncated = true
-						result.NextMarker = commonPrefix
+						result.NextMarker = lastItem
 						break
 					}
 					seenPrefixes[commonPrefix] = true
 					result.CommonPrefixes = append(result.CommonPrefixes, commonPrefix)
+					lastItem = commonPrefix
 					count++
 				}
 				skipTo := objectPrefixKey(bucket, commonPrefix)
@@ -390,7 +414,7 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 
 		if count >= maxKeys {
 			result.IsTruncated = true
-			result.NextMarker = objKeyStr
+			result.NextMarker = lastItem
 			break
 		}
 
@@ -404,6 +428,7 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 			continue
 		}
 		result.Objects = append(result.Objects, &obj)
+		lastItem = objKeyStr
 		count++
 	}
 
@@ -885,6 +910,9 @@ func (s *PebbleStore) SearchObjects(ctx context.Context, bucket, prefix, marker 
 }
 
 func (s *PebbleStore) searchObjectsByScan(ctx context.Context, bucket, prefix, marker string, maxKeys int, filter *ObjectFilter) ([]*ObjectMetadata, string, error) {
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
 	var lower []byte
 	if prefix != "" {
 		lower = objectPrefixKey(bucket, prefix)
@@ -912,9 +940,13 @@ func (s *PebbleStore) searchObjectsByScan(ctx context.Context, bucket, prefix, m
 		valid = iter.First()
 	}
 
+	// lastKey tracks the last key fully consumed by the scan. NextMarker must
+	// point at it (S3 semantics: resume strictly after the marker) so the key
+	// where the scan stopped is not silently skipped on the next page.
+	var lastKey string
 	for ; valid; valid = iter.Next() {
 		if scanned >= scanLimit {
-			nextMarker = extractObjectKeyFromKey(string(iter.Key()))
+			nextMarker = lastKey
 			break
 		}
 		scanned++
@@ -931,7 +963,7 @@ func (s *PebbleStore) searchObjectsByScan(ctx context.Context, bucket, prefix, m
 		}
 
 		if count >= maxKeys {
-			nextMarker = objKeyStr
+			nextMarker = lastKey
 			break
 		}
 
@@ -948,6 +980,7 @@ func (s *PebbleStore) searchObjectsByScan(ctx context.Context, bucket, prefix, m
 			objects = append(objects, &obj)
 			count++
 		}
+		lastKey = objKeyStr
 	}
 
 	if err := iter.Error(); err != nil {

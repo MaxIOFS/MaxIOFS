@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -396,75 +395,3 @@ func (c *collector) getNetworkBytesOut() int64 {
 	return int64(counters[0].BytesSent)
 }
 
-// Custom Prometheus Collector implementation
-// This allows the metrics system to be used as a Prometheus collector
-
-type prometheusCollector struct {
-	metricsManager Manager
-	systemMetrics  *prometheus.Desc
-	runtimeMetrics *prometheus.Desc
-}
-
-// NewPrometheusCollector creates a new Prometheus collector
-func NewPrometheusCollector(manager Manager) prometheus.Collector {
-	return &prometheusCollector{
-		metricsManager: manager,
-		systemMetrics: prometheus.NewDesc(
-			"maxiofs_system_info",
-			"System information",
-			[]string{"metric", "value"},
-			nil,
-		),
-		runtimeMetrics: prometheus.NewDesc(
-			"maxiofs_runtime_info",
-			"Runtime information",
-			[]string{"metric", "value"},
-			nil,
-		),
-	}
-}
-
-// Describe implements prometheus.Collector
-func (pc *prometheusCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- pc.systemMetrics
-	ch <- pc.runtimeMetrics
-}
-
-// Collect implements prometheus.Collector
-func (pc *prometheusCollector) Collect(ch chan<- prometheus.Metric) {
-	collector := NewCollector("")
-
-	// Collect system metrics
-	sysMetrics, err := collector.CollectSystemMetrics()
-	if err == nil {
-		ch <- prometheus.MustNewConstMetric(
-			pc.systemMetrics,
-			prometheus.GaugeValue,
-			sysMetrics.CPUUsagePercent,
-			"cpu_usage_percent", "current",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			pc.systemMetrics,
-			prometheus.GaugeValue,
-			sysMetrics.MemoryUsagePercent,
-			"memory_usage_percent", "current",
-		)
-	}
-
-	// Collect runtime metrics
-	runtimeMetrics, err := collector.CollectRuntimeMetrics()
-	if err == nil {
-		ch <- prometheus.MustNewConstMetric(
-			pc.runtimeMetrics,
-			prometheus.GaugeValue,
-			float64(runtimeMetrics.GoRoutines),
-			"goroutines", "current",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			pc.runtimeMetrics,
-			prometheus.GaugeValue,
-			float64(runtimeMetrics.HeapAlloc),
-			"heap_alloc_bytes", "current",
-		)
-	}
-}

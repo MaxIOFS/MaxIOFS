@@ -11,7 +11,6 @@ import (
 
 // quotaAlertTracker holds per-tenant alert deduplication state
 type quotaAlertTracker struct {
-	mu     sync.Mutex
 	levels sync.Map // tenantID -> alertLevel
 }
 

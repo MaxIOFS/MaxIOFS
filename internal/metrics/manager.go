@@ -185,17 +185,6 @@ type MetricsConfig struct {
 	Labels    map[string]string `json:"labels"`
 }
 
-// NewManager creates a new metrics manager
-func NewManager(cfg config.MetricsConfig) Manager {
-	return NewManagerWithDataDir(cfg, "")
-}
-
-// NewManagerWithDataDir creates a new metrics manager with a custom data directory
-// Deprecated: Use NewManagerWithStore instead
-func NewManagerWithDataDir(cfg config.MetricsConfig, dataDir string) Manager {
-	return NewManagerWithStore(cfg, dataDir, nil)
-}
-
 // NewManagerWithStore creates a new metrics manager with metadata-store backing.
 func NewManagerWithStore(cfg config.MetricsConfig, dataDir string, metadataStore interface{}) Manager {
 	// Convert config.MetricsConfig to our internal MetricsConfig

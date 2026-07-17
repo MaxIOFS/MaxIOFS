@@ -1250,68 +1250,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, response)
 }
 
-// queryBucketsFromNode queries buckets from a remote node via internal cluster API
-func (s *Server) queryBucketsFromNode(ctx context.Context, node *cluster.Node, tenantID string) ([]bucket.Bucket, error) {
-	// Get local node credentials for HMAC authentication
-	config, err := s.clusterManager.GetConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get local node config: %w", err)
-	}
-
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/buckets?tenant_id=%s", node.Endpoint, tenantID)
-
-	// Create authenticated request
-	proxyClient := cluster.NewProxyClient(s.clusterManager.GetTLSConfig())
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "GET", url, nil, config.NodeID, config.ClusterToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Execute request with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req = req.WithContext(reqCtx)
-
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Parse response
-	var response struct {
-		Buckets []cluster.BucketWithLocation `json:"buckets"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Convert BucketWithLocation to bucket.Bucket
-	buckets := make([]bucket.Bucket, len(response.Buckets))
-	for i, bwl := range response.Buckets {
-		buckets[i] = bucket.Bucket{
-			Name:        bwl.Name,
-			TenantID:    bwl.TenantID,
-			CreatedAt:   bwl.CreatedAt,
-			Versioning:  parseVersioningFromString(bwl.Versioning),
-			ObjectCount: bwl.ObjectCount,
-			TotalSize:   bwl.SizeBytes,
-			Metadata:    bwl.Metadata,
-			Tags:        bwl.Tags,
-		}
-	}
-
-	return buckets, nil
-}
-
 // bucketWithLocationToBucket converts cluster.BucketWithLocation to bucket.Bucket for filtering.
 func bucketWithLocationToBucket(bwl cluster.BucketWithLocation) bucket.Bucket {
 	return bucket.Bucket{

@@ -1953,23 +1953,6 @@ func GetUserFromContext(ctx context.Context) (*User, bool) {
 }
 
 // GetUserIDFromContext extracts the user ID from the request context
-func GetUserIDFromContext(ctx context.Context) string {
-	user, ok := GetUserFromContext(ctx)
-	if !ok || user == nil {
-		return ""
-	}
-	return user.ID
-}
-
-// GetTenantIDFromContext extracts the tenant ID from the request context
-func GetTenantIDFromContext(ctx context.Context) string {
-	user, ok := GetUserFromContext(ctx)
-	if !ok || user == nil {
-		return ""
-	}
-	return user.TenantID
-}
-
 // IsAdminUser checks if the user in context has admin role
 func IsAdminUser(ctx context.Context) bool {
 	user, ok := GetUserFromContext(ctx)

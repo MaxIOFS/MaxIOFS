@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.5.0 | **Last Updated**: July 10, 2026
+**Version**: 1.5.1 | **Last Updated**: July 18, 2026
 
 ## Overview
 
