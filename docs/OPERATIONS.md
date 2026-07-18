@@ -543,9 +543,9 @@ MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble 
 - If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
 - The WAL is fsynced at least once per second while writes are flowing, and destructive operations (object/bucket deletes, multipart completion) are fsynced immediately — so at most ~1 second of non-destructive metadata changes can be lost.
 
-**Unclean-shutdown reconciliation (automatic)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:
+**Unclean-shutdown reconciliation (automatic, non-destructive)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:
 - Objects whose metadata commit was lost in the final second are re-indexed from their `.metadata` sidecars (original timestamps preserved) — reads already worked via the sidecar fallback; listings converge as the scan progresses.
-- Ghost entries (metadata without a data file) and orphan sidecars from half-completed deletes are cleaned up.
+- Metadata entries and sidecars are never removed merely because an object path is absent. If metadata must be rebuilt after a larger storage incident, use the explicit offline recovery tools such as `maxiofs recover`.
 - Bucket statistics are recalculated for any repaired bucket.
 
 Log lines to look for:
@@ -628,4 +628,3 @@ For deeper architectural details, always refer back to:
 - `CLUSTER.md` – Cluster behavior, replication, and bucket migration.  
 - `SECURITY.md` – Security model and best practices.  
 - `TESTING.md` – Test coverage and guidelines.
-

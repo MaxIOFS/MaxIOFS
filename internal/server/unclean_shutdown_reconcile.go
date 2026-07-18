@@ -12,8 +12,8 @@ import (
 // reconciliation when the Pebble store was not closed cleanly (hard kill,
 // OOM, power loss). Hot-path Pebble commits are NoSync with a ~1s WAL sync
 // loop, so a crash can lose the last moments of metadata while the object
-// files and sidecars survived; the reconciler restores those entries and
-// cleans up half-completed deletes. No-op on clean boots.
+// files and sidecars survived; the reconciler restores those entries without
+// pruning metadata or sidecars based on missing paths. No-op on clean boots.
 func (s *Server) startUncleanShutdownReconcile(ctx context.Context) {
 	ps, ok := s.metadataStore.(*metadata.PebbleStore)
 	if !ok || ps.WasCleanShutdown() {
@@ -40,8 +40,6 @@ func logReconcileReport(report *recovery.ReconcileReport) {
 		"files_scanned":     report.FilesScanned,
 		"entries_restored":  report.EntriesRestored,
 		"versions_restored": report.VersionsRestored,
-		"ghosts_removed":    report.GhostsRemoved,
-		"sidecars_cleaned":  report.SidecarsCleaned,
 		"failures":          len(report.Failures),
 	}
 	for _, f := range report.Failures {

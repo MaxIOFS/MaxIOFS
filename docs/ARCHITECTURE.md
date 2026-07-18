@@ -195,7 +195,7 @@ bucket deletes, multipart complete/abort) fsync immediately, so a delete can
 never resurrect. The store writes a `CLEAN_SHUTDOWN` sentinel on close; when a
 boot finds it missing, the server reconciles Pebble against the on-disk object
 tree in the background (re-indexing sidecar pairs whose metadata commit was
-lost, removing ghost entries and orphan sidecars, recalculating bucket stats)
+lost, without pruning metadata or sidecars based on missing paths, recalculating bucket stats)
 while continuing to serve traffic.
 
 ### Database Responsibilities

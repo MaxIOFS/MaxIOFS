@@ -147,9 +147,6 @@ func TestReconcileNeverDeletesVersionedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile failed: %v (failures: %v)", err, report.Failures)
 	}
-	if report.GhostsRemoved != 0 {
-		t.Fatalf("GhostsRemoved = %d, want 0 — reconcile deleted a valid versioned entry", report.GhostsRemoved)
-	}
 
 	// The latest-pointer entry must still resolve after reconcile.
 	if _, err := store.GetObject(ctx, "bkt", "Veeam/Backup/blk-0001"); err != nil {
@@ -160,11 +157,11 @@ func TestReconcileNeverDeletesVersionedEntries(t *testing.T) {
 	}
 }
 
-// TestReconcileRemovesGenuineGhost: a NON-versioned entry whose plain data
-// file is genuinely gone is a real ghost and is removed. A versioned entry
-// whose .versions/ data file IS present must survive the same pass (this is
-// the case that was destroyed in production).
-func TestReconcileRemovesGhostEntry(t *testing.T) {
+// TestReconcileDoesNotPruneMissingDataEntry: a metadata entry whose plain data
+// file is not visible must be reported by external tooling, not deleted by
+// online reconcile. Missing paths can be caused by mount/layout/transient
+// filesystem problems; pruning here caused production data loss.
+func TestReconcileDoesNotPruneMissingDataEntry(t *testing.T) {
 	dataDir, store, cleanup := setupReconcileTest(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -189,15 +186,12 @@ func TestReconcileRemovesGhostEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
+	_, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
 	if err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
 	}
-	if report.GhostsRemoved != 1 {
-		t.Fatalf("GhostsRemoved = %d, want 1 (only the genuine non-versioned ghost)", report.GhostsRemoved)
-	}
-	if _, err := store.GetObject(ctx, "bkt", "ghost.txt"); err != metadata.ErrObjectNotFound {
-		t.Errorf("genuine ghost should be removed, got err=%v", err)
+	if _, err := store.GetObject(ctx, "bkt", "ghost.txt"); err != nil {
+		t.Errorf("metadata entry without visible data file must survive: %v", err)
 	}
 	if _, err := store.GetObject(ctx, "bkt", "deleted.txt"); err != nil {
 		t.Errorf("delete marker must survive: %v", err)
@@ -207,13 +201,13 @@ func TestReconcileRemovesGhostEntry(t *testing.T) {
 	}
 }
 
-func TestReconcileCleansOrphanSidecarKeepsStaging(t *testing.T) {
+func TestReconcileDoesNotPruneOrphanSidecar(t *testing.T) {
 	dataDir, store, cleanup := setupReconcileTest(t)
 	defer cleanup()
 	bucketDir := filepath.Join(dataDir, "objects", "bkt")
 
-	// Orphan sidecar: no sibling data file, no metadata entry → half-completed
-	// delete, removed.
+	// Orphan sidecar: no sibling data file, no metadata entry. Online reconcile
+	// must leave it in place because filesystem absence is not deletion proof.
 	orphan := filepath.Join(bucketDir, "dead.txt.metadata")
 	if err := os.WriteFile(orphan, []byte(`{"size":"3"}`), 0644); err != nil {
 		t.Fatal(err)
@@ -227,15 +221,12 @@ func TestReconcileCleansOrphanSidecarKeepsStaging(t *testing.T) {
 	const vid = "1775486761442908795.aaaa"
 	writeObjectPair(t, dataDir, ".versions/keep.bin/"+vid, "bytes", 1775486761)
 
-	report, err := Reconcile(context.Background(), dataDir, store, logrus.StandardLogger())
+	_, err := Reconcile(context.Background(), dataDir, store, logrus.StandardLogger())
 	if err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
 	}
-	if report.SidecarsCleaned != 1 {
-		t.Fatalf("SidecarsCleaned = %d, want 1 (only the true orphan)", report.SidecarsCleaned)
-	}
-	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
-		t.Error("orphan sidecar should be removed")
+	if _, err := os.Stat(orphan); err != nil {
+		t.Error("orphan sidecar must NOT be touched")
 	}
 	if _, err := os.Stat(staging); err != nil {
 		t.Error("staged sidecar must NOT be touched")
@@ -263,9 +254,6 @@ func TestReconcileRestoresVersion(t *testing.T) {
 	}
 	if report.VersionsRestored != 1 {
 		t.Fatalf("VersionsRestored = %d, want 1 (failures: %v)", report.VersionsRestored, report.Failures)
-	}
-	if report.GhostsRemoved != 0 {
-		t.Fatalf("GhostsRemoved = %d, want 0 (failures: %v)", report.GhostsRemoved, report.Failures)
 	}
 
 	obj, err := store.GetObject(ctx, "bkt", "doc.txt", versionID)
