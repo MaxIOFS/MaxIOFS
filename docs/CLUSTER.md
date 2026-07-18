@@ -1,6 +1,6 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.5.1
+**Version**: 1.5.2
 **Status**: Production-Ready
 **Last Updated**: April 30, 2026
 
@@ -1135,7 +1135,7 @@ For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalclus
 
 ---
 
-**Version**: 1.5.1
+**Version**: 1.5.2
 **Last Updated**: May 18, 2026
 **Documentation Status**: Complete
 

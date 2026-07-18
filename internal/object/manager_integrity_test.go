@@ -148,6 +148,82 @@ func TestVerifyObjectIntegrity_Corrupted(t *testing.T) {
 	assert.NotEqual(t, result.StoredETag, result.ComputedETag)
 }
 
+func TestGetObjectMetadata_MissingPhysicalDataReturnsNotFound(t *testing.T) {
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	bucket := "missing-data-bucket"
+	key := "metadata-only.txt"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:     bucket,
+		TenantID: "tenant1",
+		OwnerID:  "user1",
+	}))
+	require.NoError(t, metaStore.PutObject(ctx, &metadata.ObjectMetadata{
+		Bucket: bucket,
+		Key:    key,
+		Size:   12,
+		ETag:   "d41d8cd98f00b204e9800998ecf8427e",
+	}))
+
+	_, _, err := om.GetObject(ctx, bucket, key)
+	assert.Equal(t, ErrObjectNotFound, err)
+	_, err = om.GetObjectMetadata(ctx, bucket, key)
+	assert.Equal(t, ErrObjectNotFound, err)
+
+	result, err := om.VerifyObjectIntegrity(ctx, bucket, key)
+	require.NoError(t, err)
+	assert.Equal(t, IntegrityMissing, result.Status)
+	assert.Equal(t, "object data not found on storage", result.Reason)
+}
+
+func TestGetObjectMetadata_VersionedEntryDoesNotFallbackToPlainPath(t *testing.T) {
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	bucket := "versioned-missing-data-bucket"
+	key := "doc.txt"
+	versionID := "1700000000000000001"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:     bucket,
+		TenantID: "tenant1",
+		OwnerID:  "user1",
+	}))
+
+	// A stale/plain-path artifact must not make HEAD-style metadata look healthy
+	// when Pebble points at a missing versioned data file.
+	require.NoError(t, om.storage.Put(ctx, bucket+"/"+key, bytes.NewReader([]byte("plain fallback")), map[string]string{
+		"size":          "14",
+		"etag":          "plain-etag",
+		"last_modified": "1700000000",
+		"content-type":  "text/plain",
+	}))
+	require.NoError(t, metaStore.PutObjectVersion(ctx,
+		&metadata.ObjectMetadata{
+			Bucket:    bucket,
+			Key:       key,
+			VersionID: versionID,
+			IsLatest:  true,
+			Size:      7,
+			ETag:      "version-etag",
+		},
+		&metadata.ObjectVersion{
+			VersionID: versionID,
+			IsLatest:  true,
+			Key:       key,
+			Size:      7,
+			ETag:      "version-etag",
+		},
+	))
+
+	_, _, err := om.GetObject(ctx, bucket, key)
+	assert.Equal(t, ErrObjectNotFound, err)
+	_, err = om.GetObjectMetadata(ctx, bucket, key)
+	assert.Equal(t, ErrObjectNotFound, err)
+}
+
 // ---------------------------------------------------------------------------
 // VerifyBucketIntegrity
 // ---------------------------------------------------------------------------

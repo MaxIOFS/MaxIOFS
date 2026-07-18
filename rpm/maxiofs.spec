@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.5.1}
+%{!?version: %define version 1.5.2}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -267,16 +267,24 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
-* Sat Jul 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.1-1
-- Release v1.5.1 — Urgent listing-pagination fix + Pebble hard-kill durability
+* Sat Jul 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.2-1
+- Release v1.5.2 — Urgent listing-pagination fix + Pebble hard-kill durability
+- NOTE: v1.5.1 was withdrawn shortly after publication and is not available. Its
+  unclean-shutdown reconciliation could remove latest-object index entries for versioned
+  objects after a crash (object data and per-version metadata, including Object Lock
+  retention, were unaffected). If installed, upgrade and run `maxiofs repair-pointers
+  --dry-run` with the server stopped
 - [CRITICAL FIX] Listing pagination silently lost one object per page of 1,000 (present since
   the Pebble migration): NextMarker pointed at the first key of the NEXT page while marker
   consumption resumes strictly after the marker. Backup verify/repair tools (Veeam, Duplicati)
   saw existing files as missing. Fixed in all paginated paths with round-trip regression tests
 - [FEATURE] Pebble durability on hard kill: per-second WAL fsync bounds metadata loss to ~1s;
   destructive operations (deletes, multipart complete) fsync immediately; unclean shutdowns
-  are detected via a CLEAN_SHUTDOWN sentinel and the metadata store is reconciled against the
-  on-disk object tree in the background (lost entries restored from sidecars, ghosts removed)
+  are detected via a CLEAN_SHUTDOWN sentinel and the metadata store is re-indexed against the
+  on-disk object tree in the background (lost entries restored from sidecars). Reconciliation
+  is non-destructive: no automatic process removes metadata because a data path is absent
+- [FEATURE] New `maxiofs repair-pointers` offline tool: rebuilds missing latest-object index
+  entries from surviving per-version metadata, preserving Object Lock retention and legal hold
 - [CHANGE] Dead-code sweep across backend and frontend (verified: zero production callers)
 
 * Fri Jul 10 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.0-1

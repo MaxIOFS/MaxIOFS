@@ -140,8 +140,8 @@ type objectManager struct {
 	// encryptor performs the raw AES-256-GCM stream/block operations.
 	// Key selection is envelope-based: each object has its own DEK wrapped
 	// by a KEK obtained from kekProvider.
-	encryptor   encryption.Encryptor
-	kekProvider kek.Provider
+	encryptor     encryption.Encryptor
+	kekProvider   kek.Provider
 	bucketManager interface {
 		IncrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
 		DecrementObjectCount(ctx context.Context, tenantID, name string, sizeBytes int64) error
@@ -1517,9 +1517,13 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 			checkPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
 		}
 		exists, err := om.storage.Exists(ctx, checkPath)
-		if err == nil && exists {
-			return fromMetadataObject(metaObj), nil
+		if err != nil {
+			return nil, fmt.Errorf("failed to check object existence: %w", err)
 		}
+		if !exists {
+			return nil, ErrObjectNotFound
+		}
+		return fromMetadataObject(metaObj), nil
 	}
 
 	// Check if non-versioned file exists in storage (legacy / non-versioned objects)

@@ -1,6 +1,11 @@
-maxiofs (1:1.5.1) stable; urgency=high
+maxiofs (1:1.5.2) stable; urgency=high
 
-  * Release v1.5.1 — Urgent listing-pagination fix + Pebble hard-kill durability.
+  * Release v1.5.2 — Urgent listing-pagination fix + Pebble hard-kill durability.
+    NOTE: v1.5.1 was withdrawn shortly after publication and is not available. Its
+    unclean-shutdown reconciliation could remove latest-object index entries for
+    versioned objects after a crash (object data and per-version metadata, including
+    Object Lock retention, were unaffected). If installed, upgrade and run
+    `maxiofs repair-pointers --dry-run` with the server stopped.
 
   * [CRITICAL FIX] Listing pagination silently lost one object per page of 1,000 (present since
     the Pebble migration): NextMarker pointed at the first key of the NEXT page while marker
@@ -11,9 +16,13 @@ maxiofs (1:1.5.1) stable; urgency=high
   * [FEATURE] Pebble durability on hard kill: WAL fsynced at least once per second while writes
     flow (bounds metadata loss to ~1s); destructive operations (object/bucket deletes, multipart
     complete/abort) fsync immediately so deletes can never resurrect; unclean shutdowns are
-    detected via a CLEAN_SHUTDOWN sentinel and the metadata store is reconciled against the
+    detected via a CLEAN_SHUTDOWN sentinel and the metadata store is re-indexed against the
     on-disk object tree in the background (entries lost in the crash window restored from their
-    sidecars with original timestamps, ghost entries and orphan sidecars cleaned up).
+    sidecars with original timestamps). Reconciliation is non-destructive: no automatic process
+    removes metadata or sidecars because a data path is absent.
+  * [FEATURE] New `maxiofs repair-pointers` offline tool: rebuilds missing latest-object index
+    entries from the surviving per-version metadata, preserving Object Lock retention and legal
+    hold. Strictly additive — never deletes a key, never touches object files. Supports --dry-run.
   * [CHANGE] Dead-code sweep across backend and frontend: removed parallel implementations that
     were never wired (unused rate limiters, legacy object-lock/retention duplicates, pre-envelope
     EncryptionService, unused middleware variants), verified with reachability analysis plus the

@@ -572,6 +572,55 @@ func TestS3HeadErrorNoBody(t *testing.T) {
 	})
 }
 
+func TestS3GetHeadMetadataPresentMissingDataReturnsNoSuchKey(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+	bucketName := "metadata-present-data-missing"
+	objectKey := "missing-data.bin"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+
+	bucketPath := env.tenantID + "/" + bucketName
+	_, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("body")), http.Header{})
+	require.NoError(t, err)
+	removeStoredObjectDataFile(t, env.tempDir, objectKey)
+
+	req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+	env.router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "<Code>NoSuchKey</Code>")
+
+	req, w = env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
+	env.router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Empty(t, w.Body.Bytes(), "HEAD error response must have no body")
+}
+
+func removeStoredObjectDataFile(t *testing.T, root, objectKey string) {
+	t.Helper()
+
+	found := false
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || d.Name() != filepath.Base(objectKey) {
+			return nil
+		}
+		if strings.HasSuffix(path, ".metadata") || strings.HasSuffix(path, ".metadata-staging") {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found, "expected to remove stored object data file for %q", objectKey)
+}
+
 // TestS3ListObjects tests object listing via S3 API
 func TestS3ListObjects(t *testing.T) {
 	env := setupCompleteS3Environment(t)

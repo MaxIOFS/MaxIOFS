@@ -166,13 +166,13 @@ docker run --rm \
 make docker-build
 
 # Specific version
-VERSION=1.5.1 make docker-build
+VERSION=1.5.2 make docker-build
 
 # Without cache
 docker compose build --no-cache
 
 # Multi-platform
-docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.5.1 .
+docker buildx build --platform linux/amd64,linux/arm64 -t maxiofs:1.5.2 .
 ```
 
 ## Troubleshooting
@@ -226,7 +226,7 @@ make docker-clean
 
 ## Version Information
 
-- **MaxIOFS**: `maxiofs/maxiofs:latest` — also available as `maxiofs/maxiofs:1.5.1`
+- **MaxIOFS**: `maxiofs/maxiofs:latest` — also available as `maxiofs/maxiofs:1.5.2`
 - **Prometheus**: 3.0.1 (monitoring profile)
 - **Grafana**: 11.5.0 (monitoring profile)
 - **Docker Compose**: v2.x required

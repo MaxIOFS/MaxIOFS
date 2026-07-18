@@ -1,8 +1,8 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 1.5.1
+**Version**: 1.5.2
 **Last Updated**: July 18, 2026
-**Status**: Stable — v1.5.1 (July 18, 2026)
+**Status**: Stable — v1.5.2 (July 18, 2026)
 
 > Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work.
 
@@ -13,7 +13,7 @@
 | S3 Core API | ~99% | Full compatibility audit completed — 20 issues identified and resolved (March 2026) |
 | Backend Tests | 3,900+ | At practical ceiling |
 | Frontend Tests | 106+ | |
-| Production Ready | ✅ Stable | v1.5.1 release-ready (July 18, 2026) |
+| Production Ready | ✅ Stable | v1.5.2 release-ready (July 18, 2026) |
 
 ---
 

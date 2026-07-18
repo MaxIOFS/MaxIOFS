@@ -1,6 +1,6 @@
 # MaxIOFS Operations Guide
 
-**Version**: 1.5.1  
+**Version**: 1.5.2  
 **Last Updated**: July 18, 2026  
 **Audience**: SRE / Ops / On-call engineers
 

@@ -73,7 +73,7 @@ make deb-clean
 
 ### Install the package
 ```bash
-sudo dpkg -i build/maxiofs_1.5.1_amd64.deb
+sudo dpkg -i build/maxiofs_1.5.2_amd64.deb
 ```
 
 ### Configure MaxIOFS
@@ -539,10 +539,10 @@ MaxIOFS upgrades are safe and preserve all your data and configuration:
 sudo cp /etc/maxiofs/config.yaml ~/config-backup.yaml
 
 # Download new package
-wget https://example.com/maxiofs_1.5.1_amd64.deb
+wget https://example.com/maxiofs_1.5.2_amd64.deb
 
 # Install upgrade
-sudo dpkg -i maxiofs_1.5.1_amd64.deb
+sudo dpkg -i maxiofs_1.5.2_amd64.deb
 
 # The service is automatically restarted with your existing configuration
 ```
@@ -592,7 +592,7 @@ If you need to downgrade:
 sudo systemctl stop maxiofs
 
 # Install previous version
-sudo dpkg -i maxiofs_1.5.1_amd64.deb
+sudo dpkg -i maxiofs_1.5.2_amd64.deb
 
 # Your config.yaml is still preserved
 # Restart service
