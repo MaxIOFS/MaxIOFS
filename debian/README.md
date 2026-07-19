@@ -162,7 +162,7 @@ sudo apt-get remove maxiofs
 ```
 
 **What is preserved:**
-- ✅ Configuration: `/etc/maxiofs/config.yaml` (includes encryption key)
+- ✅ Configuration: `/etc/maxiofs/config.yaml` (service credentials and settings)
 - ✅ Data directory: `/var/lib/maxiofs/` (all your data)
 - ✅ Logs: `/var/log/maxiofs/`
 - ✅ System user: `maxiofs`
@@ -173,7 +173,7 @@ sudo apt-get remove maxiofs
 - ❌ Documentation
 
 **Why preserve config.yaml?**
-The `config.yaml` file contains your encryption key. Without it, all encrypted data becomes permanently inaccessible. Debian marks this as a "conffile" to protect it from accidental deletion.
+It holds your settings and the secret used for stored service credentials, so they survive a reinstall. Debian marks it as a "conffile" to protect it from accidental deletion.
 
 You can safely reinstall MaxIOFS and your data will be immediately accessible.
 
@@ -183,13 +183,13 @@ sudo apt-get purge maxiofs
 ```
 
 **⚠️ WARNING: This PERMANENTLY DELETES EVERYTHING:**
-- ❌ Configuration: `/etc/maxiofs/` (including encryption key)
+- ❌ Configuration: `/etc/maxiofs/`
 - ❌ Data directory: `/var/lib/maxiofs/` (all your data)
 - ❌ Logs: `/var/log/maxiofs/`
 - ❌ System user: `maxiofs`
 - ❌ Binary and documentation
 
-**After purge, your encrypted data is PERMANENTLY INACCESSIBLE!**
+**Purge destroys the database holding the encryption key. Without the recovery bundle, any remaining copy of the data cannot be decrypted.**
 
 ### Configuration File Protection (conffiles)
 
@@ -220,7 +220,7 @@ Configuration file '/etc/maxiofs/config.yaml'
  The default action is to keep your current version.
 *** config.yaml (Y/I/N/O/D/Z) [default=N] ? N
 
-# Your encryption key and configuration are preserved!
+# Your configuration is preserved!
 ```
 
 ## File Permissions
@@ -453,16 +453,18 @@ sudo systemctl restart maxiofs
 
 ## Backup and Recovery
 
-### ⚠️ CRITICAL: Backup Your Encryption Key
+### ⚠️ CRITICAL: Backup Your Encryption Recovery Bundle
 
-**The `/etc/maxiofs/config.yaml` file contains your encryption key. Without it, all encrypted data is permanently lost.**
+**Object data is encrypted with a key (KEK) stored in the database inside your `data_dir`. If that database is lost and you have no recovery bundle, all encrypted data is permanently lost.**
+
+Download the recovery bundle from the web console (Settings → Encryption) after the first start and keep it off this server. It is the only artifact that can recover the data if the database is lost.
 
 **Best practices:**
-1. ✅ Backup `config.yaml` immediately after installation
-2. ✅ Store backups in a secure location (encrypted, off-site)
-3. ✅ Never commit `config.yaml` to version control
-4. ✅ Test restore procedures regularly
-5. ✅ Backup before any system maintenance
+1. ✅ Download the encryption recovery bundle immediately after the first start
+2. ✅ Store it off-site, separate from the server holding the data
+3. ✅ Back up `config.yaml` as well (service credentials and settings)
+4. ✅ Never commit `config.yaml` to version control
+5. ✅ Test restore procedures regularly
 
 ### Backup
 
@@ -475,7 +477,7 @@ sudo systemctl stop maxiofs
 BACKUP_DIR="maxiofs-backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
-# Backup configuration (CRITICAL - contains encryption key)
+# Backup configuration
 sudo cp /etc/maxiofs/config.yaml "$BACKUP_DIR/"
 
 # Backup data directory
@@ -550,8 +552,8 @@ sudo dpkg -i maxiofs_1.5.2_amd64.deb
 ### What Gets Preserved During Upgrades
 
 ✅ **Automatically preserved:**
-- Configuration: `/etc/maxiofs/config.yaml` (includes encryption key)
-- All settings, credentials, and encryption keys
+- Configuration: `/etc/maxiofs/config.yaml` (service credentials and settings)
+- All settings and stored service credentials
 - Data directory: `/var/lib/maxiofs/`
 - All buckets, objects, and metadata
 - Logs: `/var/log/maxiofs/`
@@ -579,7 +581,7 @@ Configuration file '/etc/maxiofs/config.yaml'
 ```
 
 **Recommended choice: N (keep your version)**
-- Your encryption key is preserved
+- Your settings are preserved
 - Your custom settings remain intact
 - You can manually review and merge new options later
 

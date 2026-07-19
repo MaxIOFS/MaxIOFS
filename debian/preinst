@@ -14,7 +14,7 @@ case "$1" in
         # 3. Accidental deletion during package operations
         
         if [ -f /etc/maxiofs/config.yaml ]; then
-            echo "Backing up existing config.yaml (contains encryption keys)..."
+            echo "Backing up existing config.yaml (contains service credentials and secrets)..."
             cp -p /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.dpkg-backup
             echo "Backup created at /etc/maxiofs/config.yaml.dpkg-backup"
         fi

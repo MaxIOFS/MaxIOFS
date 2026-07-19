@@ -19,7 +19,7 @@ case "$1" in
         fi
 
         echo "MaxIOFS has been completely removed."
-        echo "WARNING: All data and encryption keys have been deleted."
+        echo "All data and configuration have been deleted."
         ;;
 
     remove)
@@ -28,23 +28,8 @@ case "$1" in
             systemctl daemon-reload >/dev/null || true
         fi
 
-        echo ""
-        echo "========================================"
-        echo "MaxIOFS has been removed."
-        echo "========================================"
-        echo ""
-        echo "IMPORTANT: Your data has been preserved:"
-        echo "  - Configuration: /etc/maxiofs/config.yaml (includes encryption key)"
-        echo "  - Data directory: /var/lib/maxiofs"
-        echo "  - Logs: /var/log/maxiofs"
-        echo ""
-        echo "You can reinstall MaxIOFS and your data will be accessible."
-        echo ""
-        echo "To completely remove all data including encryption keys:"
-        echo "  sudo apt-get purge maxiofs"
-        echo ""
-        echo "WARNING: Purging will make your encrypted data permanently inaccessible!"
-        echo ""
+        echo "MaxIOFS removed. Your config, data directory and logs were kept."
+        echo "'apt-get purge maxiofs' removes them permanently."
         ;;
 
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)

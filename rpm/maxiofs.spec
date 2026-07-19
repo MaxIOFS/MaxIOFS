@@ -99,9 +99,9 @@ if ! getent passwd maxiofs >/dev/null 2>&1; then
 fi
 
 # CRITICAL: Backup existing config.yaml before rpm unpacks new files
-# This protects encryption keys during upgrades
+# This protects service credentials (replication, IDP, share links) during upgrades
 if [ -f /etc/maxiofs/config.yaml ]; then
-    echo "Backing up existing config.yaml (contains encryption keys)..."
+    echo "Backing up existing config.yaml (contains service credentials and secrets)..."
     cp -p /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.rpm-backup
     echo "Backup created at /etc/maxiofs/config.yaml.rpm-backup"
 fi
@@ -120,7 +120,7 @@ chown -R maxiofs:maxiofs /var/log/maxiofs
 
 # CRITICAL: Restore config.yaml from backup if it was deleted during upgrade
 if [ ! -f /etc/maxiofs/config.yaml ] && [ -f /etc/maxiofs/config.yaml.rpm-backup ]; then
-    echo "Restoring config.yaml from backup (preserving encryption keys)..."
+    echo "Restoring config.yaml from backup (preserving service credentials)..."
     cp -p /etc/maxiofs/config.yaml.rpm-backup /etc/maxiofs/config.yaml
     rm -f /etc/maxiofs/config.yaml.rpm-backup
     echo "✅ Configuration restored successfully!"
@@ -132,7 +132,7 @@ elif [ ! -f /etc/maxiofs/config.yaml ]; then
     sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' /etc/maxiofs/config.yaml
 else
     # Config exists and no backup needed
-    echo "Preserving existing config.yaml (contains encryption keys)"
+    echo "Preserving existing config.yaml (contains service credentials and secrets)"
     # Clean up backup if it exists
     rm -f /etc/maxiofs/config.yaml.rpm-backup
 fi
@@ -158,74 +158,13 @@ chmod 0750 /var/log/maxiofs
 # Check if this is a new installation or an upgrade
 if [ $1 -eq 1 ]; then
     # New installation
-    echo ""
-    echo "========================================"
-    echo "MaxIOFS has been installed successfully!"
-    echo "========================================"
-    echo ""
-    echo "Configuration file: /etc/maxiofs/config.yaml"
-    echo "Example config: /etc/maxiofs/config.example.yaml"
-    echo "Data directory: /var/lib/maxiofs"
-    echo "Log directory: /var/log/maxiofs"
-    echo ""
-    echo "IMPORTANT: Before starting MaxIOFS, please:"
-    echo "  1. Edit /etc/maxiofs/config.yaml with your settings"
-    echo "  2. Ensure the data_dir is configured correctly"
-    echo "  3. Review security settings (TLS, authentication)"
-    echo ""
-    echo "To start MaxIOFS:"
-    echo "  sudo systemctl start maxiofs"
-    echo ""
-    echo "To enable at boot:"
-    echo "  sudo systemctl enable maxiofs"
-    echo ""
-    echo "To check status:"
-    echo "  sudo systemctl status maxiofs"
-    echo ""
-    echo "To view logs:"
-    echo "  sudo journalctl -u maxiofs -f"
-    echo ""
-    echo "Web Console: http://localhost:8081"
-    echo "S3 API: http://localhost:8080"
-    echo "Cluster inter-node (if clustering): port 8082 (restrict to node IPs)"
-    echo ""
-    echo "════════════════════════════════════════════════════"
-    echo "⚠️  CRITICAL SECURITY WARNING ⚠️"
-    echo "════════════════════════════════════════════════════"
-    echo "The config.yaml file contains your ENCRYPTION KEY."
-    echo "If this key is lost, ALL encrypted data is PERMANENTLY LOST."
-    echo ""
-    echo "IMMEDIATELY create a backup:"
-    echo "  sudo cp /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.backup"
-    echo ""
-    echo "Store the backup in a SECURE location (off-server recommended)"
-    echo "════════════════════════════════════════════════════"
-    echo ""
+    echo "MaxIOFS installed. Review /etc/maxiofs/config.yaml before starting."
+    echo "Setup guide: %{_docdir}/%{name}/DEPLOYMENT.md"
+    echo "After first start, download the encryption recovery bundle (see docs)."
 else
     # Upgrade
-    echo ""
-    echo "========================================"
-    echo "MaxIOFS has been upgraded successfully!"
-    echo "========================================"
-    echo ""
-    echo "✅ Your configuration has been PRESERVED: /etc/maxiofs/config.yaml"
-    echo "   (Encryption keys and settings remain unchanged)"
-    echo ""
-    echo "📄 Updated example config available at:"
-    echo "   /etc/maxiofs/config.example.yaml"
-    echo ""
-    echo "📁 Data directory: /var/lib/maxiofs"
-    echo ""
-    echo "To restart MaxIOFS with the new version:"
-    echo "  sudo systemctl restart maxiofs"
-    echo ""
-    echo "To check status:"
-    echo "  sudo systemctl status maxiofs"
-    echo ""
-    echo "════════════════════════════════════════════════════"
-    echo "⚠️  REMINDER: Backup your config.yaml regularly"
-    echo "════════════════════════════════════════════════════"
-    echo ""
+    echo "MaxIOFS upgraded. Your config.yaml was preserved."
+    echo "Changes: %{_docdir}/%{name}/CHANGELOG.md"
 fi
 
 %preun
@@ -236,24 +175,8 @@ fi
 
 if [ $1 -eq 0 ]; then
     # Complete removal (not upgrade)
-    echo ""
-    echo "========================================"
-    echo "MaxIOFS has been removed."
-    echo "========================================"
-    echo ""
-    echo "IMPORTANT: Your data has been preserved:"
-    echo "  - Configuration: /etc/maxiofs/config.yaml (includes encryption key)"
-    echo "  - Data directory: /var/lib/maxiofs"
-    echo "  - Logs: /var/log/maxiofs"
-    echo ""
-    echo "You can reinstall MaxIOFS and your data will be accessible."
-    echo ""
-    echo "To completely remove all data including encryption keys:"
-    echo "  sudo rm -rf /etc/maxiofs /var/lib/maxiofs /var/log/maxiofs"
-    echo "  sudo userdel maxiofs"
-    echo ""
-    echo "WARNING: This will make your encrypted data permanently inaccessible!"
-    echo ""
+    echo "MaxIOFS removed. Your config, data directory and logs were kept."
+    echo "Removing them is permanent."
 fi
 
 %files

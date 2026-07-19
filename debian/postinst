@@ -21,7 +21,7 @@ case "$1" in
         # CRITICAL: Restore config.yaml from backup if it was deleted during upgrade
         # This handles the case where old packages included config.yaml and new ones don't
         if [ ! -f /etc/maxiofs/config.yaml ] && [ -f /etc/maxiofs/config.yaml.dpkg-backup ]; then
-            echo "Restoring config.yaml from backup (preserving encryption keys)..."
+            echo "Restoring config.yaml from backup (preserving service credentials)..."
             cp -p /etc/maxiofs/config.yaml.dpkg-backup /etc/maxiofs/config.yaml
             rm -f /etc/maxiofs/config.yaml.dpkg-backup
             echo "✅ Configuration restored successfully!"
@@ -31,7 +31,7 @@ case "$1" in
             cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
         else
             # Config exists and no backup needed
-            echo "Preserving existing config.yaml (contains encryption keys)"
+            echo "Preserving existing config.yaml (contains service credentials and secrets)"
             # Clean up backup if it exists
             rm -f /etc/maxiofs/config.yaml.dpkg-backup
         fi
@@ -63,46 +63,9 @@ case "$1" in
             # Check if this is a new installation or an upgrade
             if [ -z "$2" ]; then
                 # New installation
-                echo ""
-                echo "========================================"
-                echo "MaxIOFS has been installed successfully!"
-                echo "========================================"
-                echo ""
-                echo "Configuration file: /etc/maxiofs/config.yaml"
-                echo "Example config: /etc/maxiofs/config.example.yaml"
-                echo "Data directory: /var/lib/maxiofs"
-                echo "Log directory: /var/log/maxiofs"
-                echo ""
-                echo "IMPORTANT: Before starting MaxIOFS, please:"
-                echo "  1. Edit /etc/maxiofs/config.yaml with your settings"
-                echo "  2. Ensure the data_dir is configured correctly"
-                echo "  3. Review security settings (TLS, authentication)"
-                echo ""
-                echo "To start MaxIOFS:"
-                echo "  sudo systemctl start maxiofs"
-                echo ""
-                echo "To check status:"
-                echo "  sudo systemctl status maxiofs"
-                echo ""
-                echo "To view logs:"
-                echo "  sudo journalctl -u maxiofs -f"
-                echo ""
-                echo "Web Console: http://localhost:8081"
-                echo "S3 API: http://localhost:8080"
-                echo "Cluster inter-node (if clustering): port 8082 (restrict to node IPs)"
-                echo ""
-                echo "════════════════════════════════════════════════════"
-                echo "⚠️  CRITICAL SECURITY WARNING ⚠️"
-                echo "════════════════════════════════════════════════════"
-                echo "The config.yaml file contains your ENCRYPTION KEY."
-                echo "If this key is lost, ALL encrypted data is PERMANENTLY LOST."
-                echo ""
-                echo "IMMEDIATELY create a backup:"
-                echo "  sudo cp /etc/maxiofs/config.yaml /etc/maxiofs/config.yaml.backup"
-                echo ""
-                echo "Store the backup in a SECURE location (off-server recommended)"
-                echo "════════════════════════════════════════════════════"
-                echo ""
+                echo "MaxIOFS installed. Review /etc/maxiofs/config.yaml before starting."
+                echo "Setup guide: /usr/share/doc/maxiofs/DEPLOYMENT.md"
+                echo "After first start, download the encryption recovery bundle (see docs)."
             else
                 # Upgrade — restart the service if it was running before the upgrade
                 if [ -f /tmp/maxiofs-service-was-running ]; then
@@ -111,26 +74,8 @@ case "$1" in
                     systemctl start maxiofs.service >/dev/null || true
                 fi
 
-                echo ""
-                echo "========================================"
-                echo "MaxIOFS has been upgraded successfully!"
-                echo "========================================"
-                echo ""
-                echo "✅ Your configuration has been PRESERVED: /etc/maxiofs/config.yaml"
-                echo "   (Encryption keys and settings remain unchanged)"
-                echo ""
-                echo "📄 Updated example config available at:"
-                echo "   /etc/maxiofs/config.example.yaml"
-                echo ""
-                echo "📁 Data directory: /var/lib/maxiofs"
-                echo ""
-                echo "To check status:"
-                echo "  sudo systemctl status maxiofs"
-                echo ""
-                echo "════════════════════════════════════════════════════"
-                echo "⚠️  REMINDER: Backup your config.yaml regularly"
-                echo "════════════════════════════════════════════════════"
-                echo ""
+                echo "MaxIOFS upgraded. Your config.yaml was preserved."
+                echo "Changes: /usr/share/doc/maxiofs/CHANGELOG.md"
             fi
         fi
         ;;
