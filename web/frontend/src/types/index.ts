@@ -39,6 +39,26 @@ export interface AccessKey {
   lastUsed?: string | number;
 }
 
+// STS temporary credentials — issued once, never retrievable afterwards.
+export interface STSSessionCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+  expiresAt: number;
+}
+
+// Scrubbed view returned by session listings (no secret, no token).
+// sessionPolicy is the restriction document attached at issuance, if any —
+// it is not credential material, so listings return it as written.
+export interface STSSession {
+  accessKeyId: string;
+  userId: string;
+  username?: string;
+  sessionPolicy?: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface AuthToken {
   token: string;
   refreshToken?: string;

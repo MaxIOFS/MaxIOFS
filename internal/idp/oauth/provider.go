@@ -107,6 +107,25 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.External
 	return p.fetchUserInfo(client)
 }
 
+// AuthenticateWithToken resolves the user an access token belongs to by calling
+// the provider's userinfo endpoint with it (idp.TokenAuthenticator).
+//
+// The userinfo call IS the validation: the provider rejects a token that is
+// expired, revoked or forged, so no local signature verification or JWKS
+// handling is needed and there is only one trust path per provider — the same
+// one the browser login flow uses after exchanging its code.
+func (p *Provider) AuthenticateWithToken(ctx context.Context, accessToken string) (*idp.ExternalUser, error) {
+	if accessToken == "" {
+		return nil, fmt.Errorf("access token is required")
+	}
+
+	client := p.oauthConfig.Client(ctx, &oauth2.Token{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+	})
+	return p.fetchUserInfo(client)
+}
+
 // fetchUserInfo retrieves user information from the OAuth provider's userinfo endpoint
 func (p *Provider) fetchUserInfo(client *http.Client) (*idp.ExternalUser, error) {
 	if p.config.UserInfoURL == "" {

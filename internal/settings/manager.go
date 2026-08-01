@@ -84,6 +84,22 @@ func (m *Manager) insertDefaults() error {
 			Editable:    true,
 		},
 		{
+			Key:         "security.sts_max_session_duration",
+			Value:       "43200",
+			Type:        string(TypeInt),
+			Category:    string(CategorySecurity),
+			Description: "Maximum lifetime in seconds for STS temporary credentials. Requests above this are rejected; the minimum is always 900 (15 min). Default: 43200 (12 h).",
+			Editable:    true,
+		},
+		{
+			Key:         "security.sts_federation_enabled",
+			Value:       "false",
+			Type:        string(TypeBool),
+			Category:    string(CategorySecurity),
+			Description: "Allow headless clients to exchange LDAP credentials or an OAuth access token for temporary S3 credentials (POST /sts/ldap-identity, /sts/web-identity). These endpoints accept credentials without a console session, so they are disabled until you enable them. Default: false.",
+			Editable:    true,
+		},
+		{
 			Key:         "security.max_failed_attempts",
 			Value:       "5",
 			Type:        string(TypeInt),

@@ -69,6 +69,15 @@ type Manager interface {
 	RevokeAccessKey(ctx context.Context, accessKey string) error
 	ListAccessKeys(ctx context.Context, userID string) ([]AccessKey, error)
 
+	// STS temporary credentials — see docs/SECURITY.md, "Temporary Credentials"
+	IssueSTSSession(ctx context.Context, userID string, durationSeconds int, sessionPolicy string) (*STSSession, error)
+	ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*User, string, error)
+	AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*User, error)
+	RevokeSTSSession(ctx context.Context, tempAccessKeyID, requestingUserID string, isAdmin bool) error
+	ListSTSSessions(ctx context.Context, userID string) ([]*STSSession, error)
+	ListAllSTSSessions(ctx context.Context) ([]*STSSession, error)
+	SweepExpiredSTSSessions(ctx context.Context) (int64, error)
+
 	// Tenant management
 	CreateTenant(ctx context.Context, tenant *Tenant) error
 	GetTenant(ctx context.Context, tenantID string) (*Tenant, error)
@@ -725,6 +734,12 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		return nil, err
 	}
 
+	// STS: temporary credentials resolve against sts_sessions instead of
+	// access_keys and return the base user.
+	if strings.HasPrefix(sig.AccessKey, STSKeyPrefix) {
+		return am.validateSTSSignatureV4(r, sig)
+	}
+
 	// Get access key from database
 	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
 	if err != nil {
@@ -768,6 +783,11 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	sig, err := am.parseS3SignatureV2(auth, r)
 	if err != nil {
 		return nil, err
+	}
+
+	// STS temporary credentials are SigV4-only, same as AWS.
+	if strings.HasPrefix(sig.AccessKey, STSKeyPrefix) {
+		return nil, ErrInvalidCredentials
 	}
 
 	// Get access key from database
@@ -1168,8 +1188,18 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 						"auth":   r.Header.Get("Authorization"),
 					}).Warn("Authentication failed")
 
-					// Return S3-compatible XML error for 4xx errors
-					writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusUnauthorized)
+					// Return S3-compatible XML error for 4xx errors. Temporary
+					// credentials have two outcomes an SDK is expected to tell
+					// apart: an expired session (refresh and retry) and a
+					// denial by the session policy (do not retry).
+					switch {
+					case errors.Is(err, ErrSTSSessionExpired):
+						writeS3Error(w, r, "ExpiredToken", "The provided token has expired.", http.StatusForbidden)
+					case errors.Is(err, ErrAccessDenied):
+						writeS3Error(w, r, "AccessDenied", "Access Denied.", http.StatusForbidden)
+					default:
+						writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusUnauthorized)
+					}
 					return
 				}
 
@@ -1584,6 +1614,10 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 			sig.Signature = kv[1]
 		}
 	}
+
+	// Temporary credentials carry their session token in this header; it is
+	// validated (and required to be signed) only for ASIA keys.
+	sig.SessionToken = r.Header.Get("X-Amz-Security-Token")
 
 	// If Date wasn't set from credential, try X-Amz-Date header
 	if sig.Date == "" || len(sig.Date) < 8 {

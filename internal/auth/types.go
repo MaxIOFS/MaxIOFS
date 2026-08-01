@@ -220,6 +220,15 @@ const (
 	ActionGetBucketCORS         = "s3:GetBucketCORS"
 	ActionPutBucketCORS         = "s3:PutBucketCORS"
 	ActionDeleteBucketCORS      = "s3:DeleteBucketCORS"
+	ActionGetBucketAcl          = "s3:GetBucketAcl"
+	ActionPutBucketAcl          = "s3:PutBucketAcl"
+	ActionGetBucketTagging      = "s3:GetBucketTagging"
+	ActionPutBucketTagging      = "s3:PutBucketTagging"
+	ActionDeleteBucketTagging   = "s3:DeleteBucketTagging"
+
+	// ListBucketMultipartUploads covers GET /bucket?uploads (the in-flight
+	// multipart uploads of a bucket, not the parts of one upload).
+	ActionListBucketMultipartUploads = "s3:ListBucketMultipartUploads"
 
 	// Object actions
 	ActionGetObject           = "s3:GetObject"

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -460,6 +461,11 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 		return fmt.Errorf("missing required presigned URL parameters")
 	}
 
+	// STS temporary credentials are SigV4-only, same as AWS.
+	if auth.IsSTSAccessKey(accessKey) {
+		return &presignedValidationError{"InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."}
+	}
+
 	// Parse and validate expiration
 	expiresAt, err := strconv.ParseInt(expires, 10, 64)
 	if err != nil {
@@ -531,7 +537,20 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 	}
 
 	if accessKeyID != "" && h.authManager != nil {
-		if accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID); err == nil {
+		if auth.IsSTSAccessKey(accessKeyID) {
+			// Temporary credential: the session, not the access_keys table,
+			// holds the user — and this is where its session policy is
+			// enforced, now that the signature has been verified.
+			user, err := h.authManager.AuthorizeSTSRequest(
+				r.Context(), accessKeyID, query.Get("X-Amz-Security-Token"), r)
+			if err != nil {
+				h.writeError(w, "AccessDenied", "Access Denied.", r.URL.Path, r)
+				return
+			}
+			if user != nil {
+				r = r.WithContext(context.WithValue(r.Context(), "user", user))
+			}
+		} else if accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID); err == nil {
 			if user, err := h.authManager.GetUser(r.Context(), accessKey.UserID); err == nil {
 				enrichedCtx := context.WithValue(r.Context(), "user", user)
 				r = r.WithContext(enrichedCtx)
@@ -585,6 +604,22 @@ func (h *Handler) calculateSignatureV2(stringToSign, secretKey string) string {
 
 // getSecretKeyForAccessKey retrieves the secret key for a given access key
 func (h *Handler) getSecretKeyForAccessKey(ctx context.Context, accessKeyID string) (string, error) {
+	return h.getSecretKeyForCredential(ctx, accessKeyID, "")
+}
+
+// getSecretKeyForCredential resolves the signing secret for either a permanent
+// access key or an STS temporary credential. sessionToken is only consulted for
+// temporary credentials, where it must match the stored session token.
+func (h *Handler) getSecretKeyForCredential(ctx context.Context, accessKeyID, sessionToken string) (string, error) {
+	if auth.IsSTSAccessKey(accessKeyID) {
+		// Session expiry, token match and base-user status are all enforced here.
+		_, secret, err := h.authManager.ResolveSTSSessionSecret(ctx, accessKeyID, sessionToken)
+		if err != nil {
+			return "", fmt.Errorf("sts session not usable: %w", err)
+		}
+		return secret, nil
+	}
+
 	// Get access key from auth manager
 	accessKey, err := h.authManager.GetAccessKey(ctx, accessKeyID)
 	if err != nil {

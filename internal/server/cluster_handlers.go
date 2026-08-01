@@ -1048,6 +1048,11 @@ func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
 		s.accessKeySyncMgr.SyncToNode(ctx, newNode)
 	}
 
+	// Push active temporary credentials so in-flight STS sessions keep working.
+	if s.stsSessionSyncMgr != nil {
+		s.stsSessionSyncMgr.SyncToNode(ctx, newNode)
+	}
+
 	// Push all groups + memberships so that group-based bucket permissions resolve immediately.
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.SyncToNode(ctx, newNode)

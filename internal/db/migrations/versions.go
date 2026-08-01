@@ -25,6 +25,49 @@ func getAllMigrations() []Migration {
 		migration15_v150_TenantBandwidth(),
 		migration16_v150_EncryptionKeys(),
 		migration17_v150_ClusterSharedKEK(),
+		migration18_v160_STS(),
+	}
+}
+
+// migration18_v160_STS holds the ENTIRE schema for the STS feature. A session
+// is a projection of an existing user (temp ASIA key + secret + session token,
+// server-enforced expiry); session_policy holds the optional intersection-only
+// restriction. See docs/SECURITY.md, "Temporary Credentials".
+//
+// Any further STS work MUST extend this function rather than add migration 19,
+// 20, … — one migration per feature instead of one per increment. This is safe
+// only while v1.6.0 is unreleased: no installation has run it yet, so amending
+// it changes nothing anyone has applied. Once v1.6.0 ships, this function
+// becomes frozen like every migration above it and further changes need a new one.
+func migration18_v160_STS() Migration {
+	return Migration{
+		Version:     18,
+		Description: "v1.6.0 - STS schema (sts_sessions: temporary credentials)",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS sts_sessions (
+					temp_access_key_id TEXT PRIMARY KEY,
+					secret_access_key TEXT NOT NULL,
+					session_token TEXT NOT NULL,
+					user_id TEXT NOT NULL,
+					session_policy TEXT,
+					created_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL
+				)
+			`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sts_sessions_user ON sts_sessions(user_id)`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sts_sessions_expires ON sts_sessions(expires_at)`); err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

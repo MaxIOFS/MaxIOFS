@@ -2775,17 +2775,19 @@ func (h *Handler) validatePresignedURLAccess(r *http.Request, objectKey string) 
 		return "", false, fmt.Errorf("auth manager not configured")
 	}
 
-	accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID)
+	// Resolves permanent access keys and STS temporary credentials alike; for
+	// the latter it also enforces session expiry, token match and user status.
+	secretAccessKey, err := h.getSecretKeyForCredential(r.Context(), accessKeyID, r.URL.Query().Get("X-Amz-Security-Token"))
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"accessKeyID": accessKeyID,
 			"error":       err.Error(),
-		}).Warn("Presigned URL: access key not found")
+		}).Warn("Presigned URL: credential not usable")
 		return "", false, fmt.Errorf("access key not found")
 	}
 
 	// Validate presigned URL signature
-	valid, err := presigned.ValidatePresignedURL(r, accessKey.SecretAccessKey)
+	valid, err := presigned.ValidatePresignedURL(r, secretAccessKey)
 	if err != nil || !valid {
 		logrus.WithFields(logrus.Fields{
 			"accessKeyID": accessKeyID,

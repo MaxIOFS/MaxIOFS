@@ -26,6 +26,7 @@ const (
 	EntityTypeIDPProvider      = "idp_provider"
 	EntityTypeGroupMapping     = "group_mapping"
 	EntityTypeGroup            = "group"
+	EntityTypeSTSSession       = "sts_session"
 )
 
 // DeletionEntry represents a tombstone in the cluster deletion log

@@ -84,6 +84,27 @@ func (m *mockAuthManager) RevokeAccessKey(ctx context.Context, accessKey string)
 func (m *mockAuthManager) ListAccessKeys(ctx context.Context, userID string) ([]auth.AccessKey, error) {
 	return nil, fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) IssueSTSSession(ctx context.Context, userID string, durationSeconds int, sessionPolicy string) (*auth.STSSession, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*auth.User, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*auth.User, string, error) {
+	return nil, "", fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) RevokeSTSSession(ctx context.Context, tempAccessKeyID, requestingUserID string, isAdmin bool) error {
+	return fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) ListSTSSessions(ctx context.Context, userID string) ([]*auth.STSSession, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) ListAllSTSSessions(ctx context.Context) ([]*auth.STSSession, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) SweepExpiredSTSSessions(ctx context.Context) (int64, error) {
+	return 0, fmt.Errorf("not implemented")
+}
 func (m *mockAuthManager) CreateTenant(ctx context.Context, tenant *auth.Tenant) error {
 	return fmt.Errorf("not implemented")
 }

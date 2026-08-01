@@ -75,6 +75,7 @@ type Server struct {
 	tenantSyncMgr           *cluster.TenantSyncManager
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
+	stsSessionSyncMgr       *cluster.STSSessionSyncManager
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
@@ -405,6 +406,9 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize access key synchronization manager
 	accessKeySyncMgr := cluster.NewAccessKeySyncManager(db, clusterManager)
 
+	// Initialize STS session synchronization manager
+	stsSessionSyncMgr := cluster.NewSTSSessionSyncManager(db, clusterManager)
+
 	// Initialize bucket permission synchronization manager
 	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
 
@@ -500,6 +504,7 @@ func New(cfg *config.Config) (*Server, error) {
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
+		stsSessionSyncMgr:       stsSessionSyncMgr,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
@@ -637,6 +642,11 @@ func (s *Server) Start(ctx context.Context) error {
 	// objects to envelope encryption; load-aware, checkpointed)
 	s.startEncryptionWorker(ctx)
 	logrus.Info("Encryption worker started")
+
+	// Start expired STS session sweep (hygiene only — signature validation
+	// enforces expiry itself, so correctness never depends on this loop)
+	go s.startSTSSessionSweep(ctx, 1*time.Hour)
+	logrus.Info("STS session sweep started")
 
 	// After an unclean shutdown, hot-path metadata commits from the last
 	// ~1s may be lost while the object files survived — reconcile the store
@@ -822,6 +832,10 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.accessKeySyncMgr != nil {
 			s.accessKeySyncMgr.Start(ctx)
 			logrus.Info("Access key synchronization manager started")
+		}
+		if s.stsSessionSyncMgr != nil {
+			s.stsSessionSyncMgr.Start(ctx)
+			logrus.Info("STS session synchronization manager started")
 		}
 		if s.bucketPermissionSyncMgr != nil {
 			s.bucketPermissionSyncMgr.Start(ctx)
@@ -1176,6 +1190,9 @@ func (s *Server) setupRoutes() error {
 	// before the redirect to public_console_url (e.g. /ui/) is ever sent.
 	s3Router.Use(apiHandler.BucketCORSMiddleware)
 	s3Router.Use(apiHandler.S3ClientMiddleware)
+	// Must run BEFORE SigV4 validation: it supplies the payload hash that AWS
+	// STS clients sign but do not send as a header. See stsPayloadHashMiddleware.
+	s3Router.Use(stsPayloadHashMiddleware)
 	// Cluster proxy auth bypass: if the request is from another cluster node with valid
 	// HMAC credentials, extract the forwarded user context and skip SigV4 auth.
 	if s.clusterManager != nil {
@@ -1241,6 +1258,10 @@ func (s *Server) setupRoutes() error {
 
 	// S3 access logging: capture every request after auth so the user is in context.
 	s3Router.Use(s.s3AccessLoggingMiddleware())
+
+	// AWS STS query protocol on POST /. Registered before the
+	// S3 routes, which only claim GET/HEAD on "/", so the two never compete.
+	s3Router.HandleFunc("/", s.handleAWSSTSRequest).Methods("POST")
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
@@ -1320,6 +1341,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
 	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
+	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
 	hmac.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
 	hmac.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
 	hmac.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")

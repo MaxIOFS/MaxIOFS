@@ -254,6 +254,23 @@ func (m *Manager) HandleOAuthCallback(ctx context.Context, providerID, code stri
 	return provider.ExchangeCode(ctx, code)
 }
 
+// AuthenticateWithAccessToken resolves the external user an access token belongs
+// to. Only providers implementing TokenAuthenticator (OAuth2) support this;
+// anything else is an error rather than a silent success.
+func (m *Manager) AuthenticateWithAccessToken(ctx context.Context, providerID, accessToken string) (*ExternalUser, error) {
+	provider, err := m.getOrCreateProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+
+	authenticator, ok := provider.(TokenAuthenticator)
+	if !ok {
+		return nil, fmt.Errorf("provider %s does not support token authentication", providerID)
+	}
+
+	return authenticator.AuthenticateWithToken(ctx, accessToken)
+}
+
 // CreateGroupMapping creates a new group mapping
 func (m *Manager) CreateGroupMapping(ctx context.Context, mapping *GroupMapping) error {
 	if mapping.ID == "" {

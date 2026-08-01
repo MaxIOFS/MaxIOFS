@@ -238,6 +238,157 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | POST | `/api/v1/access-keys` | Create access key |
 | DELETE | `/api/v1/access-keys/{id}` | Delete access key |
 
+### Temporary Credentials (STS)
+
+Short-lived S3 credentials that carry the requesting user's own permissions and
+expire automatically, so applications never need to hold permanent keys.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/sts/session-token` | Issue temporary credentials for the calling user |
+| GET | `/api/v1/sts/sessions` | List own active sessions (`?all=true` — global admin: everyone's) |
+| DELETE | `/api/v1/sts/sessions/{keyId}` | Revoke a session (own; global admins: any) |
+| POST | `/api/v1/sts/ldap-identity` | Exchange LDAP credentials for temporary credentials (no JWT) |
+| POST | `/api/v1/sts/web-identity` | Exchange an OAuth access token for temporary credentials (no JWT) |
+
+**Request** (body optional — omit for the default duration):
+
+```json
+{ "durationSeconds": 3600 }
+```
+
+Duration must be between 900 s (15 min) and `security.sts_max_session_duration`
+(default 43200 s = 12 h); values outside the range are rejected with 400. A user
+may hold at most 100 active sessions (429 beyond that).
+
+**Optional session policy** — attach a policy to narrow the credential:
+
+```json
+{
+  "durationSeconds": 3600,
+  "sessionPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": ["arn:aws:s3:::backups", "arn:aws:s3:::backups/*"]
+      }
+    ]
+  }
+}
+```
+
+`sessionPolicy` accepts a JSON object or a string containing the document. It can
+only **remove** permissions: a request is served when the normal authorization
+pipeline allows it *and* the policy allows it, so a session never gets more than
+its user already has.
+
+Supported: `Effect` (`Allow`/`Deny`), `Action`, `Resource` — string or list, with
+`*`/`?` wildcards; explicit `Deny` wins. Resources may omit the `arn:aws:s3:::`
+prefix. **Rejected with 400 at issuance**: `Principal` (a session policy always
+applies to its own user), `Condition` (not evaluated yet — accepting it would
+silently widen the policy), an empty `Statement` list, documents over 2048 bytes
+or 20 statements. A denial at request time returns `403 AccessDenied`; an expired
+session returns `403 ExpiredToken`.
+
+**Response** — the secret and session token are returned **once** and are never
+retrievable afterwards; listings show neither:
+
+```json
+{
+  "accessKeyId": "ASIA…",
+  "secretAccessKey": "…",
+  "sessionToken": "…",
+  "expiresAt": 1785000000
+}
+```
+
+**Using the credentials** — sign S3 requests with SigV4 as usual, sending the
+session token in `X-Amz-Security-Token`. The token **must be listed in
+`SignedHeaders`** (SDKs do this automatically); an unsigned token is rejected so
+it cannot be stripped or swapped in transit. Presigned URLs work too, with the
+token as a query parameter. SigV2 is rejected for temporary credentials, as on AWS.
+
+Permissions are evaluated per request against the base user's live state: roles,
+capabilities, bucket permissions, bucket policies and ACLs all apply unchanged.
+Suspending or deleting the user invalidates every session of theirs immediately.
+
+#### Federation — credentials for headless clients
+
+The two endpoints below need **no console session**: they authenticate the caller
+against an identity provider directly, so an application holding LDAP credentials
+or an OAuth access token can obtain S3 credentials without anyone creating
+permanent keys for it.
+
+They are **disabled by default**. Set `security.sts_federation_enabled` to `true`
+first (Settings → Security); until then they answer `403`.
+
+```json
+POST /api/v1/sts/ldap-identity
+{ "providerId": "idp-…", "username": "svc-backup", "password": "…",
+  "durationSeconds": 3600, "sessionPolicy": { } }
+
+POST /api/v1/sts/web-identity
+{ "providerId": "idp-…", "token": "<OAuth access token>",
+  "durationSeconds": 3600, "sessionPolicy": { } }
+```
+
+Both return the same payload as `/sts/session-token`, and both accept the same
+`durationSeconds` and `sessionPolicy` fields.
+
+- **LDAP**: the user must already exist in MaxIOFS and be linked to that provider
+  (`auth_provider = ldap:{providerId}`) — the exchange authenticates, it does not
+  create accounts.
+- **Web identity**: the token is validated by calling the provider's userinfo
+  endpoint, so expired or revoked tokens are rejected. A user unknown to MaxIOFS
+  is auto-provisioned through group mappings exactly as in browser SSO login.
+- The caller needs the `keys:manage_own` capability (or admin), the account must
+  be active and unlocked, and the provider must be `active`.
+- Attempts are rate-limited per IP on the same budget as console login (`429`)
+  and recorded in the audit log. Every rejection answers an opaque `403 Access
+  denied` — the endpoints do not reveal which usernames exist.
+
+#### AWS STS protocol (for SDKs)
+
+The same credentials are available through the AWS STS query protocol, on the
+**S3 API port** — the location AWS SDKs and MinIO-oriented tooling expect. Point
+the SDK's STS endpoint override (`AWS_STS_ENDPOINT` or equivalent) at the S3
+endpoint:
+
+```
+POST /                                    (S3 API port, e.g. http://maxiofs:8080)
+Content-Type: application/x-www-form-urlencoded
+
+Action=GetSessionToken&DurationSeconds=3600
+```
+
+| Action | Authentication | Parameters |
+|--------|----------------|------------|
+| `GetSessionToken` | SigV4 with **permanent** credentials | `DurationSeconds`, `Policy` |
+| `AssumeRole` | SigV4 with **permanent** credentials | `RoleArn` (ignored), `RoleSessionName`, `DurationSeconds`, `Policy` |
+| `AssumeRoleWithWebIdentity` | The token itself | `WebIdentityToken`, `ProviderId` (only if several OAuth providers exist), `DurationSeconds`, `Policy` |
+| `AssumeRoleWithLDAPIdentity` | The credentials themselves | `LDAPUsername`, `LDAPPassword`, `DurationSeconds`, `Policy` |
+
+Responses are the standard AWS XML documents; `Policy` is a Phase 2 session
+policy and `DurationSeconds` follows the same bounds as the JSON API.
+
+- **`AssumeRole` is an alias of `GetSessionToken` and `RoleArn` is ignored.**
+  MaxIOFS implements STS but **not IAM**: there are no roles to assume and no
+  IAM protocol endpoints. The credentials carry the authenticated user's own
+  permissions, so the result can never exceed what that user already has — but
+  it is *not* what an AWS-shaped client asking for a role expects. It is
+  accepted because SDKs reach for it by default.
+- **Temporary credentials cannot call these actions**: a session signed with an
+  `ASIA` key is refused, so a leaked credential cannot renew itself past its
+  expiry.
+- The two federated actions obey `security.sts_federation_enabled` exactly like
+  their JSON counterparts.
+
+Note: SOSAPI still reports `IAMSTS=false` to Veeam. That capability advertises an
+IAM endpoint alongside the STS one, and MaxIOFS exposes no AWS-compatible IAM
+surface; claiming it would make Veeam call an endpoint that does not exist.
+
 ### Groups
 
 | Method | Path | Description |

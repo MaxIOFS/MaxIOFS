@@ -597,6 +597,56 @@ func (m *MockAuthManager) RevokeAccessKey(ctx context.Context, accessKey string)
 	return args.Error(0)
 }
 
+func (m *MockAuthManager) IssueSTSSession(ctx context.Context, userID string, durationSeconds int, sessionPolicy string) (*auth.STSSession, error) {
+	args := m.Called(ctx, userID, durationSeconds, sessionPolicy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.STSSession), args.Error(1)
+}
+
+func (m *MockAuthManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*auth.User, error) {
+	args := m.Called(ctx, tempAccessKeyID, sessionToken, r)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.User), args.Error(1)
+}
+
+func (m *MockAuthManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*auth.User, string, error) {
+	args := m.Called(ctx, tempAccessKeyID, sessionToken)
+	if args.Get(0) == nil {
+		return nil, args.String(1), args.Error(2)
+	}
+	return args.Get(0).(*auth.User), args.String(1), args.Error(2)
+}
+
+func (m *MockAuthManager) RevokeSTSSession(ctx context.Context, tempAccessKeyID, requestingUserID string, isAdmin bool) error {
+	args := m.Called(ctx, tempAccessKeyID, requestingUserID, isAdmin)
+	return args.Error(0)
+}
+
+func (m *MockAuthManager) ListSTSSessions(ctx context.Context, userID string) ([]*auth.STSSession, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*auth.STSSession), args.Error(1)
+}
+
+func (m *MockAuthManager) ListAllSTSSessions(ctx context.Context) ([]*auth.STSSession, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*auth.STSSession), args.Error(1)
+}
+
+func (m *MockAuthManager) SweepExpiredSTSSessions(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *MockAuthManager) ListAccessKeys(ctx context.Context, userID string) ([]auth.AccessKey, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {

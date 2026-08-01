@@ -25,6 +25,8 @@ import type {
   EditUserForm,
   APIError,
   AccessKey,
+  STSSession,
+  STSSessionCredentials,
   Tenant,
   CreateTenantRequest,
   UpdateTenantRequest,
@@ -660,6 +662,34 @@ export class APIClient {
 
   static async deleteAccessKey(userId: string, keyId: string): Promise<void> {
     await apiClient.delete(`/users/${userId}/access-keys/${keyId}`);
+  }
+
+  // STS Temporary Credentials
+  // sessionPolicy is optional and can only NARROW what the credential may do.
+  static async issueSTSSession(
+    durationSeconds?: number,
+    sessionPolicy?: string
+  ): Promise<STSSessionCredentials> {
+    const body: { durationSeconds?: number; sessionPolicy?: string } = {};
+    if (durationSeconds) body.durationSeconds = durationSeconds;
+    if (sessionPolicy?.trim()) body.sessionPolicy = sessionPolicy.trim();
+
+    const response = await apiClient.post<APIResponse<STSSessionCredentials>>(
+      '/sts/session-token',
+      body
+    );
+    return response.data.data!;
+  }
+
+  static async getSTSSessions(all = false): Promise<STSSession[]> {
+    const response = await apiClient.get<APIResponse<STSSession[]>>(
+      all ? '/sts/sessions?all=true' : '/sts/sessions'
+    );
+    return response.data.data || [];
+  }
+
+  static async revokeSTSSession(keyId: string): Promise<void> {
+    await apiClient.delete(`/sts/sessions/${keyId}`);
   }
 
   // Buckets Management

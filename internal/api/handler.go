@@ -397,6 +397,16 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		return true
 	}
 
+	// AWS STS query protocol: a form-encoded POST to the service root. The
+	// unsigned actions (AssumeRoleWithWebIdentity / …WithLDAPIdentity) carry no
+	// Authorization or x-amz-* header, so without this a client that is not on
+	// the User-Agent list below would be redirected to the console instead of
+	// receiving an XML answer. No browser posts a form to the S3 root.
+	if r.Method == http.MethodPost && (r.URL.Path == "/" || r.URL.Path == "") &&
+		strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+		return true
+	}
+
 	ua := strings.ToLower(r.Header.Get("User-Agent"))
 	clients := []string{
 		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd", "s5cmd", "mc", "rclone",

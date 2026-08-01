@@ -1,27 +1,73 @@
 # MaxIOFS - Development Roadmap
 
-**Version**: 1.5.2
-**Last Updated**: July 18, 2026
-**Status**: Stable — v1.5.2 (July 18, 2026)
+**Last Updated**: July 31, 2026
 
-> Completed work lives in [CHANGELOG.md](CHANGELOG.md). This file tracks only pending / planned work.
-
-## 📊 Project Status
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| S3 Core API | ~99% | Full compatibility audit completed — 20 issues identified and resolved (March 2026) |
-| Backend Tests | 3,900+ | At practical ceiling |
-| Frontend Tests | 106+ | |
-| Production Ready | ✅ Stable | v1.5.2 release-ready (July 18, 2026) |
+> This file tracks ONLY work in progress and pending work. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## ⚪ Backlog — IAM/STS (temporary credentials)
+## 🔵 In Progress — STS temporary credentials (implemented, validation pending)
 
-> Note: the legacy `CheckPermission` RBAC stub (and its SEC-03 warning) was removed in v1.5.0 as unreachable dead code — current enforcement is roles + capabilities + bucket policies + ACLs. The IAM work defines its own policy-evaluation entry point (design to be validated before implementation); `GetS3Action`/`GetResourceARN` in `internal/auth/s3auth.go` are the kept action/ARN mapping primitives.
+> **Scope note: this is STS, not IAM.** MaxIOFS issues and validates temporary
+> credentials; it does **not** expose an AWS-compatible IAM surface (no
+> `CreateUser`/`CreateAccessKey`/`AttachUserPolicy`, no managed policies as
+> entities, no roles to assume). Authorization is the existing MaxIOFS model —
+> roles, capabilities, bucket permissions, bucket policies, ACLs — which is
+> complete and authoritative, just not IAM-shaped. See "Open decision" below.
 
-Not implemented (SOSAPI reports `IAMSTS: false`). Emits short-lived credentials (access key + secret + session token, with expiry + scoped permissions) without exposing permanent keys. Use cases: temporary third-party access, apps needing ephemeral creds, identity federation (OAuth/LDAP → temporary S3 creds). Scope/design TBD — the policy-evaluation design must be validated before implementation starts.
+**Design principle**: a temporary credential is a projection of an existing
+user, never a new identity. The authorization pipeline is untouched; STS adds an
+issuance path and a validation branch, and everything downstream consumes the
+same `*User` and cannot tell how the request authenticated.
+
+What exists: temporary credentials (`ASIA` keys, server-enforced expiry,
+revocable, cluster-replicated), optional intersection-only session policies,
+federation endpoints for headless LDAP/OAuth clients, and the AWS STS query
+protocol at `POST /` on the S3 API. Details in [CHANGELOG.md](CHANGELOG.md).
+
+### Before this can ship
+
+- [ ] Manual end-to-end check with a real S3 client (AWS CLI / SDK) using temporary credentials, with and without a session policy — the automated round-trip signs with the server's own canonicalisation, which does not prove SDK interoperability
+- [ ] Manual check of the AWS STS surface with a real SDK (`aws sts get-session-token --endpoint-url <s3-endpoint>`) — this is what the payload-hash middleware exists for, and only a real signer exercises it
+- [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects
+- [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
+
+### Open decision — how far to take this
+
+A client that asks for **IAM role semantics** does not get them: `AssumeRole` is
+accepted as an alias of `GetSessionToken` and `RoleArn` is ignored, so the
+credentials carry the authenticated user's own permissions rather than a role's.
+This can never escalate (the result is always ≤ the user), but it is different
+from what an AWS-shaped client asks for. It is also why SOSAPI `IAMSTS` stays
+`false`: that capability advertises an `IAMEndpoint` alongside the
+`STSEndpoint`, and claiming the pair would make Veeam call an endpoint that
+does not exist.
+
+Three ways out, to be decided before release:
+
+1. **Ship as-is, documented.** Honest about the boundary; matches how MinIO
+   behaves with its built-in identity provider. `IAMSTS` stays `false`.
+2. **Reject `RoleArn`** so a role request fails loudly instead of quietly
+   returning different permissions. Note `RoleArn` is *required* by AWS SDKs on
+   `AssumeRole`, so this makes that action unusable from a stock SDK — only
+   `GetSessionToken` would remain.
+3. **Implement the IAM surface**: roles and managed policies as entities, plus
+   the AWS IAM protocol endpoints. This is what unlocks real `AssumeRole` and
+   `IAMSTS=true`, and it is a piece of work comparable to everything STS took.
+
+### Known limitations (deliberate)
+
+- POST form uploads reject temporary credentials outright (fail-closed).
+- Session policies support `Effect`/`Action`/`Resource` only — no `Condition` —
+  and cannot be edited: revoke and re-issue.
+- LDAP federation does not just-in-time provision users, matching console login.
+- Federation endpoints are disabled by default (`security.sts_federation_enabled`).
+
+> **No new migrations for further STS work.** All of its schema lives in
+> `migration18_v160_STS`; extend that function instead of adding migration 19,
+> 20, … One migration per feature, not one per increment. Valid until v1.6.0
+> ships, after which the function is frozen and any further schema change needs
+> its own migration.
 
 ---
 

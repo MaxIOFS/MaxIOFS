@@ -225,7 +225,13 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			// literal "/api/v1" token and compare that segment exactly.
 			//   - Prefix pattern (trailing "/"): HasPrefix on the relative segment.
 			//   - Exact endpoint: direct equality on the relative segment.
-			publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version"}
+			// "/sts/ldap-identity" and "/sts/web-identity" are public because
+			// they authenticate the caller against an identity provider instead
+			// of a console session. They carry their own
+			// gates: an opt-in setting, the login rate limiter, provider status,
+			// account state and the keys:manage_own capability.
+			publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
+				"/sts/ldap-identity", "/sts/web-identity"}
 			const apiV1Segment = "/api/v1"
 			urlPath := r.URL.Path
 			// Find the "/api/v1" token in the full request path (handles basePath
@@ -423,6 +429,15 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{user}/access-keys", s.handleListAccessKeys).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys", s.handleCreateAccessKey).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys/{accessKey}", s.handleDeleteAccessKey).Methods("DELETE", "OPTIONS")
+
+	// STS temporary credentials — see docs/API.md
+	// The two federation endpoints are in publicPaths above: they authenticate
+	// against an identity provider, not against a console session.
+	router.HandleFunc("/sts/ldap-identity", s.handleSTSLDAPIdentity).Methods("POST", "OPTIONS")
+	router.HandleFunc("/sts/web-identity", s.handleSTSWebIdentity).Methods("POST", "OPTIONS")
+	router.HandleFunc("/sts/session-token", s.handleIssueSTSSession).Methods("POST", "OPTIONS")
+	router.HandleFunc("/sts/sessions", s.handleListSTSSessions).Methods("GET", "OPTIONS")
+	router.HandleFunc("/sts/sessions/{keyId}", s.handleRevokeSTSSession).Methods("DELETE", "OPTIONS")
 
 	// Password management
 	router.HandleFunc("/users/{user}/password", s.handleChangePassword).Methods("PUT", "OPTIONS")

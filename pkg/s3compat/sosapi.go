@@ -77,13 +77,19 @@ func generateSystemXML() ([]byte, error) {
 	sysInfo := SystemInfo{
 		ProtocolVersion: `"1.0"`,
 		ModelName:       `"MaxIOFS"`,
-		APIEndpoints:    nil, // nil = omitempty will exclude from XML (we don't support IAM/STS)
+		// nil = omitempty excludes the element. MaxIOFS serves an AWS-compatible
+		// STS endpoint, but the SOSAPI capability advertises
+		// IAM *and* STS as a pair: APIEndpoints requires an IAMEndpoint too, and
+		// there is no IAM surface (user and key management over the AWS IAM
+		// protocol). Advertising the pair would make Veeam call an endpoint that
+		// does not exist.
+		APIEndpoints: nil,
 	}
 
 	// Initialize inline ProtocolCapabilities
 	sysInfo.ProtocolCapabilities.CapacityInfo = true
 	sysInfo.ProtocolCapabilities.UploadSessions = false // Disabled - not fully implemented yet
-	sysInfo.ProtocolCapabilities.IAMSTS = false
+	sysInfo.ProtocolCapabilities.IAMSTS = false // STS exists, IAM does not — see APIEndpoints above
 
 	// Initialize inline SystemRecommendations (ONLY KbBlockSize)
 	sysInfo.SystemRecommendations.KBBlockSize = 4096

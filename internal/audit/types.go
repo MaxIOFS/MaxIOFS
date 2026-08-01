@@ -4,16 +4,16 @@ import "context"
 
 // Event Types - Authentication Events
 const (
-	EventTypeLoginSuccess      = "login_success"
-	EventTypeLoginFailed       = "login_failed"
-	EventTypeLogout            = "logout"
-	EventTypeUserBlocked       = "user_blocked"
-	EventTypeUserUnblocked     = "user_unblocked"
-	EventTypePasswordChanged   = "password_changed"
-	EventType2FAEnabled        = "2fa_enabled"
-	EventType2FADisabled       = "2fa_disabled"
-	EventType2FAVerifySuccess  = "2fa_verify_success"
-	EventType2FAVerifyFailed   = "2fa_verify_failed"
+	EventTypeLoginSuccess     = "login_success"
+	EventTypeLoginFailed      = "login_failed"
+	EventTypeLogout           = "logout"
+	EventTypeUserBlocked      = "user_blocked"
+	EventTypeUserUnblocked    = "user_unblocked"
+	EventTypePasswordChanged  = "password_changed"
+	EventType2FAEnabled       = "2fa_enabled"
+	EventType2FADisabled      = "2fa_disabled"
+	EventType2FAVerifySuccess = "2fa_verify_success"
+	EventType2FAVerifyFailed  = "2fa_verify_failed"
 )
 
 // Event Types - User Management Events
@@ -46,6 +46,18 @@ const (
 	EventTypeAccessKeyStatusChanged = "access_key_status_changed"
 )
 
+// Event Types - STS Temporary Credential Events
+const (
+	EventTypeSTSSessionIssued  = "sts_session_issued"
+	EventTypeSTSSessionRevoked = "sts_session_revoked"
+
+	// Federation exchanges: credentials or a token from an identity
+	// provider traded for a session. Denials are recorded too — these are the
+	// only STS endpoints reachable without a console session.
+	EventTypeSTSFederationExchange = "sts_federation_exchange"
+	EventTypeSTSFederationDenied   = "sts_federation_denied"
+)
+
 // Event Types - Data Integrity Events
 const (
 	EventTypeDataIntegrityCheck = "data_integrity_check"
@@ -67,12 +79,13 @@ const (
 
 // Resource Types
 const (
-	ResourceTypeUser      = "user"
-	ResourceTypeBucket    = "bucket"
-	ResourceTypeObject    = "object"
-	ResourceTypeAccessKey = "access_key"
-	ResourceTypeTenant    = "tenant"
-	ResourceTypeSystem    = "system"
+	ResourceTypeUser       = "user"
+	ResourceTypeBucket     = "bucket"
+	ResourceTypeObject     = "object"
+	ResourceTypeAccessKey  = "access_key"
+	ResourceTypeSTSSession = "sts_session"
+	ResourceTypeTenant     = "tenant"
+	ResourceTypeSystem     = "system"
 )
 
 // Actions

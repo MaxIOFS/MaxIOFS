@@ -120,6 +120,95 @@ TOTP-based 2FA compatible with Google Authenticator, Authy, and similar apps.
 
 ---
 
+## Temporary Credentials (STS)
+
+Users can issue short-lived S3 credentials (access key ID prefixed `ASIA`, secret,
+and session token) so that applications and scripts never store permanent keys.
+
+> **Scope: STS only, not IAM.** MaxIOFS issues and validates temporary
+> credentials, but exposes no AWS-compatible IAM surface — no user or key
+> management over the IAM protocol, no managed policies as entities, and **no
+> roles to assume**. `AssumeRole` is accepted as an alias of `GetSessionToken`
+> with `RoleArn` ignored, so a client expecting role-based permissions receives
+> the authenticated user's own permissions instead (never more). Authorization
+> is the MaxIOFS model described in this document — roles, capabilities, bucket
+> permissions, bucket policies and ACLs — which is complete and authoritative,
+> just not IAM-shaped.
+
+**Security model** — a temporary credential is a *projection* of an existing user,
+never a separate identity:
+
+- Permissions are **not** copied into the session. Every request re-evaluates the
+  base user's live roles, capabilities, bucket permissions, bucket policies and
+  ACLs, so a permission change takes effect on in-flight sessions immediately.
+- The session token must be present **and covered by the SigV4 signature**
+  (listed in `SignedHeaders`, or in the query string for presigned URLs). An
+  unsigned token is rejected, so it cannot be stripped or substituted in transit.
+- Expiry is enforced server-side on every request; client clocks are not trusted.
+  Maximum lifetime is `security.sts_max_session_duration` (default 12 h, minimum
+  15 min). A user may hold at most 100 active sessions.
+- Session secrets are encrypted at rest with the same AES-256-GCM scheme used for
+  permanent access keys.
+- **Revocation is immediate**: deleting the session in Settings → Access Keys
+  kills the credential. Suspending or deleting the user invalidates all of their
+  sessions at once, on every cluster node, with no propagation delay.
+- Temporary credentials are **S3-only** — they grant no console access — and are
+  **SigV4-only**, matching AWS.
+
+**Session policies** — a credential may carry an optional IAM-style policy that
+narrows it further:
+
+- The policy is an **intersection, never a grant**: a request is served only when
+  the normal authorization pipeline allows it *and* the policy allows it. No
+  policy can widen a session beyond its base user, so issuing one is never a
+  privilege-escalation vector.
+- Standard IAM precedence — explicit `Deny` beats `Allow`, and an explicit
+  `Allow` is required (no implicit allow).
+- Requests that do not map to a known S3 action are **denied** while a policy is
+  attached, rather than guessed at.
+- `Condition` and `Principal` are rejected at issuance instead of ignored: a
+  policy this server cannot enforce exactly as written never becomes a credential
+  that is broader than its author believed.
+- A stored policy that no longer parses denies every request for that session.
+- Denials return `403 AccessDenied`; an expired session returns `403 ExpiredToken`.
+
+**Federation** (`/sts/ldap-identity`, `/sts/web-identity`) lets a headless client
+trade LDAP credentials or an OAuth access token for temporary credentials without
+a console session:
+
+- **Disabled by default** (`security.sts_federation_enabled`). These endpoints
+  accept credentials without a session, so enabling them is an explicit admin
+  decision, not a side effect of configuring an identity provider.
+- Authentication is delegated: LDAP binds against the directory, and an OAuth
+  token is validated by the provider's own userinfo endpoint, so revoked and
+  expired tokens fail.
+- The caller still needs `keys:manage_own` and an active, unlocked account. Note
+  it does **not** need `console:access` — the credentials grant S3 access only.
+- Rate-limited per IP on the console login budget, and every attempt (success or
+  denial) is audited. Denials are opaque, so the endpoints cannot be used to
+  enumerate usernames.
+- Failed exchanges deliberately do **not** count toward the console account
+  lockout: a script with a stale password could otherwise lock a person out of
+  the console. Directories enforce their own lockout policy.
+
+**AWS STS protocol surface** (`POST /` on the S3 API) exposes the same issuance
+paths to AWS SDKs. It adds no new way to obtain credentials:
+
+- `GetSessionToken` and `AssumeRole` require a valid SigV4 signature made with
+  **permanent** credentials, and issue for that user only. `RoleArn` is ignored —
+  MaxIOFS has no role ARNs, so nothing can be assumed beyond the caller.
+- **A temporary credential cannot mint another one.** Requests signed with an
+  `ASIA` key are refused, so a leaked session cannot renew itself indefinitely
+  and expiry always holds.
+- The federated actions carry the federation gates unchanged.
+
+In a cluster, sessions replicate on the same interval as access keys with an
+immediate push on issue and revoke. If a node is unreachable at that moment, a
+revoked session can survive there until the next sync cycle; its expiry remains
+the hard upper bound.
+
+---
+
 ## Password Security
 
 - **Hashing**: Bcrypt with Go's `bcrypt.DefaultCost` (cost factor 10)
@@ -370,7 +459,7 @@ aws s3api get-public-access-block \
 4. **Basic session management** — no device tracking or geographic restrictions
 5. **SQLite audit storage** — may have scale limits at very high event volumes
 6. **External log shipping via syslog/HTTP only** — no built-in managed SIEM integrations or log analytics backends
-7. **Manual key rotation** — requires re-encrypting all objects
+7. **Manual key rotation** — rotation is admin-initiated (no automatic schedule); object data is never re-encrypted, the background worker re-wraps each object's DEK to the new key version
 
 ---
 
