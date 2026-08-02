@@ -18,7 +18,6 @@ func NewS3AuthHelper(manager Manager) *S3AuthHelper {
 	return nil
 }
 
-
 // GetS3Action extracts S3 action from HTTP request.
 // Not wired into request authorization today (that is done by roles, the
 // capability system, bucket policies and ACLs) — kept as the action-mapping
@@ -201,4 +200,3 @@ func ResourceARNForRequest(r *http.Request) string {
 	object := strings.Join(pathParts[1:], "/")
 	return "arn:aws:s3:::" + bucket + "/" + object
 }
-

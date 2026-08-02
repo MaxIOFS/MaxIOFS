@@ -168,24 +168,24 @@ func TestLoginRateLimiter_GetAttempts(t *testing.T) {
 	testIP := "192.168.100.1"
 
 	tests := []struct {
-		name            string
-		recordAttempts  int
-		expectedCount   int
+		name           string
+		recordAttempts int
+		expectedCount  int
 	}{
 		{
-			name:            "Zero attempts",
-			recordAttempts:  0,
-			expectedCount:   0,
+			name:           "Zero attempts",
+			recordAttempts: 0,
+			expectedCount:  0,
 		},
 		{
-			name:            "One attempt",
-			recordAttempts:  1,
-			expectedCount:   1,
+			name:           "One attempt",
+			recordAttempts: 1,
+			expectedCount:  1,
 		},
 		{
-			name:            "Five attempts",
-			recordAttempts:  5,
-			expectedCount:   5,
+			name:           "Five attempts",
+			recordAttempts: 5,
+			expectedCount:  5,
 		},
 	}
 

@@ -76,7 +76,6 @@ import type {
   LoggingTargetsResponse,
   BucketIntegrityReport,
   LastIntegrityScan,
-  EffectiveCapability,
   BucketQuotaState,
   IAMPolicy,
   IAMRole,
@@ -1158,27 +1157,10 @@ export class APIClient {
   }
 
   // Capabilities
-  static async getUserCapabilities(userId: string): Promise<EffectiveCapability[]> {
-    const response = await apiClient.get<{ success: boolean; capabilities: EffectiveCapability[] }>(`/users/${userId}/capabilities`);
-    return response.data.capabilities || [];
-  }
 
-  static async setUserCapability(userId: string, capability: string, granted: boolean): Promise<void> {
-    await apiClient.put(`/users/${userId}/capabilities/${encodeURIComponent(capability)}`, { granted });
-  }
 
-  static async deleteUserCapability(userId: string, capability: string): Promise<void> {
-    await apiClient.delete(`/users/${userId}/capabilities/${encodeURIComponent(capability)}`);
-  }
 
-  static async getAllRoleCapabilities(): Promise<{ role_capabilities: Record<string, string[]>; all_capabilities: string[] }> {
-    const response = await apiClient.get<{ success: boolean; role_capabilities: Record<string, string[]>; all_capabilities: string[] }>('/roles/capabilities');
-    return { role_capabilities: response.data.role_capabilities || {}, all_capabilities: response.data.all_capabilities || [] };
-  }
 
-  static async setRoleCapabilities(role: string, capabilities: string[]): Promise<void> {
-    await apiClient.put(`/roles/${encodeURIComponent(role)}/capabilities`, { capabilities });
-  }
 
   // IAM policies and roles — the console view of the entities the AWS IAM
   // protocol manages. Global admin only.

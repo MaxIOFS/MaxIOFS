@@ -22,10 +22,14 @@ package auth
 // Non-S3 actions. These complete the vocabulary so that a single policy set can
 // describe everything a user may do.
 const (
-	ActionConsoleAccess  = "console:Access"
-	ActionManageOwnKeys  = "console:ManageOwnKeys"
-	ActionIAMManage      = "iam:*"
-	ActionIAMReadOnly    = "iam:Get*"
+	// ActionSuperAdmin and ActionTenantAdmin are administration itself: who may
+	// act across every tenant, and who may act inside one.
+	ActionSuperAdmin  = "maxiofs:SuperAdmin"
+	ActionTenantAdmin = "maxiofs:TenantAdmin"
+
+	ActionConsoleAccess = "console:Access"
+	ActionManageOwnKeys = "console:ManageOwnKeys"
+	ActionIAMManage     = "iam:*"
 )
 
 // Built-in policy names. Roles are built out of these, and they are what the
@@ -211,31 +215,4 @@ func (e catalogEntry) Document() string {
 	}
 	doc += `],"Resource":["*"]}]}`
 	return doc
-}
-
-// DefaultRolePolicies is the shipped permission set of each role, expressed in
-// catalogue policies. It reproduces exactly what the roles granted before —
-// admin everything, user everything except bucket policy management, and so on
-// down to guest, which can only read.
-//
-// A role whose attached policies differ from this is shown as "custom" in the
-// console: these are defaults, not constraints, and an operator is free to
-// build any role out of any policies.
-var DefaultRolePolicies = map[string][]string{
-	RoleAdmin: {PolicyFullAccess},
-	"user": {
-		PolicyBucketCreate, PolicyBucketDelete, PolicyBucketConfigure,
-		PolicyObjectRead, PolicyObjectWrite, PolicyObjectDelete,
-		PolicyObjectManageTags, PolicyObjectManageVersions,
-		PolicyConsoleAccess, PolicyManageOwnKeys,
-	},
-	"read": {
-		PolicyObjectRead, PolicyConsoleAccess, PolicyManageOwnKeys,
-	},
-	RoleReadOnly: {
-		PolicyObjectRead, PolicyConsoleAccess,
-	},
-	RoleGuest: {
-		PolicyObjectRead,
-	},
 }

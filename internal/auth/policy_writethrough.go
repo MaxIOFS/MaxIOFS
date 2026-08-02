@@ -128,16 +128,6 @@ func (s *SQLiteStore) writeRoleCapabilityPolicies(role string, capabilities []st
 	return nil
 }
 
-// syncUserRolePolicies rewrites the bucket-independent part of a user's
-// permissions after their roles change. The role attachments cover the actions
-// that name no resource; a user's scoped grants are untouched.
-func (s *SQLiteStore) syncUserRolePolicies(user *User) error {
-	// Nothing to materialise: role policies are attached to the role, and the
-	// request path reads them through the user's role list. This exists so the
-	// call site reads as the deliberate no-op it is rather than an omission.
-	return nil
-}
-
 func isNoSuchEntity(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no such entity")
 }

@@ -468,9 +468,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{user}/unlock", s.handleUnlockAccount).Methods("POST", "OPTIONS")
 
 	// Capability management
-	router.HandleFunc("/users/{id}/capabilities", s.handleGetUserCapabilities).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleSetUserCapability).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleDeleteUserCapability).Methods("DELETE", "OPTIONS")
 
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")
@@ -4422,14 +4419,14 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            string            `json:"name"`
-		DisplayName     string            `json:"displayName"`
-		Description     string            `json:"description"`
-		MaxAccessKeys   int64             `json:"maxAccessKeys,omitempty"`
-		MaxStorageBytes int64             `json:"maxStorageBytes,omitempty"`
-		MaxBandwidthBytesPerSec int64     `json:"maxBandwidthBytesPerSec,omitempty"`
-		MaxBuckets      int64             `json:"maxBuckets,omitempty"`
-		Metadata        map[string]string `json:"metadata,omitempty"`
+		Name                    string            `json:"name"`
+		DisplayName             string            `json:"displayName"`
+		Description             string            `json:"description"`
+		MaxAccessKeys           int64             `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes         int64             `json:"maxStorageBytes,omitempty"`
+		MaxBandwidthBytesPerSec int64             `json:"maxBandwidthBytesPerSec,omitempty"`
+		MaxBuckets              int64             `json:"maxBuckets,omitempty"`
+		Metadata                map[string]string `json:"metadata,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -4447,18 +4444,18 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenant := &auth.Tenant{
-		ID:              auth.GenerateTenantID(),
-		Name:            req.Name,
-		DisplayName:     req.DisplayName,
-		Description:     req.Description,
-		Status:          "active",
-		MaxAccessKeys:   req.MaxAccessKeys,
-		MaxStorageBytes: req.MaxStorageBytes,
+		ID:                      auth.GenerateTenantID(),
+		Name:                    req.Name,
+		DisplayName:             req.DisplayName,
+		Description:             req.Description,
+		Status:                  "active",
+		MaxAccessKeys:           req.MaxAccessKeys,
+		MaxStorageBytes:         req.MaxStorageBytes,
 		MaxBandwidthBytesPerSec: req.MaxBandwidthBytesPerSec,
-		MaxBuckets:      req.MaxBuckets,
-		Metadata:        req.Metadata,
-		CreatedAt:       time.Now().Unix(),
-		UpdatedAt:       time.Now().Unix(),
+		MaxBuckets:              req.MaxBuckets,
+		Metadata:                req.Metadata,
+		CreatedAt:               time.Now().Unix(),
+		UpdatedAt:               time.Now().Unix(),
 	}
 
 	if err := s.authManager.CreateTenant(r.Context(), tenant); err != nil {
@@ -4545,16 +4542,16 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	tenantID := vars["tenant"]
 
 	var req struct {
-		DisplayName         *string           `json:"displayName,omitempty"`
-		Description         *string           `json:"description,omitempty"`
-		Status              *string           `json:"status,omitempty"`
-		MaxAccessKeys       *int64            `json:"maxAccessKeys,omitempty"`
-		MaxStorageBytes     *int64            `json:"maxStorageBytes,omitempty"`
-		MaxBandwidthBytesPerSec *int64        `json:"maxBandwidthBytesPerSec,omitempty"`
-		MaxBuckets          *int64            `json:"maxBuckets,omitempty"`
-		CurrentStorageBytes *int64            `json:"currentStorageBytes,omitempty"`
-		CurrentBuckets      *int64            `json:"currentBuckets,omitempty"`
-		Metadata            map[string]string `json:"metadata,omitempty"`
+		DisplayName             *string           `json:"displayName,omitempty"`
+		Description             *string           `json:"description,omitempty"`
+		Status                  *string           `json:"status,omitempty"`
+		MaxAccessKeys           *int64            `json:"maxAccessKeys,omitempty"`
+		MaxStorageBytes         *int64            `json:"maxStorageBytes,omitempty"`
+		MaxBandwidthBytesPerSec *int64            `json:"maxBandwidthBytesPerSec,omitempty"`
+		MaxBuckets              *int64            `json:"maxBuckets,omitempty"`
+		CurrentStorageBytes     *int64            `json:"currentStorageBytes,omitempty"`
+		CurrentBuckets          *int64            `json:"currentBuckets,omitempty"`
+		Metadata                map[string]string `json:"metadata,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -305,3 +305,42 @@ func (am *authManager) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID str
 func (am *authManager) RevokeBucketPolicies(bucketName string) error {
 	return am.store.RevokeBucketPolicies(bucketName)
 }
+
+// HasPermission reports whether a user's policies allow an action anywhere.
+//
+// For the administration permissions, which name no bucket, "anywhere" is the
+// only question there is.
+func (am *authManager) HasPermission(userID string, roles []string, action string) bool {
+	set, err := am.buildPolicySet(userID, roles)
+	if err != nil {
+		return false
+	}
+	return set.AllowsAnywhere(action)
+}
+
+// HasExactPermission reports whether an action is named outright by one of the
+// user's policies. A wildcard does not satisfy it.
+func (am *authManager) HasExactPermission(userID string, roles []string, action string) bool {
+	documents, err := am.store.EffectivePolicyDocuments(userID, roles)
+	if err != nil {
+		return false
+	}
+
+	for _, raw := range documents {
+		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
+		if err != nil {
+			continue
+		}
+		for _, st := range policy.Statement {
+			if st.Effect != EffectAllow {
+				continue
+			}
+			for _, named := range policyStringValues(st.Action) {
+				if strings.EqualFold(named, action) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

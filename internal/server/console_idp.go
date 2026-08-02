@@ -1159,7 +1159,16 @@ func (s *Server) getAuthUser(r *http.Request) *auth.User {
 	return user
 }
 
+// isAdmin reports whether a user administers anything: one tenant, or all of
+// them. Held as a permission, so it can be granted to somebody who does not
+// carry the admin role.
 func (s *Server) isAdmin(user *auth.User) bool {
+	if user == nil {
+		return false
+	}
+	if s.userHoldsPermission(user, auth.ActionTenantAdmin) || s.isGlobalAdmin(user) {
+		return true
+	}
 	for _, role := range user.Roles {
 		if role == auth.RoleAdmin {
 			return true
@@ -1168,8 +1177,29 @@ func (s *Server) isAdmin(user *auth.User) bool {
 	return false
 }
 
+// isGlobalAdmin reports whether a user administers every tenant.
+//
+// The permission is checked explicitly rather than through a wildcard. The
+// admin role grants "*", and a role is the same role inside a tenant as outside
+// it — so accepting a wildcard here would promote every tenant's administrator
+// to administering all of them. Being scoped to a tenant is precisely what
+// makes an administrator a tenant's rather than the system's.
 func (s *Server) isGlobalAdmin(user *auth.User) bool {
-	return s.isAdmin(user) && user.TenantID == ""
+	if user == nil {
+		return false
+	}
+	if user.TenantID != "" {
+		return false
+	}
+	if s.userHoldsPermissionExactly(user, auth.ActionSuperAdmin) {
+		return true
+	}
+	for _, role := range user.Roles {
+		if role == auth.RoleAdmin {
+			return true
+		}
+	}
+	return false
 }
 
 // countGlobalAdmins returns the number of active global-admin users

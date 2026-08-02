@@ -18,17 +18,17 @@ import (
 
 // AccessLogEntry represents a single S3 request to be logged to the target bucket.
 type AccessLogEntry struct {
-	Timestamp   time.Time
-	BucketName  string
-	TenantID    string
-	ObjectKey   string
-	Operation   string
-	RemoteIP    string
-	UserAgent   string
-	Requester   string
-	RequestID   string
-	HTTPStatus  int
-	BytesSent   int64
+	Timestamp  time.Time
+	BucketName string
+	TenantID   string
+	ObjectKey  string
+	Operation  string
+	RemoteIP   string
+	UserAgent  string
+	Requester  string
+	RequestID  string
+	HTTPStatus int
+	BytesSent  int64
 }
 
 // BucketAccessLogger asynchronously delivers S3 server access logs to the configured

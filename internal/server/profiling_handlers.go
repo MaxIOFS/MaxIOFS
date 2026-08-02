@@ -14,49 +14,49 @@ import (
 
 // SystemStats contains real-time system statistics for profiling
 type SystemStats struct {
-	Timestamp    time.Time         `json:"timestamp"`
-	Goroutines   int               `json:"goroutines"`
-	MemStats     MemoryStats       `json:"memory_stats"`
-	GCStats      GarbageCollector  `json:"gc_stats"`
-	CPUStats     CPUStats          `json:"cpu_stats"`
+	Timestamp  time.Time        `json:"timestamp"`
+	Goroutines int              `json:"goroutines"`
+	MemStats   MemoryStats      `json:"memory_stats"`
+	GCStats    GarbageCollector `json:"gc_stats"`
+	CPUStats   CPUStats         `json:"cpu_stats"`
 }
 
 // MemoryStats contains memory statistics
 type MemoryStats struct {
-	Alloc        uint64  `json:"alloc_bytes"`         // Currently allocated bytes
-	TotalAlloc   uint64  `json:"total_alloc_bytes"`   // Cumulative bytes allocated
-	Sys          uint64  `json:"sys_bytes"`           // Total memory from OS
-	HeapAlloc    uint64  `json:"heap_alloc_bytes"`    // Heap allocated bytes
-	HeapSys      uint64  `json:"heap_sys_bytes"`      // Heap memory from OS
-	HeapIdle     uint64  `json:"heap_idle_bytes"`     // Idle heap bytes
-	HeapInuse    uint64  `json:"heap_inuse_bytes"`    // Heap bytes in use
-	HeapReleased uint64  `json:"heap_released_bytes"` // Heap bytes released to OS
-	HeapObjects  uint64  `json:"heap_objects"`        // Number of heap objects
-	StackInuse   uint64  `json:"stack_inuse_bytes"`   // Stack bytes in use
-	StackSys     uint64  `json:"stack_sys_bytes"`     // Stack memory from OS
-	GCSys        uint64  `json:"gc_sys_bytes"`        // GC metadata memory
+	Alloc        uint64 `json:"alloc_bytes"`         // Currently allocated bytes
+	TotalAlloc   uint64 `json:"total_alloc_bytes"`   // Cumulative bytes allocated
+	Sys          uint64 `json:"sys_bytes"`           // Total memory from OS
+	HeapAlloc    uint64 `json:"heap_alloc_bytes"`    // Heap allocated bytes
+	HeapSys      uint64 `json:"heap_sys_bytes"`      // Heap memory from OS
+	HeapIdle     uint64 `json:"heap_idle_bytes"`     // Idle heap bytes
+	HeapInuse    uint64 `json:"heap_inuse_bytes"`    // Heap bytes in use
+	HeapReleased uint64 `json:"heap_released_bytes"` // Heap bytes released to OS
+	HeapObjects  uint64 `json:"heap_objects"`        // Number of heap objects
+	StackInuse   uint64 `json:"stack_inuse_bytes"`   // Stack bytes in use
+	StackSys     uint64 `json:"stack_sys_bytes"`     // Stack memory from OS
+	GCSys        uint64 `json:"gc_sys_bytes"`        // GC metadata memory
 }
 
 // GarbageCollector contains GC statistics
 type GarbageCollector struct {
-	NumGC          uint32  `json:"num_gc"`            // Number of GC runs
-	PauseTotalMs   float64 `json:"pause_total_ms"`    // Total GC pause time
-	PauseLastMs    float64 `json:"pause_last_ms"`     // Last GC pause time
-	NextGC         uint64  `json:"next_gc_bytes"`     // Next GC target heap size
+	NumGC          uint32    `json:"num_gc"`          // Number of GC runs
+	PauseTotalMs   float64   `json:"pause_total_ms"`  // Total GC pause time
+	PauseLastMs    float64   `json:"pause_last_ms"`   // Last GC pause time
+	NextGC         uint64    `json:"next_gc_bytes"`   // Next GC target heap size
 	LastGC         time.Time `json:"last_gc"`         // Last GC time
-	EnabledPercent float64 `json:"enabled_percent"`   // GC CPU percentage target
+	EnabledPercent float64   `json:"enabled_percent"` // GC CPU percentage target
 }
 
 // CPUStats contains CPU statistics
 type CPUStats struct {
-	NumCPU      int `json:"num_cpu"`       // Number of logical CPUs
-	NumCgoCall  int64 `json:"num_cgo_call"` // Number of cgo calls
+	NumCPU     int   `json:"num_cpu"`      // Number of logical CPUs
+	NumCgoCall int64 `json:"num_cgo_call"` // Number of cgo calls
 }
 
 // LatenciesResponse contains latency statistics for all operations
 type LatenciesResponse struct {
-	Timestamp time.Time                               `json:"timestamp"`
-	Latencies map[string]*metrics.LatencyStats        `json:"latencies"`
+	Timestamp time.Time                        `json:"timestamp"`
+	Latencies map[string]*metrics.LatencyStats `json:"latencies"`
 }
 
 // ThroughputResponse contains current throughput statistics
@@ -66,7 +66,7 @@ type ThroughputResponse struct {
 
 // PerformanceHistoryResponse contains historical performance data
 type PerformanceHistoryResponse struct {
-	Operation string                    `json:"operation"`
+	Operation string                     `json:"operation"`
 	History   []metrics.OperationLatency `json:"history"`
 	Limit     int                        `json:"limit"`
 }
@@ -255,7 +255,7 @@ func (s *Server) HandleResetPerformanceMetrics(w http.ResponseWriter, r *http.Re
 	collector.Reset()
 
 	logrus.WithFields(logrus.Fields{
-		"user_id": user.ID,
+		"user_id":  user.ID,
 		"username": user.Username,
 	}).Info("Performance metrics reset")
 

@@ -42,8 +42,8 @@ func TestCheckTenantStorageQuota_ClusterMode(t *testing.T) {
 	tenant := &Tenant{
 		ID:                  "tenant1",
 		Name:                "Test Tenant",
-		MaxStorageBytes:     1024 * 1024 * 1024,        // 1GB quota
-		CurrentStorageBytes: 100 * 1024 * 1024,         // 100MB local storage
+		MaxStorageBytes:     1024 * 1024 * 1024, // 1GB quota
+		CurrentStorageBytes: 100 * 1024 * 1024,  // 100MB local storage
 	}
 
 	err := store.CreateTenant(tenant)
@@ -144,7 +144,7 @@ func TestCheckTenantStorageQuota_ClusterMode(t *testing.T) {
 		tenant2 := &Tenant{
 			ID:                  "tenant2",
 			Name:                "Unlimited Tenant",
-			MaxStorageBytes:     0, // 0 = unlimited (no quota checking)
+			MaxStorageBytes:     0,                      // 0 = unlimited (no quota checking)
 			CurrentStorageBytes: 5 * 1024 * 1024 * 1024, // 5GB used
 		}
 		err := store.CreateTenant(tenant2)

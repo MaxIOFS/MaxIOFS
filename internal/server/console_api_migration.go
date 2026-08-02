@@ -87,9 +87,9 @@ func (s *Server) handleMigrateBucket(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket":       bucketName,
-			"target_node":  req.TargetNodeID,
-			"tenant_id":    user.TenantID,
+			"bucket":      bucketName,
+			"target_node": req.TargetNodeID,
+			"tenant_id":   user.TenantID,
 		}).Error("Failed to migrate bucket")
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return

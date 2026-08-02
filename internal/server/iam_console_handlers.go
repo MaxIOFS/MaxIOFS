@@ -407,6 +407,15 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Administration is not something a tenant's administrator can hand out.
+	// Without this, anyone who administers one tenant could grant themselves or
+	// somebody else authority over every tenant.
+	if grantsAdministration(&permissions) && !s.isGlobalAdmin(s.getAuthUser(r)) {
+		s.writeError(w, "Only a super administrator can grant administration permissions",
+			http.StatusForbidden)
+		return
+	}
+
 	userID := mux.Vars(r)["id"]
 	if err := store.SetUserPermissions(userID, &permissions); err != nil {
 		s.writeIAMConsoleError(w, err)
@@ -416,6 +425,24 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 	s.afterIAMWrite(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// grantsAdministration reports whether a selection contains either of the
+// administration permissions.
+func grantsAdministration(permissions *auth.UserPermissions) bool {
+	for _, action := range permissions.Global {
+		if action == auth.ActionSuperAdmin || action == auth.ActionTenantAdmin {
+			return true
+		}
+	}
+	for _, grant := range permissions.Buckets {
+		for _, action := range grant.Actions {
+			if action == auth.ActionSuperAdmin || action == auth.ActionTenantAdmin {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // permissionStore resolves the store and checks the caller may hand out

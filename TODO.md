@@ -31,7 +31,6 @@ their policies as a grant. Nothing that already worked changes behaviour.
 
 ### Still open on the IAM work
 
-- [ ] `maxiofs:SuperAdmin` and `maxiofs:TenantAdmin` exist in the permission catalogue but are not enforced: the code still decides by `role == "admin" && TenantID == ""`. A tenant administrator must be assignable only by a super administrator.
 - [ ] A managed policy whose `default_version_id` points at a version row that no longer exists returns an empty document. Reject or repair it rather than serving nothing.
 - [ ] `TestDeleteBucket_NotFound` in `pkg/s3compat` — the harness creates its user only in the request context, with no row in `users`.
 

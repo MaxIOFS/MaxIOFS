@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-
 // handleGetClusterHA returns the current cluster replication factor and node status.
 // GET /cluster/ha
 func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {

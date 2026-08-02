@@ -45,15 +45,15 @@ func TestCreateTenant(t *testing.T) {
 		{
 			name: "Create tenant with quotas",
 			tenant: &Tenant{
-				ID:               generateTestID(),
-				Name:             "quota-tenant-create",
-				DisplayName:      "Quota Tenant",
-				Status:           "active",
-				MaxStorageBytes:  1099511627776, // 1TB
-				MaxBuckets:       100,
-				MaxAccessKeys:    10,
-				CreatedAt:        time.Now().Unix(),
-				UpdatedAt:        time.Now().Unix(),
+				ID:              generateTestID(),
+				Name:            "quota-tenant-create",
+				DisplayName:     "Quota Tenant",
+				Status:          "active",
+				MaxStorageBytes: 1099511627776, // 1TB
+				MaxBuckets:      100,
+				MaxAccessKeys:   10,
+				CreatedAt:       time.Now().Unix(),
+				UpdatedAt:       time.Now().Unix(),
 			},
 			wantErr: false,
 		},

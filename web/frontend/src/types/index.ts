@@ -427,15 +427,6 @@ export type CannedACL =
   | 'bucket-owner-full-control'
   | 'log-delivery-write';
 
-export const CANNED_ACL_DESCRIPTIONS: Record<CannedACL, string> = {
-  'private': 'Owner gets FULL_CONTROL. No one else has access.',
-  'public-read': 'Owner gets FULL_CONTROL. Anyone can READ.',
-  'public-read-write': 'Owner gets FULL_CONTROL. Anyone can READ and WRITE.',
-  'authenticated-read': 'Owner gets FULL_CONTROL. Any authenticated MaxIOFS user can READ.',
-  'bucket-owner-read': 'Object owner gets FULL_CONTROL. Bucket owner gets READ.',
-  'bucket-owner-full-control': 'Both object owner and bucket owner get FULL_CONTROL.',
-  'log-delivery-write': 'LogDelivery group gets WRITE and READ_ACP permissions.',
-};
 
 // Object Types
 export interface S3Object {
@@ -1382,12 +1373,6 @@ export interface LastIntegrityScan {
   source: 'manual' | 'scrubber';
 }
 
-// Capability system
-export interface EffectiveCapability {
-  capability: string;
-  granted: boolean;
-  source: 'override' | 'role';
-}
 
 export interface CapabilityOverride {
   id: string;

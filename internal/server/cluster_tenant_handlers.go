@@ -28,20 +28,20 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 
 	// Parse tenant data from request body
 	var tenantData struct {
-		ID                  string            `json:"id"`
-		Name                string            `json:"name"`
-		DisplayName         string            `json:"display_name"`
-		Description         string            `json:"description"`
-		Status              string            `json:"status"`
-		MaxAccessKeys       int               `json:"max_access_keys"`
-		MaxStorageBytes     int64             `json:"max_storage_bytes"`
-		MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
-		CurrentStorageBytes int64             `json:"current_storage_bytes"`
-		MaxBuckets          int               `json:"max_buckets"`
-		CurrentBuckets      int               `json:"current_buckets"`
-		Metadata            map[string]string `json:"metadata"`
-		CreatedAt           time.Time         `json:"created_at"`
-		UpdatedAt           time.Time         `json:"updated_at"`
+		ID                      string            `json:"id"`
+		Name                    string            `json:"name"`
+		DisplayName             string            `json:"display_name"`
+		Description             string            `json:"description"`
+		Status                  string            `json:"status"`
+		MaxAccessKeys           int               `json:"max_access_keys"`
+		MaxStorageBytes         int64             `json:"max_storage_bytes"`
+		MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
+		CurrentStorageBytes     int64             `json:"current_storage_bytes"`
+		MaxBuckets              int               `json:"max_buckets"`
+		CurrentBuckets          int               `json:"current_buckets"`
+		Metadata                map[string]string `json:"metadata"`
+		CreatedAt               time.Time         `json:"created_at"`
+		UpdatedAt               time.Time         `json:"updated_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&tenantData); err != nil {
@@ -86,20 +86,20 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 
 // upsertTenant creates or updates a tenant in the local database
 func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	DisplayName         string            `json:"display_name"`
-	Description         string            `json:"description"`
-	Status              string            `json:"status"`
-	MaxAccessKeys       int               `json:"max_access_keys"`
-	MaxStorageBytes     int64             `json:"max_storage_bytes"`
-	MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
-	CurrentStorageBytes int64             `json:"current_storage_bytes"`
-	MaxBuckets          int               `json:"max_buckets"`
-	CurrentBuckets      int               `json:"current_buckets"`
-	Metadata            map[string]string `json:"metadata"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
+	ID                      string            `json:"id"`
+	Name                    string            `json:"name"`
+	DisplayName             string            `json:"display_name"`
+	Description             string            `json:"description"`
+	Status                  string            `json:"status"`
+	MaxAccessKeys           int               `json:"max_access_keys"`
+	MaxStorageBytes         int64             `json:"max_storage_bytes"`
+	MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
+	CurrentStorageBytes     int64             `json:"current_storage_bytes"`
+	MaxBuckets              int               `json:"max_buckets"`
+	CurrentBuckets          int               `json:"current_buckets"`
+	Metadata                map[string]string `json:"metadata"`
+	CreatedAt               time.Time         `json:"created_at"`
+	UpdatedAt               time.Time         `json:"updated_at"`
 }) error {
 	// Marshal metadata to JSON
 	metadataJSON, err := json.Marshal(tenant.Metadata)

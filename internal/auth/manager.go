@@ -190,24 +190,24 @@ type User struct {
 
 // Tenant represents an organizational unit for multi-tenancy
 type Tenant struct {
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	DisplayName         string            `json:"display_name"`
-	Description         string            `json:"description"`
-	Status              string            `json:"status"` // active, inactive
-	MaxAccessKeys       int64             `json:"max_access_keys"`
-	CurrentAccessKeys   int64             `json:"current_access_keys"` // Calculated in real-time
-	MaxStorageBytes     int64             `json:"max_storage_bytes"`
-	CurrentStorageBytes int64             `json:"current_storage_bytes"` // Calculated in real-time
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	DisplayName         string `json:"display_name"`
+	Description         string `json:"description"`
+	Status              string `json:"status"` // active, inactive
+	MaxAccessKeys       int64  `json:"max_access_keys"`
+	CurrentAccessKeys   int64  `json:"current_access_keys"` // Calculated in real-time
+	MaxStorageBytes     int64  `json:"max_storage_bytes"`
+	CurrentStorageBytes int64  `json:"current_storage_bytes"` // Calculated in real-time
 	// MaxBandwidthBytesPerSec caps the tenant's aggregate transfer bandwidth
 	// (upload + download combined) in bytes/second. 0 = unlimited. Enforced by
 	// throttling (slowing), never rejecting. Set by global admins.
-	MaxBandwidthBytesPerSec int64          `json:"max_bandwidth_bytes_per_sec"`
-	MaxBuckets          int64             `json:"max_buckets"`
-	CurrentBuckets      int64             `json:"current_buckets"` // Incremented/decremented on create/delete
-	Metadata            map[string]string `json:"metadata,omitempty"`
-	CreatedAt           int64             `json:"created_at"`
-	UpdatedAt           int64             `json:"updated_at"`
+	MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
+	MaxBuckets              int64             `json:"max_buckets"`
+	CurrentBuckets          int64             `json:"current_buckets"` // Incremented/decremented on create/delete
+	Metadata                map[string]string `json:"metadata,omitempty"`
+	CreatedAt               int64             `json:"created_at"`
+	UpdatedAt               int64             `json:"updated_at"`
 }
 
 // BucketPermission represents access permissions for a bucket
