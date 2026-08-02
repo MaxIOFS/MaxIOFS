@@ -71,16 +71,32 @@ func (s *Server) handleReceiveSTSSessionSync(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 
-		var policy interface{}
+		var policy, roleARN, roleSessionName interface{}
 		if sess.SessionPolicy != "" {
 			policy = sess.SessionPolicy
 		}
+		if sess.RoleARN != "" {
+			roleARN = sess.RoleARN
+		}
+		if sess.RoleSessionName != "" {
+			roleSessionName = sess.RoleSessionName
+		}
+
+		// A batch from a node that predates role sessions carries no mode; treat
+		// it as a plain session, which is what it was there.
+		policyMode := sess.PolicyMode
+		if policyMode == "" {
+			policyMode = auth.STSPolicyModeRestrict
+		}
+
 		_, err := s.db.ExecContext(ctx, `
 			INSERT OR REPLACE INTO sts_sessions
-			(temp_access_key_id, secret_access_key, session_token, user_id, session_policy, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			(temp_access_key_id, secret_access_key, session_token, user_id, session_policy,
+			 role_arn, role_session_name, policy_mode, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, sess.TempAccessKeyID, sess.SecretAccessKey, sess.SessionToken,
-			sess.UserID, policy, sess.CreatedAt, sess.ExpiresAt)
+			sess.UserID, policy, roleARN, roleSessionName, policyMode,
+			sess.CreatedAt, sess.ExpiresAt)
 		if err != nil {
 			logrus.WithError(err).WithField("temp_access_key_id", sess.TempAccessKeyID).
 				Error("Failed to store synchronized STS session")

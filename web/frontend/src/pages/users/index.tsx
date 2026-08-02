@@ -72,6 +72,20 @@ export default function UsersPage() {
     enabled: isAnyAdmin,
   });
 
+  // The roles that can be assigned are the IAM roles. Listing them here rather
+  // than hardcoding names keeps one list of roles in the product: a role
+  // created in IAM is assignable immediately, and one that was removed stops
+  // being offered.
+  const { data: iamRoles } = useQuery({
+    queryKey: ['iamRoles'],
+    queryFn: APIClient.listIAMRoles,
+    enabled: isAnyAdmin,
+  });
+
+  // A role that can be assumed through AssumeRole is not something a person
+  // holds; it is entered by an application. Only assignable roles belong here.
+  const assignableRoles = (iamRoles || []).filter((role) => !role.trustPolicy);
+
   // Fetch tenants for assignment
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
@@ -656,10 +670,11 @@ export default function UsersPage() {
               onChange={(e) => updateNewUser('roles', [e.target.value])}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
-              <option value="admin">{t('adminRole')}</option>
-              <option value="user">{t('userRole')}</option>
-              <option value="readonly">{t('readonlyRole')}</option>
-              <option value="guest">{t('guestRole')}</option>
+              {assignableRoles.map((role) => (
+                <option key={role.name} value={role.name}>
+                  {role.description ? `${role.name} — ${role.description}` : role.name}
+                </option>
+              ))}
             </select>
             <p className="text-xs text-muted-foreground mt-1">
               {t('selectRole')}

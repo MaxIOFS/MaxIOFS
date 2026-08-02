@@ -1212,8 +1212,13 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			// Add user to request context
+			// Resolve the user's permissions once for this request. Every check
+			// downstream reads this same set, so a capability question and a
+			// bucket question can never be answered from different data.
 			ctx := context.WithValue(r.Context(), "user", user)
+			if set, err := am.ResolvePolicySet(ctx, user); err == nil {
+				ctx = WithPolicySet(ctx, set)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -1438,12 +1443,42 @@ func (am *authManager) RevokeBucketAccessScoped(ctx context.Context, bucketName,
 	return am.store.RevokeBucketAccessScoped(bucketName, bucketTenantID, userID, tenantID)
 }
 
+// CheckBucketAccess answers whether a user may use a bucket, by asking their
+// resolved permission set. The level it returns is derived from what the set
+// allows rather than read from a table, so a permission granted by a policy and
+// one granted by a bucket permission row are indistinguishable here — which is
+// the point of there being one model.
 func (am *authManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
-	return am.store.CheckBucketAccess(bucketName, userID)
+	set, err := am.resolvePolicySet(ctx, userID, nil)
+	if err != nil {
+		return false, "", err
+	}
+	return bucketAccessFromSet(set, bucketName)
 }
 
 func (am *authManager) CheckBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID string) (bool, string, error) {
-	return am.store.CheckBucketAccessScoped(bucketName, bucketTenantID, userID)
+	// The tenant scope selects which bucket the name refers to; the permission
+	// question is the same one.
+	return am.CheckBucketAccess(ctx, bucketName, userID)
+}
+
+// bucketAccessFromSet reports whether a set grants anything on a bucket, and at
+// which of the legacy levels. The levels survive because callers and the
+// console still speak in them; they are now a description of what the policies
+// allow, not a stored fact.
+func bucketAccessFromSet(set *PolicySet, bucketName string) (bool, string, error) {
+	bucketARN := "arn:aws:s3:::" + bucketName
+	objectARN := bucketARN + "/*"
+
+	switch {
+	case set.Allows(ActionPutBucketPolicy, bucketARN):
+		return true, PermissionLevelAdmin, nil
+	case set.Allows(ActionPutObject, objectARN):
+		return true, PermissionLevelWrite, nil
+	case set.Allows(ActionGetObject, objectARN), set.Allows(ActionListBucket, bucketARN):
+		return true, PermissionLevelRead, nil
+	}
+	return false, "", nil
 }
 
 func (am *authManager) ListBucketPermissions(ctx context.Context, bucketName string) ([]*BucketPermission, error) {
@@ -2532,8 +2567,43 @@ func (m *authManager) Get2FAStatus(ctx context.Context, userID string) (bool, in
 
 // --- Capability management (authManager wrappers) ---
 
-func (m *authManager) HasCapability(_ context.Context, userID string, roles []string, capability string) (bool, error) {
-	return m.store.HasCapability(userID, roles, capability)
+// HasCapability answers whether a user may perform a kind of operation at all,
+// by asking their resolved permission set. A capability is not a separate
+// mechanism any more — it names a group of actions, and the answer is whether
+// the set allows them somewhere.
+func (m *authManager) HasCapability(ctx context.Context, userID string, roles []string, capability string) (bool, error) {
+	set, err := m.resolvePolicySet(ctx, userID, roles)
+	if err != nil {
+		return false, err
+	}
+	return setGrantsCapability(set, capability), nil
+}
+
+// setGrantsCapability reports whether a permission set allows any of the
+// actions the capability names.
+//
+// Any, not all. A capability was a coarse yes/no over a group of operations,
+// and a role that had it had all of them; a policy is granular and may allow
+// exactly one — a policy granting only s3:GetObject has to satisfy "may this
+// user download". Requiring all of them would make every granular policy fail a
+// check its author plainly intended to pass.
+//
+// This is not a loosening: the capability only ever answered "is this kind of
+// operation possible at all". Whether it is possible on THIS bucket is the
+// separate question CheckBucketAccess asks, of the same set.
+func setGrantsCapability(set *PolicySet, capability string) bool {
+	for _, name := range PoliciesForCapability(capability) {
+		entry, ok := CatalogEntry(name)
+		if !ok {
+			continue
+		}
+		for _, action := range entry.Actions {
+			if set.AllowsAnywhere(action) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *authManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]EffectiveCapability, error) {

@@ -25,44 +25,117 @@ func getAllMigrations() []Migration {
 		migration15_v150_TenantBandwidth(),
 		migration16_v150_EncryptionKeys(),
 		migration17_v150_ClusterSharedKEK(),
-		migration18_v160_STS(),
+		migration18_v160_IAMSTS(),
 	}
 }
 
-// migration18_v160_STS holds the ENTIRE schema for the STS feature. A session
-// is a projection of an existing user (temp ASIA key + secret + session token,
-// server-enforced expiry); session_policy holds the optional intersection-only
-// restriction. See docs/SECURITY.md, "Temporary Credentials".
+// migration18_v160_IAMSTS holds the ENTIRE schema for the IAM/STS feature.
 //
-// Any further STS work MUST extend this function rather than add migration 19,
-// 20, … — one migration per feature instead of one per increment. This is safe
-// only while v1.6.0 is unreleased: no installation has run it yet, so amending
-// it changes nothing anyone has applied. Once v1.6.0 ships, this function
-// becomes frozen like every migration above it and further changes need a new one.
-func migration18_v160_STS() Migration {
+// STS: a session is a projection of an existing user (temp ASIA key + secret +
+// session token, server-enforced expiry). session_policy holds an optional
+// restriction; role_arn/role_session_name are set when the session came from
+// AssumeRole, and policy_mode says whether the stored policy restricts what the
+// base user may do or is the authority for the session (role sessions).
+//
+// IAM: managed policies with versions, inline policies, attachments to
+// users/groups/roles, and roles with a trust policy. users.iam_managed marks
+// identities created through the IAM API, for which the attached policies are
+// authoritative instead of merely restricting.
+//
+// See docs/SECURITY.md, "Temporary Credentials" and "IAM".
+//
+// Any further IAM/STS work MUST extend this function rather than add migration
+// 19, 20, … — one migration per feature instead of one per increment. This is
+// safe only while v1.6.0 is unreleased: no installation has run it yet, so
+// amending it changes nothing anyone has applied. Once v1.6.0 ships, this
+// function becomes frozen like every migration above it and further changes
+// need a new one.
+func migration18_v160_IAMSTS() Migration {
 	return Migration{
 		Version:     18,
-		Description: "v1.6.0 - STS schema (sts_sessions: temporary credentials)",
+		Description: "v1.6.0 - IAM/STS schema (temporary credentials, policies, roles)",
 		Up: func(tx *sql.Tx) error {
-			if _, err := tx.Exec(`
-				CREATE TABLE IF NOT EXISTS sts_sessions (
+			stmts := []string{
+				`CREATE TABLE IF NOT EXISTS sts_sessions (
 					temp_access_key_id TEXT PRIMARY KEY,
 					secret_access_key TEXT NOT NULL,
 					session_token TEXT NOT NULL,
 					user_id TEXT NOT NULL,
 					session_policy TEXT,
+					role_arn TEXT,
+					role_session_name TEXT,
+					policy_mode TEXT NOT NULL DEFAULT 'restrict',
 					created_at INTEGER NOT NULL,
 					expires_at INTEGER NOT NULL
-				)
-			`); err != nil {
-				return err
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_sts_sessions_user ON sts_sessions(user_id)`,
+				`CREATE INDEX IF NOT EXISTS idx_sts_sessions_expires ON sts_sessions(expires_at)`,
+
+				// Managed policies. The document of the default version is what
+				// evaluation uses; older versions are kept so the AWS
+				// *PolicyVersion actions have something to operate on.
+				`CREATE TABLE IF NOT EXISTS iam_policies (
+					name TEXT PRIMARY KEY,
+					arn TEXT NOT NULL UNIQUE,
+					path TEXT NOT NULL DEFAULT '/',
+					description TEXT,
+					default_version_id TEXT NOT NULL,
+					is_builtin INTEGER NOT NULL DEFAULT 0,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)`,
+				`CREATE TABLE IF NOT EXISTS iam_policy_versions (
+					policy_name TEXT NOT NULL,
+					version_id TEXT NOT NULL,
+					document TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					PRIMARY KEY (policy_name, version_id)
+				)`,
+
+				// Attachments of a managed policy to a user, group or role.
+				`CREATE TABLE IF NOT EXISTS iam_policy_attachments (
+					policy_name TEXT NOT NULL,
+					target_type TEXT NOT NULL,
+					target_id TEXT NOT NULL,
+					attached_at INTEGER NOT NULL,
+					PRIMARY KEY (policy_name, target_type, target_id)
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_iam_attachments_target ON iam_policy_attachments(target_type, target_id)`,
+
+				// Inline policies live on their target and die with it; they are
+				// not shareable and have no versions, matching AWS.
+				`CREATE TABLE IF NOT EXISTS iam_inline_policies (
+					target_type TEXT NOT NULL,
+					target_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					document TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL,
+					PRIMARY KEY (target_type, target_id, name)
+				)`,
+
+				// Roles. assume_role_policy is the trust policy: it decides WHO
+				// may assume the role, and is evaluated at AssumeRole time.
+				`CREATE TABLE IF NOT EXISTS iam_roles (
+					name TEXT PRIMARY KEY,
+					arn TEXT NOT NULL UNIQUE,
+					path TEXT NOT NULL DEFAULT '/',
+					description TEXT,
+					assume_role_policy TEXT,
+					max_session_duration INTEGER NOT NULL DEFAULT 3600,
+					tenant_id TEXT,
+					created_at INTEGER NOT NULL,
+					updated_at INTEGER NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_iam_roles_tenant ON iam_roles(tenant_id)`,
+
 			}
-			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sts_sessions_user ON sts_sessions(user_id)`); err != nil {
-				return err
+			for _, stmt := range stmts {
+				if _, err := tx.Exec(stmt); err != nil {
+					return err
+				}
 			}
-			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sts_sessions_expires ON sts_sessions(expires_at)`); err != nil {
-				return err
-			}
+
 			return nil
 		},
 		Down: func(tx *sql.Tx) error {

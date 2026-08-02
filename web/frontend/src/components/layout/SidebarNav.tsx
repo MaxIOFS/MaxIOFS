@@ -18,10 +18,10 @@ import {
   ArrowUpCircle,
   CheckCircle2,
   Shield,
-  ShieldCheck,
   PanelLeftClose,
   PanelLeftOpen,
   UsersRound,
+  KeyRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBasePath } from '@/hooks/useBasePath';
@@ -47,7 +47,7 @@ export const navigation: NavItem[] = [
       { name: 'Access Keys',        href: '/users/access-keys',  icon: Lock },
       { name: 'Tenants',            href: '/tenants',            icon: Building2 },
       { name: 'Identity Providers', href: '/identity-providers', icon: Shield },
-      { name: 'Role Capabilities',  href: '/roles/capabilities',  icon: ShieldCheck },
+      { name: 'IAM',                href: '/iam',                icon: KeyRound },
     ],
   },
   { name: 'Audit Logs', href: '/audit-logs', icon: FileText },
@@ -96,7 +96,7 @@ export function SidebarNav({
     'Access Keys':        tNav('accessKeys'),
     'Tenants':            tNav('tenants'),
     'Identity Providers': tNav('identityProviders'),
-    'Role Capabilities':  tNav('roleCapabilities'),
+    'IAM':                tNav('iam'),
     'Audit Logs':         tNav('auditLogs'),
     'Metrics':            tNav('metrics'),
     'Security':           tNav('security'),

@@ -59,6 +59,58 @@ export interface STSSession {
   expiresAt: number;
 }
 
+// IAM managed policy. `document` is the default version's document — the one
+// evaluation actually reads.
+export interface IAMPolicy {
+  name: string;
+  arn: string;
+  description?: string;
+  document: string;
+  versionId: string;
+  isBuiltin: boolean;
+  attachedTo: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// IAM role. `trustPolicy` decides who may assume it; `policies` lists what it
+// may do once assumed (attached managed policies plus inline ones).
+export interface IAMRole {
+  name: string;
+  arn: string;
+  description?: string;
+  trustPolicy: string;
+  maxSessionDuration: number;
+  tenantId?: string;
+  policies: string[];
+  createdAt: number;
+}
+
+// One assignable permission from the server-side catalogue.
+export interface CatalogPermission {
+  action: string;
+  group: string;
+  label: string;
+  description?: string;
+  resourceScoped: boolean;
+}
+
+export interface PermissionGroup {
+  name: string;
+  permissions: CatalogPermission[];
+}
+
+export interface BucketGrant {
+  bucket: string;
+  actions: string[];
+}
+
+// What a user may do: everywhere, and on each bucket they were given.
+export interface UserPermissions {
+  global: string[];
+  buckets: BucketGrant[];
+}
+
 export interface AuthToken {
   token: string;
   refreshToken?: string;

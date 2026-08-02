@@ -25,6 +25,18 @@ type badgerBucketManager struct {
 	// the server can fire SSE/email alerts as usage approaches the per-bucket
 	// quota. It receives the bucket's updated total size and its size cap.
 	quotaAlertCb func(tenantID, bucketName string, currentBytes, maxBytes int64)
+
+	// ownerPolicyCb, when set, records or removes the policy that grants a
+	// bucket's creator access to it. Ownership used to be an implicit fact the
+	// handlers checked; as a policy it lives in the same place as every other
+	// permission and is the only thing the request path reads.
+	ownerPolicyCb func(bucketName, tenantID, ownerID string, created bool)
+}
+
+// SetBucketOwnerPolicyCallback registers the hook that writes a bucket owner's
+// policy on creation and removes it on deletion.
+func (bm *badgerBucketManager) SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool)) {
+	bm.ownerPolicyCb = cb
 }
 
 // SetBucketQuotaAlertCallback registers a callback fired after every cached-size
@@ -120,6 +132,11 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 			return ErrBucketAlreadyExists
 		}
 		return err
+	}
+
+	// The creator's access to their own bucket is a policy like any other.
+	if bm.ownerPolicyCb != nil {
+		bm.ownerPolicyCb(name, tenantID, ownerID, true)
 	}
 
 	// Solo crear ACL por defecto si no existe uno explícito
@@ -233,6 +250,12 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
 		tenantBucketPath := bm.getTenantBucketPath(tenantID, name)
 		_ = fsBackend.RemoveDirectory(tenantBucketPath) // Ignore errors
+	}
+
+	// Drop every policy naming this bucket, so a later bucket of the same name
+	// does not inherit grants nobody meant to give it.
+	if bm.ownerPolicyCb != nil {
+		bm.ownerPolicyCb(name, tenantID, "", false)
 	}
 
 	// Log audit event for bucket deleted

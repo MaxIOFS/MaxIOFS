@@ -574,6 +574,12 @@ func (h *Handler) SetInventoryManager(m *inventory.Manager) {
 	h.s3Handler.SetInventoryManager(m)
 }
 
+// SetIAMSTSEndpointResolver wires what SOSAPI advertises as the IAM and STS
+// endpoint. The resolver returns "" when the IAM surface is disabled.
+func (h *Handler) SetIAMSTSEndpointResolver(resolve func() string) {
+	h.s3Handler.SetIAMSTSEndpointResolver(resolve)
+}
+
 // SetReplicationManager sets the replication manager for realtime object replication hooks
 func (h *Handler) SetReplicationManager(rm interface {
 	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error

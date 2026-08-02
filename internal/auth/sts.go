@@ -63,19 +63,47 @@ type STSSession struct {
 	SessionToken    string `json:"session_token,omitempty"`
 	UserID          string `json:"user_id"`
 	SessionPolicy   string `json:"session_policy,omitempty"`
-	CreatedAt       int64  `json:"created_at"`
-	ExpiresAt       int64  `json:"expires_at"`
+
+	// RoleARN and RoleSessionName are set when the session came from
+	// AssumeRole. PolicyMode says how the session is authorized:
+	// STSPolicyModeRestrict (the default) means the base user's own
+	// permissions apply and SessionPolicy can only narrow them;
+	// STSPolicyModeRole means the role's policies are the permissions, and the
+	// base user's own access is not consulted at all.
+	RoleARN         string `json:"role_arn,omitempty"`
+	RoleSessionName string `json:"role_session_name,omitempty"`
+	PolicyMode      string `json:"policy_mode,omitempty"`
+
+	CreatedAt int64 `json:"created_at"`
+	ExpiresAt int64 `json:"expires_at"`
 }
+
+// Session policy modes.
+const (
+	// STSPolicyModeRestrict — the session projects the base user and any
+	// session policy only takes permissions away.
+	STSPolicyModeRestrict = "restrict"
+	// STSPolicyModeRole — the session acts as a role: the role's policies grant
+	// the permissions and a session policy narrows them further.
+	STSPolicyModeRole = "role"
+)
 
 // --- SQLiteStore methods ---
 
 // CreateSTSSession inserts a session row. SecretAccessKey must already be encrypted.
 func (s *SQLiteStore) CreateSTSSession(session *STSSession) error {
+	mode := session.PolicyMode
+	if mode == "" {
+		mode = STSPolicyModeRestrict
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO sts_sessions (temp_access_key_id, secret_access_key, session_token, user_id, session_policy, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sts_sessions (temp_access_key_id, secret_access_key, session_token, user_id, session_policy,
+			role_arn, role_session_name, policy_mode, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, session.TempAccessKeyID, session.SecretAccessKey, session.SessionToken,
-		session.UserID, nullString(session.SessionPolicy), session.CreatedAt, session.ExpiresAt)
+		session.UserID, nullString(session.SessionPolicy),
+		nullString(session.RoleARN), nullString(session.RoleSessionName), mode,
+		session.CreatedAt, session.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to create sts session: %w", err)
 	}
@@ -86,15 +114,17 @@ func (s *SQLiteStore) CreateSTSSession(session *STSSession) error {
 // signature validation. Expiry is NOT checked here — callers decide.
 func (s *SQLiteStore) GetSTSSession(tempAccessKeyID string) (*STSSession, error) {
 	var sess STSSession
-	var policy sql.NullString
+	var policy, roleARN, roleSessionName sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT temp_access_key_id, secret_access_key, session_token, user_id, session_policy, created_at, expires_at
+		SELECT temp_access_key_id, secret_access_key, session_token, user_id, session_policy,
+		       role_arn, role_session_name, policy_mode, created_at, expires_at
 		FROM sts_sessions
 		WHERE temp_access_key_id = ?
 	`, tempAccessKeyID).Scan(
 		&sess.TempAccessKeyID, &sess.SecretAccessKey, &sess.SessionToken,
-		&sess.UserID, &policy, &sess.CreatedAt, &sess.ExpiresAt,
+		&sess.UserID, &policy, &roleARN, &roleSessionName, &sess.PolicyMode,
+		&sess.CreatedAt, &sess.ExpiresAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrSTSSessionNotFound
@@ -105,6 +135,12 @@ func (s *SQLiteStore) GetSTSSession(tempAccessKeyID string) (*STSSession, error)
 	if policy.Valid {
 		sess.SessionPolicy = policy.String
 	}
+	if roleARN.Valid {
+		sess.RoleARN = roleARN.String
+	}
+	if roleSessionName.Valid {
+		sess.RoleSessionName = roleSessionName.String
+	}
 	return &sess, nil
 }
 
@@ -113,7 +149,7 @@ func (s *SQLiteStore) GetSTSSession(tempAccessKeyID string) (*STSSession, error)
 // included: it is a restriction the caller wrote, not a secret.
 func (s *SQLiteStore) ListSTSSessionsByUser(userID string) ([]*STSSession, error) {
 	rows, err := s.db.Query(`
-		SELECT temp_access_key_id, user_id, session_policy, created_at, expires_at
+		SELECT temp_access_key_id, user_id, session_policy, role_arn, role_session_name, policy_mode, created_at, expires_at
 		FROM sts_sessions
 		WHERE user_id = ?
 		ORDER BY created_at DESC
@@ -128,7 +164,7 @@ func (s *SQLiteStore) ListSTSSessionsByUser(userID string) ([]*STSSession, error
 // ListAllSTSSessions returns every session (admin view), scrubbed.
 func (s *SQLiteStore) ListAllSTSSessions() ([]*STSSession, error) {
 	rows, err := s.db.Query(`
-		SELECT temp_access_key_id, user_id, session_policy, created_at, expires_at
+		SELECT temp_access_key_id, user_id, session_policy, role_arn, role_session_name, policy_mode, created_at, expires_at
 		FROM sts_sessions
 		ORDER BY created_at DESC
 	`)
@@ -143,12 +179,19 @@ func scanSTSSessionList(rows *sql.Rows) ([]*STSSession, error) {
 	var sessions []*STSSession
 	for rows.Next() {
 		var sess STSSession
-		var policy sql.NullString
-		if err := rows.Scan(&sess.TempAccessKeyID, &sess.UserID, &policy, &sess.CreatedAt, &sess.ExpiresAt); err != nil {
+		var policy, roleARN, roleSessionName sql.NullString
+		if err := rows.Scan(&sess.TempAccessKeyID, &sess.UserID, &policy,
+			&roleARN, &roleSessionName, &sess.PolicyMode, &sess.CreatedAt, &sess.ExpiresAt); err != nil {
 			return nil, err
 		}
 		if policy.Valid {
 			sess.SessionPolicy = policy.String
+		}
+		if roleARN.Valid {
+			sess.RoleARN = roleARN.String
+		}
+		if roleSessionName.Valid {
+			sess.RoleSessionName = roleSessionName.String
 		}
 		sessions = append(sessions, &sess)
 	}
@@ -400,10 +443,10 @@ func (am *authManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID,
 	if err != nil {
 		return nil, err
 	}
-	if err := enforceSessionPolicy(sess, r); err != nil {
+	if err := am.enforceSTSSession(sess, r); err != nil {
 		return nil, err
 	}
-	return user, nil
+	return roleSessionUser(user, sess), nil
 }
 
 // IsSTSAccessKey reports whether an access key ID denotes a temporary credential.
@@ -429,15 +472,16 @@ func (am *authManager) validateSTSSignatureV4(r *http.Request, sig *S3SignatureV
 		return nil, ErrInvalidSignature
 	}
 
-	// The session policy restricts what this credential may do. It is
-	// applied AFTER the signature check so an unauthenticated caller learns
-	// nothing about the policy, and it can only deny — everything it allows
-	// still has to pass the normal authorization pipeline downstream.
-	if err := enforceSessionPolicy(sess, r); err != nil {
+	// What the credential may do is settled here, AFTER the signature check so
+	// an unauthenticated caller learns nothing about the policy. For a plain
+	// session this can only deny, and everything it allows still has to pass
+	// the normal pipeline downstream; for a role session the role's policies
+	// are the permissions and the pipeline defers to them.
+	if err := am.enforceSTSSession(sess, r); err != nil {
 		return nil, err
 	}
 
-	return user, nil
+	return roleSessionUser(user, sess), nil
 }
 
 // signedHeadersInclude reports whether name appears in a SigV4 SignedHeaders

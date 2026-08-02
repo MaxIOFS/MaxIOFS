@@ -32,8 +32,17 @@ type STSSessionData struct {
 	SessionToken    string `json:"session_token"`
 	UserID          string `json:"user_id"`
 	SessionPolicy   string `json:"session_policy,omitempty"`
-	CreatedAt       int64  `json:"created_at"`
-	ExpiresAt       int64  `json:"expires_at"`
+
+	// Role identity travels with the session. Without it a session issued by
+	// AssumeRole would land on the peer as a plain one, and a plain session
+	// projects the base user's own permissions — so a credential deliberately
+	// narrowed to a role would come back WIDER on every other node.
+	RoleARN         string `json:"role_arn,omitempty"`
+	RoleSessionName string `json:"role_session_name,omitempty"`
+	PolicyMode      string `json:"policy_mode,omitempty"`
+
+	CreatedAt int64 `json:"created_at"`
+	ExpiresAt int64 `json:"expires_at"`
 }
 
 // STSSessionSyncPayload is the batch body sent to each peer.
@@ -189,7 +198,8 @@ func (m *STSSessionSyncManager) syncAllSessions(ctx context.Context) {
 // never propagated — a peer would reject them anyway.
 func (m *STSSessionSyncManager) listLocalSessions(ctx context.Context) ([]*STSSessionData, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT temp_access_key_id, secret_access_key, session_token, user_id, session_policy, created_at, expires_at
+		SELECT temp_access_key_id, secret_access_key, session_token, user_id, session_policy,
+		       role_arn, role_session_name, policy_mode, created_at, expires_at
 		FROM sts_sessions
 		WHERE expires_at > ?
 	`, time.Now().Unix())
@@ -201,13 +211,20 @@ func (m *STSSessionSyncManager) listLocalSessions(ctx context.Context) ([]*STSSe
 	var sessions []*STSSessionData
 	for rows.Next() {
 		var s STSSessionData
-		var policy sql.NullString
+		var policy, roleARN, roleSessionName sql.NullString
 		if err := rows.Scan(&s.TempAccessKeyID, &s.SecretAccessKey, &s.SessionToken,
-			&s.UserID, &policy, &s.CreatedAt, &s.ExpiresAt); err != nil {
+			&s.UserID, &policy, &roleARN, &roleSessionName, &s.PolicyMode,
+			&s.CreatedAt, &s.ExpiresAt); err != nil {
 			return nil, err
 		}
 		if policy.Valid {
 			s.SessionPolicy = policy.String
+		}
+		if roleARN.Valid {
+			s.RoleARN = roleARN.String
+		}
+		if roleSessionName.Valid {
+			s.RoleSessionName = roleSessionName.String
 		}
 		sessions = append(sessions, &s)
 	}

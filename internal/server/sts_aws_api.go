@@ -109,20 +109,31 @@ type stsErrorResponse struct {
 
 // --- Handler ---
 
-// handleAWSSTSRequest serves the AWS STS query protocol on POST / of the S3 API.
-func (s *Server) handleAWSSTSRequest(w http.ResponseWriter, r *http.Request) {
+// handleAWSQueryRequest serves the AWS STS and IAM query protocols on POST / of
+// the S3 API. Both use the same transport, so the Action name is what routes a
+// request — clients do not reliably send the Version parameter that would
+// otherwise distinguish them.
+//
+// Serving both from one URL is deliberate: it makes IAMEndpoint, STSEndpoint
+// and the S3 endpoint the same address, which is what SOSAPI advertises.
+func (s *Server) handleAWSQueryRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, stsMaxFormBody)
 	if err := r.ParseForm(); err != nil {
-		writeSTSError(w, http.StatusBadRequest, "InvalidAction", "The request body could not be parsed as STS parameters.")
+		writeSTSError(w, http.StatusBadRequest, "InvalidAction", "The request body could not be parsed as STS or IAM parameters.")
 		return
 	}
 
 	action := r.PostForm.Get("Action")
+	if IsIAMAction(action) {
+		s.handleAWSIAMRequest(w, r)
+		return
+	}
+
 	switch action {
 	case "GetSessionToken":
 		s.stsGetSessionToken(w, r, false)
 	case "AssumeRole":
-		s.stsGetSessionToken(w, r, true)
+		s.stsAssumeRole(w, r)
 	case "AssumeRoleWithWebIdentity":
 		s.stsAssumeRoleWithWebIdentity(w, r)
 	case "AssumeRoleWithLDAPIdentity":
@@ -135,14 +146,86 @@ func (s *Server) handleAWSSTSRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// stsGetSessionToken serves GetSessionToken and AssumeRole. Both require the
-// request to be signed with the caller's PERMANENT credentials; the session is
-// issued for the user those credentials belong to.
+// stsAssumeRole serves AssumeRole. The RoleArn is resolved against the role
+// table: the credentials it returns carry the ROLE's permissions, and a role
+// that does not exist is an error rather than something to work around.
 //
-// AssumeRole is accepted as an alias because SDKs and tools reach for it by
-// default. RoleArn is ignored: MaxIOFS has no role ARNs, permissions always come
-// from the authenticated user, and the result can therefore never exceed what
-// that user already has.
+// A caller that omits RoleArn is served GetSessionToken instead. That is not a
+// loophole — the result is the caller's own permissions, which is strictly less
+// than any role could grant — and it keeps working for the tools that reach for
+// AssumeRole as a synonym of "give me temporary credentials".
+func (s *Server) stsAssumeRole(w http.ResponseWriter, r *http.Request) {
+	roleARN := strings.TrimSpace(r.PostForm.Get("RoleArn"))
+	if roleARN == "" {
+		s.stsGetSessionToken(w, r, true)
+		return
+	}
+
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok || user == nil {
+		writeSTSError(w, http.StatusForbidden, "AccessDenied",
+			"This action must be signed with valid credentials.")
+		return
+	}
+	if stsRequestSignedWithTemporaryCredential(r) {
+		writeSTSError(w, http.StatusForbidden, "AccessDenied",
+			"Temporary credentials cannot be used to issue new credentials.")
+		return
+	}
+
+	iamManager, ok := s.authManager.(auth.IAMManager)
+	if !ok {
+		writeSTSError(w, http.StatusServiceUnavailable, "ServiceUnavailable", "Roles are not available on this server.")
+		return
+	}
+
+	duration, err := stsDurationSeconds(r)
+	if err != nil {
+		writeSTSError(w, http.StatusBadRequest, "ValidationError", err.Error())
+		return
+	}
+
+	session, err := iamManager.AssumeIAMRole(r.Context(), user, roleARN,
+		r.PostForm.Get("RoleSessionName"), duration, r.PostForm.Get("Policy"))
+	if err != nil {
+		s.writeAssumeRoleError(w, r, user, roleARN, err)
+		return
+	}
+
+	s.afterSTSXMLIssue(r, user, session, "AssumeRole", "")
+
+	resp := &stsAssumeRoleResponse{Xmlns: stsXMLNamespace}
+	resp.Result.Credentials = stsCredentialsOf(session)
+	resp.Result.AssumedRoleUser = stsAssumedRoleUser{
+		Arn:           session.RoleARN + "/" + session.RoleSessionName,
+		AssumedRoleID: session.TempAccessKeyID,
+	}
+	resp.Metadata.RequestID = requestIDOf(r)
+	writeSTSXML(w, resp)
+}
+
+// writeAssumeRoleError maps a failed AssumeRole onto the codes an SDK reacts to.
+// A missing role and a refused one are told apart on purpose: the first is a
+// configuration mistake the caller can fix, the second is a decision.
+func (s *Server) writeAssumeRoleError(w http.ResponseWriter, r *http.Request, user *auth.User, roleARN string, err error) {
+	switch {
+	case errors.Is(err, auth.ErrIAMNoSuchEntity):
+		writeSTSError(w, http.StatusNotFound, "NoSuchEntity", "The requested role does not exist: "+roleARN)
+	case errors.Is(err, auth.ErrIAMInvalidInput):
+		writeSTSError(w, http.StatusBadRequest, "ValidationError", err.Error())
+	case errors.Is(err, auth.ErrAccessDenied):
+		s.auditSTSXMLDenial(r, "AssumeRole", user.Username, "trust policy denied "+roleARN)
+		writeSTSError(w, http.StatusForbidden, "AccessDenied",
+			"The caller is not authorized to assume this role.")
+	default:
+		s.writeSTSIssuanceError(w, err)
+	}
+}
+
+// stsGetSessionToken serves GetSessionToken, and AssumeRole when no RoleArn was
+// given. Both require the request to be signed with the caller's PERMANENT
+// credentials; the session is issued for the user those credentials belong to
+// and projects exactly that user's permissions.
 func (s *Server) stsGetSessionToken(w http.ResponseWriter, r *http.Request, asAssumeRole bool) {
 	user, ok := auth.GetUserFromContext(r.Context())
 	if !ok || user == nil {

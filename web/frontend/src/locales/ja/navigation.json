@@ -13,5 +13,5 @@
   "identityProviders": "IDプロバイダー",
   "cluster": "クラスター",
   "groups": "グループ",
-  "roleCapabilities": "ロール権限"
+  "iam": "IAM"
 }

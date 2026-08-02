@@ -27,6 +27,14 @@ const (
 	EntityTypeGroupMapping     = "group_mapping"
 	EntityTypeGroup            = "group"
 	EntityTypeSTSSession       = "sts_session"
+
+	// IAM entities. Attachments and inline policies have no identifier of their
+	// own, so their tombstones use a composite: "policy/targetType/targetID" and
+	// "targetType/targetID/name" respectively.
+	EntityTypeIAMPolicy       = "iam_policy"
+	EntityTypeIAMRole         = "iam_role"
+	EntityTypeIAMInlinePolicy = "iam_inline_policy"
+	EntityTypeIAMAttachment   = "iam_attachment"
 )
 
 // DeletionEntry represents a tombstone in the cluster deletion log

@@ -90,6 +90,9 @@ func (m *mockAuthManager) IssueSTSSession(ctx context.Context, userID string, du
 func (m *mockAuthManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*auth.User, error) {
 	return nil, nil
 }
+func (m *mockAuthManager) AuthorizeIAMRequest(ctx context.Context, user *auth.User, r *http.Request) error {
+	return nil
+}
 func (m *mockAuthManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*auth.User, string, error) {
 	return nil, "", fmt.Errorf("not implemented")
 }

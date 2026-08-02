@@ -38,7 +38,7 @@ const Security       = React.lazy(() => import('@/pages/security/index'));
 const Settings       = React.lazy(() => import('@/pages/settings/index'));
 const About          = React.lazy(() => import('@/pages/about/index'));
 const IdentityProviders  = React.lazy(() => import('@/pages/identity-providers/index'));
-const RoleCapabilities   = React.lazy(() => import('@/pages/roles/capabilities'));
+const IAM                = React.lazy(() => import('@/pages/iam/index'));
 // Cluster pages grouped in a single chunk — always visited together
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
@@ -325,16 +325,6 @@ function App() {
               }
             />
             <Route
-              path="/roles/capabilities"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <RoleCapabilities />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/cluster"
               element={
                 <ProtectedRoute>
@@ -380,6 +370,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <IdentityProviders />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/iam"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <IAM />
                   </AppLayout>
                 </ProtectedRoute>
               }

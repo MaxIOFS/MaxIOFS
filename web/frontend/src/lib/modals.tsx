@@ -744,6 +744,24 @@ class ModalManager {
       });
     }
 
+    // A caller that passed html wants markup, whatever icon it asked for. The
+    // shortcuts below take plain text, so routing html through them renders the
+    // tags as literal characters instead of as the layout the caller wrote.
+    if (html) {
+      return new Promise((resolve) => {
+        this.setModal({
+          isOpen: true,
+          type: icon === 'error' ? 'error' : icon === 'info' ? 'info' : 'success',
+          title: title || '',
+          message: html,
+          isHtml: true,
+          confirmText: confirmButtonText,
+          onConfirm: () => resolve({ isConfirmed: true }),
+          onClose: () => resolve({ isConfirmed: false, isDismissed: true }),
+        });
+      });
+    }
+
     // For simple messages (success, error, info)
     if (icon === 'success') {
       const result = await this.success(title, text || html);

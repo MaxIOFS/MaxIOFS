@@ -1053,6 +1053,12 @@ func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
 		s.stsSessionSyncMgr.SyncToNode(ctx, newNode)
 	}
 
+	// Push IAM policies and roles. Without them a synchronized credential would
+	// arrive on the new node with no permissions attached to it.
+	if s.iamSyncMgr != nil {
+		s.iamSyncMgr.SyncToNode(ctx, newNode)
+	}
+
 	// Push all groups + memberships so that group-based bucket permissions resolve immediately.
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.SyncToNode(ctx, newNode)

@@ -33,7 +33,7 @@ func postSTSForm(t *testing.T, form url.Values, user *auth.User) *httptest.Respo
 	}
 
 	rec := httptest.NewRecorder()
-	server.handleAWSSTSRequest(rec, req)
+	server.handleAWSQueryRequest(rec, req)
 	return rec
 }
 
@@ -96,7 +96,10 @@ func TestSTSXML_GetSessionTokenIssuesCredentials(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSTSXML_AssumeRoleIsAnAliasAndIgnoresRoleArn(t *testing.T) {
+// A RoleArn naming a role that does not exist must fail. Earlier builds
+// accepted any ARN and silently returned the caller's own permissions instead;
+// a client that asked for a role and got something else had no way to tell.
+func TestSTSXML_AssumeRoleWithUnknownRoleArnIsRefused(t *testing.T) {
 	server := getSharedServer()
 	user := &auth.User{
 		ID:       "user-sts-xml-role",
@@ -112,16 +115,31 @@ func TestSTSXML_AssumeRoleIsAnAliasAndIgnoresRoleArn(t *testing.T) {
 		"RoleArn":         {"arn:aws:iam::123456789012:role/anything-at-all"},
 		"RoleSessionName": {"job"},
 	}, user)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	assert.Equal(t, "NoSuchEntity", stsErrorCodeOf(t, rec.Body.String()))
+}
+
+// Omitting RoleArn is still served: the result is the caller's own permissions,
+// which is what the tools that use AssumeRole as a synonym for "temporary
+// credentials" already expect, and strictly less than any role could grant.
+func TestSTSXML_AssumeRoleWithoutRoleArnProjectsTheCaller(t *testing.T) {
+	server := getSharedServer()
+	user := &auth.User{
+		ID:       "user-sts-xml-norole",
+		Username: "sts-xml-norole",
+		Status:   auth.UserStatusActive,
+		Roles:    []string{"admin"},
+	}
+	require.NoError(t, server.authManager.CreateUser(t.Context(), user))
+	t.Cleanup(func() { _ = server.authManager.DeleteUser(t.Context(), user.ID) })
+
+	rec := postSTSForm(t, url.Values{"Action": {"AssumeRole"}}, user)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var doc stsAssumeRoleResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &doc))
 	assert.True(t, strings.HasPrefix(doc.Result.Credentials.AccessKeyID, auth.STSKeyPrefix))
-
-	// The credential belongs to the authenticated user, not to the requested
-	// role — MaxIOFS has no role ARNs, so RoleArn cannot widen anything.
 	assert.Contains(t, doc.Result.AssumedRoleUser.Arn, user.Username)
-	assert.Equal(t, user.ID, doc.Result.AssumedRoleUser.AssumedRoleID)
 }
 
 func TestSTSXML_RejectsInvalidSessionPolicy(t *testing.T) {
@@ -179,7 +197,7 @@ func TestSTSXML_TemporaryCredentialsCannotMintMore(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), "user", user))
 
 	rec := httptest.NewRecorder()
-	server.handleAWSSTSRequest(rec, req)
+	server.handleAWSQueryRequest(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Temporary credentials cannot be used")

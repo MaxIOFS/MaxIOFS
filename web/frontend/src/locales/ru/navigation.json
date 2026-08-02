@@ -13,5 +13,5 @@
   "identityProviders": "Поставщики удостоверений",
   "cluster": "Кластер",
   "groups": "Группы",
-  "roleCapabilities": "Возможности ролей"
+  "iam": "IAM"
 }

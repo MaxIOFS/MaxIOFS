@@ -24,8 +24,15 @@ const (
 	CapObjectManageVersions = "object:manage_versions"
 
 	// Console & API access
-	CapConsoleAccess  = "console:access"
-	CapKeysManageOwn  = "keys:manage_own"
+	CapConsoleAccess = "console:access"
+	CapKeysManageOwn = "keys:manage_own"
+
+	// CapIAMManage gates the AWS IAM protocol surface: creating identities,
+	// their credentials, policies and roles. It is the authority to hand out
+	// access, so it is not granted by any role default — an administrator has
+	// it through the admin safety net, and anyone else needs an explicit
+	// override.
+	CapIAMManage = "iam:manage"
 )
 
 // AllCapabilities lists every known capability in display order.
@@ -41,6 +48,7 @@ var AllCapabilities = []string{
 	CapObjectManageVersions,
 	CapConsoleAccess,
 	CapKeysManageOwn,
+	CapIAMManage,
 }
 
 // CapabilityOverride represents a per-user capability override set by an admin.
@@ -182,7 +190,10 @@ func (s *SQLiteStore) SetCapabilityOverride(userID, capability, grantedBy string
 			granted_by = excluded.granted_by,
 			created_at = excluded.created_at
 	`, id, userID, capability, boolToInt(granted), grantedBy, now)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.writeCapabilityOverridePolicy(userID, capability, granted)
 }
 
 // DeleteCapabilityOverride removes a per-user override, reverting to role default.
@@ -191,7 +202,10 @@ func (s *SQLiteStore) DeleteCapabilityOverride(userID, capability string) error 
 		`DELETE FROM user_capability_overrides WHERE user_id = ? AND capability = ?`,
 		userID, capability,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.clearCapabilityOverridePolicies(userID, capability)
 }
 
 // ListUserCapabilityOverrides returns all explicit overrides for a user.
@@ -278,7 +292,10 @@ func (s *SQLiteStore) SetRoleCapabilities(role string, capabilities []string) er
 			return fmt.Errorf("failed to insert capability %s: %w", cap, err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.writeRoleCapabilityPolicies(role, capabilities)
 }
 
 // --- authManager context helper ---

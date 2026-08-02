@@ -613,6 +613,10 @@ func (m *MockAuthManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKey
 	return args.Get(0).(*auth.User), args.Error(1)
 }
 
+func (m *MockAuthManager) AuthorizeIAMRequest(ctx context.Context, user *auth.User, r *http.Request) error {
+	return nil
+}
+
 func (m *MockAuthManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*auth.User, string, error) {
 	args := m.Called(ctx, tempAccessKeyID, sessionToken)
 	if args.Get(0) == nil {

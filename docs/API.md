@@ -366,28 +366,65 @@ Action=GetSessionToken&DurationSeconds=3600
 | Action | Authentication | Parameters |
 |--------|----------------|------------|
 | `GetSessionToken` | SigV4 with **permanent** credentials | `DurationSeconds`, `Policy` |
-| `AssumeRole` | SigV4 with **permanent** credentials | `RoleArn` (ignored), `RoleSessionName`, `DurationSeconds`, `Policy` |
+| `AssumeRole` | SigV4 with **permanent** credentials | `RoleArn`, `RoleSessionName` (required with a role), `DurationSeconds`, `Policy` |
 | `AssumeRoleWithWebIdentity` | The token itself | `WebIdentityToken`, `ProviderId` (only if several OAuth providers exist), `DurationSeconds`, `Policy` |
 | `AssumeRoleWithLDAPIdentity` | The credentials themselves | `LDAPUsername`, `LDAPPassword`, `DurationSeconds`, `Policy` |
 
-Responses are the standard AWS XML documents; `Policy` is a Phase 2 session
+Responses are the standard AWS XML documents; `Policy` is an optional session
 policy and `DurationSeconds` follows the same bounds as the JSON API.
 
-- **`AssumeRole` is an alias of `GetSessionToken` and `RoleArn` is ignored.**
-  MaxIOFS implements STS but **not IAM**: there are no roles to assume and no
-  IAM protocol endpoints. The credentials carry the authenticated user's own
-  permissions, so the result can never exceed what that user already has — but
-  it is *not* what an AWS-shaped client asking for a role expects. It is
-  accepted because SDKs reach for it by default.
+- **`AssumeRole` resolves `RoleArn` against the role table.** A role that does
+  not exist returns `NoSuchEntity`, and a role whose trust policy does not name
+  the caller returns `AccessDenied`. The credentials carry the **role's**
+  permissions, not the caller's, bounded by the role's `MaxSessionDuration`.
+  Omitting `RoleArn` falls back to `GetSessionToken` semantics — the caller's
+  own permissions — which keeps working for tools that use `AssumeRole` as a
+  synonym for "temporary credentials".
 - **Temporary credentials cannot call these actions**: a session signed with an
   `ASIA` key is refused, so a leaked credential cannot renew itself past its
   expiry.
 - The two federated actions obey `security.sts_federation_enabled` exactly like
   their JSON counterparts.
 
-Note: SOSAPI still reports `IAMSTS=false` to Veeam. That capability advertises an
-IAM endpoint alongside the STS one, and MaxIOFS exposes no AWS-compatible IAM
-surface; claiming it would make Veeam call an endpoint that does not exist.
+## AWS IAM protocol
+
+Served on the **same** `POST /` of the S3 API port, dispatched by `Action`.
+Point an AWS IAM client at the S3 endpoint and it works unmodified:
+
+```
+aws iam --endpoint-url http://maxiofs:8080 create-user --user-name backup-agent
+aws iam --endpoint-url http://maxiofs:8080 put-user-policy         --user-name backup-agent --policy-name job         --policy-document file://policy.json
+aws iam --endpoint-url http://maxiofs:8080 create-access-key --user-name backup-agent
+```
+
+| Group | Actions |
+|-------|---------|
+| Identities | `CreateUser`, `DeleteUser`, `GetUser`, `ListUsers` |
+| Credentials | `CreateAccessKey`, `DeleteAccessKey`, `ListAccessKeys` |
+| Managed policies | `CreatePolicy`, `GetPolicy`, `ListPolicies`, `DeletePolicy` |
+| Policy versions | `CreatePolicyVersion`, `GetPolicyVersion`, `ListPolicyVersions`, `DeletePolicyVersion`, `SetDefaultPolicyVersion` |
+| Inline policies | `Put`/`Get`/`Delete`/`List` + `UserPolicy` / `RolePolicy` / `GroupPolicy` |
+| Attachments | `Attach`/`Detach`/`ListAttached` + `UserPolicies` / `RolePolicies` / `GroupPolicies` |
+| Roles | `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`, `UpdateAssumeRolePolicy` |
+
+- **Authentication**: SigV4 with **permanent** credentials of a user holding the
+  `iam:manage` capability (administrators have it by default). Temporary
+  credentials are refused — a session must not be able to create identities that
+  outlive it.
+- **Enabled by** `security.iam_api_enabled` (default `true`). Turning it off also
+  stops IAM/STS being advertised to Veeam.
+- **New identities land in the caller's tenant.** The AWS protocol has no field
+  for a tenant, and an integration must not be able to create identities outside
+  the boundary it was given.
+- **Policy documents** are stored and returned verbatim (raw JSON, not
+  URL-encoded). Documents using `Condition`, or `Principal` on an identity
+  policy, are rejected at write time rather than accepted and partly ignored.
+- **Errors** use the AWS IAM codes: `NoSuchEntity`, `EntityAlreadyExists`,
+  `InvalidInput`, `LimitExceeded`, `DeleteConflict`, `AccessDenied`.
+
+Because both protocols share the S3 endpoint, SOSAPI reports `IAMSTS=true` to
+Veeam with `IAMEndpoint` and `STSEndpoint` both set to that URL. It is advertised
+only while the IAM surface is enabled and `PublicAPIURL` is configured.
 
 ### Groups
 

@@ -100,6 +100,14 @@ func (m *Manager) insertDefaults() error {
 			Editable:    true,
 		},
 		{
+			Key:         "security.iam_api_enabled",
+			Value:       "true",
+			Type:        string(TypeBool),
+			Category:    string(CategorySecurity),
+			Description: "Serve the AWS IAM protocol on the S3 endpoint so tools such as Veeam can create their own identities, credentials and policies. Every call must be signed with permanent credentials belonging to a user that holds the iam:manage capability. Turning this off also stops IAM/STS from being advertised to Veeam. Default: true.",
+			Editable:    true,
+		},
+		{
 			Key:         "security.max_failed_attempts",
 			Value:       "5",
 			Type:        string(TypeInt),

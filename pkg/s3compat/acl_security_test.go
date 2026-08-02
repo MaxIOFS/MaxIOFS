@@ -97,11 +97,39 @@ func setupACLTestEnvironment(t *testing.T) *aclTestEnv {
 	// Initialize metadata store
 	metadataDir := filepath.Join(tempDir, "metadata")
 	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: metadataDir,
-		Logger:  logrus.StandardLogger(),})
+		Logger:  logrus.StandardLogger(),
+})
 	require.NoError(t, err)
 
 	// Create managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
+
+	// Buckets get their owner's policy written on creation, exactly as the real
+	// server wires it — without this the creator has no permission on their own
+	// bucket, because ownership only exists as a policy now.
+	if bom, ok := bucketManager.(interface {
+		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
+	}); ok {
+		if store, ok := authManager.(interface {
+			GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
+			RevokeBucketPolicies(bucketName string) error
+		}); ok {
+			bom.SetBucketOwnerPolicyCallback(func(bucketName, tenantID, ownerID string, created bool) {
+				if !created {
+					_ = store.RevokeBucketPolicies(bucketName)
+					return
+				}
+				ownerType, owner := "user", ownerID
+				if tenantID != "" {
+					ownerType, owner = "tenant", tenantID
+				}
+				if owner != "" {
+					_ = store.GrantBucketOwnerPolicy(bucketName, ownerType, owner)
+				}
+			})
+		}
+	}
+
 	objectManager := object.NewManager(storageBackend, metadataStore, config.StorageConfig{
 		Backend: "filesystem",
 		Root:    storageDir,

@@ -1,70 +1,52 @@
 # MaxIOFS - Development Roadmap
 
-**Last Updated**: July 31, 2026
+**Last Updated**: August 2, 2026
 
 > This file tracks ONLY work in progress and pending work. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## 🔵 In Progress — STS temporary credentials (implemented, validation pending)
+## 🔵 In Progress — IAM/STS (implemented, validation pending)
 
-> **Scope note: this is STS, not IAM.** MaxIOFS issues and validates temporary
-> credentials; it does **not** expose an AWS-compatible IAM surface (no
-> `CreateUser`/`CreateAccessKey`/`AttachUserPolicy`, no managed policies as
-> entities, no roles to assume). Authorization is the existing MaxIOFS model —
-> roles, capabilities, bucket permissions, bucket policies, ACLs — which is
-> complete and authoritative, just not IAM-shaped. See "Open decision" below.
+MaxIOFS speaks both AWS identity protocols on `POST /` of the S3 endpoint:
+**STS** issues short-lived credentials (`ASIA` keys, server-enforced expiry,
+revocable, cluster-replicated) and **IAM** manages identities, credentials,
+managed and inline policies, and roles. Details in [CHANGELOG.md](CHANGELOG.md);
+the model is described in [docs/SECURITY.md](docs/SECURITY.md) and the wire
+protocol in [docs/API.md](docs/API.md).
 
-**Design principle**: a temporary credential is a projection of an existing
-user, never a new identity. The authorization pipeline is untouched; STS adds an
-issuance path and a validation branch, and everything downstream consumes the
-same `*User` and cannot tell how the request authenticated.
-
-What exists: temporary credentials (`ASIA` keys, server-enforced expiry,
-revocable, cluster-replicated), optional intersection-only session policies,
-federation endpoints for headless LDAP/OAuth clients, and the AWS STS query
-protocol at `POST /` on the S3 API. Details in [CHANGELOG.md](CHANGELOG.md).
+**The design rule that governs both**: a policy attached to a pre-existing user
+can only *restrict* — the normal pipeline still decides and the policy
+intersects with it. Only identities created through the IAM API are governed by
+their policies as a grant. Nothing that already worked changes behaviour.
 
 ### Before this can ship
 
 - [ ] Manual end-to-end check with a real S3 client (AWS CLI / SDK) using temporary credentials, with and without a session policy — the automated round-trip signs with the server's own canonicalisation, which does not prove SDK interoperability
-- [ ] Manual check of the AWS STS surface with a real SDK (`aws sts get-session-token --endpoint-url <s3-endpoint>`) — this is what the payload-hash middleware exists for, and only a real signer exercises it
-- [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects
+- [ ] Manual check of the AWS STS surface with a real SDK (`aws sts get-session-token --endpoint-url <s3-endpoint>`, then `aws sts assume-role --role-arn ...`) — this is what the payload-hash middleware exists for, and only a real signer exercises it
+- [ ] Manual check of the AWS IAM surface with `aws iam --endpoint-url <s3-endpoint>`: create-user, create-access-key, put-user-policy, attach-user-policy, create-policy-version — then verify the created credential can do exactly what its policy says and nothing else
+- [ ] Veeam interop: confirm it discovers the endpoints from `system.xml` (`IAMSTS=true`) and completes its create-user → put-user-policy → create-access-key flow
+- [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back
 - [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
 
-### Open decision — how far to take this
+### Still open on the IAM work
 
-A client that asks for **IAM role semantics** does not get them: `AssumeRole` is
-accepted as an alias of `GetSessionToken` and `RoleArn` is ignored, so the
-credentials carry the authenticated user's own permissions rather than a role's.
-This can never escalate (the result is always ≤ the user), but it is different
-from what an AWS-shaped client asks for. It is also why SOSAPI `IAMSTS` stays
-`false`: that capability advertises an `IAMEndpoint` alongside the
-`STSEndpoint`, and claiming the pair would make Veeam call an endpoint that
-does not exist.
-
-Three ways out, to be decided before release:
-
-1. **Ship as-is, documented.** Honest about the boundary; matches how MinIO
-   behaves with its built-in identity provider. `IAMSTS` stays `false`.
-2. **Reject `RoleArn`** so a role request fails loudly instead of quietly
-   returning different permissions. Note `RoleArn` is *required* by AWS SDKs on
-   `AssumeRole`, so this makes that action unusable from a stock SDK — only
-   `GetSessionToken` would remain.
-3. **Implement the IAM surface**: roles and managed policies as entities, plus
-   the AWS IAM protocol endpoints. This is what unlocks real `AssumeRole` and
-   `IAMSTS=true`, and it is a piece of work comparable to everything STS took.
+- [ ] `maxiofs:SuperAdmin` and `maxiofs:TenantAdmin` exist in the permission catalogue but are not enforced: the code still decides by `role == "admin" && TenantID == ""`. A tenant administrator must be assignable only by a super administrator.
+- [ ] A managed policy whose `default_version_id` points at a version row that no longer exists returns an empty document. Reject or repair it rather than serving nothing.
+- [ ] `TestDeleteBucket_NotFound` in `pkg/s3compat` — the harness creates its user only in the request context, with no row in `users`.
 
 ### Known limitations (deliberate)
 
+- No `Condition` support in any policy kind — documents that use one are rejected at write time rather than silently evaluated without it.
+- Policy evaluation covers S3 actions. There are no `iam:*` action-level policies: the IAM surface as a whole is gated by the `iam:manage` capability.
 - POST form uploads reject temporary credentials outright (fail-closed).
-- Session policies support `Effect`/`Action`/`Resource` only — no `Condition` —
-  and cannot be edited: revoke and re-issue.
+- Session policies cannot be edited: revoke and re-issue.
 - LDAP federation does not just-in-time provision users, matching console login.
 - Federation endpoints are disabled by default (`security.sts_federation_enabled`).
+- IAM-created identities never get console access; they exist to hold S3 credentials.
 
-> **No new migrations for further STS work.** All of its schema lives in
-> `migration18_v160_STS`; extend that function instead of adding migration 19,
+> **No new migrations for further IAM/STS work.** All of its schema lives in
+> `migration18_v160_IAMSTS`; extend that function instead of adding migration 19,
 > 20, … One migration per feature, not one per increment. Valid until v1.6.0
 > ships, after which the function is frozen and any further schema change needs
 > its own migration.

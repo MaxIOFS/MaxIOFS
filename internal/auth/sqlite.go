@@ -46,6 +46,44 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
+	// The catalogue the console offers. Created and seeded here so a database
+	// that already ran the IAM migration still gets it.
+	if err := store.EnsurePermissionCatalog(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Every role a user can hold exists as a role entity, so the console can
+	// list the roles that may be assigned.
+	if err := store.EnsureAssignableRoles(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ensure the assignable roles: %w", err)
+	}
+
+	// Seed the shipped IAM policies so a fresh install has something to attach
+	// without hand-writing JSON. Idempotent; never overwrites an edited document.
+	if err := store.EnsureBuiltinIAMPolicies(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to seed built-in IAM policies: %w", err)
+	}
+
+	// Convert the pre-IAM permission model into IAM entities. Whether it is still
+	// needed is decided by looking at whether any policies exist, so a database
+	// that never got converted heals itself on the next boot instead of leaving
+	// everyone without permissions.
+	needsConversion, err := store.NeedsLegacyConversion()
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to check the permission model: %w", err)
+	}
+	if needsConversion {
+		if err := store.ConvertLegacyPermissions(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to convert permissions to IAM: %w", err)
+		}
+		logrus.Info("Converted the existing permission model to IAM policies")
+	}
+
 	logrus.WithField("db_path", dbPath).Info("SQLite auth store initialized")
 	return store, nil
 }

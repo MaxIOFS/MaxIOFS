@@ -78,6 +78,10 @@ import type {
   LastIntegrityScan,
   EffectiveCapability,
   BucketQuotaState,
+  IAMPolicy,
+  IAMRole,
+  PermissionGroup,
+  UserPermissions,
 } from '@/types';
 
 // API Configuration
@@ -1174,6 +1178,58 @@ export class APIClient {
 
   static async setRoleCapabilities(role: string, capabilities: string[]): Promise<void> {
     await apiClient.put(`/roles/${encodeURIComponent(role)}/capabilities`, { capabilities });
+  }
+
+  // IAM policies and roles — the console view of the entities the AWS IAM
+  // protocol manages. Global admin only.
+  static async listIAMPolicies(): Promise<IAMPolicy[]> {
+    const response = await apiClient.get<{ success: boolean; policies: IAMPolicy[] }>('/iam/policies');
+    return response.data.policies || [];
+  }
+
+  static async saveIAMPolicy(input: { name: string; description?: string; document: string }): Promise<void> {
+    await apiClient.post('/iam/policies', input);
+  }
+
+  static async deleteIAMPolicy(name: string): Promise<void> {
+    await apiClient.delete(`/iam/policies/${encodeURIComponent(name)}`);
+  }
+
+  static async listIAMRoles(): Promise<IAMRole[]> {
+    const response = await apiClient.get<{ success: boolean; roles: IAMRole[] }>('/iam/roles');
+    return response.data.roles || [];
+  }
+
+  static async saveIAMRole(input: {
+    name: string;
+    description?: string;
+    trustPolicy?: string;
+    permissions?: string;
+    maxSessionDuration?: number;
+    policies?: string[];
+  }): Promise<void> {
+    await apiClient.post('/iam/roles', input);
+  }
+
+  // The catalogue the permissions screen offers, and a user's selection from it.
+  static async getPermissionCatalog(): Promise<PermissionGroup[]> {
+    const response = await apiClient.get<{ success: boolean; groups: PermissionGroup[] }>('/iam/permissions');
+    return response.data.groups || [];
+  }
+
+  static async getUserIAMPermissions(userId: string): Promise<UserPermissions> {
+    const response = await apiClient.get<{ success: boolean; permissions: UserPermissions }>(
+      `/users/${encodeURIComponent(userId)}/permissions`,
+    );
+    return response.data.permissions || { global: [], buckets: [] };
+  }
+
+  static async setUserIAMPermissions(userId: string, permissions: UserPermissions): Promise<void> {
+    await apiClient.put(`/users/${encodeURIComponent(userId)}/permissions`, permissions);
+  }
+
+  static async deleteIAMRole(name: string): Promise<void> {
+    await apiClient.delete(`/iam/roles/${encodeURIComponent(name)}`);
   }
 
   // Access Keys

@@ -1,0 +1,123 @@
+package auth
+
+// The catalogue table and its contents.
+//
+// It lives here rather than in a migration because a database that already
+// applied the IAM migration never sees anything added to that migration
+// afterwards. Creating and seeding at store open is idempotent and heals an
+// installation that upgraded before this existed, which amending an
+// already-applied migration cannot do.
+
+import "fmt"
+
+// EnsurePermissionCatalog creates the catalogue table if it is missing and adds
+// any permission it does not hold yet.
+func (s *SQLiteStore) EnsurePermissionCatalog() error {
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS iam_permissions (
+			action TEXT PRIMARY KEY,
+			action_group TEXT NOT NULL,
+			label TEXT NOT NULL,
+			description TEXT,
+			resource_scoped INTEGER NOT NULL DEFAULT 1,
+			display_order INTEGER NOT NULL DEFAULT 0
+		)
+	`); err != nil {
+		return fmt.Errorf("failed to create the permission catalogue: %w", err)
+	}
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_iam_permissions_group ON iam_permissions(action_group)`); err != nil {
+		return err
+	}
+
+	// INSERT OR IGNORE: a label an operator changed is left alone, while a
+	// permission added by a later version still appears.
+	for i, p := range permissionCatalog {
+		scoped := 0
+		if p.ResourceScoped {
+			scoped = 1
+		}
+		if _, err := s.db.Exec(`
+			INSERT OR IGNORE INTO iam_permissions
+			(action, action_group, label, description, resource_scoped, display_order)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, p.Action, p.Group, p.Label, nullString(p.Description), scoped, i); err != nil {
+			return fmt.Errorf("failed to seed permission %s: %w", p.Action, err)
+		}
+	}
+	return nil
+}
+
+// permissionCatalog is everything that can be granted, in display order.
+//
+// Grouped so an operator can grant a whole area in one click, and listed action
+// by action so they can grant exactly one thing. Both views are these same rows.
+//
+// ResourceScoped marks the actions that name a bucket or an object. The ones
+// that do not are granted outright, because no request against them carries a
+// bucket to scope them to.
+var permissionCatalog = []CatalogPermission{
+	{Action: "maxiofs:SuperAdmin", Group: "administration", Label: "Super administrator",
+		Description: "Every permission on every tenant and every bucket, including granting them to others"},
+	{Action: "maxiofs:TenantAdmin", Group: "administration", Label: "Tenant administrator",
+		Description: "Every permission inside one tenant. Only a super administrator can grant it"},
+	{Action: "console:Access", Group: "administration", Label: "Sign in to the console"},
+	{Action: "console:ManageOwnKeys", Group: "administration", Label: "Manage own access keys",
+		Description: "Create and revoke their own access keys and temporary credentials"},
+	{Action: "iam:*", Group: "administration", Label: "Manage identities and policies",
+		Description: "Create users, policies and roles through the console or the IAM API"},
+
+	{Action: "s3:ListAllMyBuckets", Group: "read", Label: "List buckets"},
+	{Action: "s3:ListBucket", Group: "read", Label: "List objects in a bucket", ResourceScoped: true},
+	{Action: "s3:GetBucketLocation", Group: "read", Label: "Read bucket location", ResourceScoped: true},
+	{Action: "s3:GetObject", Group: "read", Label: "Download objects", ResourceScoped: true},
+	{Action: "s3:GetObjectAcl", Group: "read", Label: "Read object ACL", ResourceScoped: true},
+
+	{Action: "s3:PutObject", Group: "write", Label: "Upload objects", ResourceScoped: true},
+	{Action: "s3:PutObjectAcl", Group: "write", Label: "Change object ACL", ResourceScoped: true},
+	{Action: "s3:RestoreObject", Group: "write", Label: "Restore archived objects", ResourceScoped: true},
+	{Action: "s3:AbortMultipartUpload", Group: "write", Label: "Abort multipart uploads", ResourceScoped: true},
+	{Action: "s3:ListMultipartUploadParts", Group: "write", Label: "List parts of an upload", ResourceScoped: true},
+	{Action: "s3:ListBucketMultipartUploads", Group: "write", Label: "List uploads in progress", ResourceScoped: true},
+
+	{Action: "s3:DeleteObject", Group: "delete", Label: "Delete objects", ResourceScoped: true},
+	{Action: "s3:DeleteBucket", Group: "delete", Label: "Delete buckets", ResourceScoped: true},
+
+	{Action: "s3:GetObjectTagging", Group: "tagging", Label: "Read object tags", ResourceScoped: true},
+	{Action: "s3:PutObjectTagging", Group: "tagging", Label: "Write object tags", ResourceScoped: true},
+	{Action: "s3:DeleteObjectTagging", Group: "tagging", Label: "Delete object tags", ResourceScoped: true},
+	{Action: "s3:GetBucketTagging", Group: "tagging", Label: "Read bucket tags", ResourceScoped: true},
+	{Action: "s3:PutBucketTagging", Group: "tagging", Label: "Write bucket tags", ResourceScoped: true},
+	{Action: "s3:DeleteBucketTagging", Group: "tagging", Label: "Delete bucket tags", ResourceScoped: true},
+
+	{Action: "s3:ListBucketVersions", Group: "versioning", Label: "List object versions", ResourceScoped: true},
+	{Action: "s3:GetObjectVersion", Group: "versioning", Label: "Download a specific version", ResourceScoped: true},
+	{Action: "s3:DeleteObjectVersion", Group: "versioning", Label: "Delete a specific version", ResourceScoped: true},
+	{Action: "s3:GetBucketVersioning", Group: "versioning", Label: "Read versioning setting", ResourceScoped: true},
+	{Action: "s3:PutBucketVersioning", Group: "versioning", Label: "Change versioning setting", ResourceScoped: true},
+
+	// Object Lock is separate from write on purpose: storing an object into an
+	// immutable bucket, deciding how long it stays immutable, and overriding
+	// that protection are three different decisions.
+	{Action: "s3:GetObjectRetention", Group: "object-lock", Label: "Read retention", ResourceScoped: true},
+	{Action: "s3:PutObjectRetention", Group: "object-lock", Label: "Set retention",
+		Description: "Decide how long an object stays immutable", ResourceScoped: true},
+	{Action: "s3:GetObjectLegalHold", Group: "object-lock", Label: "Read legal hold", ResourceScoped: true},
+	{Action: "s3:PutObjectLegalHold", Group: "object-lock", Label: "Set legal hold", ResourceScoped: true},
+	{Action: "s3:BypassGovernanceRetention", Group: "object-lock", Label: "Override governance retention",
+		Description: "Delete or overwrite an object still under governance-mode protection", ResourceScoped: true},
+
+	{Action: "s3:CreateBucket", Group: "bucket-config", Label: "Create buckets"},
+	{Action: "s3:GetBucketAcl", Group: "bucket-config", Label: "Read bucket ACL", ResourceScoped: true},
+	{Action: "s3:PutBucketAcl", Group: "bucket-config", Label: "Change bucket ACL", ResourceScoped: true},
+	{Action: "s3:GetBucketLifecycle", Group: "bucket-config", Label: "Read lifecycle rules", ResourceScoped: true},
+	{Action: "s3:PutBucketLifecycle", Group: "bucket-config", Label: "Change lifecycle rules", ResourceScoped: true},
+	{Action: "s3:DeleteBucketLifecycle", Group: "bucket-config", Label: "Delete lifecycle rules", ResourceScoped: true},
+	{Action: "s3:GetBucketCORS", Group: "bucket-config", Label: "Read CORS rules", ResourceScoped: true},
+	{Action: "s3:PutBucketCORS", Group: "bucket-config", Label: "Change CORS rules", ResourceScoped: true},
+	{Action: "s3:DeleteBucketCORS", Group: "bucket-config", Label: "Delete CORS rules", ResourceScoped: true},
+
+	{Action: "s3:GetBucketPolicy", Group: "bucket-policy", Label: "Read bucket policy", ResourceScoped: true},
+	{Action: "s3:PutBucketPolicy", Group: "bucket-policy", Label: "Change bucket policy", ResourceScoped: true},
+	{Action: "s3:DeleteBucketPolicy", Group: "bucket-policy", Label: "Delete bucket policy", ResourceScoped: true},
+}

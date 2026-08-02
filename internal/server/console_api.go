@@ -439,6 +439,20 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/sts/sessions", s.handleListSTSSessions).Methods("GET", "OPTIONS")
 	router.HandleFunc("/sts/sessions/{keyId}", s.handleRevokeSTSSession).Methods("DELETE", "OPTIONS")
 
+	// IAM policies and roles — the console view of the entities the AWS IAM
+	// protocol manages. Global admin only.
+	router.HandleFunc("/iam/policies", s.handleListIAMPolicies).Methods("GET", "OPTIONS")
+	router.HandleFunc("/iam/policies", s.handleCreateIAMPolicy).Methods("POST", "OPTIONS")
+	router.HandleFunc("/iam/policies/{name}", s.handleDeleteIAMPolicy).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/iam/roles", s.handleListIAMRoles).Methods("GET", "OPTIONS")
+	router.HandleFunc("/iam/roles", s.handleCreateIAMRole).Methods("POST", "OPTIONS")
+	router.HandleFunc("/iam/roles/{name}", s.handleDeleteIAMRole).Methods("DELETE", "OPTIONS")
+
+	// The catalogue the console offers, and a user's selection from it.
+	router.HandleFunc("/iam/permissions", s.handleListPermissionCatalog).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{id}/permissions", s.handleGetUserPermissions).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{id}/permissions", s.handleSetUserPermissions).Methods("PUT", "OPTIONS")
+
 	// Password management
 	router.HandleFunc("/users/{user}/password", s.handleChangePassword).Methods("PUT", "OPTIONS")
 
@@ -452,8 +466,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{id}/capabilities", s.handleGetUserCapabilities).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleSetUserCapability).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{id}/capabilities/{capability}", s.handleDeleteUserCapability).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/roles/capabilities", s.handleGetRoleCapabilities).Methods("GET", "OPTIONS")
-	router.HandleFunc("/roles/{role}/capabilities", s.handleSetRoleCapabilities).Methods("PUT", "OPTIONS")
 
 	// Metrics endpoints
 	router.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET", "OPTIONS")

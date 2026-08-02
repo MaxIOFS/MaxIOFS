@@ -72,24 +72,30 @@ func isVeeamClient(userAgent string) bool {
 		strings.Contains(strings.ToLower(userAgent), "veeam")
 }
 
-// generateSystemXML generates the SOSAPI system.xml content
-func generateSystemXML() ([]byte, error) {
+// generateSystemXML generates the SOSAPI system.xml content.
+//
+// iamSTSEndpoint is the URL to advertise for IAM and STS, or "" to advertise
+// neither. The capability names the two as a pair — APIEndpoints carries an
+// IAMEndpoint alongside the STSEndpoint — so it is only claimed when both are
+// really served. They are the same URL here: MaxIOFS dispatches both query
+// protocols on POST / of the S3 endpoint.
+func generateSystemXML(iamSTSEndpoint string) ([]byte, error) {
 	sysInfo := SystemInfo{
 		ProtocolVersion: `"1.0"`,
 		ModelName:       `"MaxIOFS"`,
-		// nil = omitempty excludes the element. MaxIOFS serves an AWS-compatible
-		// STS endpoint, but the SOSAPI capability advertises
-		// IAM *and* STS as a pair: APIEndpoints requires an IAMEndpoint too, and
-		// there is no IAM surface (user and key management over the AWS IAM
-		// protocol). Advertising the pair would make Veeam call an endpoint that
-		// does not exist.
-		APIEndpoints: nil,
 	}
 
 	// Initialize inline ProtocolCapabilities
 	sysInfo.ProtocolCapabilities.CapacityInfo = true
 	sysInfo.ProtocolCapabilities.UploadSessions = false // Disabled - not fully implemented yet
-	sysInfo.ProtocolCapabilities.IAMSTS = false // STS exists, IAM does not — see APIEndpoints above
+
+	if iamSTSEndpoint != "" {
+		sysInfo.ProtocolCapabilities.IAMSTS = true
+		sysInfo.APIEndpoints = &APIEndpoints{
+			IAMEndpoint: iamSTSEndpoint,
+			STSEndpoint: iamSTSEndpoint,
+		}
+	}
 
 	// Initialize inline SystemRecommendations (ONLY KbBlockSize)
 	sysInfo.SystemRecommendations.KBBlockSize = 4096
@@ -142,7 +148,11 @@ func generateCapacityXML(totalCapacity, availableCapacity int64) ([]byte, error)
 func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenantID, objectKey string) ([]byte, string, error) {
 	// Check if it's a system.xml file (with or without prefix path)
 	if strings.HasSuffix(objectKey, systemXMLObject) || objectKey == systemXMLObject {
-		data, err := generateSystemXML()
+		endpoint := ""
+		if h.iamSTSEndpoint != nil {
+			endpoint = h.iamSTSEndpoint()
+		}
+		data, err := generateSystemXML(endpoint)
 		if err != nil {
 			return nil, "", err
 		}

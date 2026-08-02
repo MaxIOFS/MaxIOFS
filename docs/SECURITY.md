@@ -125,15 +125,8 @@ TOTP-based 2FA compatible with Google Authenticator, Authy, and similar apps.
 Users can issue short-lived S3 credentials (access key ID prefixed `ASIA`, secret,
 and session token) so that applications and scripts never store permanent keys.
 
-> **Scope: STS only, not IAM.** MaxIOFS issues and validates temporary
-> credentials, but exposes no AWS-compatible IAM surface — no user or key
-> management over the IAM protocol, no managed policies as entities, and **no
-> roles to assume**. `AssumeRole` is accepted as an alias of `GetSessionToken`
-> with `RoleArn` ignored, so a client expecting role-based permissions receives
-> the authenticated user's own permissions instead (never more). Authorization
-> is the MaxIOFS model described in this document — roles, capabilities, bucket
-> permissions, bucket policies and ACLs — which is complete and authoritative,
-> just not IAM-shaped.
+> Sessions issued by `AssumeRole` are governed by the role instead — see
+> [IAM](#iam) below.
 
 **Security model** — a temporary credential is a *projection* of an existing user,
 never a separate identity:
@@ -195,8 +188,9 @@ a console session:
 paths to AWS SDKs. It adds no new way to obtain credentials:
 
 - `GetSessionToken` and `AssumeRole` require a valid SigV4 signature made with
-  **permanent** credentials, and issue for that user only. `RoleArn` is ignored —
-  MaxIOFS has no role ARNs, so nothing can be assumed beyond the caller.
+  **permanent** credentials. `GetSessionToken` issues for the signing user only;
+  `AssumeRole` resolves `RoleArn` and issues for the role, if the role's trust
+  policy names the caller.
 - **A temporary credential cannot mint another one.** Requests signed with an
   `ASIA` key are refused, so a leaked session cannot renew itself indefinitely
   and expiry always holds.
@@ -206,6 +200,75 @@ In a cluster, sessions replicate on the same interval as access keys with an
 immediate push on issue and revoke. If a node is unreachable at that moment, a
 revoked session can survive there until the next sync cycle; its expiry remains
 the hard upper bound.
+
+---
+
+## IAM
+
+MaxIOFS serves the AWS IAM query protocol on the S3 endpoint, so a client can
+manage identities, credentials, policies and roles with the API it already
+speaks. The wire details are in [API.md](API.md); what matters for security is
+how IAM policies combine with the model described above.
+
+### One model
+
+There is one permission system. What a user may do is the set of policies that
+apply to them — their own, their groups', their tenant's and their roles' —
+evaluated AWS-style: default deny, an explicit `Allow` is required, an explicit
+`Deny` anywhere wins, and a request that maps to no known action is denied.
+
+Nothing else is consulted. The capability and bucket-permission tables are not
+read at request time; the permissions an installation already had were converted
+into policies once, on the boot that upgraded it, and every permission written
+since goes straight to a policy.
+
+A user is a user. Their access keys carry their permissions — a request is the
+same request whether it arrived on a console session or signed with a key.
+
+**Roles** are named permission sets. A role is assigned to users; if it also
+carries a trust policy it can be assumed through `AssumeRole`, and a role with
+no trust policy cannot be assumed by anyone. There is one role concept, not two.
+
+**Actions** are namespaced by the service they belong to — `s3:*` for object and
+bucket operations, `console:*` for what only exists in the console, `iam:*` for
+managing identities. The namespace is not a division between kinds of user: it
+exists because a policy has to be able to name every operation, and without it
+the operations outside S3 would need a second mechanism.
+
+Tenant scoping always applies: an identity created through the IAM API belongs
+to its creator's tenant.
+
+### Roles
+
+A role is an assumable identity with:
+
+- a **trust policy** (required, never defaulted) naming who may assume it — by
+  user ARN, user name, tenant, MaxIOFS role, or `*`;
+- its own attached and inline policies, which are what a role session may do;
+- an optional `MaxSessionDuration`, itself bounded by
+  `security.sts_max_session_duration`.
+
+`AssumeRole` refuses an unknown `RoleArn` and refuses a caller the trust policy
+does not name. A role session carries the **role's** permissions, not the
+caller's; an optional session policy narrows them further. Role policies are read
+live on every request, so editing or deleting a role takes effect on sessions
+already issued from it — deleting a role stops its sessions rather than leaving
+them running until they expire. A tenant-scoped role cannot be assumed from
+another tenant regardless of what its trust policy says.
+
+### Access to the IAM surface itself
+
+Every IAM call needs a SigV4 signature made with **permanent** credentials of a
+user holding the `iam:manage` capability, which no role grants by default —
+administrators have it through the admin safety net and anyone else needs an
+explicit override. Temporary credentials are refused: a session able to create
+identities would outlive its own expiry. The surface can be switched off entirely
+with `security.iam_api_enabled`.
+
+In a cluster, IAM entities replicate on the access-key interval with an immediate
+push after every change. Entities are upserted rather than replaced, edits
+converge on their update timestamp, and deletions travel as tombstones so a node
+that has not yet heard about a delete cannot resurrect the entity.
 
 ---
 

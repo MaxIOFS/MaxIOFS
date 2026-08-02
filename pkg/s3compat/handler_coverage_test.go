@@ -117,6 +117,33 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 
 	// Create managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
+
+	// Buckets get their owner's policy written on creation, exactly as the real
+	// server wires it — without this the creator has no permission on their own
+	// bucket, because ownership only exists as a policy now.
+	if bom, ok := bucketManager.(interface {
+		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
+	}); ok {
+		if store, ok := authManager.(interface {
+			GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
+			RevokeBucketPolicies(bucketName string) error
+		}); ok {
+			bom.SetBucketOwnerPolicyCallback(func(bucketName, tenantID, ownerID string, created bool) {
+				if !created {
+					_ = store.RevokeBucketPolicies(bucketName)
+					return
+				}
+				ownerType, owner := "user", ownerID
+				if tenantID != "" {
+					ownerType, owner = "tenant", tenantID
+				}
+				if owner != "" {
+					_ = store.GrantBucketOwnerPolicy(bucketName, ownerType, owner)
+				}
+			})
+		}
+	}
+
 	objectManager := object.NewManager(storageBackend, metadataStore, config.StorageConfig{
 		Backend: "filesystem",
 		Root:    storageDir,
@@ -305,14 +332,41 @@ func TestDeleteBucket_Success(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestDeleteBucket_NotFound(t *testing.T) {
+// A user who may not delete any bucket is refused before the bucket is looked
+// up, so a missing bucket and one they simply cannot touch are indistinguishable
+// from outside. Permission is no longer a global flag that everyone with a role
+// carries — it comes from the buckets they actually hold.
+func TestDeleteBucket_NotFound_WithoutPermission(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 
-	// Create user for context
 	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
-	// Create request for non-existent bucket
+	req := httptest.NewRequest(http.MethodDelete, "/nonexistent-bucket", nil)
+	req = mux.SetURLVars(req, map[string]string{"bucket": "nonexistent-bucket"})
+	req = req.WithContext(setUserInContext(req.Context(), user))
+	req.Header.Set("X-Tenant-ID", env.tenantID)
+
+	w := httptest.NewRecorder()
+	env.handler.DeleteBucket(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "AccessDenied")
+}
+
+// A user who does hold delete rights gets the real answer: the bucket is not
+// there.
+func TestDeleteBucket_NotFound_WithPermission(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+
+	ctx := context.Background()
+
+	// Owning a bucket is what gives them the right to delete one.
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "owned-bucket", env.userID))
+
+	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
+
 	req := httptest.NewRequest(http.MethodDelete, "/nonexistent-bucket", nil)
 	req = mux.SetURLVars(req, map[string]string{"bucket": "nonexistent-bucket"})
 	req = req.WithContext(setUserInContext(req.Context(), user))
@@ -1718,7 +1772,7 @@ func TestHandlePresignedRequest_InvalidSignature(t *testing.T) {
 // ============================================
 
 func TestGenerateSystemXML_Success(t *testing.T) {
-	xmlData, err := generateSystemXML()
+	xmlData, err := generateSystemXML("")
 	require.NoError(t, err)
 
 	// Should contain XML header
@@ -1732,7 +1786,7 @@ func TestGenerateSystemXML_Success(t *testing.T) {
 }
 
 func TestGenerateSystemXML_Structure(t *testing.T) {
-	xmlData, err := generateSystemXML()
+	xmlData, err := generateSystemXML("")
 	require.NoError(t, err)
 
 	// Parse XML to verify structure
@@ -1746,7 +1800,23 @@ func TestGenerateSystemXML_Structure(t *testing.T) {
 	assert.True(t, sysInfo.ProtocolCapabilities.CapacityInfo)
 	assert.False(t, sysInfo.ProtocolCapabilities.UploadSessions)
 	assert.False(t, sysInfo.ProtocolCapabilities.IAMSTS)
+	assert.Nil(t, sysInfo.APIEndpoints, "no endpoints may be advertised when IAM is off")
 	assert.Equal(t, 4096, sysInfo.SystemRecommendations.KBBlockSize)
+}
+
+// The capability names IAM and STS together, so it is only claimed alongside
+// the endpoint pair — never one without the other.
+func TestGenerateSystemXML_AdvertisesIAMSTSWhenServed(t *testing.T) {
+	xmlData, err := generateSystemXML("https://s3.example.com")
+	require.NoError(t, err)
+
+	var sysInfo SystemInfo
+	require.NoError(t, xml.Unmarshal(xmlData, &sysInfo))
+
+	assert.True(t, sysInfo.ProtocolCapabilities.IAMSTS)
+	require.NotNil(t, sysInfo.APIEndpoints)
+	assert.Equal(t, "https://s3.example.com", sysInfo.APIEndpoints.IAMEndpoint)
+	assert.Equal(t, "https://s3.example.com", sysInfo.APIEndpoints.STSEndpoint)
 }
 
 // ============================================

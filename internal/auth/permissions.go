@@ -81,7 +81,17 @@ func (s *SQLiteStore) GrantBucketAccessScoped(bucketName, bucketTenantID, userID
 		return fmt.Errorf("failed to grant bucket access: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// The grant is only real once it exists as a policy: that is what the
+	// request path reads.
+	target, id := IAMTargetUser, userID
+	if userID == "" {
+		target, id = IAMTargetTenant, tenantID
+	}
+	return s.writeBucketGrantPolicy(target, id, bucketName, permissionLevel)
 }
 
 // RevokeBucketAccess revokes access to a bucket for a user or tenant
@@ -106,7 +116,15 @@ func (s *SQLiteStore) RevokeBucketAccessScoped(bucketName, bucketTenantID, userI
 		return fmt.Errorf("failed to revoke bucket access: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	target, id := IAMTargetUser, userID
+	if userID == "" {
+		target, id = IAMTargetTenant, tenantID
+	}
+	return s.removeBucketGrantPolicy(target, id, bucketName)
 }
 
 // CheckBucketAccess checks if a user has access to a bucket and returns the permission level.
@@ -308,7 +326,10 @@ func (s *SQLiteStore) GrantGroupBucketAccessScoped(bucketName, bucketTenantID, g
 	if err != nil {
 		return fmt.Errorf("failed to grant group bucket access: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.writeBucketGrantPolicy(IAMTargetGroup, groupID, bucketName, permissionLevel)
 }
 
 // RevokeGroupBucketAccess revokes a group's access to a bucket
@@ -328,7 +349,10 @@ func (s *SQLiteStore) RevokeGroupBucketAccessScoped(bucketName, bucketTenantID, 
 	if err != nil {
 		return fmt.Errorf("failed to revoke group bucket access: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.removeBucketGrantPolicy(IAMTargetGroup, groupID, bucketName)
 }
 
 // GrantGroupBucketAccess — authManager wrapper

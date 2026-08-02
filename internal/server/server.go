@@ -76,6 +76,7 @@ type Server struct {
 	userSyncMgr             *cluster.UserSyncManager
 	accessKeySyncMgr        *cluster.AccessKeySyncManager
 	stsSessionSyncMgr       *cluster.STSSessionSyncManager
+	iamSyncMgr              *cluster.IAMSyncManager
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
@@ -408,6 +409,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize STS session synchronization manager
 	stsSessionSyncMgr := cluster.NewSTSSessionSyncManager(db, clusterManager)
+	iamSyncMgr := cluster.NewIAMSyncManager(db, clusterManager)
 
 	// Initialize bucket permission synchronization manager
 	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
@@ -505,6 +507,7 @@ func New(cfg *config.Config) (*Server, error) {
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
 		stsSessionSyncMgr:       stsSessionSyncMgr,
+		iamSyncMgr:              iamSyncMgr,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
@@ -577,6 +580,15 @@ func New(cfg *config.Config) (*Server, error) {
 		bqm.SetBucketQuotaAlertCallback(func(tenantID, bucketName string, currentBytes, maxBytes int64) {
 			server.checkBucketQuotaAlert(tenantID, bucketName, currentBytes, maxBytes)
 		})
+	}
+
+	// A bucket's creator gets a policy on it. Ownership was an implicit fact the
+	// handlers checked, which made it permission the model could not see; as a
+	// policy it comes from the same place as everything else.
+	if bom, ok := bucketManager.(interface {
+		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
+	}); ok {
+		bom.SetBucketOwnerPolicyCallback(server.recordBucketOwnerPolicy)
 	}
 
 	// Setup routes
@@ -832,6 +844,9 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.accessKeySyncMgr != nil {
 			s.accessKeySyncMgr.Start(ctx)
 			logrus.Info("Access key synchronization manager started")
+		}
+		if s.iamSyncMgr != nil {
+			s.iamSyncMgr.Start(ctx)
 		}
 		if s.stsSessionSyncMgr != nil {
 			s.stsSessionSyncMgr.Start(ctx)
@@ -1162,6 +1177,11 @@ func (s *Server) setupRoutes() error {
 		s.clusterManager,
 		s.bucketAggregator,
 	)
+	// SOSAPI advertises IAM and STS to Veeam only while the IAM surface is
+	// actually being served. Both protocols share POST / on the S3 endpoint,
+	// so there is a single URL to hand over.
+	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)
+
 	if s.inventoryManager != nil {
 		apiHandler.SetInventoryManager(s.inventoryManager)
 	}
@@ -1259,9 +1279,9 @@ func (s *Server) setupRoutes() error {
 	// S3 access logging: capture every request after auth so the user is in context.
 	s3Router.Use(s.s3AccessLoggingMiddleware())
 
-	// AWS STS query protocol on POST /. Registered before the
+	// AWS STS and IAM query protocols on POST /. Registered before the
 	// S3 routes, which only claim GET/HEAD on "/", so the two never compete.
-	s3Router.HandleFunc("/", s.handleAWSSTSRequest).Methods("POST")
+	s3Router.HandleFunc("/", s.handleAWSQueryRequest).Methods("POST")
 
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
@@ -1342,6 +1362,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
 	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
+	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
 	hmac.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
 	hmac.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
 	hmac.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")

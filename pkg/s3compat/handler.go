@@ -141,7 +141,12 @@ type Handler struct {
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 	}
-	publicAPIURL     string
+	publicAPIURL string
+	// iamSTSEndpoint returns the URL to advertise as the IAM and STS endpoint
+	// in SOSAPI, or "" when the IAM surface is switched off. It is a function
+	// because the setting behind it can change while the server is running, and
+	// a stale "yes" would send Veeam to an endpoint that now refuses it.
+	iamSTSEndpoint   func() string
 	dataDir          string            // For calculating disk capacity in SOSAPI
 	notifHTTPClient  *http.Client      // HTTP client for notification webhooks; defaults to SSRF-blocking client
 	bandwidthManager *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
@@ -194,6 +199,12 @@ func (h *Handler) SetShareManager(sm interface {
 // SetPublicAPIURL sets the public API URL for presigned URL generation
 func (h *Handler) SetPublicAPIURL(url string) {
 	h.publicAPIURL = url
+}
+
+// SetIAMSTSEndpointResolver wires the resolver SOSAPI uses to decide whether to
+// advertise IAM and STS to Veeam, and at which URL.
+func (h *Handler) SetIAMSTSEndpointResolver(resolve func() string) {
+	h.iamSTSEndpoint = resolve
 }
 
 // SetDataDir sets the data directory for disk capacity calculations

@@ -13,5 +13,5 @@
   "identityProviders": "Fournisseurs d'identité",
   "cluster": "Cluster",
   "groups": "Groupes",
-  "roleCapabilities": "Capacités des rôles"
+  "iam": "IAM"
 }
