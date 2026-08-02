@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "可选。分配给用户的角色请留空；仅当应用程序通过 AssumeRole 担任该角色时才填写。",
   "iamRoleAssignable": "分配给用户",
   "iamRolePermissions": "该角色可以做什么",
-  "policyBuilderHint": "勾选权限。添加存储桶可为其单独设置不同的权限。"
+  "policyBuilderHint": "勾选权限。添加存储桶可为其单独设置不同的权限。",
+  "userPolicies": "{{count}} 条策略",
+  "userPolicies_other": "{{count}} 条策略",
+  "userPoliciesTitle": "直接附加到该用户的权限",
+  "userNoPermissions": "无权限",
+  "managePermissions": "管理权限",
+  "permissionsTitle": "权限",
+  "permissionsNoRole": "无角色",
+  "permissionsRoleHint": "角色是一组命名的权限。其授予内容在 IAM → 角色 中编辑。"
 }

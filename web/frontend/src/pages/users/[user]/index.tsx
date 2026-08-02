@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
 import ModalManager from '@/lib/modals';
+import PermissionPicker from '@/pages/iam/PermissionPicker';
 import {
   ArrowLeft,
   User as UserIcon,
@@ -38,7 +39,7 @@ import {
 } from '@/components/ui/Table';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { AccessKey, EditUserForm, EffectiveCapability, Group } from '@/types';
+import { AccessKey, EditUserForm, Group } from '@/types';
 import Setup2FAModal, { BackupCodesModal } from '@/components/Setup2FAModal';
 import { ConfirmModal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -123,6 +124,14 @@ export default function UserDetailsPage() {
   });
 
   // Fetch groups this user belongs to (admins see any user; non-admins see their own)
+  const { data: iamRoles } = useQuery({
+    queryKey: ['iamRoles'],
+    queryFn: APIClient.listIAMRoles,
+    enabled: !!isCurrentUserAdmin,
+  });
+
+  const assignableRoles = (iamRoles || []).filter((role) => !role.trustPolicy);
+
   const { data: userGroups = [] } = useQuery({
     queryKey: ['userGroups', userId],
     queryFn: () => APIClient.listUserGroups(userId),
@@ -165,25 +174,6 @@ export default function UserDetailsPage() {
   const availableGroups = allGroups.filter(
     (g: Group) => !userGroups.some((ug: Group) => ug.id === g.id)
   );
-
-  // Capabilities — visible to admins only
-  const { data: userCapabilities = [], isLoading: capsLoading } = useQuery({
-    queryKey: ['userCapabilities', userId],
-    queryFn: () => APIClient.getUserCapabilities(userId),
-    enabled: !!userId && !!isCurrentUserAdmin && isCapabilitiesModalOpen,
-  });
-
-  const setCapabilityMutation = useMutation({
-    mutationFn: ({ capability, granted }: { capability: string; granted: boolean | null }) =>
-      granted === null
-        ? APIClient.deleteUserCapability(userId, capability)
-        : APIClient.setUserCapability(userId, capability, granted),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userCapabilities', userId] });
-      ModalManager.toast('success', t('capabilitySaved'));
-    },
-    onError: (error) => ModalManager.apiError(error),
-  });
 
   // Update user mutation
   const updateUserMutation = useMutation({
@@ -542,7 +532,7 @@ export default function UserDetailsPage() {
                 className="gap-2"
               >
                 <ShieldCheck className="h-4 w-4" />
-                {t('manageCapabilities')}
+                {t('managePermissions')}
               </Button>
             )}
             <Button
@@ -786,73 +776,38 @@ export default function UserDetailsPage() {
 
       </div>
 
-      {/* Capabilities Modal */}
+      {/* Permissions: the user's role and the policies attached to them. The
+          capability toggles that used to live here described a permission
+          system that no longer exists. */}
       <Modal
         isOpen={isCapabilitiesModalOpen}
         onClose={() => setIsCapabilitiesModalOpen(false)}
-        title={t('capabilitiesTitle')}
+        title={t('permissionsTitle')}
+        size="xl"
       >
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">{t('capabilitiesDesc')}</p>
-          {capsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loading size="md" />
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t('roles')}
             </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto pr-1">
-              {userCapabilities.map((cap: EffectiveCapability) => {
-                const isOverride = cap.source === 'override';
-                return (
-                  <div
-                    key={cap.capability}
-                    className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
-                      cap.granted
-                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                        : 'bg-gray-50 dark:bg-gray-900/20 border-border'
-                    }`}
+            <div className="mt-1 flex gap-1 flex-wrap">
+              {(userData?.roles || []).length > 0 ? (
+                (userData?.roles || []).map((role: string) => (
+                  <span
+                    key={role}
+                    className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border border-border"
                   >
-                    <div className="min-w-0 flex-1">
-                      <code className="text-xs font-mono text-foreground">{cap.capability}</code>
-                      {isOverride && (
-                        <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mt-0.5">
-                          {t('capSourceOverride')}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      {isOverride && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title={t('capResetToRole')}
-                          disabled={setCapabilityMutation.isPending}
-                          onClick={() => setCapabilityMutation.mutate({ capability: cap.capability, granted: null })}
-                        >
-                          <RotateCcw className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={setCapabilityMutation.isPending}
-                        onClick={() => setCapabilityMutation.mutate({ capability: cap.capability, granted: !cap.granted })}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${
-                          cap.granted ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-                        }`}
-                        aria-checked={cap.granted}
-                        role="switch"
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-                            cap.granted ? 'translate-x-4' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                    {role}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">{t('permissionsNoRole')}</span>
+              )}
             </div>
-          )}
+            <p className="text-xs text-muted-foreground mt-2">{t('permissionsRoleHint')}</p>
+          </div>
+
+          {userId && <PermissionPicker userId={userId} />}
         </div>
       </Modal>
 
@@ -1138,10 +1093,11 @@ export default function UserDetailsPage() {
               disabled={!isCurrentUserAdmin || (isCurrentUserAdmin && isEditingSelf)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="admin">{t('adminRole')}</option>
-              <option value="user">{t('userRole')}</option>
-              <option value="readonly">{t('readonlyRole')}</option>
-              <option value="guest">{t('guestRole')}</option>
+              {assignableRoles.map((role) => (
+                <option key={role.name} value={role.name}>
+                  {role.description ? `${role.name} — ${role.description}` : role.name}
+                </option>
+              ))}
             </select>
             {!isCurrentUserAdmin && (
               <p className="text-xs text-muted-foreground mt-1">

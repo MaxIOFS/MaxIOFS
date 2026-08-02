@@ -441,7 +441,7 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-wrap">
                         {user.roles.map((role: string) => (
                           <span
                             key={role}
@@ -450,6 +450,20 @@ export default function UsersPage() {
                             {role}
                           </span>
                         ))}
+                        {/* Permissions can come from policies instead of a role.
+                            Showing nothing there reads as "this user has no
+                            access", which is the opposite of what it means. */}
+                        {(user.policyCount ?? 0) > 0 && (
+                          <span
+                            className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border border-border text-muted-foreground"
+                            title={t('userPoliciesTitle')}
+                          >
+                            {t('userPolicies', { count: user.policyCount })}
+                          </span>
+                        )}
+                        {user.roles.length === 0 && (user.policyCount ?? 0) === 0 && (
+                          <span className="text-xs text-muted-foreground">{t('userNoPermissions')}</span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>

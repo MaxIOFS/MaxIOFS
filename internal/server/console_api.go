@@ -92,6 +92,11 @@ type UserResponse struct {
 	AuthProvider        string   `json:"authProvider,omitempty"`
 	ExternalID          string   `json:"externalId,omitempty"`
 	CreatedAt           int64    `json:"createdAt"`
+
+	// PolicyCount is how many policies are attached to this user directly.
+	// A user whose permissions come from policies rather than a role would
+	// otherwise show an empty Role column and read as having nothing.
+	PolicyCount int `json:"policyCount"`
 }
 
 type MetricsResponse struct {
@@ -2744,10 +2749,30 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			AuthProvider:        u.AuthProvider,
 			ExternalID:          u.ExternalID,
 			CreatedAt:           u.CreatedAt,
+			PolicyCount:         s.countDirectPolicies(r, u.ID),
 		}
 	}
 
 	s.writeJSON(w, response)
+}
+
+// countDirectPolicies returns how many policies are attached to a user
+// directly, inline or managed. It reports 0 rather than failing the listing:
+// this is a hint about where permissions come from, not a permission check.
+func (s *Server) countDirectPolicies(r *http.Request, userID string) int {
+	im, ok := s.authManager.(auth.IAMManager)
+	if !ok {
+		return 0
+	}
+
+	count := 0
+	if inline, err := im.ListIAMInlinePolicies(r.Context(), auth.IAMTargetUser, userID); err == nil {
+		count += len(inline)
+	}
+	if attached, err := im.ListAttachedIAMPolicies(r.Context(), auth.IAMTargetUser, userID); err == nil {
+		count += len(attached)
+	}
+	return count
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {

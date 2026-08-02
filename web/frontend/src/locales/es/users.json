@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Opcional. Déjalo vacío para un rol que asignas a usuarios; rellénalo solo si el rol lo asumen aplicaciones con AssumeRole.",
   "iamRoleAssignable": "se asigna a usuarios",
   "iamRolePermissions": "Qué puede hacer este rol",
-  "policyBuilderHint": "Marca los permisos. Añade un bucket para darle permisos distintos en él."
+  "policyBuilderHint": "Marca los permisos. Añade un bucket para darle permisos distintos en él.",
+  "userPolicies": "{{count}} política",
+  "userPolicies_other": "{{count}} políticas",
+  "userPoliciesTitle": "Permisos adjuntos directamente a este usuario",
+  "userNoPermissions": "sin permisos",
+  "managePermissions": "Gestionar permisos",
+  "permissionsTitle": "Permisos",
+  "permissionsNoRole": "sin rol",
+  "permissionsRoleHint": "Un rol es un conjunto de permisos con nombre. Lo que concede se edita en IAM → Roles."
 }

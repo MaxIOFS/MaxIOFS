@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "任意。ユーザーに割り当てるロールでは空のままにし、アプリケーションが AssumeRole で引き受けるロールの場合だけ記入します。",
   "iamRoleAssignable": "ユーザーに割り当て",
   "iamRolePermissions": "このロールでできること",
-  "policyBuilderHint": "権限を選びます。バケットを追加すると、そのバケットだけ別の権限を与えられます。"
+  "policyBuilderHint": "権限を選びます。バケットを追加すると、そのバケットだけ別の権限を与えられます。",
+  "userPolicies": "ポリシー {{count}} 件",
+  "userPolicies_other": "ポリシー {{count}} 件",
+  "userPoliciesTitle": "このユーザーに直接付与された権限",
+  "userNoPermissions": "権限なし",
+  "managePermissions": "権限を管理",
+  "permissionsTitle": "権限",
+  "permissionsNoRole": "ロールなし",
+  "permissionsRoleHint": "ロールは名前のついた権限のまとまりです。付与内容は IAM → ロール で編集します。"
 }

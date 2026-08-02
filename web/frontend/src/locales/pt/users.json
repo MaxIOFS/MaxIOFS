@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Opcional. Deixe vazio para uma função atribuída a utilizadores; preencha apenas se for assumida por aplicações com AssumeRole.",
   "iamRoleAssignable": "atribuída a utilizadores",
   "iamRolePermissions": "O que esta função pode fazer",
-  "policyBuilderHint": "Marque as permissões. Adicione um bucket para lhe dar permissões diferentes."
+  "policyBuilderHint": "Marque as permissões. Adicione um bucket para lhe dar permissões diferentes.",
+  "userPolicies": "{{count}} política",
+  "userPolicies_other": "{{count}} políticas",
+  "userPoliciesTitle": "Permissões anexadas diretamente a este utilizador",
+  "userNoPermissions": "sem permissões",
+  "managePermissions": "Gerir permissões",
+  "permissionsTitle": "Permissões",
+  "permissionsNoRole": "sem função",
+  "permissionsRoleHint": "Uma função é um conjunto de permissões com nome. O que concede edita-se em IAM → Funções."
 }

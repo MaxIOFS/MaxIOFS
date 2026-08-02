@@ -616,6 +616,15 @@ func (s *Server) Start(ctx context.Context) error {
 		"data_dir":        s.config.DataDir,
 	}).Info("Starting MaxIOFS servers")
 
+	// Expired temporary credentials are cleaned up in the background. Without
+	// this they pile up in the console and have to be removed by hand.
+	go s.startSTSSessionSweep(ctx, time.Hour)
+
+	// Buckets that existed before ownership became a policy have none. Writing
+	// them before serving anything is what keeps the policy check below from
+	// taking access away from every bucket already on disk.
+	s.backfillBucketOwnerPolicies(ctx)
+
 	// Enable runtime profiling
 	runtime.SetBlockProfileRate(1)     // Enable block profiling
 	runtime.SetMutexProfileFraction(1) // Enable mutex profiling

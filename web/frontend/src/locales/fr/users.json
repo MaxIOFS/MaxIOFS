@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Facultatif. Laissez vide pour un rôle attribué aux utilisateurs ; renseignez-le seulement pour un rôle endossé par des applications avec AssumeRole.",
   "iamRoleAssignable": "attribué aux utilisateurs",
   "iamRolePermissions": "Ce que ce rôle peut faire",
-  "policyBuilderHint": "Cochez les permissions. Ajoutez un compartiment pour y accorder des permissions différentes."
+  "policyBuilderHint": "Cochez les permissions. Ajoutez un compartiment pour y accorder des permissions différentes.",
+  "userPolicies": "{{count}} stratégie",
+  "userPolicies_other": "{{count}} stratégies",
+  "userPoliciesTitle": "Permissions attachées directement à cet utilisateur",
+  "userNoPermissions": "aucune permission",
+  "managePermissions": "Gérer les permissions",
+  "permissionsTitle": "Permissions",
+  "permissionsNoRole": "aucun rôle",
+  "permissionsRoleHint": "Un rôle est un ensemble nommé de permissions. Ce qu'il accorde se modifie dans IAM → Rôles."
 }

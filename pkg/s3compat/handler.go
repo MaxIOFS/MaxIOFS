@@ -956,36 +956,16 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.getTenantIDFromRequest(r)
 
-	// Check if user is authenticated
+	// An authenticated request is decided by its policies, and by nothing else.
 	if userExists {
-		// If user belongs to the same tenant as the bucket, allow access automatically
-		// ACLs only apply for cross-tenant or public access
-		if user.TenantID != tenantID {
-			// Cross-tenant access - check ACL permissions
-			hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-
-			// If no explicit ACL permission, check if authenticated users have read access
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasPermission {
-				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			if !hasPermission {
-				logrus.WithFields(logrus.Fields{
-					"bucket":       bucketName,
-					"userID":       user.ID,
-					"userTenantID": user.TenantID,
-					"bucketTenant": tenantID,
-				}).Warn("ACL permission denied for ListObjects - cross-tenant access")
-				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-				return
-			}
+		if !h.userCanListBucket(r, tenantID, bucketName, user.ID) {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"userID": user.ID,
+			}).Warn("Permission denied for ListObjects")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
 		}
-		// Same tenant - allow access automatically
 	} else {
 		// Unauthenticated access - check if bucket is public
 		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
@@ -1103,24 +1083,13 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.getTenantIDFromRequest(r)
 
 	if userExists {
-		if user.TenantID != tenantID {
-			hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-			if !hasPermission {
-				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-			if !hasPermission {
-				logrus.WithFields(logrus.Fields{
-					"bucket":       bucketName,
-					"userID":       user.ID,
-					"userTenantID": user.TenantID,
-					"bucketTenant": tenantID,
-				}).Warn("ACL permission denied for ListObjectsV2 - cross-tenant access")
-				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-				return
-			}
+		if !h.userCanListBucket(r, tenantID, bucketName, user.ID) {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"userID": user.ID,
+			}).Warn("Permission denied for ListObjectsV2")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
 		}
 	} else {
 		if !h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
@@ -4115,4 +4084,18 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 	objectKey := getObjectKey(r)
 	h.writeError(w, "NotImplemented", "GetObjectTorrent is not supported", objectKey, r)
+}
+
+// userCanListBucket asks the user's policies whether they may list this bucket.
+//
+// It is the only question asked of an authenticated request. Sharing a tenant
+// with a bucket used to be enough on its own, which let a credential whose
+// policy named one bucket list every other bucket beside it. ACLs and public
+// access still govern anonymous requests, which have no policies to consult.
+func (h *Handler) userCanListBucket(r *http.Request, tenantID, bucketName, userID string) bool {
+	if h.authManager == nil {
+		return false
+	}
+	hasAccess, _, err := h.authManager.CheckBucketAccess(r.Context(), bucketName, userID)
+	return err == nil && hasAccess
 }

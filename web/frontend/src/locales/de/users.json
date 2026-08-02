@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Optional. Für eine Rolle, die Benutzern zugewiesen wird, leer lassen; nur ausfüllen, wenn Anwendungen sie mit AssumeRole annehmen.",
   "iamRoleAssignable": "wird Benutzern zugewiesen",
   "iamRolePermissions": "Was diese Rolle darf",
-  "policyBuilderHint": "Berechtigungen ankreuzen. Fügen Sie einen Bucket hinzu, um dort andere Rechte zu vergeben."
+  "policyBuilderHint": "Berechtigungen ankreuzen. Fügen Sie einen Bucket hinzu, um dort andere Rechte zu vergeben.",
+  "userPolicies": "{{count}} Richtlinie",
+  "userPolicies_other": "{{count}} Richtlinien",
+  "userPoliciesTitle": "Direkt an diesen Benutzer angehängte Berechtigungen",
+  "userNoPermissions": "keine Berechtigungen",
+  "managePermissions": "Berechtigungen verwalten",
+  "permissionsTitle": "Berechtigungen",
+  "permissionsNoRole": "keine Rolle",
+  "permissionsRoleHint": "Eine Rolle ist ein benannter Satz von Berechtigungen. Was sie gewährt, wird unter IAM → Rollen bearbeitet."
 }

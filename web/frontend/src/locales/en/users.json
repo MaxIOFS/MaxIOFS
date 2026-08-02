@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Optional. Leave empty for a role you assign to users; fill it in only for a role applications assume with AssumeRole.",
   "iamRoleAssignable": "assigned to users",
   "iamRolePermissions": "What this role may do",
-  "policyBuilderHint": "Tick the permissions. Add a bucket to grant different permissions on it."
+  "policyBuilderHint": "Tick the permissions. Add a bucket to grant different permissions on it.",
+  "userPolicies": "{{count}} policy",
+  "userPolicies_other": "{{count}} policies",
+  "userPoliciesTitle": "Permissions attached directly to this user",
+  "userNoPermissions": "no permissions",
+  "managePermissions": "Manage permissions",
+  "permissionsTitle": "Permissions",
+  "permissionsNoRole": "no role",
+  "permissionsRoleHint": "A role is a named set of permissions. What it grants is edited in IAM → Roles."
 }

@@ -23,6 +23,12 @@ func (s *Server) startSTSSessionSweep(ctx context.Context, interval time.Duratio
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Sweep once at startup rather than waiting a whole interval: a server that
+	// was down for a while comes back with sessions that expired long ago.
+	if removed, err := s.authManager.SweepExpiredSTSSessions(ctx); err == nil && removed > 0 {
+		logrus.WithField("count", removed).Info("Swept expired STS sessions")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

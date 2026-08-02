@@ -26,6 +26,9 @@ export interface User {
   languagePreference?: string;
   authProvider?: string;
   externalId?: string;
+  // How many policies are attached to this user directly. Permissions can come
+  // from a role, from policies, or both.
+  policyCount?: number;
 }
 
 export interface AccessKey {

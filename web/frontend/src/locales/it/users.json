@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Facoltativo. Lascia vuoto per un ruolo assegnato agli utenti; compilalo solo se le applicazioni lo assumono con AssumeRole.",
   "iamRoleAssignable": "assegnato agli utenti",
   "iamRolePermissions": "Cosa può fare questo ruolo",
-  "policyBuilderHint": "Seleziona i permessi. Aggiungi un bucket per assegnargli permessi diversi."
+  "policyBuilderHint": "Seleziona i permessi. Aggiungi un bucket per assegnargli permessi diversi.",
+  "userPolicies": "{{count}} criterio",
+  "userPolicies_other": "{{count}} criteri",
+  "userPoliciesTitle": "Permessi associati direttamente a questo utente",
+  "userNoPermissions": "nessun permesso",
+  "managePermissions": "Gestisci permessi",
+  "permissionsTitle": "Permessi",
+  "permissionsNoRole": "nessun ruolo",
+  "permissionsRoleHint": "Un ruolo è un insieme di permessi con nome. Ciò che concede si modifica in IAM → Ruoli."
 }

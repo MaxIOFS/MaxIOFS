@@ -281,5 +281,13 @@
   "iamTrustPolicyOptionalHint": "Необязательно. Оставьте пустым для роли, назначаемой пользователям; заполняйте только если роль принимают приложения через AssumeRole.",
   "iamRoleAssignable": "назначается пользователям",
   "iamRolePermissions": "Что может эта роль",
-  "policyBuilderHint": "Отметьте права. Добавьте бакет, чтобы задать для него отдельные права."
+  "policyBuilderHint": "Отметьте права. Добавьте бакет, чтобы задать для него отдельные права.",
+  "userPolicies": "политик: {{count}}",
+  "userPolicies_other": "политик: {{count}}",
+  "userPoliciesTitle": "Права, назначенные пользователю напрямую",
+  "userNoPermissions": "нет прав",
+  "managePermissions": "Управление правами",
+  "permissionsTitle": "Права",
+  "permissionsNoRole": "без роли",
+  "permissionsRoleHint": "Роль — это именованный набор прав. Что она даёт, редактируется в IAM → Роли."
 }
