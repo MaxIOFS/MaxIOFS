@@ -132,7 +132,7 @@ type captureWriter struct {
 	wrote  bool
 }
 
-func newCaptureWriter() *captureWriter { return &captureWriter{header: http.Header{}} }
+func newCaptureWriter() *captureWriter       { return &captureWriter{header: http.Header{}} }
 func (c *captureWriter) Header() http.Header { return c.header }
 func (c *captureWriter) WriteHeader(s int)   { c.status = s; c.wrote = true }
 func (c *captureWriter) Write(b []byte) (int, error) {

@@ -15,10 +15,10 @@ import (
 
 // TenantStorageInfo represents storage usage information for a tenant on a node
 type TenantStorageInfo struct {
-	TenantID           string `json:"tenant_id"`
+	TenantID            string `json:"tenant_id"`
 	CurrentStorageBytes int64  `json:"current_storage_bytes"`
-	NodeID             string `json:"node_id"`
-	NodeName           string `json:"node_name"`
+	NodeID              string `json:"node_id"`
+	NodeName            string `json:"node_name"`
 }
 
 // ClusterManagerInterface defines the interface needed by QuotaAggregator and BucketAggregator.
@@ -36,10 +36,10 @@ type ClusterManagerInterface interface {
 
 // QuotaAggregator aggregates storage quota usage from all cluster nodes
 type QuotaAggregator struct {
-	clusterManager    ClusterManagerInterface
-	proxyClient       *ProxyClient
-	circuitBreakers   *CircuitBreakerManager
-	log               *logrus.Entry
+	clusterManager  ClusterManagerInterface
+	proxyClient     *ProxyClient
+	circuitBreakers *CircuitBreakerManager
+	log             *logrus.Entry
 }
 
 // NewQuotaAggregator creates a new quota aggregator
@@ -182,12 +182,12 @@ func (qa *QuotaAggregator) GetTenantTotalStorage(ctx context.Context, tenantID s
 	duration := time.Since(startTime)
 
 	qa.log.WithFields(logrus.Fields{
-		"tenant_id":       tenantID,
-		"total_storage":   totalStorage,
-		"success_nodes":   successCount,
-		"failed_nodes":    failureCount,
-		"duration_ms":     duration.Milliseconds(),
-		"node_breakdown":  nodeStorageMap,
+		"tenant_id":      tenantID,
+		"total_storage":  totalStorage,
+		"success_nodes":  successCount,
+		"failed_nodes":   failureCount,
+		"duration_ms":    duration.Milliseconds(),
+		"node_breakdown": nodeStorageMap,
 	}).Info("Storage quota aggregation completed")
 
 	// Return error only if ALL nodes failed

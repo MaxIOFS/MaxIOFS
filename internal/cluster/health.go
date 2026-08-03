@@ -331,9 +331,9 @@ func (m *Manager) checkAndMarkStale(ctx context.Context, node *Node, now time.Ti
 	}
 
 	m.log.WithFields(logrus.Fields{
-		"node_id":   node.ID,
-		"node_name": node.Name,
-		"last_seen": node.LastSeen.Format(time.RFC3339),
+		"node_id":     node.ID,
+		"node_name":   node.Name,
+		"last_seen":   node.LastSeen.Format(time.RFC3339),
 		"offline_for": now.Sub(*node.LastSeen).String(),
 	}).Warn("Node marked as stale: offline beyond staleness threshold")
 }
@@ -353,7 +353,7 @@ func (m *Manager) CleanupHealthHistory(ctx context.Context, retentionDays int) e
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected > 0 {
 		m.log.WithFields(logrus.Fields{
-			"rows_deleted":    rowsAffected,
+			"rows_deleted":   rowsAffected,
 			"retention_days": retentionDays,
 		}).Info("Cleaned up old health check history")
 	}

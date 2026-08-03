@@ -27,18 +27,18 @@ import (
 
 // MigrationTestNode represents a node for migration testing
 type MigrationTestNode struct {
-	NodeID       string
-	NodeName     string
-	NodeToken    string
-	DataDir      string
-	DB           *sql.DB
-	HTTPServer   *httptest.Server
-	Objects      map[string][]byte // bucket/key -> data
-	BucketACLs   map[string]string // bucket -> acl_json
-	BucketPerms  map[string]map[string]bool // bucket -> user -> has_permission
+	NodeID        string
+	NodeName      string
+	NodeToken     string
+	DataDir       string
+	DB            *sql.DB
+	HTTPServer    *httptest.Server
+	Objects       map[string][]byte                 // bucket/key -> data
+	BucketACLs    map[string]string                 // bucket -> acl_json
+	BucketPerms   map[string]map[string]bool        // bucket -> user -> has_permission
 	BucketConfigs map[string]map[string]interface{} // bucket -> config
-	Ctx          context.Context
-	Cancel       context.CancelFunc
+	Ctx           context.Context
+	Cancel        context.CancelFunc
 }
 
 // setupMigrationNode creates a test node for migration
@@ -369,8 +369,8 @@ func TestBucketMigrationEndToEnd(t *testing.T) {
 	t.Run("MigrateObjects", func(t *testing.T) {
 		// Create objects on node1
 		objects := map[string][]byte{
-			bucketName + "/file1.txt": []byte("Hello from file 1"),
-			bucketName + "/file2.txt": []byte("Hello from file 2"),
+			bucketName + "/file1.txt":     []byte("Hello from file 1"),
+			bucketName + "/file2.txt":     []byte("Hello from file 2"),
 			bucketName + "/dir/file3.txt": []byte("Hello from file 3 in directory"),
 		}
 
@@ -500,19 +500,19 @@ func TestBucketMigrationEndToEnd(t *testing.T) {
 		// Create bucket config on node1
 		config := map[string]interface{}{
 			"versioning": map[string]interface{}{
-				"enabled": true,
+				"enabled":    true,
 				"mfa_delete": false,
 			},
 			"lifecycle": []map[string]interface{}{
 				{
-					"id": "expire-old-versions",
-					"enabled": true,
+					"id":              "expire-old-versions",
+					"enabled":         true,
 					"expiration_days": 30,
 				},
 			},
 			"tags": map[string]string{
 				"environment": "production",
-				"team": "backend",
+				"team":        "backend",
 			},
 			"cors": []map[string]interface{}{
 				{
@@ -521,7 +521,7 @@ func TestBucketMigrationEndToEnd(t *testing.T) {
 				},
 			},
 			"encryption": map[string]interface{}{
-				"enabled": true,
+				"enabled":   true,
 				"algorithm": "AES256",
 			},
 		}

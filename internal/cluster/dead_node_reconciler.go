@@ -25,9 +25,9 @@ const (
 type DeadNodeEventKind string
 
 const (
-	EventNodeDead                 DeadNodeEventKind = "node_dead"
-	EventClusterDegraded          DeadNodeEventKind = "cluster_degraded"
-	EventClusterDegradedResolved  DeadNodeEventKind = "cluster_degraded_resolved"
+	EventNodeDead                DeadNodeEventKind = "node_dead"
+	EventClusterDegraded         DeadNodeEventKind = "cluster_degraded"
+	EventClusterDegradedResolved DeadNodeEventKind = "cluster_degraded_resolved"
 )
 
 // DeadNodeEvent carries the payload for a reconciler lifecycle event.
@@ -37,7 +37,7 @@ type DeadNodeEvent struct {
 	NodeName string
 	Reason   string
 	// Cluster-wide context for monitoring dashboards.
-	Factor      int
+	Factor       int
 	NonDeadNodes int
 }
 
@@ -61,10 +61,10 @@ type SyncTrigger interface {
 // serially under an internal mutex so that a slow Trigger() does not race a
 // drain endpoint.
 type DeadNodeReconciler struct {
-	mgr     *Manager
-	syncer  SyncTrigger
-	emit    EventEmitter
-	log     *logrus.Entry
+	mgr    *Manager
+	syncer SyncTrigger
+	emit   EventEmitter
+	log    *logrus.Entry
 
 	mu sync.Mutex
 }
@@ -274,10 +274,10 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 
 	if healthyExcludingCandidate < factor {
 		r.log.WithFields(logrus.Fields{
-			"node_id":                    node.ID,
-			"node_name":                  node.Name,
-			"healthy_after":              healthyExcludingCandidate,
-			"replication_factor":         factor,
+			"node_id":            node.ID,
+			"node_name":          node.Name,
+			"healthy_after":      healthyExcludingCandidate,
+			"replication_factor": factor,
 		}).Warn("Refusing to mark node dead: would drop cluster below replication factor (last-survivor protection)")
 
 		// Surface this to operators via the degraded-state path so the UI
@@ -340,7 +340,6 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	}
 	return nil
 }
-
 
 // recomputeClusterDegradedState compares healthy node count against the
 // replication factor. Sets/clears the degraded reason and emits SSE events on

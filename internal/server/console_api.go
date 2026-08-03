@@ -301,6 +301,11 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 		})
 	})
 
+	// Coordinator gate — configuration is written on one node so two nodes
+	// cannot edit the same entity at once. Runs after auth so a refusal is
+	// distinguishable from a rejected credential.
+	router.Use(s.coordinatorMiddleware)
+
 	// Maintenance mode middleware — blocks write operations when enabled.
 	// Runs after auth so the user context is available if needed in the future.
 	router.Use(func(next http.Handler) http.Handler {

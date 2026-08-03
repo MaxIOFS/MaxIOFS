@@ -422,6 +422,12 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 }
 
 // GetNode retrieves a node by ID
+// ProxyClient returns the client used for authenticated inter-node calls, so
+// callers forward over the same channel rather than building their own.
+func (m *Manager) ProxyClient() *ProxyClient {
+	return NewDynamicProxyClient(m.GetTLSConfig)
+}
+
 func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	var node Node
 	var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime

@@ -395,4 +395,3 @@ func bucketPath(b bucket.Bucket) string {
 	}
 	return b.Name
 }
-

@@ -184,15 +184,15 @@ func (cb *CircuitBreaker) GetStats() map[string]interface{} {
 	defer cb.mu.RUnlock()
 
 	return map[string]interface{}{
-		"node_id":            cb.nodeID,
-		"state":              cb.state.String(),
-		"failures":           cb.failures,
-		"successes":          cb.successes,
-		"failure_threshold":  cb.failureThreshold,
-		"success_threshold":  cb.successThreshold,
-		"timeout_seconds":    cb.timeout.Seconds(),
-		"last_failure_time":  cb.lastFailureTime.Unix(),
-		"time_until_retry":   cb.getTimeUntilRetry().Seconds(),
+		"node_id":           cb.nodeID,
+		"state":             cb.state.String(),
+		"failures":          cb.failures,
+		"successes":         cb.successes,
+		"failure_threshold": cb.failureThreshold,
+		"success_threshold": cb.successThreshold,
+		"timeout_seconds":   cb.timeout.Seconds(),
+		"last_failure_time": cb.lastFailureTime.Unix(),
+		"time_until_retry":  cb.getTimeUntilRetry().Seconds(),
 	}
 }
 

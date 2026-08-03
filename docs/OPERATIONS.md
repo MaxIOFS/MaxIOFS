@@ -39,7 +39,7 @@ From an operational perspective:
 
 - Treat each **data directory** as a unit: `db/`, `metadata/`, `objects/`, `audit.db` must be kept consistent together.
 - In cluster mode, each node has its own local data directory, with **cluster replication** keeping configuration and metadata in sync.
-- External replication to S3 (AWS/MinIO/MaxIOFS) is configured per bucket and is independent from the internal cluster replication.
+- External replication to S3 (AWS, any S3-compatible endpoint, or another MaxIOFS) is configured per bucket and is independent from the internal cluster replication.
 
 For architecture details see `ARCHITECTURE.md` and `CLUSTER.md`. For deployment details see `DEPLOYMENT.md`.
 

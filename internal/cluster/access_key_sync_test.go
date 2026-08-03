@@ -317,15 +317,15 @@ func TestAccessKeySyncManagerSchema(t *testing.T) {
 	defer rows.Close()
 
 	requiredColumns := map[string]bool{
-		"id":                   false,
-		"access_key_id":        false,
-		"source_node_id":       false,
-		"destination_node_id":  false,
-		"key_checksum":         false,
-		"status":               false,
-		"last_sync_at":         false,
-		"created_at":           false,
-		"updated_at":           false,
+		"id":                  false,
+		"access_key_id":       false,
+		"source_node_id":      false,
+		"destination_node_id": false,
+		"key_checksum":        false,
+		"status":              false,
+		"last_sync_at":        false,
+		"created_at":          false,
+		"updated_at":          false,
 	}
 
 	for rows.Next() {

@@ -90,7 +90,7 @@ func TestProxyClient_CopyResponseToWriter(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header: http.Header{
-			"Content-Type":  []string{"application/json"},
+			"Content-Type":    []string{"application/json"},
 			"X-Custom-Header": []string{"custom-value"},
 			"Connection":      []string{"keep-alive"}, // hop-by-hop, should be filtered
 		},
@@ -145,11 +145,11 @@ func TestProxyClient_ProxyAndWrite(t *testing.T) {
 
 func TestCopyHeaders(t *testing.T) {
 	src := http.Header{
-		"Content-Type":        []string{"application/json"},
-		"X-Custom":            []string{"value1", "value2"},
-		"Connection":          []string{"keep-alive"}, // hop-by-hop
-		"Transfer-Encoding":   []string{"chunked"},    // hop-by-hop
-		"Authorization":       []string{"Bearer token"},
+		"Content-Type":      []string{"application/json"},
+		"X-Custom":          []string{"value1", "value2"},
+		"Connection":        []string{"keep-alive"}, // hop-by-hop
+		"Transfer-Encoding": []string{"chunked"},    // hop-by-hop
+		"Authorization":     []string{"Bearer token"},
 	}
 
 	dst := http.Header{}

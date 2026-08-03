@@ -18,20 +18,20 @@ import (
 
 // TenantData represents tenant information to be synchronized
 type TenantData struct {
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	DisplayName         string            `json:"display_name"`
-	Description         string            `json:"description"`
-	Status              string            `json:"status"`
-	MaxAccessKeys       int               `json:"max_access_keys"`
-	MaxStorageBytes     int64             `json:"max_storage_bytes"`
-	MaxBandwidthBytesPerSec int64         `json:"max_bandwidth_bytes_per_sec"`
-	CurrentStorageBytes int64             `json:"current_storage_bytes"`
-	MaxBuckets          int               `json:"max_buckets"`
-	CurrentBuckets      int               `json:"current_buckets"`
-	Metadata            map[string]string `json:"metadata"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
+	ID                      string            `json:"id"`
+	Name                    string            `json:"name"`
+	DisplayName             string            `json:"display_name"`
+	Description             string            `json:"description"`
+	Status                  string            `json:"status"`
+	MaxAccessKeys           int               `json:"max_access_keys"`
+	MaxStorageBytes         int64             `json:"max_storage_bytes"`
+	MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
+	CurrentStorageBytes     int64             `json:"current_storage_bytes"`
+	MaxBuckets              int               `json:"max_buckets"`
+	CurrentBuckets          int               `json:"current_buckets"`
+	Metadata                map[string]string `json:"metadata"`
+	CreatedAt               time.Time         `json:"created_at"`
+	UpdatedAt               time.Time         `json:"updated_at"`
 }
 
 // TenantSyncManager handles automatic tenant synchronization between cluster nodes

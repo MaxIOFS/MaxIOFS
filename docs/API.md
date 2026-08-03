@@ -352,7 +352,7 @@ Both return the same payload as `/sts/session-token`, and both accept the same
 #### AWS STS protocol (for SDKs)
 
 The same credentials are available through the AWS STS query protocol, on the
-**S3 API port** — the location AWS SDKs and MinIO-oriented tooling expect. Point
+**S3 API port** — where AWS SDKs and S3-compatible tooling expect it. Point
 the SDK's STS endpoint override (`AWS_STS_ENDPOINT` or equivalent) at the S3
 endpoint:
 

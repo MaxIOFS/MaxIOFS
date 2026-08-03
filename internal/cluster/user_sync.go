@@ -18,25 +18,25 @@ import (
 
 // UserData represents user information to be synchronized
 type UserData struct {
-	ID                  string                  `json:"id"`
-	Username            string                  `json:"username"`
-	PasswordHash        string                  `json:"password_hash"`
-	DisplayName         string                  `json:"display_name"`
-	Email               string                  `json:"email"`
-	Status              string                  `json:"status"`
-	TenantID            string                  `json:"tenant_id"`
-	Roles               string                  `json:"roles"`
-	Policies            string                  `json:"policies"`
-	Metadata            string                  `json:"metadata"`
-	FailedLoginAttempts int                     `json:"failed_login_attempts"`
-	LockedUntil         int64                   `json:"locked_until"`
-	LastFailedLogin     int64                   `json:"last_failed_login"`
-	ThemePreference     string                  `json:"theme_preference"`
-	LanguagePreference  string                  `json:"language_preference"`
-	AuthProvider        string                  `json:"auth_provider"`
-	ExternalID          string                  `json:"external_id"`
-	CreatedAt           int64                   `json:"created_at"`
-	UpdatedAt           int64                   `json:"updated_at"`
+	ID                  string `json:"id"`
+	Username            string `json:"username"`
+	PasswordHash        string `json:"password_hash"`
+	DisplayName         string `json:"display_name"`
+	Email               string `json:"email"`
+	Status              string `json:"status"`
+	TenantID            string `json:"tenant_id"`
+	Roles               string `json:"roles"`
+	Policies            string `json:"policies"`
+	Metadata            string `json:"metadata"`
+	FailedLoginAttempts int    `json:"failed_login_attempts"`
+	LockedUntil         int64  `json:"locked_until"`
+	LastFailedLogin     int64  `json:"last_failed_login"`
+	ThemePreference     string `json:"theme_preference"`
+	LanguagePreference  string `json:"language_preference"`
+	AuthProvider        string `json:"auth_provider"`
+	ExternalID          string `json:"external_id"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
 	// CapabilityOverrides carries per-user capability overrides along with the user record.
 	CapabilityOverrides []CapabilityOverrideData `json:"capability_overrides,omitempty"`
 }

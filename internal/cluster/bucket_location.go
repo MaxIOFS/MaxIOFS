@@ -56,7 +56,7 @@ func (blm *BucketLocationManager) GetBucketLocation(ctx context.Context, tenantI
 		// If no location is set, assume it's on the local node (backwards compatibility)
 		location = blm.localNodeID
 		blm.log.WithFields(logrus.Fields{
-			"bucket": bucketName,
+			"bucket":  bucketName,
 			"node_id": location,
 		}).Warn("Bucket has no location metadata, assuming local node")
 	}

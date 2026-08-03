@@ -49,9 +49,9 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution or resale | Proprietary, paid |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary + licence file |
 | **Multi-node cluster / HA** | ✅ Up to 5 nodes, quorum writes, read fallback, anti-entropy | ❌ Standalone only | ✅ Horizontally scalable |
-| **Replication** | ✅ To AWS S3, MinIO/AIStor, or other MaxIOFS nodes (realtime, scheduled, batch) | ❌ Enterprise only | ✅ Site, bucket and batch |
+| **Replication** | ✅ To AWS S3, any S3-compatible endpoint, or other MaxIOFS nodes (realtime, scheduled, batch) | ❌ Enterprise only | ✅ Site, bucket and batch |
 | **Erasure coding** | ❌ Not yet — N-way replication across nodes | ✅ Across drives in one node, with bitrot protection | ✅ Across drives and nodes |
-| **Data tiering** | ❌ Not supported | ❌ Enterprise only | ✅ ILM tiering to cloud |
+| **Data tiering** (lifecycle *transitions* to cold storage — separate from the expiration rules below) | ❌ Not supported | ❌ Enterprise only | ✅ ILM tiering to cloud |
 | **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys, cross-tenant admin visibility | ❌ No native multi-tenancy — separate deployments per tenant | ❌ Same |
 | **IAM** | ✅ AWS IAM protocol — users, policies with versions, roles, `AssumeRole`; permissions picked from a catalogue, no JSON to hand-write | ✅ IAM-style, policy documents | ✅ Same |
 | **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ Supported | ✅ Same |
@@ -60,7 +60,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Audit logging** | ✅ 20+ event types, filterable viewer, CSV export, syslog targets | ✅ Webhook-based | ✅ Same |
 | **Object integrity** | ✅ Background scrubber — MD5 recomputed per object, per-bucket and cluster-wide | ✅ Bitrot detection on read and heal | ✅ Plus background healing visibility |
 | **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, per-version, Veeam B&R validated | ✅ COMPLIANCE + GOVERNANCE | ✅ Same |
-| **Lifecycle rules** | ✅ Expiration + AbortIncompleteMultipart | ⚠️ Expiration only — transitions are Enterprise | ✅ Full |
+| **Lifecycle rules** | ✅ Object and noncurrent-version expiration, expired delete-marker cleanup, AbortIncompleteMultipartUpload — executed by a background worker | ⚠️ Expiration only — transitions are Enterprise | ✅ Full |
 | **Bucket notifications** | ✅ Webhook after every mutating operation | ✅ Webhook + Kafka + NATS + Redis… | ✅ Same |
 | **Static website hosting** | ✅ Subdomain routing, index/error documents, routing rules | ✅ | ✅ |
 | **S3 Select** | ✅ SQL on CSV/JSON (SQLite-based, SELECT/WHERE/GROUP BY) | ✅ | ✅ |
@@ -103,7 +103,7 @@ or a support contract with an SLA.
 - Object tagging, object ACLs, bucket tagging
 - Bucket notifications — webhook dispatch after PutObject, DeleteObject, CopyObject, CompleteMultipartUpload
 - Static website hosting — subdomain routing, index document, error document, routing rules
-- Replication — to AWS S3, MinIO, or other MaxIOFS instances (realtime, scheduled, batch)
+- Replication — to AWS S3, any S3-compatible endpoint, or other MaxIOFS instances (realtime, scheduled, batch)
 - Server-side encryption (SSE-S3 / AES256) — per-bucket configuration via `GetBucketEncryption`/`PutBucketEncryption`, `x-amz-server-side-encryption` response headers on GET/PUT/HEAD
 - Server access logging — async delivery to target bucket in AWS S3 access log format (`GetBucketLogging`/`PutBucketLogging`)
 - `PublicAccessBlock` — stored and enforced; `IgnorePublicAcls`/`RestrictPublicBuckets` deny all public ACL access when set
@@ -113,7 +113,7 @@ or a support contract with an SLA.
 - `GetObjectAttributes` — lightweight object metadata (ETag, size, storage class, parts) without downloading the object body
 - Conditional writes — `PutObject If-None-Match: *` returns 412 if the object already exists (atomic create-if-absent)
 - Object search & filters — content-type, size range, date range, tags
-- `aws s3`, `aws s3api`, MinIO Client (`mc`), and S3 SDK compatible
+- Works with `aws s3`, `aws s3api`, the `mc` client, and the S3 SDKs
 
 </details>
 
@@ -314,7 +314,7 @@ make rpm          # Build RPM package (Linux only)
 
 ## Performance
 
-Tested with MinIO Warp on a single node (commodity hardware):
+Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hardware):
 
 | Operation | p95 latency | Concurrency |
 |-----------|-------------|-------------|

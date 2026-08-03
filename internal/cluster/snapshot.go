@@ -27,12 +27,12 @@ type StateSnapshot struct {
 	// Per-entity-type lists.  All UpdatedAt values are Unix seconds.
 	// AccessKeys uses created_at (no updated_at column exists).
 	// BucketPermissions uses granted_at (no updated_at column exists).
-	Tenants           []EntityStamp    `json:"tenants"`
-	Users             []EntityStamp    `json:"users"`
-	AccessKeys        []EntityStamp    `json:"access_keys"`
-	BucketPermissions []EntityStamp    `json:"bucket_permissions"`
-	IDPProviders      []EntityStamp    `json:"idp_providers"`
-	GroupMappings     []EntityStamp    `json:"group_mappings"`
+	Tenants           []EntityStamp `json:"tenants"`
+	Users             []EntityStamp `json:"users"`
+	AccessKeys        []EntityStamp `json:"access_keys"`
+	BucketPermissions []EntityStamp `json:"bucket_permissions"`
+	IDPProviders      []EntityStamp `json:"idp_providers"`
+	GroupMappings     []EntityStamp `json:"group_mappings"`
 
 	// All tombstones in the local deletion log.
 	Tombstones []*DeletionEntry `json:"tombstones"`

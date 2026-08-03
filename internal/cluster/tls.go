@@ -208,7 +208,6 @@ func IsCertExpiringSoon(certPEM []byte, days int) (bool, error) {
 	return cert.NotAfter.Before(threshold), nil
 }
 
-
 // BuildServerTLSConfig returns a *tls.Config for the cluster server listener using
 // the node certificate already stored in the atomic pointer (populated by
 // BuildClusterTLSConfig after cluster initialization or join).

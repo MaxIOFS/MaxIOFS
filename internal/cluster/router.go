@@ -47,13 +47,13 @@ type ReplicationRule struct {
 // NewRouter creates a new router
 func NewRouter(manager *Manager, bucketMgr BucketManager, replMgr ReplicationManager, localNodeID string) *Router {
 	return &Router{
-		manager:           manager,
-		bucketManager:     bucketMgr,
+		manager:            manager,
+		bucketManager:      bucketMgr,
 		replicationManager: replMgr,
-		cache:             NewBucketLocationCache(5 * time.Minute), // 5 min TTL
-		proxyClient:       NewDynamicProxyClient(manager.GetTLSConfig),
-		localNodeID:       localNodeID,
-		log:               logrus.WithField("component", "cluster-router"),
+		cache:              NewBucketLocationCache(5 * time.Minute), // 5 min TTL
+		proxyClient:        NewDynamicProxyClient(manager.GetTLSConfig),
+		localNodeID:        localNodeID,
+		log:                logrus.WithField("component", "cluster-router"),
 	}
 }
 

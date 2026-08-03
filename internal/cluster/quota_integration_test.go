@@ -61,9 +61,9 @@ func (m *mockManager) GetLocalTenantStorage(_ context.Context, _ string) (int64,
 // TestQuotaAggregator_GetTenantTotalStorage_Integration tests the full aggregation flow
 func TestQuotaAggregator_GetTenantTotalStorage_Integration(t *testing.T) {
 	// Create 3 mock nodes with different storage values
-	node1Storage := int64(1024 * 1024 * 100) // 100MB
-	node2Storage := int64(1024 * 1024 * 200) // 200MB
-	node3Storage := int64(1024 * 1024 * 300) // 300MB
+	node1Storage := int64(1024 * 1024 * 100)                    // 100MB
+	node2Storage := int64(1024 * 1024 * 200)                    // 200MB
+	node3Storage := int64(1024 * 1024 * 300)                    // 300MB
 	expectedTotal := node1Storage + node2Storage + node3Storage // 600MB
 
 	// Create mock servers for each node
@@ -106,8 +106,8 @@ func TestQuotaAggregator_GetTenantTotalStorage_Integration(t *testing.T) {
 
 // TestQuotaAggregator_GetTenantTotalStorage_PartialFailure tests graceful degradation
 func TestQuotaAggregator_GetTenantTotalStorage_PartialFailure(t *testing.T) {
-	node1Storage := int64(1024 * 1024 * 100) // 100MB
-	node3Storage := int64(1024 * 1024 * 300) // 300MB
+	node1Storage := int64(1024 * 1024 * 100)     // 100MB
+	node3Storage := int64(1024 * 1024 * 300)     // 300MB
 	expectedTotal := node1Storage + node3Storage // 400MB (node2 fails)
 
 	// Node1: success

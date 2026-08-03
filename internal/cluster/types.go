@@ -4,26 +4,26 @@ import "time"
 
 // Node represents a cluster node
 type Node struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Endpoint      string    `json:"endpoint"`
-	APIURL        string    `json:"api_url,omitempty"` // S3 API URL (port 8080); empty = use Endpoint
-	NodeToken     string    `json:"-"` // Never expose in JSON
-	Region        string    `json:"region"`
-	Priority      int       `json:"priority"`
-	HealthStatus  string    `json:"health_status"`
-	LastHealthCheck *time.Time `json:"last_health_check"`
-	LastSeen      *time.Time `json:"last_seen"`
-	LatencyMs     int       `json:"latency_ms"`
-	CapacityTotal int64     `json:"capacity_total"`
-	CapacityUsed  int64     `json:"capacity_used"`
-	BucketCount   int       `json:"bucket_count"`
-	Metadata           string     `json:"metadata"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	IsStale            bool       `json:"is_stale"`
-	LastLocalWriteAt   *time.Time `json:"last_local_write_at,omitempty"`
-	UnavailableSince   *time.Time `json:"unavailable_since,omitempty"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Endpoint         string     `json:"endpoint"`
+	APIURL           string     `json:"api_url,omitempty"` // S3 API URL (port 8080); empty = use Endpoint
+	NodeToken        string     `json:"-"`                 // Never expose in JSON
+	Region           string     `json:"region"`
+	Priority         int        `json:"priority"`
+	HealthStatus     string     `json:"health_status"`
+	LastHealthCheck  *time.Time `json:"last_health_check"`
+	LastSeen         *time.Time `json:"last_seen"`
+	LatencyMs        int        `json:"latency_ms"`
+	CapacityTotal    int64      `json:"capacity_total"`
+	CapacityUsed     int64      `json:"capacity_used"`
+	BucketCount      int        `json:"bucket_count"`
+	Metadata         string     `json:"metadata"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	IsStale          bool       `json:"is_stale"`
+	LastLocalWriteAt *time.Time `json:"last_local_write_at,omitempty"`
+	UnavailableSince *time.Time `json:"unavailable_since,omitempty"`
 }
 
 // HealthStatus represents node health status

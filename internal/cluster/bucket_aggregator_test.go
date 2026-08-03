@@ -269,7 +269,6 @@ func TestBucketAggregator_queryBucketsFromNode_InvalidJSON(t *testing.T) {
 	assert.Error(t, err, "Should fail to decode invalid JSON")
 }
 
-
 func TestBucketAggregator_BucketWithLocation_JSON(t *testing.T) {
 	// Test serialization of BucketWithLocation
 	now := time.Now()

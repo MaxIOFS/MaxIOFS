@@ -49,34 +49,38 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config                  *config.Config
-	httpServer              *http.Server
-	consoleServer           *http.Server
-	clusterServer           *http.Server // dedicated inter-node communication port
-	storageBackend          storage.Backend
-	metadataStore           metadata.Store
-	bucketManager           bucket.Manager
-	objectManager           object.Manager
-	authManager             auth.Manager
-	db                      *sql.DB
-	auditManager            *audit.Manager
-	metricsManager          metrics.Manager
-	settingsManager         *settings.Manager
-	kekStore                *kek.Store // DB-backed encryption KEK (envelope encryption)
-	loggingManager          *logging.Manager
-	shareManager            share.Manager
-	notificationManager     *notifications.Manager
-	replicationManager      *replication.Manager
-	clusterManager          *cluster.Manager
-	clusterRouter           *cluster.Router
-	bucketAggregator        *cluster.BucketAggregator
-	quotaAggregator         *cluster.QuotaAggregator
-	apiRateLimiter          *auth.APIRateLimiter // per-user S3 API rate limiter
-	tenantSyncMgr           *cluster.TenantSyncManager
-	userSyncMgr             *cluster.UserSyncManager
-	accessKeySyncMgr        *cluster.AccessKeySyncManager
-	stsSessionSyncMgr       *cluster.STSSessionSyncManager
-	iamSyncMgr              *cluster.IAMSyncManager
+	config              *config.Config
+	httpServer          *http.Server
+	consoleServer       *http.Server
+	clusterServer       *http.Server // dedicated inter-node communication port
+	storageBackend      storage.Backend
+	metadataStore       metadata.Store
+	bucketManager       bucket.Manager
+	objectManager       object.Manager
+	authManager         auth.Manager
+	db                  *sql.DB
+	auditManager        *audit.Manager
+	metricsManager      metrics.Manager
+	settingsManager     *settings.Manager
+	kekStore            *kek.Store // DB-backed encryption KEK (envelope encryption)
+	loggingManager      *logging.Manager
+	shareManager        share.Manager
+	notificationManager *notifications.Manager
+	replicationManager  *replication.Manager
+	clusterManager      *cluster.Manager
+	clusterRouter       *cluster.Router
+	bucketAggregator    *cluster.BucketAggregator
+	quotaAggregator     *cluster.QuotaAggregator
+	apiRateLimiter      *auth.APIRateLimiter // per-user S3 API rate limiter
+	tenantSyncMgr       *cluster.TenantSyncManager
+	userSyncMgr         *cluster.UserSyncManager
+	accessKeySyncMgr    *cluster.AccessKeySyncManager
+	stsSessionSyncMgr   *cluster.STSSessionSyncManager
+	iamSyncMgr          *cluster.IAMSyncManager
+	leaderMgr           *cluster.LeaderManager
+	// consoleRouter is kept so a configuration write forwarded by another node
+	// can be replayed through the same routes a direct request would take.
+	consoleRouter           *mux.Router
 	bucketPermissionSyncMgr *cluster.BucketPermissionSyncManager
 	idpProviderSyncMgr      *cluster.IDPProviderSyncManager
 	groupMappingSyncMgr     *cluster.GroupMappingSyncManager
@@ -410,6 +414,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize STS session synchronization manager
 	stsSessionSyncMgr := cluster.NewSTSSessionSyncManager(db, clusterManager)
 	iamSyncMgr := cluster.NewIAMSyncManager(db, clusterManager)
+	leaderMgr := cluster.NewLeaderManager(db, clusterManager)
 
 	// Initialize bucket permission synchronization manager
 	bucketPermissionSyncMgr := cluster.NewBucketPermissionSyncManager(db, clusterManager)
@@ -508,6 +513,7 @@ func New(cfg *config.Config) (*Server, error) {
 		accessKeySyncMgr:        accessKeySyncMgr,
 		stsSessionSyncMgr:       stsSessionSyncMgr,
 		iamSyncMgr:              iamSyncMgr,
+		leaderMgr:               leaderMgr,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
@@ -853,6 +859,15 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.accessKeySyncMgr != nil {
 			s.accessKeySyncMgr.Start(ctx)
 			logrus.Info("Access key synchronization manager started")
+		}
+		// The coordinator election runs before the sync managers: they push
+		// state between nodes, and knowing who arbitrates comes first.
+		if s.leaderMgr != nil {
+			if err := s.leaderMgr.EnsureSchema(); err != nil {
+				logrus.WithError(err).Error("Could not prepare the coordinator lease table")
+			} else {
+				s.leaderMgr.Start(ctx)
+			}
 		}
 		if s.iamSyncMgr != nil {
 			s.iamSyncMgr.Start(ctx)
@@ -1310,6 +1325,7 @@ func (s *Server) setupRoutes() error {
 	// Setup console routes (Web UI)
 	consoleRouter := mux.NewRouter()
 	s.setupConsoleRoutes(consoleRouter)
+	s.consoleRouter = consoleRouter
 
 	// Wrap the console router with a basePath-stripping handler.
 	// This allows the console to work correctly both:
@@ -1372,6 +1388,8 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
 	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
 	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
+	hmac.HandleFunc("/leader-lease", s.handleLeaderLease).Methods("POST")
+	hmac.PathPrefix("/console-write").HandlerFunc(s.handleCoordinatorWrite).Methods("POST", "PUT", "DELETE", "PATCH")
 	hmac.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
 	hmac.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
 	hmac.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
