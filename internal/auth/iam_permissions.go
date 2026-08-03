@@ -344,3 +344,51 @@ func (am *authManager) HasExactPermission(userID string, roles []string, action 
 	}
 	return false
 }
+
+// CountDirectPolicies returns how many policies are attached to each of the
+// given users, in one query per kind rather than two per user.
+//
+// The console lists every user at once; asking per user turned a single screen
+// into two queries per row.
+func (s *SQLiteStore) CountDirectPolicies(userIDs []string) (map[string]int, error) {
+	counts := make(map[string]int, len(userIDs))
+	if len(userIDs) == 0 {
+		return counts, nil
+	}
+
+	wanted := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		wanted[id] = true
+	}
+
+	for _, query := range []string{
+		`SELECT target_id, COUNT(*) FROM iam_inline_policies WHERE target_type = ? GROUP BY target_id`,
+		`SELECT target_id, COUNT(*) FROM iam_policy_attachments WHERE target_type = ? GROUP BY target_id`,
+	} {
+		rows, err := s.db.Query(query, IAMTargetUser)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var targetID string
+			var count int
+			if err := rows.Scan(&targetID, &count); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if wanted[targetID] {
+				counts[targetID] += count
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return counts, nil
+}
+
+// CountDirectPolicies is the manager's view of the same count.
+func (am *authManager) CountDirectPolicies(userIDs []string) (map[string]int, error) {
+	return am.store.CountDirectPolicies(userIDs)
+}

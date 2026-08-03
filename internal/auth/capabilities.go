@@ -1,11 +1,15 @@
 package auth
 
+// What remains of the capability model: the reads the one-time conversion needs
+// to turn an existing installation's permissions into IAM policies.
+//
+// Nothing here is consulted to authorize a request. Permissions are policies —
+// see policy_set.go for how a decision is made, and policy_migration.go for how
+// these rows become policies on the boot that upgrades an installation.
+
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"time"
 )
 
 // Capability constants — service-level actions controlled independently of bucket_permissions.
@@ -61,16 +65,12 @@ type CapabilityOverride struct {
 	CreatedAt  int64  `json:"created_at"`
 }
 
-// EffectiveCapability describes a single capability for a user, including its source.
-type EffectiveCapability struct {
-	Capability string `json:"capability"`
-	Granted    bool   `json:"granted"`
-	// Source: "role" (from role default) or "override" (admin-set override).
-	Source string `json:"source"`
-}
-
-// HasCapability returns true if the user identified by userID+roles has the given capability.
-// Resolution order:
+// HasCapability answers the question the pre-IAM model answered, and exists so
+// the equivalence tests can compare it against what the policy evaluator
+// decides. Nothing in production calls it: a request is authorized by
+// authManager.HasCapability, which reads the user's policies.
+//
+// Resolution order (the old one, reproduced faithfully):
 //  1. Explicit admin deny  → false (deny always wins)
 //  2. Explicit admin grant → true
 //  3. Role default         → true if the role includes this capability
@@ -110,102 +110,6 @@ func (s *SQLiteStore) HasCapability(userID string, roles []string, capability st
 	}
 
 	return false, nil
-}
-
-// GetEffectiveCapabilities returns the full capability matrix for a user with source annotation.
-func (s *SQLiteStore) GetEffectiveCapabilities(userID string, roles []string) ([]EffectiveCapability, error) {
-	// Load all user overrides in one query.
-	rows, err := s.db.Query(
-		`SELECT capability, granted FROM user_capability_overrides WHERE user_id = ?`, userID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load overrides: %w", err)
-	}
-	defer rows.Close()
-
-	overrides := make(map[string]bool)
-	for rows.Next() {
-		var cap string
-		var g bool
-		if err := rows.Scan(&cap, &g); err != nil {
-			return nil, err
-		}
-		overrides[cap] = g
-	}
-
-	isAdmin := false
-	for _, r := range roles {
-		if r == "admin" {
-			isAdmin = true
-			break
-		}
-	}
-
-	// Load role defaults for the user's roles.
-	roleDefaults := make(map[string]bool)
-	for _, role := range roles {
-		rrows, err := s.db.Query(`SELECT capability FROM role_capabilities WHERE role = ?`, role)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load role capabilities: %w", err)
-		}
-		for rrows.Next() {
-			var cap string
-			if err := rrows.Scan(&cap); err != nil {
-				rrows.Close()
-				return nil, err
-			}
-			roleDefaults[cap] = true
-		}
-		rrows.Close()
-	}
-
-	result := make([]EffectiveCapability, 0, len(AllCapabilities))
-	for _, cap := range AllCapabilities {
-		ec := EffectiveCapability{Capability: cap}
-
-		if g, overridden := overrides[cap]; overridden {
-			ec.Granted = g
-			ec.Source = "override"
-		} else if isAdmin || roleDefaults[cap] {
-			ec.Granted = true
-			ec.Source = "role"
-		} else {
-			ec.Granted = false
-			ec.Source = "role"
-		}
-		result = append(result, ec)
-	}
-	return result, nil
-}
-
-// SetCapabilityOverride creates or updates a per-user capability override.
-func (s *SQLiteStore) SetCapabilityOverride(userID, capability, grantedBy string, granted bool) error {
-	id := generateCapabilityID()
-	now := time.Now().Unix()
-	_, err := s.db.Exec(`
-		INSERT INTO user_capability_overrides (id, user_id, capability, granted, granted_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_id, capability) DO UPDATE SET
-			granted    = excluded.granted,
-			granted_by = excluded.granted_by,
-			created_at = excluded.created_at
-	`, id, userID, capability, boolToInt(granted), grantedBy, now)
-	if err != nil {
-		return err
-	}
-	return s.writeCapabilityOverridePolicy(userID, capability, granted)
-}
-
-// DeleteCapabilityOverride removes a per-user override, reverting to role default.
-func (s *SQLiteStore) DeleteCapabilityOverride(userID, capability string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM user_capability_overrides WHERE user_id = ? AND capability = ?`,
-		userID, capability,
-	)
-	if err != nil {
-		return err
-	}
-	return s.clearCapabilityOverridePolicies(userID, capability)
 }
 
 // ListUserCapabilityOverrides returns all explicit overrides for a user.
@@ -253,59 +157,6 @@ func (s *SQLiteStore) GetRoleCapabilities(role string) ([]string, error) {
 		caps = append(caps, c)
 	}
 	return caps, nil
-}
-
-// GetAllRoleCapabilities returns the full role→capabilities map.
-func (s *SQLiteStore) GetAllRoleCapabilities() (map[string][]string, error) {
-	rows, err := s.db.Query(`SELECT role, capability FROM role_capabilities ORDER BY role, capability`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string][]string)
-	for rows.Next() {
-		var role, cap string
-		if err := rows.Scan(&role, &cap); err != nil {
-			return nil, err
-		}
-		result[role] = append(result[role], cap)
-	}
-	return result, nil
-}
-
-// SetRoleCapabilities replaces the full capability set for a role atomically.
-func (s *SQLiteStore) SetRoleCapabilities(role string, capabilities []string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`DELETE FROM role_capabilities WHERE role = ?`, role); err != nil {
-		return err
-	}
-	for _, cap := range capabilities {
-		if _, err := tx.Exec(
-			`INSERT INTO role_capabilities (role, capability) VALUES (?, ?)`, role, cap,
-		); err != nil {
-			return fmt.Errorf("failed to insert capability %s: %w", cap, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return s.writeRoleCapabilityPolicies(role, capabilities)
-}
-
-// --- authManager context helper ---
-
-// HasCapability resolves the capability for the user in context. Always returns true for admin users.
-
-func generateCapabilityID() string {
-	b := make([]byte, 12)
-	rand.Read(b)
-	return "cap-" + hex.EncodeToString(b)
 }
 
 func boolToInt(b bool) int {

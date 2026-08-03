@@ -1355,8 +1355,12 @@ func TestS3CopyObject(t *testing.T) {
 	})
 
 	t.Run("Copy object requires upload capability", func(t *testing.T) {
-		require.NoError(t, env.authManager.SetCapabilityOverride(ctx, env.userID, auth.CapObjectUpload, "test-admin", false))
-		defer env.authManager.DeleteCapabilityOverride(ctx, env.userID, auth.CapObjectUpload) //nolint:errcheck
+		denier := env.authManager.(interface {
+			DenyPermission(userID, capability string) error
+			AllowPermission(userID, capability string) error
+		})
+		require.NoError(t, denier.DenyPermission(env.userID, auth.CapObjectUpload))
+		defer denier.AllowPermission(env.userID, auth.CapObjectUpload) //nolint:errcheck
 
 		req, w := env.makeS3Request("PUT", "/"+destBucket+"/denied-copy.txt", nil)
 		req.Header.Set("x-amz-copy-source", "/"+sourceBucket+"/"+sourceKey)
@@ -1970,8 +1974,12 @@ func TestUploadPartCopy(t *testing.T) {
 		require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &init))
 		require.NotEmpty(t, init.UploadId)
 
-		require.NoError(t, env.authManager.SetCapabilityOverride(ctx, env.userID, auth.CapObjectDownload, "test-admin", false))
-		defer env.authManager.DeleteCapabilityOverride(ctx, env.userID, auth.CapObjectDownload) //nolint:errcheck
+		denier := env.authManager.(interface {
+			DenyPermission(userID, capability string) error
+			AllowPermission(userID, capability string) error
+		})
+		require.NoError(t, denier.DenyPermission(env.userID, auth.CapObjectDownload))
+		defer denier.AllowPermission(env.userID, auth.CapObjectDownload) //nolint:errcheck
 
 		req, w = env.makeS3Request("PUT",
 			fmt.Sprintf("/%s/%s?uploadId=%s&partNumber=1", bucketName, "denied-copy.bin", init.UploadId), nil)

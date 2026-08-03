@@ -137,13 +137,6 @@ type Manager interface {
 
 	// Capability management
 	HasCapability(ctx context.Context, userID string, roles []string, capability string) (bool, error)
-	GetEffectiveCapabilities(ctx context.Context, userID string, roles []string) ([]EffectiveCapability, error)
-	SetCapabilityOverride(ctx context.Context, userID, capability, grantedBy string, granted bool) error
-	DeleteCapabilityOverride(ctx context.Context, userID, capability string) error
-	ListUserCapabilityOverrides(ctx context.Context, userID string) ([]*CapabilityOverride, error)
-	GetAllRoleCapabilities(ctx context.Context) (map[string][]string, error)
-	GetRoleCapabilities(ctx context.Context, role string) ([]string, error)
-	SetRoleCapabilities(ctx context.Context, role string, capabilities []string) error
 
 	// Health check
 	IsReady() bool
@@ -2604,34 +2597,6 @@ func setGrantsCapability(set *PolicySet, capability string) bool {
 		}
 	}
 	return false
-}
-
-func (m *authManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]EffectiveCapability, error) {
-	return m.store.GetEffectiveCapabilities(userID, roles)
-}
-
-func (m *authManager) SetCapabilityOverride(_ context.Context, userID, capability, grantedBy string, granted bool) error {
-	return m.store.SetCapabilityOverride(userID, capability, grantedBy, granted)
-}
-
-func (m *authManager) DeleteCapabilityOverride(_ context.Context, userID, capability string) error {
-	return m.store.DeleteCapabilityOverride(userID, capability)
-}
-
-func (m *authManager) ListUserCapabilityOverrides(_ context.Context, userID string) ([]*CapabilityOverride, error) {
-	return m.store.ListUserCapabilityOverrides(userID)
-}
-
-func (m *authManager) GetAllRoleCapabilities(_ context.Context) (map[string][]string, error) {
-	return m.store.GetAllRoleCapabilities()
-}
-
-func (m *authManager) GetRoleCapabilities(_ context.Context, role string) ([]string, error) {
-	return m.store.GetRoleCapabilities(role)
-}
-
-func (m *authManager) SetRoleCapabilities(_ context.Context, role string, capabilities []string) error {
-	return m.store.SetRoleCapabilities(role, capabilities)
 }
 
 // CheckCapabilityInContext is a convenience helper for handlers — returns true when the

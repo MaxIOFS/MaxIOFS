@@ -28,7 +28,10 @@ func TestConsoleAccessCapabilityBlocksExistingTokens(t *testing.T) {
 		Roles:    []string{"admin"},
 	}
 	require.NoError(t, server.authManager.CreateUser(ctx, user))
-	require.NoError(t, server.authManager.SetCapabilityOverride(ctx, user.ID, auth.CapConsoleAccess, "test", false))
+	denier := server.authManager.(interface {
+		DenyPermission(userID, capability string) error
+	})
+	require.NoError(t, denier.DenyPermission(user.ID, auth.CapConsoleAccess))
 
 	pair, err := server.authManager.GenerateTokenPair(ctx, user)
 	require.NoError(t, err)

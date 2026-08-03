@@ -1,6 +1,6 @@
 # MaxIOFS - Development Roadmap
 
-**Last Updated**: August 2, 2026
+**Last Updated**: August 3, 2026
 
 > This file tracks ONLY work in progress and pending work. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
@@ -28,11 +28,6 @@ their policies as a grant. Nothing that already worked changes behaviour.
 - [ ] Veeam interop: confirm it discovers the endpoints from `system.xml` (`IAMSTS=true`) and completes its create-user → put-user-policy → create-access-key flow
 - [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back
 - [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
-
-### Still open on the IAM work
-
-- [ ] A managed policy whose `default_version_id` points at a version row that no longer exists returns an empty document. Reject or repair it rather than serving nothing.
-- [ ] `TestDeleteBucket_NotFound` in `pkg/s3compat` — the harness creates its user only in the request context, with no row in `users`.
 
 ### Known limitations (deliberate)
 

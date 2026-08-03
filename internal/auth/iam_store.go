@@ -76,11 +76,46 @@ func (s *SQLiteStore) GetIAMPolicy(name string) (*IAMPolicy, error) {
 	if description.Valid {
 		p.Description = description.String
 	}
+	p.IsBuiltin = isBuiltin == 1
+
 	if document.Valid {
 		p.Document = document.String
+		return &p, nil
 	}
-	p.IsBuiltin = isBuiltin == 1
+
+	// The default version is missing. Rather than hand back an empty document —
+	// which reads as "this policy grants nothing" and overwrites the real one if
+	// the caller saves — fall back to the newest version that does exist, and
+	// repoint the policy at it.
+	if err := s.repairDefaultVersion(&p); err != nil {
+		return nil, fmt.Errorf("policy %q has no usable version: %w", name, err)
+	}
 	return &p, nil
+}
+
+// repairDefaultVersion points a policy at its newest surviving version.
+func (s *SQLiteStore) repairDefaultVersion(p *IAMPolicy) error {
+	var versionID, document string
+	err := s.db.QueryRow(`
+		SELECT version_id, document FROM iam_policy_versions
+		WHERE policy_name = ?
+		ORDER BY created_at DESC, version_id DESC
+		LIMIT 1
+	`, p.Name).Scan(&versionID, &document)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("%w: no versions at all", ErrIAMNoSuchEntity)
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`UPDATE iam_policies SET default_version_id = ? WHERE name = ?`,
+		versionID, p.Name); err != nil {
+		return err
+	}
+	p.DefaultVersionID = versionID
+	p.Document = document
+	return nil
 }
 
 // ListIAMPolicies returns every managed policy, documents included.
@@ -110,13 +145,26 @@ func (s *SQLiteStore) ListIAMPolicies() ([]*IAMPolicy, error) {
 		if description.Valid {
 			p.Description = description.String
 		}
+		p.IsBuiltin = isBuiltin == 1
 		if document.Valid {
 			p.Document = document.String
 		}
-		p.IsBuiltin = isBuiltin == 1
 		out = append(out, &p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// A policy pointing at a version that no longer exists would be listed with
+	// an empty document, which reads as granting nothing. Repairing is done
+	// after the rows are closed: SQLite will not take a write while a read is
+	// still open on the same connection.
+	for _, p := range out {
+		if p.Document == "" {
+			_ = s.repairDefaultVersion(p)
+		}
+	}
+	return out, nil
 }
 
 // DeleteIAMPolicy removes a managed policy, its versions and its attachments.

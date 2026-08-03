@@ -33,12 +33,21 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 
 ## MaxIOFS vs MinIO
 
-> Honest comparison — no marketing claims. Both are open-source S3-compatible servers written in Go. Choose based on your actual requirements.
+> Honest comparison — no marketing claims. Choose based on your actual requirements.
+>
+> **A note on MinIO's status.** The comparison below is against MinIO Community
+> Edition, whose repository was marked as no longer maintained in February 2026.
+> Its code remains AGPLv3, but development moved to AIStor, MinIO's proprietary
+> product, and features have been removed from the free edition along the way —
+> the web console went first, in 2025. Community Edition is, in practice, a
+> frozen binary you may use for free rather than a project you can contribute to
+> or expect fixes from. Where a row below says MinIO supports something, read it
+> as "supported in AIStor, and in whatever Community Edition froze with".
 
 | Feature | MaxIOFS | MinIO |
 |---------|---------|-------|
 | **Deployment** | Single binary, zero dependencies | Single binary, zero dependencies |
-| **Web console** | Embedded, full-featured | Embedded (since AGPL rewrite) |
+| **Web console** | Embedded, full-featured | Removed from Community Edition in 2025; available in AIStor |
 | **Native multi-tenancy** | ✅ Built-in — isolated tenants with quotas, per-tenant users and access keys, cross-tenant admin visibility | ❌ No native multi-tenancy — requires separate deployments per tenant or commercial AIStor |
 | **User management** | ✅ Built-in users, roles, groups, 2FA, lockout policies, rate limiting | ✅ Built-in (IAM-style) |
 | **SSO / Identity Providers** | ✅ LDAP/AD + OAuth2/OIDC (Google, Microsoft) with auto-provisioning and group mappings | ✅ LDAP + OIDC (config-file based) |
@@ -59,12 +68,12 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Maintenance mode** | ✅ Read-only mode via console toggle | ❌ |
 | **SMTP alerting** | ✅ Disk + quota threshold alerts via email | ❌ (external alertmanager needed) |
 | **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | Distributed object metadata on storage layer; no external metadata DB |
-| **License** | MIT | AGPL-3.0 (open source) / commercial |
+| **License** | MIT | AGPL-3.0, unmaintained since Feb 2026 / AIStor is proprietary |
 | **Target scale** | Small to mid-range (single node to 5-node cluster) | Petabyte-scale distributed |
 
 **Use MaxIOFS when:** you need multi-tenancy, built-in SSO, and a full web console without running multiple services, and your scale fits on a few nodes.
 
-**Use MinIO when:** you need erasure coding, petabyte/exabyte-scale distributed storage, mature cloud tiering, or the broadest production-proven S3 ecosystem.
+**Use MinIO when:** you need erasure coding, petabyte/exabyte-scale distributed storage, mature cloud tiering, or the broadest production-proven S3 ecosystem — accepting that this means AIStor and its licence, since Community Edition no longer receives fixes.
 
 ---
 

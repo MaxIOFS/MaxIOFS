@@ -286,8 +286,17 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 
-			// Add user to context
+			// Add user to context, with their permissions resolved once. Every
+			// permission check on this request reads that one set; without it
+			// each check re-reads the whole policy model from the database.
 			ctx := context.WithValue(r.Context(), "user", user)
+			if resolver, ok := s.authManager.(interface {
+				ResolvePolicySet(ctx context.Context, user *auth.User) (*auth.PolicySet, error)
+			}); ok {
+				if set, err := resolver.ResolvePolicySet(ctx, user); err == nil {
+					ctx = auth.WithPolicySet(ctx, set)
+				}
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
@@ -2727,6 +2736,13 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// One query for every user's policy count, rather than two per user.
+	userIDs := make([]string, 0, len(filteredUsers))
+	for _, u := range filteredUsers {
+		userIDs = append(userIDs, u.ID)
+	}
+	policyCounts := s.directPolicyCounts(userIDs)
+
 	response := make([]UserResponse, len(filteredUsers))
 	for i, u := range filteredUsers {
 		response[i] = UserResponse{
@@ -2746,30 +2762,28 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			AuthProvider:        u.AuthProvider,
 			ExternalID:          u.ExternalID,
 			CreatedAt:           u.CreatedAt,
-			PolicyCount:         s.countDirectPolicies(r, u.ID),
+			PolicyCount:         policyCounts[u.ID],
 		}
 	}
 
 	s.writeJSON(w, response)
 }
 
-// countDirectPolicies returns how many policies are attached to a user
-// directly, inline or managed. It reports 0 rather than failing the listing:
-// this is a hint about where permissions come from, not a permission check.
-func (s *Server) countDirectPolicies(r *http.Request, userID string) int {
-	im, ok := s.authManager.(auth.IAMManager)
+// directPolicyCounts returns how many policies each user holds directly. It
+// reports zeros rather than failing the listing: this is a hint about where
+// permissions come from, not a permission check.
+func (s *Server) directPolicyCounts(userIDs []string) map[string]int {
+	counter, ok := s.authManager.(interface {
+		CountDirectPolicies(userIDs []string) (map[string]int, error)
+	})
 	if !ok {
-		return 0
+		return map[string]int{}
 	}
-
-	count := 0
-	if inline, err := im.ListIAMInlinePolicies(r.Context(), auth.IAMTargetUser, userID); err == nil {
-		count += len(inline)
+	counts, err := counter.CountDirectPolicies(userIDs)
+	if err != nil {
+		return map[string]int{}
 	}
-	if attached, err := im.ListAttachedIAMPolicies(r.Context(), auth.IAMTargetUser, userID); err == nil {
-		count += len(attached)
-	}
-	return count
+	return counts
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {

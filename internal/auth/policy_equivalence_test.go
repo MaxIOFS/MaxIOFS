@@ -207,7 +207,10 @@ func TestPolicyTranslation_AdminIsUnconditional(t *testing.T) {
 	defer cleanup()
 	store := am.store
 
-	require.NoError(t, store.SetRoleCapabilities(RoleAdmin, nil))
+	// Strip every capability row for admin: the role was unconditional in the
+	// old model and must convert to full access regardless of what is stored.
+	_, err := store.db.Exec(`DELETE FROM role_capabilities WHERE role = ?`, RoleAdmin)
+	require.NoError(t, err)
 
 	user := &User{
 		ID: "admin-user", Username: "admin-user",
@@ -244,7 +247,7 @@ func TestPolicyTranslation_RevocationWins(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, EvaluateIAMDocuments(before, ActionDeleteObject, "arn:aws:s3:::data/key"))
 
-	require.NoError(t, store.SetCapabilityOverride(user.ID, CapObjectDelete, "admin", false))
+	require.NoError(t, store.DenyPermission(user.ID, CapObjectDelete))
 	convertAndAsk(t, store)
 
 	after, err := store.EffectivePolicyDocuments(user.ID, user.Roles)
@@ -267,7 +270,9 @@ func TestPolicyTranslation_GrantOverrideWidens(t *testing.T) {
 	}
 	require.NoError(t, store.CreateUser(user))
 	require.NoError(t, store.GrantBucketAccess("data", user.ID, "", PermissionLevelWrite, "admin", 0))
-	require.NoError(t, store.SetCapabilityOverride(user.ID, CapObjectUpload, "admin", true))
+	// Granting is attaching a policy, which is what the console writes.
+	require.NoError(t, store.PutIAMInlinePolicy(IAMTargetUser, user.ID,
+		"grant-upload", capabilityDocument(CapObjectUpload, true)))
 	convertAndAsk(t, store)
 
 	documents, err := store.EffectivePolicyDocuments(user.ID, user.Roles)

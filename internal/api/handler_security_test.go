@@ -897,9 +897,6 @@ func (m *MockAuthManager) ListAllGroups(ctx context.Context) ([]*auth.Group, err
 func (m *MockAuthManager) HasCapability(_ context.Context, userID string, roles []string, capability string) (bool, error) {
 	return false, nil
 }
-func (m *MockAuthManager) GetEffectiveCapabilities(_ context.Context, userID string, roles []string) ([]auth.EffectiveCapability, error) {
-	return nil, nil
-}
 func (m *MockAuthManager) SetCapabilityOverride(_ context.Context, userID, capability, grantedBy string, granted bool) error {
 	return nil
 }
