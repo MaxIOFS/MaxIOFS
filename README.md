@@ -31,49 +31,58 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 
 ---
 
-## MaxIOFS vs MinIO
+## MaxIOFS vs MinIO AIStor
 
 > Honest comparison — no marketing claims. Choose based on your actual requirements.
 >
-> **A note on MinIO's status.** The comparison below is against MinIO Community
-> Edition, whose repository was marked as no longer maintained in February 2026.
-> Its code remains AGPLv3, but development moved to AIStor, MinIO's proprietary
-> product, and features have been removed from the free edition along the way —
-> the web console went first, in 2025. Community Edition is, in practice, a
-> frozen binary you may use for free rather than a project you can contribute to
-> or expect fixes from. Where a row below says MinIO supports something, read it
-> as "supported in AIStor, and in whatever Community Edition froze with".
+> **Which MinIO this compares against.** MinIO Community Edition's repository was
+> marked as no longer maintained in February 2026, and the web console had already
+> been removed from it in 2025. Development moved to **AIStor**, MinIO's
+> proprietary product, so AIStor is what a comparison today has to be against.
+> AIStor ships a **Free tier**: no capacity limit, no cost, and full features —
+> but **single-node only**, and it requires a licence file to run. Multi-node,
+> high availability and replication are Enterprise. Rows below mark which tier a
+> feature needs.
 
-| Feature | MaxIOFS | MinIO |
-|---------|---------|-------|
-| **Deployment** | Single binary, zero dependencies | Single binary, zero dependencies |
-| **Web console** | Embedded, full-featured | Removed from Community Edition in 2025; available in AIStor |
-| **Native multi-tenancy** | ✅ Built-in — isolated tenants with quotas, per-tenant users and access keys, cross-tenant admin visibility | ❌ No native multi-tenancy — requires separate deployments per tenant or commercial AIStor |
-| **User management** | ✅ Built-in users, roles, groups, 2FA, lockout policies, rate limiting | ✅ Built-in (IAM-style) |
-| **SSO / Identity Providers** | ✅ LDAP/AD + OAuth2/OIDC (Google, Microsoft) with auto-provisioning and group mappings | ✅ LDAP + OIDC (config-file based) |
-| **Audit logging** | ✅ 20+ event types, filterable viewer, full CSV export, external syslog targets | ✅ Available (webhook-based) |
-| **Object integrity** | ✅ Background scrubber — MD5 recomputed per object, per-bucket and cluster-wide | ✅ `mc admin heal` (distributed setups) |
-| **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, per-version enforcement, Veeam B&R validated | ✅ COMPLIANCE + GOVERNANCE |
-| **Bucket notifications** | ✅ Webhook dispatch after every mutating operation | ✅ Webhook + Kafka + NATS + Redis... |
-| **Static website hosting** | ✅ Subdomain routing, index/error documents, routing rules | ✅ |
-| **Lifecycle rules** | ✅ Expiration + AbortIncompleteMultipart executed | ✅ More rule types (transitions) |
-| **Replication** | ✅ To AWS S3, MinIO, or other MaxIOFS nodes | ✅ Active-active, multi-site |
-| **Erasure coding** | ❌ Not supported | ✅ Core feature (distributed mode) |
-| **Data tiering** | ❌ Not supported | ✅ ILM tiering to cloud |
-| **S3 Select** | ✅ SQL queries on CSV/JSON objects (SQLite-based, full SELECT/WHERE/GROUP BY) | ✅ Supported |
-| **Encryption** | ✅ AES-256-GCM authenticated (server-side, 64 KB chunks), SSE-S3 headers | ✅ SSE-S3 / SSE-KMS / SSE-C |
-| **PublicAccessBlock** | ✅ Stored and enforced on every request | ✅ Supported |
-| **Server access logging** | ✅ Async delivery to target bucket in AWS S3 format | ✅ Supported |
-| **Prometheus metrics** | ✅ `/metrics` + pre-built Grafana dashboard | ✅ |
-| **Maintenance mode** | ✅ Read-only mode via console toggle | ❌ |
-| **SMTP alerting** | ✅ Disk + quota threshold alerts via email | ❌ (external alertmanager needed) |
-| **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | Distributed object metadata on storage layer; no external metadata DB |
-| **License** | MIT | AGPL-3.0, unmaintained since Feb 2026 / AIStor is proprietary |
-| **Target scale** | Small to mid-range (single node to 5-node cluster) | Petabyte-scale distributed |
+| Feature | MaxIOFS | AIStor Free | AIStor Enterprise |
+|---------|---------|-------------|-------------------|
+| **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution or resale | Proprietary, paid |
+| **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary + licence file |
+| **Multi-node cluster / HA** | ✅ Up to 5 nodes, quorum writes, read fallback, anti-entropy | ❌ Standalone only | ✅ Horizontally scalable |
+| **Replication** | ✅ To AWS S3, MinIO/AIStor, or other MaxIOFS nodes (realtime, scheduled, batch) | ❌ Enterprise only | ✅ Site, bucket and batch |
+| **Erasure coding** | ❌ Not yet — N-way replication across nodes | ✅ Across drives in one node, with bitrot protection | ✅ Across drives and nodes |
+| **Data tiering** | ❌ Not supported | ❌ Enterprise only | ✅ ILM tiering to cloud |
+| **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys, cross-tenant admin visibility | ❌ No native multi-tenancy — separate deployments per tenant | ❌ Same |
+| **IAM** | ✅ AWS IAM protocol — users, policies with versions, roles, `AssumeRole`; permissions picked from a catalogue, no JSON to hand-write | ✅ IAM-style, policy documents | ✅ Same |
+| **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ Supported | ✅ Same |
+| **Web console** | ✅ Embedded, full-featured | ✅ Included | ✅ Included |
+| **SSO / Identity Providers** | ✅ LDAP/AD + OAuth2/OIDC with auto-provisioning and group mappings | ✅ LDAP + OIDC | ✅ Same |
+| **Audit logging** | ✅ 20+ event types, filterable viewer, CSV export, syslog targets | ✅ Webhook-based | ✅ Same |
+| **Object integrity** | ✅ Background scrubber — MD5 recomputed per object, per-bucket and cluster-wide | ✅ Bitrot detection on read and heal | ✅ Plus background healing visibility |
+| **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, per-version, Veeam B&R validated | ✅ COMPLIANCE + GOVERNANCE | ✅ Same |
+| **Lifecycle rules** | ✅ Expiration + AbortIncompleteMultipart | ⚠️ Expiration only — transitions are Enterprise | ✅ Full |
+| **Bucket notifications** | ✅ Webhook after every mutating operation | ✅ Webhook + Kafka + NATS + Redis… | ✅ Same |
+| **Static website hosting** | ✅ Subdomain routing, index/error documents, routing rules | ✅ | ✅ |
+| **S3 Select** | ✅ SQL on CSV/JSON (SQLite-based, SELECT/WHERE/GROUP BY) | ✅ | ✅ |
+| **Encryption** | ✅ AES-256-GCM envelope, per-object DEK, KEK rotation, recovery bundle | ✅ SSE-S3 / SSE-KMS / SSE-C | ✅ Same |
+| **Maintenance mode** | ✅ Read-only mode via console toggle | ❌ | ❌ |
+| **SMTP alerting** | ✅ Disk + quota threshold alerts by email | ❌ (external alertmanager) | ❌ (external alertmanager) |
+| **Diagnostics / profiling** | ✅ `/debug/pprof`, Prometheus + Grafana dashboard | ❌ Enterprise only | ✅ Full toolkit |
+| **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | On the storage layer; no external metadata DB | Same |
+| **Support** | Community | Community Slack | 24/7/365, <4 h SLA |
+| **Target scale** | Single node to 5-node cluster | Single node, unlimited capacity | Petabyte to exabyte |
 
-**Use MaxIOFS when:** you need multi-tenancy, built-in SSO, and a full web console without running multiple services, and your scale fits on a few nodes.
+**Use MaxIOFS when:** you want multi-node redundancy, multi-tenancy or replication
+without paying for a licence, you need the console and SSO in one binary, and your
+scale fits on a few nodes. Being MIT also matters if you intend to modify or
+redistribute it — AIStor's licence does not permit that at any tier.
 
-**Use MinIO when:** you need erasure coding, petabyte/exabyte-scale distributed storage, mature cloud tiering, or the broadest production-proven S3 ecosystem — accepting that this means AIStor and its licence, since Community Edition no longer receives fixes.
+**Use AIStor Free when:** one machine is enough and you want erasure coding across
+its drives, which MaxIOFS does not do yet. You are accepting a proprietary licence
+file and no path to a second node without paying.
+
+**Use AIStor Enterprise when:** you need petabyte-to-exabyte scale, cloud tiering,
+or a support contract with an SLA.
 
 ---
 
