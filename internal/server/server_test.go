@@ -4331,9 +4331,6 @@ func TestHandleDeleteBucketNotification(t *testing.T) {
 	err := server.authManager.CreateTenant(testCtx, tenant)
 	require.NoError(t, err)
 
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
-	require.NoError(t, err)
-
 	// Create user for this tenant
 	testUser := &auth.User{
 		ID:       "user-notif-del",
@@ -4343,6 +4340,9 @@ func TestHandleDeleteBucketNotification(t *testing.T) {
 		Status:   "active",
 	}
 	err = server.authManager.CreateUser(testCtx, testUser)
+	require.NoError(t, err)
+
+	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, testUser.ID)
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {

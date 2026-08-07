@@ -144,20 +144,32 @@ func (am *authManager) resolvePolicySet(ctx context.Context, userID string, role
 
 // ResolvePolicySet resolves a user's complete permissions. Exported so the
 // request middleware can resolve once and put the result on the context.
+//
+// The tenant comes from the resolved user rather than from the users table: a
+// role session, and any identity assembled for a request, carries its tenant
+// without necessarily having a row to read it back from.
 func (am *authManager) ResolvePolicySet(ctx context.Context, user *User) (*PolicySet, error) {
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
-	return am.buildPolicySet(user.ID, user.Roles)
+	return am.buildPolicySetFor(user.ID, user.Roles, user.TenantID)
 }
 
-// buildPolicySet resolves both views in one pass.
+// buildPolicySet resolves both views in one pass, reading the tenant from the
+// user's stored row.
 func (am *authManager) buildPolicySet(userID string, roles []string) (*PolicySet, error) {
-	documents, err := am.store.EffectivePolicyDocuments(userID, roles)
+	return am.buildPolicySetFor(userID, roles, "")
+}
+
+// buildPolicySetFor resolves both views, with the tenant given explicitly.
+// An empty tenantID means "look it up", which is what a caller holding only an
+// identifier can do.
+func (am *authManager) buildPolicySetFor(userID string, roles []string, tenantID string) (*PolicySet, error) {
+	documents, err := am.store.EffectivePolicyDocumentsInTenant(userID, roles, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	actions, err := am.store.EffectiveActions(userID, roles)
+	actions, err := am.store.EffectiveActionsInTenant(userID, roles, tenantID)
 	if err != nil {
 		return nil, err
 	}

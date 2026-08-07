@@ -16,7 +16,7 @@ func (s *Server) requireCapability(w http.ResponseWriter, r *http.Request, capab
 		return false
 	}
 	for _, role := range user.Roles {
-		if role == "admin" || role == "tenant-admin" {
+		if role == auth.RoleAdmin && user.TenantID == "" {
 			return true
 		}
 	}

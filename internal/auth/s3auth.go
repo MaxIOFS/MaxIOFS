@@ -143,9 +143,14 @@ func S3ActionForRequest(r *http.Request) string {
 				return ActionGetObjectLegalHold
 			case query.Has("uploadId"):
 				return ActionListMultipartUploadParts
+			case query.Has("versionId"):
+				return ActionGetObjectVersion
 			}
 			return ActionGetObject
 		case http.MethodHead:
+			if query.Has("versionId") {
+				return ActionGetObjectVersion
+			}
 			return ActionGetObject
 		case http.MethodPut:
 			switch {
@@ -167,6 +172,8 @@ func S3ActionForRequest(r *http.Request) string {
 				return ActionDeleteObjectTagging
 			case query.Has("uploadId"):
 				return ActionAbortMultipartUpload
+			case query.Has("versionId"):
+				return ActionDeleteObjectVersion
 			}
 			return ActionDeleteObject
 		case http.MethodPost:

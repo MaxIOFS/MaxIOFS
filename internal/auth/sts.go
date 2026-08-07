@@ -446,6 +446,7 @@ func (am *authManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID,
 	if err := am.enforceSTSSession(sess, r); err != nil {
 		return nil, err
 	}
+	am.attachRolePolicySetToRequest(r, sess)
 	return roleSessionUser(user, sess), nil
 }
 
@@ -481,7 +482,19 @@ func (am *authManager) validateSTSSignatureV4(r *http.Request, sig *S3SignatureV
 		return nil, err
 	}
 
+	am.attachRolePolicySetToRequest(r, sess)
 	return roleSessionUser(user, sess), nil
+}
+
+func (am *authManager) attachRolePolicySetToRequest(r *http.Request, sess *STSSession) {
+	if r == nil || sess == nil || sess.PolicyMode != STSPolicyModeRole {
+		return
+	}
+	set, err := am.rolePolicySetForSession(sess)
+	if err != nil {
+		return
+	}
+	*r = *r.WithContext(WithPolicySet(r.Context(), set))
 }
 
 // signedHeadersInclude reports whether name appears in a SigV4 SignedHeaders

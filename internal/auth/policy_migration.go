@@ -236,7 +236,7 @@ func (s *SQLiteStore) EnsureAssignableRoles() error {
 		return err
 	}
 
-	names := map[string]bool{RoleAdmin: true}
+	names := map[string]bool{RoleAdmin: true, RoleTenantAdmin: true}
 	for rows.Next() {
 		var role string
 		if err := rows.Scan(&role); err != nil {
@@ -328,11 +328,19 @@ func (s *SQLiteStore) ensureCataloguePolicy(name string) error {
 // Ownership used to be an implicit fact checked in the handlers, which meant it
 // was permission the model could not see. Writing it as a policy is what lets
 // the owner's rights come from the same place as everyone else's.
+//
+// An owner is always a user. A tenant is a namespace, not a principal: writing
+// this policy on one would hand full access to the bucket to every member of
+// that tenant, when it is meant for the person who created it. Tenant
+// administrators reach it through their own permissions, and anyone else needs
+// an explicit grant. ownerType is kept for the callers that read it off a
+// bucket record, and anything that is not a user is refused rather than
+// silently widened.
 func (s *SQLiteStore) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error {
-	targetType := IAMTargetUser
-	if ownerType == "tenant" {
-		targetType = IAMTargetTenant
+	if ownerType != "" && ownerType != "user" {
+		return fmt.Errorf("bucket owner must be a user, got %q", ownerType)
 	}
+	targetType := IAMTargetUser
 
 	entry, _ := CatalogEntry(PolicyFullAccess)
 	document := bucketGrantDocument(bucketName, entry.Actions)

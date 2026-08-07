@@ -320,9 +320,8 @@ func decodeIAMDocument(raw json.RawMessage) string {
 // recordBucketOwnerPolicy writes the policy that gives a bucket's creator
 // access to it, and removes every policy naming the bucket when it is deleted.
 //
-// A tenant bucket is owned by the tenant, so the grant goes to the tenant and
-// reaches its administrators; a bucket created outside a tenant belongs to the
-// user who created it.
+// A bucket belongs to the user who created it. The tenant is a namespace, not a
+// permission by itself; tenant-wide grants must be explicit policies.
 func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, created bool) {
 	store, ok := s.authManager.(interface {
 		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
@@ -340,17 +339,20 @@ func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, c
 		return
 	}
 
-	ownerType, owner := "user", ownerID
-	if tenantID != "" {
-		ownerType, owner = "tenant", tenantID
-	}
-	if owner == "" {
+	if ownerID == "" {
+		// A bucket created with no owner — by a migration, a recovery run, or
+		// an internal path — would otherwise be reachable by nobody at all,
+		// because ownership is the only thing that grants access to a bucket
+		// nobody was explicitly given. Left unowned it is invisible; that is a
+		// worse failure than the one this guard was written for.
+		logrus.WithField("bucket", bucketName).
+			Warn("Bucket created without an owner; no owner policy was written for it")
 		return
 	}
 
-	if err := store.GrantBucketOwnerPolicy(bucketName, ownerType, owner); err != nil {
+	if err := store.GrantBucketOwnerPolicy(bucketName, "user", ownerID); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket": bucketName, "owner": owner,
+			"bucket": bucketName, "owner": ownerID,
 		}).Warn("Failed to record bucket owner policy")
 	}
 }

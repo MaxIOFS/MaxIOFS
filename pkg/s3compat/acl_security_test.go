@@ -96,9 +96,9 @@ func setupACLTestEnvironment(t *testing.T) *aclTestEnv {
 
 	// Initialize metadata store
 	metadataDir := filepath.Join(tempDir, "metadata")
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: metadataDir,
-		Logger:  logrus.StandardLogger(),
-})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: metadataDir,
+		Logger: logrus.StandardLogger(),
+	})
 	require.NoError(t, err)
 
 	// Create managers
@@ -119,12 +119,8 @@ func setupACLTestEnvironment(t *testing.T) *aclTestEnv {
 					_ = store.RevokeBucketPolicies(bucketName)
 					return
 				}
-				ownerType, owner := "user", ownerID
-				if tenantID != "" {
-					ownerType, owner = "tenant", tenantID
-				}
-				if owner != "" {
-					_ = store.GrantBucketOwnerPolicy(bucketName, ownerType, owner)
+				if ownerID != "" {
+					_ = store.GrantBucketOwnerPolicy(bucketName, "user", ownerID)
 				}
 			})
 		}

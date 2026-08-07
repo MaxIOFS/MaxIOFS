@@ -114,6 +114,19 @@ func (s *SQLiteStore) DeleteGroup(groupID string) error {
 	if _, err = tx.Exec(`DELETE FROM groups WHERE id = ?`, groupID); err != nil {
 		return fmt.Errorf("failed to delete group: %w", err)
 	}
+
+	// A group's policies go with it. Group identifiers can repeat, so a policy
+	// left behind would silently apply to whoever gets the identifier next.
+	if _, err = tx.Exec(
+		`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
+		IAMTargetGroup, groupID); err != nil {
+		return fmt.Errorf("failed to delete group policies: %w", err)
+	}
+	if _, err = tx.Exec(
+		`DELETE FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
+		IAMTargetGroup, groupID); err != nil {
+		return fmt.Errorf("failed to detach group policies: %w", err)
+	}
 	return tx.Commit()
 }
 

@@ -78,7 +78,7 @@ func TestNotification_PutObjectFiresEvent(t *testing.T) {
 	bucketName := "notif-put-bucket"
 	objectKey := "test.txt"
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Start webhook capture server
 	wc := newWebhookCapture()
@@ -123,7 +123,7 @@ func TestNotification_DeleteObjectFiresEvent(t *testing.T) {
 	bucketName := "notif-delete-bucket"
 	objectKey := "todelete.txt"
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	wc := newWebhookCapture()
 	defer wc.close()
@@ -164,7 +164,7 @@ func TestNotification_EventFilter_MatchesPrefix(t *testing.T) {
 	ctx := context.Background()
 	bucketName := "notif-prefix-bucket"
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	wc := newWebhookCapture()
 	defer wc.close()
@@ -212,7 +212,7 @@ func TestNotification_EventFilter_MatchesSuffix(t *testing.T) {
 	ctx := context.Background()
 	bucketName := "notif-suffix-bucket"
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	wc := newWebhookCapture()
 	defer wc.close()
@@ -255,7 +255,7 @@ func TestNotification_NoConfig_NoDelivery(t *testing.T) {
 	ctx := context.Background()
 	bucketName := "notif-none-bucket"
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	wc := newWebhookCapture()
 	defer wc.close()

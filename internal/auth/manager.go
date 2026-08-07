@@ -1209,8 +1209,10 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			// downstream reads this same set, so a capability question and a
 			// bucket question can never be answered from different data.
 			ctx := context.WithValue(r.Context(), "user", user)
-			if set, err := am.ResolvePolicySet(ctx, user); err == nil {
-				ctx = WithPolicySet(ctx, set)
+			if set, ok := PolicySetFromContext(ctx); !ok || set.UserID != user.ID {
+				if set, err := am.ResolvePolicySet(ctx, user); err == nil {
+					ctx = WithPolicySet(ctx, set)
+				}
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

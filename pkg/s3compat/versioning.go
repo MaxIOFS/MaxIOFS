@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,6 +58,10 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListBucketVersions")
 
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketVersions) {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 
 	// Parse query parameters
@@ -98,9 +103,9 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	// versionItem is a unified type for sorting versions and delete markers together
 	type versionItem struct {
-		key          string
-		versionID    string
-		lastModified time.Time
+		key            string
+		versionID      string
+		lastModified   time.Time
 		isDeleteMarker bool
 		// fields for VersionEntry
 		isLatest     bool

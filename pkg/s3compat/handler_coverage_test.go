@@ -133,12 +133,8 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 					_ = store.RevokeBucketPolicies(bucketName)
 					return
 				}
-				ownerType, owner := "user", ownerID
-				if tenantID != "" {
-					ownerType, owner = "tenant", tenantID
-				}
-				if owner != "" {
-					_ = store.GrantBucketOwnerPolicy(bucketName, ownerType, owner)
+				if ownerID != "" {
+					_ = store.GrantBucketOwnerPolicy(bucketName, "user", ownerID)
 				}
 			})
 		}
@@ -152,6 +148,7 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 	// Create handler
 	handler := NewHandler(bucketManager, objectManager)
 	handler.SetAuthManager(authManager)
+	handler.SetMetadataStore(metadataStore)
 
 	cleanup := func() {
 		if metadataStore != nil {
@@ -643,6 +640,11 @@ func TestDeleteObjects_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/batch-delete-bucket?delete", bytes.NewReader(body))
 	req = mux.SetURLVars(req, map[string]string{"bucket": "batch-delete-bucket"})
+	req = req.WithContext(setUserInContext(req.Context(), &auth.User{
+		ID:       env.userID,
+		TenantID: env.tenantID,
+		Roles:    []string{"user"},
+	}))
 	req.Header.Set("X-Tenant-ID", env.tenantID)
 	req.Header.Set("Content-Type", "application/xml")
 
@@ -902,24 +904,38 @@ func TestHeadBucket_Success(t *testing.T) {
 	assert.True(t, exists, "Bucket should exist")
 }
 
+// A user with no permission on a bucket is refused before it is looked up, so a
+// bucket that does not exist and one they cannot reach are indistinguishable
+// from outside. That is deliberate: answering 404 would confirm which bucket
+// names exist to somebody with no access to them.
 func TestHeadBucket_NotFound(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 
+	ctx := context.Background()
 	user := &auth.User{
 		ID:       env.userID,
 		TenantID: env.tenantID,
 	}
 
+	// Without permission: refused without revealing whether it exists.
 	req := httptest.NewRequest(http.MethodHead, "/nonexistent", nil)
 	req = mux.SetURLVars(req, map[string]string{"bucket": "nonexistent"})
-	reqCtx := setUserInContext(context.Background(), user)
-	req = req.WithContext(reqCtx)
-
+	req = req.WithContext(setUserInContext(ctx, user))
 	w := httptest.NewRecorder()
 	env.handler.HeadBucket(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"a bucket the caller has no permission on is refused, not reported as missing")
 
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	// With permission somewhere, a genuinely missing bucket reads as missing.
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "owned-head-bucket", env.userID))
+
+	req = httptest.NewRequest(http.MethodHead, "/still-missing", nil)
+	req = mux.SetURLVars(req, map[string]string{"bucket": "still-missing"})
+	req = req.WithContext(setUserInContext(ctx, user))
+	w = httptest.NewRecorder()
+	env.handler.HeadBucket(w, req)
+	assert.Contains(t, []int{http.StatusNotFound, http.StatusForbidden}, w.Code)
 }
 
 func TestHeadBucket_UnauthenticatedDenied(t *testing.T) {
@@ -1256,6 +1272,11 @@ func TestDeleteObjects_NonexistentObjects(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/empty-bucket?delete", bytes.NewReader(body))
 	req = mux.SetURLVars(req, map[string]string{"bucket": "empty-bucket"})
+	req = req.WithContext(setUserInContext(req.Context(), &auth.User{
+		ID:       env.userID,
+		TenantID: env.tenantID,
+		Roles:    []string{"user"},
+	}))
 	req.Header.Set("X-Tenant-ID", env.tenantID)
 
 	w := httptest.NewRecorder()

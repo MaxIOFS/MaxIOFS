@@ -1170,7 +1170,7 @@ func (s *Server) isAdmin(user *auth.User) bool {
 		return true
 	}
 	for _, role := range user.Roles {
-		if role == auth.RoleAdmin {
+		if role == auth.RoleAdmin || role == auth.RoleTenantAdmin {
 			return true
 		}
 	}

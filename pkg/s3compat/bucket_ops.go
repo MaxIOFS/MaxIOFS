@@ -25,7 +25,10 @@ func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketPolicy")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	policy, err := h.bucketManager.GetBucketPolicy(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -65,8 +68,7 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketPolicy")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketManagePolicy) {
-		h.writeError(w, "AccessDenied", "You do not have permission to manage bucket policies", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy) {
 		return
 	}
 
@@ -104,7 +106,7 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the policy
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, &policyDoc); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -124,13 +126,12 @@ func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketPolicy")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketManagePolicy) {
-		h.writeError(w, "AccessDenied", "You do not have permission to manage bucket policies", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy) {
 		return
 	}
 
 	// Delete the policy by setting it to nil
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -209,7 +210,10 @@ func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketLifecycle")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	lifecycleConfig, err := h.bucketManager.GetLifecycle(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -280,8 +284,7 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketLifecycle")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
-		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
 		return
 	}
 
@@ -356,7 +359,7 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the lifecycle configuration
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, lifecycleConfig); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -376,8 +379,12 @@ func (h *Handler) DeleteBucketLifecycle(w http.ResponseWriter, r *http.Request) 
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketLifecycle")
 
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+		return
+	}
+
 	// Delete the lifecycle configuration by setting it to nil
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -411,7 +418,10 @@ func (h *Handler) GetBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketCORS")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	corsConfig, err := h.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -459,8 +469,7 @@ func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketCORS")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
-		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
 		return
 	}
 
@@ -508,7 +517,7 @@ func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the CORS configuration
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetCORS(r.Context(), tenantID, bucketName, corsConfig); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -528,8 +537,12 @@ func (h *Handler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketCORS")
 
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketCORS) {
+		return
+	}
+
 	// Delete the CORS configuration by setting it to nil
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetCORS(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -549,7 +562,10 @@ func (h *Handler) GetBucketTagging(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketTagging")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketTagging) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketData, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -601,8 +617,7 @@ func (h *Handler) PutBucketTagging(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketTagging")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
-		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketTagging) {
 		return
 	}
 
@@ -644,7 +659,7 @@ func (h *Handler) PutBucketTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update bucket tags
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, tags); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -664,7 +679,10 @@ func (h *Handler) DeleteBucketTagging(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucketTagging")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketTagging) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetBucketTags(r.Context(), tenantID, bucketName, nil); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -684,7 +702,10 @@ func (h *Handler) GetBucketACL(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: GetBucketACL")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketAcl) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	// Get ACL from bucket manager
 	aclInterface, err := h.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
@@ -717,7 +738,10 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: PutBucketACL")
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	// Check for canned ACL header
 	cannedACL := r.Header.Get("x-amz-acl")
@@ -860,7 +884,10 @@ func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) 
 	bucketName := vars["bucket"]
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	cfg, err := h.bucketManager.GetNotification(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -896,6 +923,10 @@ func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy) {
+		return
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -938,7 +969,7 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	if err := h.bucketManager.SetNotification(r.Context(), tenantID, bucketName, cfg); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -958,7 +989,10 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) DeleteBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if err := h.bucketManager.DeleteNotification(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -1006,7 +1040,10 @@ func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1062,7 +1099,10 @@ func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1122,7 +1162,10 @@ func (h *Handler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1144,6 +1187,11 @@ func (h *Handler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request) {
 // (Transfer Acceleration is not supported; Status is omitted which means Suspended).
 func (h *Handler) GetBucketAccelerateConfiguration(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + //nolint:errcheck
@@ -1153,12 +1201,22 @@ func (h *Handler) GetBucketAccelerateConfiguration(w http.ResponseWriter, r *htt
 // PutBucketAccelerateConfiguration accepts an acceleration configuration (no-op).
 func (h *Handler) PutBucketAccelerateConfiguration(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 // GetBucketRequestPayment returns BucketOwner as the payer (Requester Pays not supported).
 func (h *Handler) GetBucketRequestPayment(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + //nolint:errcheck
@@ -1170,6 +1228,11 @@ func (h *Handler) GetBucketRequestPayment(w http.ResponseWriter, r *http.Request
 // PutBucketRequestPayment accepts a request payment configuration (no-op).
 func (h *Handler) PutBucketRequestPayment(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1194,7 +1257,10 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	encCfg, err := h.bucketManager.GetEncryption(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -1228,12 +1294,10 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
-
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
-		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
 		return
 	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg sseConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
@@ -1268,7 +1332,10 @@ func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request)
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketCORS) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if err := h.bucketManager.DeleteEncryption(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -1287,28 +1354,41 @@ func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request)
 func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
 	h.writeError(w, "ReplicationConfigurationNotFoundError",
-		"The replication configuration was not found", vars["bucket"], r)
+		"The replication configuration was not found", bucketName, r)
 }
 
 // PutBucketReplication returns NotImplemented — use the MaxIOFS replication API instead.
 func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+		return
+	}
 	h.writeError(w, "NotImplemented",
-		"S3 bucket replication is not supported. Use the MaxIOFS cluster replication API.", vars["bucket"], r)
+		"S3 bucket replication is not supported. Use the MaxIOFS cluster replication API.", bucketName, r)
 }
 
 // DeleteBucketReplication removes a replication configuration (no-op).
 func (h *Handler) DeleteBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // bucketLoggingStatus is the AWS XML envelope for GetBucketLogging / PutBucketLogging.
 type bucketLoggingStatus struct {
-	XMLName        xml.Name            `xml:"BucketLoggingStatus"`
-	LoggingEnabled *loggingEnabledXML  `xml:"LoggingEnabled,omitempty"`
+	XMLName        xml.Name           `xml:"BucketLoggingStatus"`
+	LoggingEnabled *loggingEnabledXML `xml:"LoggingEnabled,omitempty"`
 }
 
 type loggingEnabledXML struct {
@@ -1321,7 +1401,10 @@ func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	cfg, err := h.bucketManager.GetLogging(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -1352,7 +1435,10 @@ func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg bucketLoggingStatus
 	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
@@ -1402,7 +1488,10 @@ func (h *Handler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	cfg, err := h.bucketManager.GetPublicAccessBlock(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -1434,7 +1523,10 @@ func (h *Handler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg publicAccessBlockXML
 	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
@@ -1465,7 +1557,10 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if err := h.bucketManager.DeletePublicAccessBlock(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -1485,7 +1580,7 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 
 // ownershipControlsXML is the AWS XML envelope for GetOwnershipControls / PutOwnershipControls.
 type ownershipControlsXML struct {
-	XMLName xml.Name                  `xml:"OwnershipControls"`
+	XMLName xml.Name                   `xml:"OwnershipControls"`
 	Rules   []ownershipControlsRuleXML `xml:"Rule"`
 }
 
@@ -1499,7 +1594,10 @@ func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketAcl) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	cfg, err := h.bucketManager.GetOwnershipControls(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -1528,7 +1626,10 @@ func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg ownershipControlsXML
 	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
@@ -1569,7 +1670,10 @@ func (h *Handler) DeleteOwnershipControls(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if err := h.bucketManager.DeleteOwnershipControls(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {

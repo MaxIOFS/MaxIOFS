@@ -15,6 +15,7 @@ package auth
 // what some existing user is allowed to do.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,6 +129,73 @@ func TestPolicyTranslation_MatrixMatchesLegacyModel(t *testing.T) {
 	}
 }
 
+func TestEffectiveActions_UsesCallerTenantWhenUserRowIsAbsent(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	tenant := &Tenant{
+		ID:              "ephemeral-tenant",
+		Name:            "ephemeral-tenant",
+		DisplayName:     "Ephemeral Tenant",
+		Status:          "active",
+		MaxAccessKeys:   10,
+		MaxStorageBytes: 1 << 30,
+		MaxBuckets:      10,
+	}
+	require.NoError(t, am.CreateTenant(ctx, tenant))
+	require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetTenant, tenant.ID, "tenant-read", readOnlyBucketDocument))
+
+	set, err := am.ResolvePolicySet(ctx, &User{
+		ID:       "federated-user-without-row",
+		TenantID: tenant.ID,
+		Roles:    []string{"user"},
+	})
+	require.NoError(t, err)
+
+	assert.True(t, set.Allows(ActionGetObject, "arn:aws:s3:::backups/file.txt"))
+	assert.True(t, set.AllowsAnywhere(ActionGetObject))
+	assert.False(t, set.Allows(ActionPutObject, "arn:aws:s3:::backups/file.txt"))
+}
+
+// TestHasPermission_UsesCallerTenantWhenUserRowIsAbsent covers the same flaw on
+// the other route into the policy set. The console asks these two about a user
+// it already holds in memory, so the tenant has to travel with the question:
+// re-reading it from the users table drops every tenant-attached permission for
+// an identity that has no row, and one of them decides who is an administrator.
+func TestHasPermission_UsesCallerTenantWhenUserRowIsAbsent(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	tenant := &Tenant{
+		ID:              "rowless-tenant",
+		Name:            "rowless-tenant",
+		DisplayName:     "Rowless Tenant",
+		Status:          "active",
+		MaxAccessKeys:   10,
+		MaxStorageBytes: 1 << 30,
+		MaxBuckets:      10,
+	}
+	require.NoError(t, am.CreateTenant(ctx, tenant))
+
+	document := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":["` + ActionIAMManage + `"],"Resource":["*"]}]}`
+	require.NoError(t, am.store.PutIAMInlinePolicy(
+		IAMTargetTenant, tenant.ID, "tenant-iam", document))
+
+	const userID = "federated-admin-without-row"
+	roles := []string{"user"}
+
+	assert.True(t, am.HasPermissionInTenant(userID, roles, tenant.ID, ActionIAMManage),
+		"a tenant-attached permission must reach an identity that carries the tenant")
+	assert.True(t, am.HasExactPermissionInTenant(userID, roles, tenant.ID, ActionIAMManage),
+		"and it must be seen as named outright, which is what grants administration")
+
+	assert.False(t, am.HasPermissionInTenant(userID, roles, "", ActionIAMManage),
+		"without the tenant there is nothing to read it back from, so nothing is granted")
+}
+
 // TestPolicyTranslation_RoleAloneGrantsNoBucket is the flaw this harness was
 // rebuilt to catch: a capability is not a grant. A user whose role permits
 // reading must still not read a bucket nobody granted them.
@@ -228,6 +296,40 @@ func TestPolicyTranslation_AdminIsUnconditional(t *testing.T) {
 	assert.True(t, EvaluateIAMDocuments(documents, ActionIAMManage, "*"))
 }
 
+func TestPolicyTranslation_TenantScopedAdminIsNotGlobalFullAccess(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	store := am.store
+
+	tenant := &Tenant{
+		ID:              "tenant-admin-scope",
+		Name:            "tenant-admin-scope",
+		DisplayName:     "Tenant Admin Scope",
+		Status:          UserStatusActive,
+		MaxAccessKeys:   10,
+		MaxStorageBytes: 1 << 30,
+		MaxBuckets:      10,
+	}
+	require.NoError(t, am.CreateTenant(context.Background(), tenant))
+
+	user := &User{
+		ID: "tenant-admin-user", Username: "tenant-admin-user",
+		Status: UserStatusActive, TenantID: tenant.ID, Roles: []string{RoleAdmin},
+	}
+	require.NoError(t, store.CreateUser(user))
+	convertAndAsk(t, store)
+
+	documents, err := store.EffectivePolicyDocumentsInTenant(user.ID, user.Roles, tenant.ID)
+	require.NoError(t, err)
+
+	assert.True(t, EvaluateIAMDocuments(documents, ActionTenantAdmin, "*"))
+	assert.True(t, EvaluateIAMDocuments(documents, ActionPutObject, "arn:aws:s3:::any-bucket/key"))
+	assert.False(t, EvaluateIAMDocuments(documents, ActionIAMManage, "*"),
+		"a tenant-scoped admin must not inherit global IAM administration")
+	assert.False(t, EvaluateIAMDocuments(documents, ActionSuperAdmin, "*"),
+		"a tenant-scoped admin must not become a global administrator")
+}
+
 // TestPolicyTranslation_RevocationWins checks the per-user override layer: an
 // explicit revocation must beat everything the roles and grants allow.
 func TestPolicyTranslation_RevocationWins(t *testing.T) {
@@ -296,4 +398,26 @@ func TestPolicyCatalog_CoversEveryCapability(t *testing.T) {
 			require.NotEmpty(t, entry.Actions, "policy %q grants no actions", name)
 		}
 	}
+}
+
+// TestBucketOwner_CannotBeAWholeTenant pins who a bucket may belong to.
+//
+// The owner policy is full access to the bucket. Written on a tenant it would
+// hand that to every member, when a bucket belongs to the person who created
+// it: tenant administrators reach it through their own permissions, and anyone
+// else needs an explicit grant. No caller passed a tenant, so this closes the
+// only door through which one could.
+func TestBucketOwner_CannotBeAWholeTenant(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+
+	require.Error(t, am.store.GrantBucketOwnerPolicy("shared", "tenant", "t-alpha"),
+		"a tenant is a namespace, not an owner")
+	require.NoError(t, am.store.GrantBucketOwnerPolicy("shared", "user", "creator"))
+
+	documents, err := am.store.EffectivePolicyDocumentsInTenant("member", []string{"user"}, "t-alpha")
+	require.NoError(t, err)
+	assert.False(t,
+		EvaluateIAMDocuments(documents, ActionDeleteObject, "arn:aws:s3:::shared/x"),
+		"another member of the tenant gets nothing from someone else's bucket")
 }

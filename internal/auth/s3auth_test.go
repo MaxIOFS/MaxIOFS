@@ -65,6 +65,8 @@ func TestGetS3Action(t *testing.T) {
 
 		// Object level - GET
 		{"Get object", "GET", "/mybucket/myfile.txt", "", ActionGetObject},
+		{"Get object version", "GET", "/mybucket/myfile.txt", "versionId=v1", ActionGetObjectVersion},
+		{"Head object version", "HEAD", "/mybucket/myfile.txt", "versionId=v1", ActionGetObjectVersion},
 		{"Get object ACL", "GET", "/mybucket/myfile.txt", "acl", ActionGetObjectAcl},
 		{"Get object tagging", "GET", "/mybucket/myfile.txt", "tagging", ActionGetObjectTagging},
 		{"Get object retention", "GET", "/mybucket/myfile.txt", "retention", ActionGetObjectRetention},
@@ -80,6 +82,7 @@ func TestGetS3Action(t *testing.T) {
 
 		// Object level - DELETE
 		{"Delete object", "DELETE", "/mybucket/myfile.txt", "", ActionDeleteObject},
+		{"Delete object version", "DELETE", "/mybucket/myfile.txt", "versionId=v1", ActionDeleteObjectVersion},
 		{"Delete object tagging", "DELETE", "/mybucket/myfile.txt", "tagging", ActionDeleteObjectTagging},
 		{"Abort multipart upload", "DELETE", "/mybucket/myfile.txt", "uploadId=123", ActionAbortMultipartUpload},
 	}

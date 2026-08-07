@@ -192,10 +192,11 @@ const (
 
 // Constants for default roles
 const (
-	RoleAdmin    = "admin"
-	RoleUser     = "user"
-	RoleReadOnly = "readonly"
-	RoleGuest    = "guest"
+	RoleAdmin       = "admin"
+	RoleTenantAdmin = "tenant-admin"
+	RoleUser        = "user"
+	RoleReadOnly    = "readonly"
+	RoleGuest       = "guest"
 )
 
 // Constants for S3 actions

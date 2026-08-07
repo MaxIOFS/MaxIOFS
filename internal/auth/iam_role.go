@@ -316,23 +316,32 @@ func validateRoleSessionName(name string) error {
 // AssumeRole time, so editing or deleting a role takes effect on sessions
 // already issued from it. A role whose permissions were just revoked would
 // otherwise keep working until every outstanding session expired.
-func (am *authManager) authorizeRoleSession(sess *STSSession, r *http.Request) error {
+func (am *authManager) rolePolicySetForSession(sess *STSSession) (*PolicySet, error) {
 	_, roleName, err := ParseIAMARN(sess.RoleARN)
 	if err != nil {
-		return ErrAccessDenied
+		return nil, ErrAccessDenied
 	}
 
 	documents, err := am.store.IAMEffectiveDocuments(IAMTargetRole, roleName)
 	if err != nil {
-		return ErrAccessDenied
+		return nil, ErrAccessDenied
 	}
 	if len(documents) == 0 {
 		// The role carries no policies — either it never had any or it was
 		// deleted. Both mean this session may do nothing.
-		return ErrAccessDenied
+		return nil, ErrAccessDenied
 	}
 
-	if !EvaluateIAMDocuments(documents, S3ActionForRequest(r), ResourceARNForRequest(r)) {
+	return &PolicySet{UserID: sess.UserID, Documents: documents}, nil
+}
+
+func (am *authManager) authorizeRoleSession(sess *STSSession, r *http.Request) error {
+	set, err := am.rolePolicySetForSession(sess)
+	if err != nil {
+		return err
+	}
+
+	if !set.Allows(S3ActionForRequest(r), ResourceARNForRequest(r)) {
 		return ErrAccessDenied
 	}
 	return nil

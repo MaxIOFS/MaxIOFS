@@ -311,7 +311,13 @@ func (am *authManager) RevokeBucketPolicies(bucketName string) error {
 // For the administration permissions, which name no bucket, "anywhere" is the
 // only question there is.
 func (am *authManager) HasPermission(userID string, roles []string, action string) bool {
-	set, err := am.buildPolicySet(userID, roles)
+	return am.HasPermissionInTenant(userID, roles, "", action)
+}
+
+// HasPermissionInTenant is the same with the tenant supplied by the caller, for
+// identities that carry one without having a row to read it back from.
+func (am *authManager) HasPermissionInTenant(userID string, roles []string, tenantID, action string) bool {
+	set, err := am.buildPolicySetFor(userID, roles, tenantID)
 	if err != nil {
 		return false
 	}
@@ -321,7 +327,13 @@ func (am *authManager) HasPermission(userID string, roles []string, action strin
 // HasExactPermission reports whether an action is named outright by one of the
 // user's policies. A wildcard does not satisfy it.
 func (am *authManager) HasExactPermission(userID string, roles []string, action string) bool {
-	documents, err := am.store.EffectivePolicyDocuments(userID, roles)
+	return am.HasExactPermissionInTenant(userID, roles, "", action)
+}
+
+// HasExactPermissionInTenant is the same with the tenant supplied by the
+// caller.
+func (am *authManager) HasExactPermissionInTenant(userID string, roles []string, tenantID, action string) bool {
+	documents, err := am.store.EffectivePolicyDocumentsInTenant(userID, roles, tenantID)
 	if err != nil {
 		return false
 	}

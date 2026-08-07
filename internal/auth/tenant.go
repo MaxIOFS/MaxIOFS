@@ -279,6 +279,32 @@ func (s *SQLiteStore) DeleteTenant(tenantID string) error {
 		return fmt.Errorf("failed to delete tenant users: %w", err)
 	}
 
+	// The policies of every user in the tenant go with them, and so do the
+	// tenant's own. A tenant-wide policy left behind would apply to a future
+	// tenant that reused the identifier.
+	for _, userID := range userIDs {
+		if _, err = tx.Exec(
+			`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
+			IAMTargetUser, userID); err != nil {
+			return fmt.Errorf("failed to delete policies for user %s: %w", userID, err)
+		}
+		if _, err = tx.Exec(
+			`DELETE FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
+			IAMTargetUser, userID); err != nil {
+			return fmt.Errorf("failed to detach policies for user %s: %w", userID, err)
+		}
+	}
+	if _, err = tx.Exec(
+		`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
+		IAMTargetTenant, tenantID); err != nil {
+		return fmt.Errorf("failed to delete tenant policies: %w", err)
+	}
+	if _, err = tx.Exec(
+		`DELETE FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
+		IAMTargetTenant, tenantID); err != nil {
+		return fmt.Errorf("failed to detach tenant policies: %w", err)
+	}
+
 	// Delete tenant
 	_, err = tx.Exec(`DELETE FROM tenants WHERE id = ?`, tenantID)
 	if err != nil {

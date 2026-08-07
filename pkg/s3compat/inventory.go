@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/inventory"
 )
 
@@ -215,7 +216,10 @@ func (h *Handler) GetBucketInventoryConfiguration(w http.ResponseWriter, r *http
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	cfg, err := h.inventoryManager.GetConfigByID(r.Context(), id, tenantID)
 	if err != nil {
@@ -244,7 +248,10 @@ func (h *Handler) PutBucketInventoryConfiguration(w http.ResponseWriter, r *http
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var x inventoryConfigXML
 	if err := xml.NewDecoder(r.Body).Decode(&x); err != nil {
@@ -300,7 +307,10 @@ func (h *Handler) DeleteBucketInventoryConfiguration(w http.ResponseWriter, r *h
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if err := h.inventoryManager.DeleteConfigByID(r.Context(), id, tenantID); err != nil {
 		h.writeError(w, "NoSuchConfiguration", "The specified inventory configuration does not exist", id, r)
@@ -327,7 +337,10 @@ func (h *Handler) ListBucketInventoryConfigurations(w http.ResponseWriter, r *ht
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	configs, err := h.inventoryManager.ListConfigsByBucket(r.Context(), bucketName, tenantID)
 	if err != nil {

@@ -189,6 +189,30 @@ func TestRoleSession_PermissionsComeFromTheRole(t *testing.T) {
 		ErrAccessDenied)
 }
 
+func TestRoleSession_AttachesRolePolicySetToRequest(t *testing.T) {
+	am, user, cleanup := setupSTSTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := am.CreateIAMRole(ctx, "reader", "/", "", trustAnyone, 3600, "")
+	require.NoError(t, err)
+	require.NoError(t, am.PutIAMInlinePolicy(ctx, IAMTargetRole, "reader", "scope", readOnlyBucketDocument))
+
+	session, err := am.AssumeIAMRole(ctx, user, IAMRoleARN("reader"), "job", 3600, "")
+	require.NoError(t, err)
+	stored, err := am.store.GetSTSSession(session.TempAccessKeyID)
+	require.NoError(t, err)
+
+	r := iamRequest(t, http.MethodGet, "/backups/f.txt")
+	am.attachRolePolicySetToRequest(r, stored)
+
+	set, ok := PolicySetFromContext(r.Context())
+	require.True(t, ok)
+	assert.Equal(t, user.ID, set.UserID)
+	assert.True(t, set.Allows(ActionGetObject, "arn:aws:s3:::backups/f.txt"))
+	assert.False(t, set.Allows(ActionPutObject, "arn:aws:s3:::backups/f.txt"))
+}
+
 func TestRoleSession_WithoutRolePoliciesCanDoNothing(t *testing.T) {
 	am, user, cleanup := setupSTSTest(t)
 	defer cleanup()

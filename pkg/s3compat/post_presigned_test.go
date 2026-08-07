@@ -126,7 +126,7 @@ func TestPresignedPost_BasicUpload_204(t *testing.T) {
 	objectKey := "uploaded.txt"
 	content := []byte("hello from POST presigned upload")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "text/plain", env.accessKey, env.secretKey, nil, nil)
 	w := httptest.NewRecorder()
@@ -151,7 +151,7 @@ func TestPresignedPost_StatusCode_200(t *testing.T) {
 	objectKey := "result200.txt"
 	content := []byte("status 200 test")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
 		map[string]string{"success_action_status": "200"})
@@ -171,7 +171,7 @@ func TestPresignedPost_StatusCode_201(t *testing.T) {
 	objectKey := "result201.txt"
 	content := []byte("status 201 test")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
 		map[string]string{"success_action_status": "201"})
@@ -192,7 +192,7 @@ func TestPresignedPost_PolicyExpired(t *testing.T) {
 
 	ctx := context.Background()
 	bucketName := "post-presigned-expired"
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	now := time.Now().UTC()
 	dateStamp := now.Format("20060102")
@@ -247,7 +247,7 @@ func TestPresignedPost_WrongSignature(t *testing.T) {
 
 	ctx := context.Background()
 	bucketName := "post-presigned-badsig"
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	now := time.Now().UTC()
 	dateStamp := now.Format("20060102")
@@ -297,7 +297,7 @@ func TestPresignedPost_ContentLengthRange_TooSmall(t *testing.T) {
 
 	ctx := context.Background()
 	bucketName := "post-presigned-minsize"
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Policy requires at least 100 bytes but we upload 5 bytes
 	conditions := []interface{}{
@@ -322,7 +322,7 @@ func TestPresignedPost_StartsWithCondition_Valid(t *testing.T) {
 	objectKey := "images/photo.jpg"
 	content := []byte("fake image data for test")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// starts-with condition: key must start with "images/"
 	conditions := []interface{}{
@@ -346,7 +346,7 @@ func TestPresignedPost_Redirect(t *testing.T) {
 	objectKey := "redir.txt"
 	content := []byte("redirect test data")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
 		map[string]string{"success_action_redirect": "https://example.com/done"})

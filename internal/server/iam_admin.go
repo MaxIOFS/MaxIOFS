@@ -16,12 +16,12 @@ func (s *Server) userHoldsPermission(user *auth.User, action string) bool {
 		return false
 	}
 	resolver, ok := s.authManager.(interface {
-		HasPermission(userID string, roles []string, action string) bool
+		HasPermissionInTenant(userID string, roles []string, tenantID, action string) bool
 	})
 	if !ok {
 		return false
 	}
-	return resolver.HasPermission(user.ID, user.Roles, action)
+	return resolver.HasPermissionInTenant(user.ID, user.Roles, user.TenantID, action)
 }
 
 // userHoldsPermissionExactly reports whether an action is named outright by one
@@ -35,10 +35,10 @@ func (s *Server) userHoldsPermissionExactly(user *auth.User, action string) bool
 		return false
 	}
 	resolver, ok := s.authManager.(interface {
-		HasExactPermission(userID string, roles []string, action string) bool
+		HasExactPermissionInTenant(userID string, roles []string, tenantID, action string) bool
 	})
 	if !ok {
 		return false
 	}
-	return resolver.HasExactPermission(user.ID, user.Roles, action)
+	return resolver.HasExactPermissionInTenant(user.ID, user.Roles, user.TenantID, action)
 }

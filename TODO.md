@@ -29,6 +29,24 @@ their policies as a grant. Nothing that already worked changes behaviour.
 - [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back
 - [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
 
+### The tenant boundary is structural, not written in the policies
+
+An ARN names a bucket by its bare name, so `arn:aws:s3:::backups` matches every
+bucket called that, in every tenant. What keeps one tenant's grant from reaching
+another's bucket is `userCanPerformS3ActionInTenant`, the way an AWS account
+bounds what a policy saying `*` can reach — not the documents themselves.
+
+This is a deliberate shape, but it means nothing in a policy expresses it, so
+only `pkg/s3compat/tenant_boundary_test.go` holds it in place. Two consequences
+worth keeping in mind before extending the model:
+
+- [ ] Every new path that consults a `PolicySet` against a bucket has to go
+  through the boundary check. A direct `set.Allows(...)` is unbounded.
+- [ ] Should tenant buckets get tenant-qualified ARNs
+  (`arn:aws:s3:::<tenant>/<bucket>`)? That would move the boundary into the
+  documents and make it self-enforcing, at the cost of rewriting every stored
+  policy that names a bucket. Not needed while the check holds.
+
 ### Known limitations (deliberate)
 
 - No `Condition` support in any policy kind — documents that use one are rejected at write time rather than silently evaluated without it.

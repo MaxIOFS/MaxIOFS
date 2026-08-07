@@ -457,6 +457,19 @@ func (s *SQLiteStore) DeleteUser(userID string) error {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
+	// Their permissions go with them. A policy left behind is a grant nobody
+	// can see, waiting for an identifier to be reused.
+	if _, err = tx.Exec(
+		`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
+		IAMTargetUser, userID); err != nil {
+		return fmt.Errorf("failed to delete user policies: %w", err)
+	}
+	if _, err = tx.Exec(
+		`DELETE FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
+		IAMTargetUser, userID); err != nil {
+		return fmt.Errorf("failed to detach user policies: %w", err)
+	}
+
 	return tx.Commit()
 }
 

@@ -24,7 +24,7 @@ func TestChecksumCRC32_PutAndGet(t *testing.T) {
 	content := []byte("hello checksum CRC32")
 
 	// Create bucket
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Calculate expected CRC32 checksum
 	h := crc32.NewIEEE()
@@ -68,7 +68,7 @@ func TestChecksumSHA256_PutAndGet(t *testing.T) {
 	objectKey := "data.bin"
 	content := []byte("hello checksum SHA256 verification")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Calculate expected SHA256
 	raw := sha256.Sum256(content)
@@ -101,7 +101,7 @@ func TestChecksumCRC32C_PutAndGet(t *testing.T) {
 	objectKey := "crc32c.bin"
 	content := []byte("data for CRC32C checksum test")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Calculate expected CRC32C
 	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
@@ -127,7 +127,7 @@ func TestChecksum_ClientProvided_Correct(t *testing.T) {
 	objectKey := "validated.bin"
 	content := []byte("content for client-provided checksum")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	h := crc32.NewIEEE()
 	h.Write(content)
@@ -152,7 +152,7 @@ func TestChecksum_ClientProvided_Wrong(t *testing.T) {
 	objectKey := "bad.bin"
 	content := []byte("content for wrong checksum test")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	// Send incorrect checksum
 	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content)
@@ -174,7 +174,7 @@ func TestChecksum_NoAlgorithm_NoHeader(t *testing.T) {
 	objectKey := "plain.txt"
 	content := []byte("plain upload without checksum")
 
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, ""))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
 	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, content)
 	// No x-amz-checksum-algorithm header

@@ -55,6 +55,10 @@ func (h *Handler) GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectRetention")
 
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectRetention) {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
 	retention, err := h.objectManager.GetObjectRetention(r.Context(), bucketPath, objectKey, versionID)
@@ -94,6 +98,10 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectRetention")
+
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention) {
+		return
+	}
 
 	// Parse the XML retention configuration
 	var xmlRetention ObjectRetention
@@ -155,6 +163,10 @@ func (h *Handler) GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectLegalHold")
 
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectLegalHold) {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
 	legalHold, err := h.objectManager.GetObjectLegalHold(r.Context(), bucketPath, objectKey, versionID)
@@ -189,6 +201,10 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectLegalHold")
+
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold) {
+		return
+	}
 
 	// Parse the XML legal hold configuration
 	var xmlLegalHold ObjectLegalHold
@@ -267,11 +283,9 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
-	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	user, userExists := auth.GetUserFromContext(r.Context())
-	if !h.validateHeadBucketReadPermission(w, r, user, userExists, tenantID, bucketName, objectKey) {
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject) {
 		return
 	}
 
@@ -371,6 +385,10 @@ func (h *Handler) GetObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectTagging")
 
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectTagging) {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
 
@@ -415,8 +433,7 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectTagging")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectManageTags) {
-		h.writeError(w, "AccessDenied", "You do not have permission to manage object tags", objectKey, r)
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectTagging) {
 		return
 	}
 
@@ -471,8 +488,7 @@ func (h *Handler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: DeleteObjectTagging")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectManageTags) {
-		h.writeError(w, "AccessDenied", "You do not have permission to manage object tags", objectKey, r)
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObjectTagging) {
 		return
 	}
 
@@ -527,6 +543,10 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectACL")
 
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectAcl) {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
 
@@ -579,6 +599,10 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		"bucket": bucketName,
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectACL")
+
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectAcl) {
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
@@ -724,21 +748,10 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	sourceTenantID := h.resolveBucketTenantID(r, sourceBucket)
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	if h.authManager != nil && userExists && r.Header.Get("Authorization") != "" {
-		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
-			h.writeError(w, "AccessDenied", "You do not have permission to download objects", sourceKey, r)
-			return
-		}
-		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-			h.writeError(w, "AccessDenied", "You do not have permission to upload objects", destKey, r)
-			return
-		}
-	}
-
 	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
 		return
 	}
-	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket) {
+	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket, destKey) {
 		h.writeError(w, "AccessDenied", "Access Denied", destKey, r)
 		return
 	}

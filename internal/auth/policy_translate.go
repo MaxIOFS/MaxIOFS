@@ -188,12 +188,33 @@ func allowDocument(actions []string) string {
 // entities once, on upgrade (policy_migration.go); it is not consulted here and
 // there is no translation happening per request.
 func (s *SQLiteStore) EffectivePolicyDocuments(userID string, roles []string) ([]string, error) {
+	return s.EffectivePolicyDocumentsInTenant(userID, roles, "")
+}
+
+// EffectivePolicyDocumentsInTenant is the same, with the tenant supplied by the
+// caller. An empty tenantID is looked up from the user's row.
+//
+// Taking it as a parameter matters for identities that exist for the duration
+// of a request — a role session, or a user resolved by a federated login —
+// which carry a tenant without a row to read it back from.
+func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []string, tenantID string) ([]string, error) {
 	documents, err := s.IAMEffectiveDocumentsForUser(userID)
 	if err != nil {
 		return nil, err
 	}
 
+	if tenantID == "" {
+		tenantID, err = s.userTenantID(userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, role := range roles {
+		if tenantID != "" && (role == RoleAdmin || role == RoleTenantAdmin) {
+			documents = append(documents, tenantAdminDocument())
+			continue
+		}
 		roleDocs, err := s.IAMEffectiveDocuments(IAMTargetRole, role)
 		if err != nil {
 			return nil, err
@@ -201,10 +222,6 @@ func (s *SQLiteStore) EffectivePolicyDocuments(userID string, roles []string) ([
 		documents = append(documents, roleDocs...)
 	}
 
-	tenantID, err := s.userTenantID(userID)
-	if err != nil {
-		return nil, err
-	}
 	if tenantID != "" {
 		tenantDocs, err := s.IAMEffectiveDocuments(IAMTargetTenant, tenantID)
 		if err != nil {
@@ -216,13 +233,62 @@ func (s *SQLiteStore) EffectivePolicyDocuments(userID string, roles []string) ([
 	return documents, nil
 }
 
-// EffectiveActions returns every action a user's policies permit, ignoring the
-// resources they are scoped to.
+func tenantAdminDocument() string {
+	return allowDocument([]string{
+		ActionTenantAdmin,
+		ActionConsoleAccess,
+		ActionManageOwnKeys,
+		ActionCreateBucket,
+		ActionDeleteBucket,
+		ActionGetBucketLocation,
+		ActionListAllMyBuckets,
+		ActionListBucket,
+		ActionListBucketVersions,
+		ActionGetBucketVersioning,
+		ActionPutBucketVersioning,
+		ActionGetBucketLifecycle,
+		ActionPutBucketLifecycle,
+		ActionDeleteBucketLifecycle,
+		ActionGetBucketCORS,
+		ActionPutBucketCORS,
+		ActionDeleteBucketCORS,
+		ActionGetBucketTagging,
+		ActionPutBucketTagging,
+		ActionDeleteBucketTagging,
+		ActionGetBucketAcl,
+		ActionPutBucketAcl,
+		ActionGetBucketPolicy,
+		ActionPutBucketPolicy,
+		ActionDeleteBucketPolicy,
+		ActionGetObject,
+		ActionGetObjectVersion,
+		ActionGetObjectAcl,
+		ActionPutObject,
+		ActionPutObjectAcl,
+		ActionDeleteObject,
+		ActionDeleteObjectVersion,
+		ActionGetObjectTagging,
+		ActionPutObjectTagging,
+		ActionDeleteObjectTagging,
+		ActionGetObjectRetention,
+		ActionPutObjectRetention,
+		ActionGetObjectLegalHold,
+		ActionPutObjectLegalHold,
+		ActionRestoreObject,
+		ActionAbortMultipartUpload,
+		ActionListMultipartUploadParts,
+		ActionListBucketMultipartUploads,
+	})
+}
+
+// EffectiveActionsInTenant returns every action a user's policies permit,
+// ignoring the resources they are scoped to.
 //
 // This answers "may they delete buckets at all", which is a different question
-// from "may they delete THIS bucket" and is asked first by the handlers.
-func (s *SQLiteStore) EffectiveActions(userID string, roles []string) ([]string, error) {
-	documents, err := s.EffectivePolicyDocuments(userID, roles)
+// from "may they delete THIS bucket" and is asked first by the handlers. The
+// tenant is resolved as in EffectivePolicyDocumentsInTenant.
+func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, tenantID string) ([]string, error) {
+	documents, err := s.EffectivePolicyDocumentsInTenant(userID, roles, tenantID)
 	if err != nil {
 		return nil, err
 	}

@@ -106,13 +106,8 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		"object": objectKey,
 	}).Debug("S3 API: CreateMultipartUpload")
 
-	if h.authManager != nil {
-		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
-			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
-				return
-			}
-		}
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject) {
+		return
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -142,6 +137,10 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListMultipartUploads")
+
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketMultipartUploads) {
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 
@@ -216,13 +215,8 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		"partNumber": partNumber,
 	}).Debug("S3 API: UploadPart")
 
-	if h.authManager != nil {
-		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
-			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
-				return
-			}
-		}
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject) {
+		return
 	}
 
 	// IMPORTANT: Detect UploadPartCopy operation
@@ -313,6 +307,10 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		"object":   objectKey,
 		"uploadId": uploadID,
 	}).Debug("S3 API: ListParts")
+
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionListMultipartUploadParts) {
+		return
+	}
 
 	// Parse query parameters
 	partNumberMarker := 0
@@ -488,13 +486,8 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		"uploadId": uploadID,
 	}).Debug("S3 API: CompleteMultipartUpload")
 
-	if h.authManager != nil {
-		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
-			if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-				h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
-				return
-			}
-		}
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject) {
+		return
 	}
 
 	// Parse the complete multipart upload request
@@ -647,7 +640,7 @@ done:
 	}
 
 	// Fire s3:ObjectCreated:CompleteMultipartUpload notification asynchronously.
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	h.fireNotifications(bgCtx, bucketName, tenantID, objectKey, "s3:ObjectCreated:CompleteMultipartUpload", res.obj.ETag, res.obj.Size)
 }
 
@@ -668,6 +661,10 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 		"object":   objectKey,
 		"uploadId": uploadID,
 	}).Debug("S3 API: AbortMultipartUpload")
+
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionAbortMultipartUpload) {
+		return
+	}
 
 	// Abort the multipart upload
 	if err := h.objectManager.AbortMultipartUpload(r.Context(), uploadID); err != nil {
@@ -708,20 +705,10 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	if h.authManager != nil && userExists {
-		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
-			h.writeError(w, "AccessDenied", "You do not have permission to download objects", sourceKey, r)
-			return
-		}
-		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-			h.writeError(w, "AccessDenied", "You do not have permission to upload objects", destKey, r)
-			return
-		}
-	}
 	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
 		return
 	}
-	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket) {
+	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket, destKey) {
 		h.writeError(w, "AccessDenied", "Access Denied", destKey, r)
 		return
 	}

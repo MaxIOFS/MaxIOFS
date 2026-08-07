@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -59,7 +60,9 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
+	user, userExists := auth.GetUserFromContext(r.Context())
 
 	// Parse XML request body
 	body, err := io.ReadAll(r.Body)
@@ -107,6 +110,16 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 				Key:     obj.Key,
 				Code:    "InvalidArgument",
 				Message: "Object key cannot be empty",
+			})
+			continue
+		}
+
+		if !h.checkDeleteObjectPermission(ctx, user, userExists, tenantID, bucketName, bucketPath, obj.Key, obj.VersionId) {
+			result.Errors = append(result.Errors, DeleteError{
+				Key:       obj.Key,
+				Code:      "AccessDenied",
+				Message:   "Access Denied",
+				VersionId: obj.VersionId,
 			})
 			continue
 		}
