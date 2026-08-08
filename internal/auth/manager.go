@@ -42,6 +42,12 @@ type Manager interface {
 	// Sliding window: each POST /auth/refresh call issues a brand-new pair,
 	// so the session stays alive as long as the user is active.
 	GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error)
+	// GenerateDownloadToken mints a short-lived token that fetches exactly one
+	// object, so a browser can navigate to the download and stream it to disk
+	// instead of buffering it in memory. ValidateDownloadToken redeems it, and
+	// ValidateJWT refuses it.
+	GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error)
+	ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error)
 	// ValidateRefreshToken parses a refresh token (token_type == "refresh") and
 	// returns the associated user. Returns ErrInvalidToken for access tokens or
 	// any malformed input, and ErrTokenExpired when the token is past its TTL.
@@ -540,8 +546,10 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, ErrInvalidToken
 	}
 
-	// Reject refresh tokens — they must only be used at POST /auth/refresh.
-	if claims.TokenType == "refresh" {
+	// Reject refresh tokens — they must only be used at POST /auth/refresh —
+	// and download tokens, which travel in a URL and must buy nothing beyond
+	// the single object they name.
+	if claims.TokenType == "refresh" || claims.TokenType == TokenTypeDownload {
 		return nil, ErrInvalidToken
 	}
 
@@ -590,6 +598,97 @@ func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds in
 
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString([]byte(secret))
+}
+
+// GenerateDownloadToken mints a token that fetches exactly one object.
+//
+// resource is the opaque identifier of that object, and the redeeming request
+// has to present the same one; a token minted for one key is refused for every
+// other. It is not accepted by ValidateJWT, so it cannot be replayed against
+// any other endpoint.
+func (am *authManager) GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error) {
+	if user == nil {
+		return "", ErrUserNotFound
+	}
+	if resource == "" {
+		return "", fmt.Errorf("a download token must name the object it is for")
+	}
+
+	accessKey := user.Username
+	if accessKey == "" {
+		return "", fmt.Errorf("user has no username")
+	}
+
+	am.jwtSecretMu.RLock()
+	secret := am.config.JWTSecret
+	am.jwtSecretMu.RUnlock()
+
+	now := time.Now()
+	claims := JWTClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "maxiofs",
+			Subject:   user.ID,
+			Audience:  jwt.ClaimStrings{"maxiofs-api"},
+			ExpiresAt: jwt.NewNumericDate(now.Add(DownloadTokenTTL * time.Second)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+		},
+		UserID:    user.ID,
+		TenantID:  user.TenantID,
+		AccessKey: accessKey,
+		Roles:     user.Roles,
+		TokenType: TokenTypeDownload,
+		Resource:  resource,
+	}
+
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(secret))
+}
+
+// ValidateDownloadToken resolves the user a download token was minted for,
+// provided the token is one and names this exact resource.
+//
+// Every rejection is the same error: a caller probing which objects exist
+// learns nothing from the difference between "not a download token" and "a
+// download token for something else".
+func (am *authManager) ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error) {
+	if token == "" || resource == "" {
+		return nil, ErrInvalidToken
+	}
+
+	am.jwtSecretMu.RLock()
+	secret := am.config.JWTSecret
+	am.jwtSecretMu.RUnlock()
+
+	claims := &JWTClaims{}
+	if _, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(secret), nil
+	}); err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
+		return nil, ErrInvalidToken
+	}
+
+	if claims.TokenType != TokenTypeDownload {
+		return nil, ErrInvalidToken
+	}
+	// Constant time: the resource is attacker-supplied on one side.
+	if subtle.ConstantTimeCompare([]byte(claims.Resource), []byte(resource)) != 1 {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if user.Status != UserStatusActive {
+		return nil, ErrUserInactive
+	}
+	return user, nil
 }
 
 // GenerateJWT generates a single long-lived access token using session_timeout.

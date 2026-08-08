@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,6 +19,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
+	clusterUnsignedPayloadHash = "UNSIGNED-PAYLOAD"
 )
 
 // ProxyClient handles proxying S3 requests to remote nodes.
@@ -62,16 +68,34 @@ func NewDynamicProxyClient(getTLS func() *tls.Config) *ProxyClient {
 	return p
 }
 
+// buildHTTPClient builds the client that carries S3 requests to the node that
+// owns a bucket — which means it carries object data, of any size.
+//
+// It has no overall Timeout, for the same reason the body is streamed rather
+// than buffered a few lines below: this client moves files. http.Client.Timeout
+// bounds the whole exchange including the body, so it is a cap on file size
+// written as a cap on time. The 60 seconds it used to carry meant an object
+// larger than a minute's worth of bandwidth could never cross between nodes —
+// about 7 GB on a saturated 1 Gbps link, less on anything slower or busier.
+//
+// A node that has stopped answering still has to fail quickly, and that is what
+// the transport bounds: reaching it, negotiating TLS, and receiving the response
+// headers. After the headers arrive the transfer takes as long as it takes, and
+// the request context cancels it if the caller gives up.
 func buildHTTPClient(tlsCfg *tls.Config) *http.Client {
 	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
 	}
 	if tlsCfg != nil {
 		transport.TLSClientConfig = tlsCfg
 	}
-	return &http.Client{Timeout: 60 * time.Second, Transport: transport}
+	return &http.Client{Transport: transport}
 }
 
 // getHTTPClient returns the HTTP client, rebuilding it if the TLS config has changed.
@@ -95,6 +119,7 @@ var internalClusterHeaders = []string{
 	"X-MaxIOFS-Proxy-Node",
 	"X-MaxIOFS-Node-ID",
 	"X-MaxIOFS-Node-Hmac",
+	"X-MaxIOFS-Body-SHA256",
 	"X-MaxIOFS-Timestamp",
 	"X-MaxIOFS-Nonce",
 	"X-MaxIOFS-Signature",
@@ -148,6 +173,7 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create proxy request: %w", err)
 	}
+	proxyReq.ContentLength = originalReq.ContentLength
 
 	// Copy headers from original request
 	copyHeaders(proxyReq.Header, originalReq.Header)
@@ -236,7 +262,7 @@ func isHopByHopHeader(header string) bool {
 	}
 
 	for _, h := range hopByHopHeaders {
-		if header == h {
+		if strings.EqualFold(header, h) {
 			return true
 		}
 	}
@@ -262,8 +288,12 @@ func clusterBodyHash(req *http.Request) string {
 // SignClusterRequest adds HMAC authentication headers to a cluster replication request
 // This is used when making authenticated requests to other nodes for replication
 func (p *ProxyClient) SignClusterRequest(req *http.Request, localNodeID, nodeToken string) {
-	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	bodyHash := clusterBodyHash(req)
+	p.signClusterRequestWithBodyHash(req, localNodeID, nodeToken, bodyHash)
+}
+
+func (p *ProxyClient) signClusterRequestWithBodyHash(req *http.Request, localNodeID, nodeToken, bodyHash string) {
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 
 	// Generate a cryptographically secure random nonce
 	nonceBytes := make([]byte, 16)
@@ -306,10 +336,28 @@ func (p *ProxyClient) CreateAuthenticatedRequest(ctx context.Context, method, ur
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Sign the request
-	p.SignClusterRequest(req, localNodeID, nodeToken)
+	if shouldUseUnsignedClusterPayload(body) {
+		req.Header.Set(clusterBodySHA256Header, clusterUnsignedPayloadHash)
+		p.signClusterRequestWithBodyHash(req, localNodeID, nodeToken, clusterUnsignedPayloadHash)
+	} else {
+		// Sign the request, including the body hash for small in-memory payloads.
+		p.SignClusterRequest(req, localNodeID, nodeToken)
+	}
 
 	return req, nil
+}
+
+func shouldUseUnsignedClusterPayload(body io.Reader) bool {
+	if body == nil {
+		return false
+	}
+
+	switch body.(type) {
+	case *bytes.Buffer, *bytes.Reader, *strings.Reader:
+		return false
+	default:
+		return true
+	}
 }
 
 // DoAuthenticatedRequest executes an authenticated cluster request and returns the response

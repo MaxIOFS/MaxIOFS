@@ -138,6 +138,7 @@ var PolicyCatalog = []catalogEntry{
 		Actions: []string{
 			ActionGetObjectRetention, ActionPutObjectRetention,
 			ActionGetObjectLegalHold, ActionPutObjectLegalHold,
+			ActionGetBucketObjectLockConfiguration, ActionPutBucketObjectLockConfiguration,
 		},
 	},
 	{

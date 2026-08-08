@@ -583,32 +583,22 @@ export default function BucketDetailsPage() {
 
   const handleDownloadObject = async (key: string) => {
     try {
-      // Show download indicator
-      ModalManager.loading(t('downloadingFile'), t('downloadingKey', { key }));
-
-      const blob = await APIClient.downloadObject({
+      // Hand the transfer to the browser rather than pulling the object into
+      // the page: it streams to disk, shows its own progress, and survives a
+      // file far larger than the tab could hold.
+      const url = await APIClient.getObjectDownloadURL({
         bucket: bucketName,
         ...(tenantId && { tenantId }),
         key,
       });
 
-      // Close loading indicator
-      ModalManager.close();
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = key.split('/').pop() || key;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      // Show success message
-      ModalManager.successDownload(key.split('/').pop() || key);
     } catch (error: unknown) {
-      ModalManager.close();
       ModalManager.apiError(error);
     }
   };

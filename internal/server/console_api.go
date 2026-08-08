@@ -264,21 +264,35 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				}
 			}
 
-			// Extract JWT token from Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if !strings.HasPrefix(authHeader, "Bearer ") {
-				s.writeError(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+			// A download token in the query string, for the one request a
+			// browser makes by navigating rather than by fetching. It is only
+			// ever consulted for the object-download route, and only for the
+			// object it names, so it cannot stand in for a session anywhere
+			// else. Everything after this point is identical to a normal
+			// request: the same user, the same resolved permissions.
+			user, handled := s.userFromDownloadToken(w, r)
+			if handled {
 				return
 			}
 
-			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if user == nil {
+				// Extract JWT token from Authorization header
+				authHeader := r.Header.Get("Authorization")
+				if !strings.HasPrefix(authHeader, "Bearer ") {
+					s.writeError(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+					return
+				}
 
-			// Validate JWT token
-			user, err := s.authManager.ValidateJWT(r.Context(), token)
-			if err != nil {
-				logrus.WithError(err).Warn("JWT validation failed")
-				s.writeError(w, "Invalid or expired token", http.StatusUnauthorized)
-				return
+				token := strings.TrimPrefix(authHeader, "Bearer ")
+
+				// Validate JWT token
+				var err error
+				user, err = s.authManager.ValidateJWT(r.Context(), token)
+				if err != nil {
+					logrus.WithError(err).Warn("JWT validation failed")
+					s.writeError(w, "Invalid or expired token", http.StatusUnauthorized)
+					return
+				}
 			}
 
 			if !s.userHasConsoleAccess(r.Context(), user) {
@@ -432,6 +446,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/download-token", s.handleCreateDownloadToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleGetObject).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleUploadObject).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleDeleteObject).Methods("DELETE", "OPTIONS")
@@ -1325,6 +1340,32 @@ func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
 // forwards the console API request to that node using the client's JWT token.
 // JWT secrets are synced across nodes, so the remote node can validate the JWT normally.
 // Returns true if the request was proxied (caller should not handle the request further).
+// consoleProxyClient forwards console requests to the node that owns a bucket.
+//
+// It has no overall Timeout on purpose. http.Client.Timeout bounds the whole
+// exchange including the body, so any value at all is a cap on file size
+// disguised as a cap on time: at 30 seconds an object took as long as it took,
+// and every transfer longer than that failed however healthy both nodes were.
+//
+// What must stay bounded is waiting for a node that is not answering, and that
+// is what these cover — reaching it, negotiating TLS, and receiving the
+// response headers. Once the headers arrive the transfer proceeds at whatever
+// pace it needs; the request context still cancels it if the client goes away.
+//
+// One client, not one per request: each carries its own connection pool, so
+// building them per call reopens a connection every time.
+var consoleProxyClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
+
 func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, bucketName string) bool {
 	if s.clusterRouter == nil || s.clusterManager == nil {
 		return false
@@ -1357,23 +1398,19 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	}
 	targetURL := strings.TrimRight(targetBase, "/") + r.URL.RequestURI()
 
-	// Buffer request body
-	var bodyBytes []byte
-	if r.Body != nil {
-		var readErr error
-		bodyBytes, readErr = io.ReadAll(r.Body)
-		if readErr != nil {
-			logrus.WithError(readErr).Warn("proxyConsoleRequest: failed to read request body")
-			return false
-		}
-		r.Body.Close()
-	}
-
-	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(bodyBytes))
+	// The body is streamed, not buffered. An object upload routed to its owning
+	// node used to be read into this node's memory in full before a single byte
+	// was forwarded, so proxying a large file cost as much RAM as the file.
+	//
+	// ContentLength has to be carried across explicitly: given a reader that is
+	// not a *bytes.Reader, net/http cannot know the size and would fall back to
+	// chunked encoding, hiding the length from the handler that stores it.
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
 		logrus.WithError(err).Warn("proxyConsoleRequest: failed to create request")
 		return false
 	}
+	proxyReq.ContentLength = r.ContentLength
 
 	// Copy relevant headers (JWT auth, content-type, etc.)
 	for key, values := range r.Header {
@@ -1389,8 +1426,7 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	// Mark as proxied to prevent loops
 	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(proxyReq)
+	resp, err := consoleProxyClient.Do(proxyReq)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -1398,7 +1434,13 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 			"url":    targetURL,
 			"error":  err.Error(),
 		}).Error("proxyConsoleRequest: failed to forward request")
-		return false
+		// Reporting the failure rather than returning false is deliberate: the
+		// request body has been consumed by the attempt, so handling it locally
+		// now would act on an empty one — storing an empty object in place of
+		// the upload that was meant to be forwarded.
+		s.writeError(w, "The node that owns this bucket could not be reached",
+			http.StatusBadGateway)
+		return true
 	}
 	defer resp.Body.Close()
 
@@ -1479,8 +1521,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !auth.CheckCapabilityInContext(r.Context(), s.authManager, auth.CapBucketCreate) {
-		s.writeError(w, "You do not have permission to create buckets", http.StatusForbidden)
+	if !s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionCreateBucket, "You do not have permission to create buckets") {
 		return
 	}
 
@@ -1510,12 +1551,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			proxyReq.Header.Set("Content-Type", "application/json")
+			proxyReq.ContentLength = int64(len(payload))
 			if authHdr := r.Header.Get("Authorization"); authHdr != "" {
 				proxyReq.Header.Set("Authorization", authHdr)
 			}
 			proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
-			proxyClient := &http.Client{Timeout: 30 * time.Second}
-			proxyResp, proxyDoErr := proxyClient.Do(proxyReq)
+			proxyResp, proxyDoErr := consoleProxyClient.Do(proxyReq)
 			if proxyDoErr != nil {
 				s.writeError(w, "Failed to proxy bucket creation to target node: "+proxyDoErr.Error(), http.StatusBadGateway)
 				return
@@ -1831,7 +1872,7 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketDelete, "You do not have permission to delete buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucket, "You do not have permission to delete buckets") {
 		return
 	}
 
@@ -1959,6 +2000,9 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket, "You do not have permission to list objects") {
 		return
 	}
 
@@ -2181,6 +2225,14 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+	versionID := r.URL.Query().Get("versionId")
+	readAction := auth.ActionGetObject
+	if versionID != "" {
+		readAction = auth.ActionGetObjectVersion
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, readAction, "You do not have permission to download objects") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -2228,8 +2280,17 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Otherwise, return the actual file content
-	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	// Otherwise, return the actual file content. A versionId names an earlier
+	// version; without passing it through, asking for one silently served the
+	// current object instead.
+	var obj *object.Object
+	var reader io.ReadCloser
+	var err error
+	if versionID != "" {
+		obj, reader, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+	} else {
+		obj, reader, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			s.writeError(w, "Object not found", http.StatusNotFound)
@@ -2288,7 +2349,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectUpload, "You do not have permission to upload objects") {
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to upload objects") {
 		return
 	}
 
@@ -2628,7 +2689,11 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectDelete, "You do not have permission to delete objects") {
+	deleteAction := auth.ActionDeleteObject
+	if r.URL.Query().Get("versionId") != "" {
+		deleteAction = auth.ActionDeleteObjectVersion
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, deleteAction, "You do not have permission to delete objects") {
 		return
 	}
 
@@ -6152,6 +6217,9 @@ func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectAcl, "You do not have permission to read object ACLs") {
+		return
+	}
 
 	tenantID := s.resolveTenantID(r)
 
@@ -6187,7 +6255,7 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectAcl, "You do not have permission to configure object ACLs") {
 		return
 	}
 
@@ -6651,6 +6719,9 @@ func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectLegalHold, "You do not have permission to read object legal hold") {
+		return
+	}
 
 	tenantID := s.resolveTenantID(r)
 
@@ -6686,35 +6757,16 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	user, exists := auth.GetUserFromContext(r.Context())
+	_, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectManageVersions, "You do not have permission to manage object versions") {
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "You do not have permission to manage object legal hold") {
 		return
 	}
 
 	tenantID := s.resolveTenantID(r)
-
-	// IMPORTANT: Only global admins or tenant admins can change legal hold.
-	isGlobalAdmin := false
-	isTenantAdmin := false
-	for _, role := range user.Roles {
-		if role == auth.RoleAdmin && user.TenantID == "" {
-			isGlobalAdmin = true
-			break
-		}
-		if user.TenantID != "" && user.TenantID == tenantID && (role == auth.RoleAdmin || role == "tenant-admin") {
-			isTenantAdmin = true
-			break
-		}
-	}
-
-	if !isGlobalAdmin && !isTenantAdmin {
-		s.writeError(w, "Only global administrators or tenant administrators can modify legal hold status", http.StatusForbidden)
-		return
-	}
 
 	// Parse request body
 	var req struct {

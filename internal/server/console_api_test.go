@@ -512,14 +512,9 @@ func TestHandleCreateBucket(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.handleCreateBucket(rr, req)
 
-	// Check status code (200 OK for successful creation)
-	assert.Equal(t, http.StatusOK, rr.Code)
-
-	// Check response
-	var response APIResponse
-	err = json.NewDecoder(rr.Body).Decode(&response)
-	assert.NoError(t, err)
-	assert.True(t, response.Success)
+	// Global admins administer tenants and identities; bucket mutation requires
+	// tenant-scoped IAM permissions.
+	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
 // TestHandleAPIHealth tests the /health endpoint.
@@ -1288,24 +1283,11 @@ func TestHandleGetBucket(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
-	// Create a test bucket first
-	newBucket := map[string]interface{}{
-		"name": "get-test-bucket",
-	}
-
-	body, _ := json.Marshal(newBucket)
-	createReq := httptest.NewRequest("POST", "/api/v1/buckets", bytes.NewReader(body))
-	createReq.Header.Set("Content-Type", "application/json")
-	ctxWithUser := context.WithValue(createReq.Context(), "user", user)
-	createReq = createReq.WithContext(ctxWithUser)
-
-	createRR := httptest.NewRecorder()
-	server.handleCreateBucket(createRR, createReq)
-	require.Equal(t, http.StatusOK, createRR.Code)
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, "", "get-test-bucket", user.ID))
 
 	// Get the bucket
 	getReq := httptest.NewRequest("GET", "/api/v1/buckets/get-test-bucket", nil)
-	ctxWithUser = context.WithValue(getReq.Context(), "user", user)
+	ctxWithUser := context.WithValue(getReq.Context(), "user", user)
 	getReq = getReq.WithContext(ctxWithUser)
 
 	// Set mux vars for path parameters
@@ -1337,24 +1319,28 @@ func TestHandleDeleteBucket(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
-	// Create a test bucket first
-	newBucket := map[string]interface{}{
-		"name": "delete-test-bucket",
-	}
-
-	body, _ := json.Marshal(newBucket)
-	createReq := httptest.NewRequest("POST", "/api/v1/buckets", bytes.NewReader(body))
-	createReq.Header.Set("Content-Type", "application/json")
-	ctxWithUser := context.WithValue(createReq.Context(), "user", user)
-	createReq = createReq.WithContext(ctxWithUser)
-
-	createRR := httptest.NewRecorder()
-	server.handleCreateBucket(createRR, createReq)
-	require.Equal(t, http.StatusOK, createRR.Code)
+	tenantID := "delete-test-tenant"
+	require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{
+		ID:              tenantID,
+		Name:            "Delete Test Tenant",
+		Status:          "active",
+		MaxStorageBytes: 1000000000,
+		MaxBuckets:      100,
+		MaxAccessKeys:   10,
+	}))
+	user.TenantID = tenantID
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, "delete-test-bucket", user.ID))
 
 	// Delete the bucket
 	deleteReq := httptest.NewRequest("DELETE", "/api/v1/buckets/delete-test-bucket", nil)
-	ctxWithUser = context.WithValue(deleteReq.Context(), "user", user)
+	ctxWithUser := context.WithValue(deleteReq.Context(), "user", user)
+	ctxWithUser = auth.WithPolicySet(ctxWithUser, &auth.PolicySet{
+		UserID: user.ID,
+		Documents: []string{
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:DeleteBucket","Resource":"arn:aws:s3:::delete-test-bucket"}]}`,
+		},
+		Actions: []string{auth.ActionDeleteBucket},
+	})
 	deleteReq = deleteReq.WithContext(ctxWithUser)
 
 	// Set mux vars for path parameters

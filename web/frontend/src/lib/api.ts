@@ -879,13 +879,54 @@ export class APIClient {
     }
   }
 
-  static async downloadObject(request: DownloadRequest): Promise<Blob> {
+  /**
+   * Builds a URL the browser can navigate to in order to download an object.
+   *
+   * Downloading through XHR/fetch means the whole object is assembled in
+   * memory before the user gets any of it, which a multi-gigabyte file will
+   * not survive — no request timeout, however generous, changes that. A
+   * navigation streams straight to disk instead, and gets the browser's own
+   * progress, pause and resume for free.
+   *
+   * Navigation cannot send an Authorization header, so the server mints a
+   * token that is good for this one object for two minutes and for nothing
+   * else. That request is an ordinary authenticated call, and it is where the
+   * caller's permission to read the object is checked.
+   */
+  static async getObjectDownloadURL(request: DownloadRequest): Promise<string> {
+    const key = encodeURIComponent(request.key);
+
+    // Both requests must carry the same parameters: the token is bound to the
+    // tenant, key and version it was minted for, and is refused for any other.
+    const params = new URLSearchParams();
+    if (request.tenantId) params.append('tenantId', request.tenantId);
+    if (request.versionId) params.append('versionId', request.versionId);
+    const query = params.toString();
+
+    const response = await apiClient.post<{ token: string }>(
+      `/buckets/${request.bucket}/objects/${key}/download-token${query ? `?${query}` : ''}`
+    );
+    const token = unwrapAPIData(response.data).token;
+
+    params.append('downloadToken', token);
+    return `${API_CONFIG.baseURL}/buckets/${request.bucket}/objects/${key}?${params.toString()}`;
+  }
+
+  /**
+   * Fetches an object's bytes into memory.
+   *
+   * Only for callers that need the CONTENT in the page — previewing a file,
+   * reading a specific version. To save a file to disk use
+   * getObjectDownloadURL, which does not hold it in memory at all.
+   */
+  static async fetchObjectBlob(request: DownloadRequest): Promise<Blob> {
     const url = request.tenantId
       ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}?tenantId=${encodeURIComponent(request.tenantId)}`
       : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
 
     const config = {
       responseType: 'blob' as const,
+      timeout: 0,
       headers: {
         ...(request.range ? { Range: request.range } : {}),
         // Don't send Accept: application/json for downloads

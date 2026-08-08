@@ -735,8 +735,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Capability check: only users with bucket:create may create new buckets.
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketCreate) {
+	if !h.userCanPerformS3ActionInTenant(r.Context(), user, user.TenantID, auth.ActionCreateBucket, bucketARN(bucketName)) {
 		h.writeError(w, "AccessDenied", "You do not have permission to create buckets", bucketName, r)
 		return
 	}
@@ -825,12 +824,24 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: DeleteBucket")
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketDelete) {
-		h.writeError(w, "AccessDenied", "You do not have permission to delete buckets", bucketName, r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
+	if _, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketDelete) {
+				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+				return
+			}
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucket) {
+		return
+	}
+
 	if err := h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -861,7 +872,7 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	// Permission check: Verify user has READ permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -956,7 +967,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: Verify user has READ permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	// An authenticated request is decided by its policies, and by nothing else.
 	if userExists {
@@ -1082,7 +1093,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 
 	// Permission check: identical logic to ListObjects
 	user, userExists := auth.GetUserFromContext(r.Context())
-	tenantID := h.getTenantIDFromRequest(r)
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	if userExists {
 		if !h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionListBucket, bucketARN(bucketName)) {
@@ -1240,15 +1251,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if h.handleVeeamSOSAPIObject(w, r, objectKey) {
-			return
-		}
-	}
-
-	// Capability check: authenticated users need object:download capability.
-	// Presigned URL access is not subject to the capability check.
-	if h.authManager != nil && userExists && r.Header.Get("Authorization") != "" {
-		if !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDownload) {
-			h.writeError(w, "AccessDenied", "You do not have permission to download objects", objectKey, r)
 			return
 		}
 	}
@@ -1467,11 +1469,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectUpload) {
-		h.writeError(w, "AccessDenied", "You do not have permission to upload objects", objectKey, r)
-		return
-	}
-
 	// Check tenant storage quota before accepting upload
 	if err := h.validateTenantQuota(r, user, userExists, bucketName, objectKey, decodedContentLength); err != nil {
 		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
@@ -1646,11 +1643,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	if h.authManager != nil && userExists && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapObjectDelete) {
-		h.writeError(w, "AccessDenied", "You do not have permission to delete objects", objectKey, r)
-		return
-	}
-
 	hasPermission := h.checkDeleteObjectPermission(r.Context(), user, userExists, tenantID, bucketName, bucketPath, objectKey, versionID)
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{
@@ -1813,6 +1805,9 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) {
+		return
+	}
 	userAgent := r.Header.Get("User-Agent")
 	if isVeeamClient(userAgent) {
 		logrus.WithFields(logrus.Fields{
@@ -1834,12 +1829,15 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketVersioning) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1892,17 +1890,16 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	tenantID := h.getTenantIDFromRequest(r)
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
-	if h.authManager != nil && !auth.CheckCapabilityInContext(r.Context(), h.authManager, auth.CapBucketConfigure) {
-		h.writeError(w, "AccessDenied", "You do not have permission to configure buckets", bucketName, r)
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketVersioning) {
 		return
 	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1977,48 +1974,13 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"bucket": bucketName,
 	}).Info("S3 API: GetObjectLockConfiguration - START")
 
-	tenantID := h.getTenantIDFromRequest(r)
-
-	logrus.WithFields(logrus.Fields{
-		"bucket":   bucketName,
-		"tenantID": tenantID,
-	}).Info("GetObjectLockConfiguration - Got tenantID")
-
-	// Permission check: same-tenant users have automatic access
-	user, userExists := auth.GetUserFromContext(r.Context())
-
-	logrus.WithFields(logrus.Fields{
-		"bucket":     bucketName,
-		"userExists": userExists,
-		"userID": func() string {
-			if userExists {
-				return user.ID
-			} else {
-				return "none"
-			}
-		}(),
-		"userTenant": func() string {
-			if userExists {
-				return user.TenantID
-			} else {
-				return "none"
-			}
-		}(),
-	}).Info("GetObjectLockConfiguration - Got user from context")
-
-	if userExists && user.TenantID != tenantID {
-		logrus.Info("GetObjectLockConfiguration - Cross-tenant access, checking ACL")
-		// Cross-tenant access - check ACL permissions
-		hasPermission := h.checkBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-		if !hasPermission {
-			hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-		}
-		if !hasPermission {
-			logrus.Warn("GetObjectLockConfiguration - Access denied")
-			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-			return
-		}
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketObjectLockConfiguration) {
+		return
 	}
+
+	// The tenant that owns the bucket, not the caller's: reading the caller's
+	// back made every tenant comparison compare a value with itself.
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	logrus.Info("GetObjectLockConfiguration - About to call GetBucketInfo")
 
@@ -2116,17 +2078,19 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Obtener tenantID del usuario autenticado
-	tenantID := h.getTenantIDFromRequest(r)
+	// Writing this sets the default retention EVERY new upload inherits, so a
+	// compliance-mode default locks data that does not exist yet and nobody can
+	// unlock it afterwards. It is asked of the policies like any other write.
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration) {
+		return
+	}
+
+	// The tenant that owns the bucket, not the caller's.
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	logrus.WithFields(logrus.Fields{
 		"tenantID": tenantID,
 		"bucket":   bucketName,
 	}).Info("PutObjectLockConfiguration - Got tenantID")
-
-	// Verificar permisos y autenticación
-	if _, ok := h.validateObjectLockPermissions(w, r, tenantID, bucketName); !ok {
-		return
-	}
 
 	// Obtener información del bucket
 	bucketInfo, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
@@ -4014,29 +3978,13 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 // PutObjectLockConfiguration Helper Functions
 // ============================================================================
 
-// validateObjectLockPermissions validates user authentication and cross-tenant access
-func (h *Handler) validateObjectLockPermissions(
-	w http.ResponseWriter,
-	r *http.Request,
-	tenantID string,
-	bucketName string,
-) (*auth.User, bool) {
-	user, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists {
-		logrus.Warn("PutObjectLockConfiguration - No user in context")
-		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
-		return nil, false
-	}
-
-	// Verificar acceso cross-tenant (si no es global admin)
-	if user.TenantID != "" && user.TenantID != tenantID {
-		logrus.Warn("PutObjectLockConfiguration - Cross-tenant access denied")
-		h.writeError(w, "AccessDenied", "Access denied", bucketName, r)
-		return nil, false
-	}
-
-	return user, true
-}
+// validateObjectLockPermissions was removed: it took the tenant from
+// getTenantIDFromRequest, which returns the CALLER's tenant, and then compared
+// it against the caller's own tenant — a condition that can never be true. It
+// looked like an authorization check and was one only by appearance, so
+// PutObjectLockConfiguration asked for nothing beyond being signed in.
+//
+// The permission is now asked of the policies, like every other bucket write.
 
 // parseObjectLockConfigXML reads and parses Object Lock configuration XML from request body
 func (h *Handler) parseObjectLockConfigXML(
@@ -4121,8 +4069,11 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
-	tenantID := h.getTenantIDFromRequest(r)
 
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionRestoreObject) {
+		return
+	}
+	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.resolveBucketPath(r, bucketName, "")
 	versionID := r.URL.Query().Get("versionId")
 

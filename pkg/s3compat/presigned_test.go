@@ -42,6 +42,12 @@ func (m *mockAuthManager) ValidateJWT(ctx context.Context, token string) (*auth.
 func (m *mockAuthManager) GenerateJWT(ctx context.Context, user *auth.User) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) GenerateDownloadToken(ctx context.Context, user *auth.User, resource string) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) ValidateDownloadToken(ctx context.Context, token, resource string) (*auth.User, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 func (m *mockAuthManager) GenerateTokenPair(ctx context.Context, user *auth.User) (*auth.TokenPair, error) {
 	return nil, fmt.Errorf("not implemented")
 }

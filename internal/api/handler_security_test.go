@@ -503,6 +503,19 @@ func (m *MockAuthManager) ValidateJWT(ctx context.Context, token string) (*auth.
 	return args.Get(0).(*auth.User), args.Error(1)
 }
 
+func (m *MockAuthManager) GenerateDownloadToken(ctx context.Context, user *auth.User, resource string) (string, error) {
+	args := m.Called(ctx, user, resource)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockAuthManager) ValidateDownloadToken(ctx context.Context, token, resource string) (*auth.User, error) {
+	args := m.Called(ctx, token, resource)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.User), args.Error(1)
+}
+
 func (m *MockAuthManager) GenerateJWT(ctx context.Context, user *auth.User) (string, error) {
 	args := m.Called(ctx, user)
 	return args.String(0), args.Error(1)
@@ -1509,6 +1522,10 @@ func TestPutObject_OversizedHeaders(t *testing.T) {
 
 	// Mock tenant storage quota check
 	mockAuth.On("CheckTenantStorageQuota", mock.Anything, "test-tenant", mock.Anything).Return(
+		nil,
+	).Maybe()
+	mockAuth.On("GetTenant", mock.Anything, "test-tenant").Return(
+		&auth.Tenant{ID: "test-tenant", Status: "active"},
 		nil,
 	).Maybe()
 

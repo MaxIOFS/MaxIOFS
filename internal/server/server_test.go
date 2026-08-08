@@ -390,6 +390,13 @@ func createAuthenticatedRequest(method, url string, body io.Reader, tenantID, us
 	}
 
 	ctx := context.WithValue(req.Context(), "user", user)
+	ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
+		UserID: userID,
+		Documents: []string{
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`,
+		},
+		Actions: []string{"s3:*"},
+	})
 
 	return req.WithContext(ctx)
 }
@@ -4119,9 +4126,16 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 
 	t.Run("should reject non-admin users", func(t *testing.T) {
 		body := `{"status": "ON"}`
-		req := createAuthenticatedRequest("PUT", "/api/v1/buckets/"+bucketName+"/objects/test.txt/legal-hold", strings.NewReader(body), tenantID, "regular-user", false)
+		req := httptest.NewRequest("PUT", "/api/v1/buckets/"+bucketName+"/objects/test.txt/legal-hold", strings.NewReader(body))
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": "test.txt"})
 		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(context.WithValue(req.Context(), "user", &auth.User{
+			ID:       "regular-user",
+			Username: "regular-user",
+			TenantID: tenantID,
+			Roles:    []string{"user"},
+			Status:   "active",
+		}))
 
 		rr := httptest.NewRecorder()
 		server.handlePutObjectLegalHold(rr, req)
@@ -4135,8 +4149,14 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": "test.txt"})
 		req.Header.Set("Content-Type", "application/json")
 
-		// Need to set proper roles for admin
 		ctx := context.WithValue(req.Context(), "user", adminUser)
+		ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
+			UserID: adminUser.ID,
+			Documents: []string{
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObjectLegalHold","Resource":"arn:aws:s3:::test-bucket-legalhold-put/test.txt"}]}`,
+			},
+			Actions: []string{auth.ActionPutObjectLegalHold},
+		})
 		req = req.WithContext(ctx)
 
 		rr := httptest.NewRecorder()
@@ -4152,6 +4172,13 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		ctx := context.WithValue(req.Context(), "user", adminUser)
+		ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
+			UserID: adminUser.ID,
+			Documents: []string{
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObjectLegalHold","Resource":"arn:aws:s3:::test-bucket-legalhold-put/test.txt"}]}`,
+			},
+			Actions: []string{auth.ActionPutObjectLegalHold},
+		})
 		req = req.WithContext(ctx)
 
 		rr := httptest.NewRecorder()
@@ -6454,7 +6481,7 @@ func TestHandleCreateBucketEdgeCases(t *testing.T) {
 		req := createAuthenticatedRequest("POST", "/api/v1/buckets", strings.NewReader(body), "", "admin-1", true)
 		rr := httptest.NewRecorder()
 		server.handleCreateBucket(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusCreated, http.StatusBadRequest, http.StatusUnauthorized, http.StatusConflict}, rr.Code)
+		assert.Contains(t, []int{http.StatusOK, http.StatusCreated, http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict}, rr.Code)
 	})
 }
 
@@ -6662,7 +6689,7 @@ func TestHandleDeleteObjectEdgeCases(t *testing.T) {
 		req = mux.SetURLVars(req, map[string]string{"bucket": "test", "object": "nonexistent.txt"})
 		rr := httptest.NewRecorder()
 		server.handleDeleteObject(rr, req)
-		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK, http.StatusNoContent, http.StatusUnauthorized}, rr.Code)
+		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK, http.StatusNoContent, http.StatusUnauthorized, http.StatusForbidden}, rr.Code)
 	})
 
 	t.Run("should handle request without auth", func(t *testing.T) {

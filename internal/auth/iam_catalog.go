@@ -106,6 +106,12 @@ var permissionCatalog = []CatalogPermission{
 	{Action: "s3:PutObjectLegalHold", Group: "object-lock", Label: "Set legal hold", ResourceScoped: true},
 	{Action: "s3:BypassGovernanceRetention", Group: "object-lock", Label: "Override governance retention",
 		Description: "Delete or overwrite an object still under governance-mode protection", ResourceScoped: true},
+	{Action: "s3:GetBucketObjectLockConfiguration", Group: "object-lock",
+		Label: "Read the bucket's Object Lock settings", ResourceScoped: true},
+	{Action: "s3:PutBucketObjectLockConfiguration", Group: "object-lock",
+		Label: "Change the bucket's default retention",
+		Description: "Set how long EVERY new upload stays immutable — a compliance-mode " +
+			"default cannot be undone by anyone, including administrators", ResourceScoped: true},
 
 	{Action: "s3:CreateBucket", Group: "bucket-config", Label: "Create buckets"},
 	{Action: "s3:GetBucketAcl", Group: "bucket-config", Label: "Read bucket ACL", ResourceScoped: true},

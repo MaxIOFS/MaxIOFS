@@ -20,9 +20,17 @@ import (
 // Used as the body hash for requests with no body (GET, DELETE, HEAD).
 const emptyBodyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
+const (
+	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
+	clusterUnsignedPayloadHash = "UNSIGNED-PAYLOAD"
+)
+
 // readAndHashBody drains req.Body, restores it, and returns the hex SHA-256.
 // Returns emptyBodyHash for nil bodies.
 func readAndHashBody(req *http.Request) string {
+	if req.Header.Get(clusterBodySHA256Header) == clusterUnsignedPayloadHash {
+		return clusterUnsignedPayloadHash
+	}
 	if req.Body == nil {
 		return emptyBodyHash
 	}
@@ -148,4 +156,3 @@ func computeSignature(nodeToken, method, path, timestamp, nonce, bodyHash string
 	h.Write([]byte(payload))
 	return hex.EncodeToString(h.Sum(nil))
 }
-

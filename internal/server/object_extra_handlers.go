@@ -33,12 +33,6 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectUpload, "You do not have permission to upload objects") {
-		return
-	}
-	if !s.requireCapability(w, r, auth.CapObjectDelete, "You do not have permission to delete objects") {
-		return
-	}
 
 	var req struct {
 		NewKey string `json:"newKey"`
@@ -50,6 +44,15 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 	req.NewKey = strings.TrimSpace(req.NewKey)
 	if req.NewKey == objectKey {
 		s.writeError(w, "New key is the same as the current key", http.StatusBadRequest)
+		return
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject, "You do not have permission to read objects") {
+		return
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, req.NewKey, auth.ActionPutObject, "You do not have permission to upload objects") {
+		return
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObject, "You do not have permission to delete objects") {
 		return
 	}
 
@@ -160,6 +163,9 @@ func (s *Server) handleGetObjectTags(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectTagging, "You do not have permission to read object tags") {
+		return
+	}
 	tenantID := s.resolveTenantID(r)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
@@ -190,7 +196,7 @@ func (s *Server) handleSetObjectTags(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectManageTags, "You do not have permission to manage object tags") {
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectTagging, "You do not have permission to manage object tags") {
 		return
 	}
 
@@ -250,6 +256,9 @@ func (s *Server) handleFolderSize(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket, "You do not have permission to list objects") {
+		return
+	}
 
 	tenantID := s.resolveTenantID(r)
 	bucketPath := buildBucketPath(tenantID, bucketName)
@@ -294,6 +303,9 @@ func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request
 	_, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucketVersions, "You do not have permission to list object versions") {
 		return
 	}
 
@@ -360,9 +372,6 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapObjectManageVersions, "You do not have permission to manage object versions") {
-		return
-	}
 
 	var req struct {
 		VersionID      string `json:"versionId"`
@@ -371,6 +380,18 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.VersionID) == "" {
 		s.writeError(w, "Invalid request: versionId is required", http.StatusBadRequest)
 		return
+	}
+	if req.IsDeleteMarker {
+		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObjectVersion, "You do not have permission to manage object versions") {
+			return
+		}
+	} else {
+		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectVersion, "You do not have permission to read object versions") {
+			return
+		}
+		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to restore object versions") {
+			return
+		}
 	}
 
 	tenantID := user.TenantID

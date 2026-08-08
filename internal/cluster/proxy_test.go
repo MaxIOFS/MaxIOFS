@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type readCountingReader struct {
+	data  *strings.Reader
+	reads int
+}
+
+func (r *readCountingReader) Read(p []byte) (int, error) {
+	r.reads++
+	return r.data.Read(p)
+}
+
 func TestProxyClient_ProxyRequest(t *testing.T) {
 	// Create mock target server
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +67,59 @@ func TestProxyClient_ProxyRequest(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, `{"status":"ok"}`, string(body))
+}
+
+func TestProxyClient_ProxyRequest_PreservesContentLength(t *testing.T) {
+	payload := strings.Repeat("x", 8192)
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, int64(len(payload)), r.ContentLength)
+
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, payload, string(body))
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer targetServer.Close()
+
+	node := &Node{
+		ID:       "test-node-1",
+		Name:     "Test Node 1",
+		Endpoint: targetServer.URL,
+	}
+
+	originalReq, err := http.NewRequest("PUT", "http://localhost:8080/bucket/object", io.NopCloser(strings.NewReader(payload)))
+	require.NoError(t, err)
+	originalReq.ContentLength = int64(len(payload))
+
+	proxyClient := NewProxyClient(nil)
+	resp, err := proxyClient.ProxyRequest(context.Background(), node, originalReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
+func TestProxyClient_CreateAuthenticatedRequest_DoesNotDrainStreamingBody(t *testing.T) {
+	body := &readCountingReader{data: strings.NewReader("streaming payload")}
+	proxyClient := NewProxyClient(nil)
+
+	req, err := proxyClient.CreateAuthenticatedRequest(
+		context.Background(),
+		http.MethodPut,
+		"http://node.local/api/internal/cluster/ha/objects/key",
+		body,
+		"node-1",
+		"node-token",
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, body.reads)
+	assert.Equal(t, clusterUnsignedPayloadHash, req.Header.Get(clusterBodySHA256Header))
+
+	data, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "streaming payload", string(data))
 }
 
 func TestProxyClient_ProxyRequest_ServerError(t *testing.T) {
@@ -148,6 +211,7 @@ func TestCopyHeaders(t *testing.T) {
 		"Content-Type":      []string{"application/json"},
 		"X-Custom":          []string{"value1", "value2"},
 		"Connection":        []string{"keep-alive"}, // hop-by-hop
+		"connection":        []string{"close"},      // hop-by-hop with non-canonical casing
 		"Transfer-Encoding": []string{"chunked"},    // hop-by-hop
 		"Authorization":     []string{"Bearer token"},
 	}
@@ -166,6 +230,7 @@ func TestCopyHeaders(t *testing.T) {
 	// Hop-by-hop headers should NOT be copied
 	assert.Empty(t, dst.Get("Connection"))
 	assert.Empty(t, dst.Get("Transfer-Encoding"))
+	assert.NotContains(t, dst, "connection")
 }
 
 func TestIsHopByHopHeader(t *testing.T) {
@@ -174,13 +239,18 @@ func TestIsHopByHopHeader(t *testing.T) {
 		expected bool
 	}{
 		{"Connection", true},
+		{"connection", true},
 		{"Keep-Alive", true},
+		{"keep-alive", true},
 		{"Proxy-Authenticate", true},
 		{"Proxy-Authorization", true},
 		{"Te", true},
+		{"te", true},
 		{"Trailers", true},
 		{"Transfer-Encoding", true},
+		{"transfer-encoding", true},
 		{"Upgrade", true},
+		{"upgrade", true},
 		{"Content-Type", false},
 		{"Authorization", false},
 		{"X-Custom-Header", false},

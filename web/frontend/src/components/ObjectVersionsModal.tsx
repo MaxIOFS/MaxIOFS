@@ -80,29 +80,23 @@ export function ObjectVersionsModal({
 
   const handleDownloadVersion = async (versionId: string) => {
     try {
-      ModalManager.loading('Downloading version...', `Downloading version ${versionId}`);
-
-      const blob = await APIClient.downloadObject({
+      // Streams to disk through the browser, and actually asks for the version
+      // requested — the previous call passed versionId to a URL that never
+      // carried it, so an older version silently downloaded as the current one.
+      const url = await APIClient.getObjectDownloadURL({
         bucket: bucketName,
         key: objectKey,
         tenantId,
         versionId,
       });
 
-      ModalManager.close();
-
-      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = objectKey.split('/').pop() || objectKey;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      ModalManager.toast('success', 'Version downloaded successfully');
     } catch (error: unknown) {
-      ModalManager.close();
       ModalManager.apiError(error);
     }
   };

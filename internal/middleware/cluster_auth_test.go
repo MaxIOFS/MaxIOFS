@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,6 +85,41 @@ func TestClusterAuth_ValidSignature(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.True(t, handlerCalled, "Next handler should have been called")
+}
+
+func TestClusterAuth_UnsignedPayloadDoesNotDrainBody(t *testing.T) {
+	db := setupClusterAuthTestDB(t)
+	defer db.Close()
+
+	nodeID := "test-node-stream"
+	nodeToken := "secret-token-12345"
+	insertTestNode(t, db, nodeID, "stream-node", nodeToken, "healthy")
+
+	middleware := NewClusterAuthMiddleware(db)
+
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	nonce := "test-nonce-stream"
+	signature := computeSignature(nodeToken, "PUT", "/api/internal/cluster/ha/objects/key", timestamp, nonce, clusterUnsignedPayloadHash)
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "streaming payload", string(body))
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("PUT", "/api/internal/cluster/ha/objects/key", strings.NewReader("streaming payload"))
+	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
+	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+	req.Header.Set("X-MaxIOFS-Nonce", nonce)
+	req.Header.Set("X-MaxIOFS-Signature", signature)
+	req.Header.Set(clusterBodySHA256Header, clusterUnsignedPayloadHash)
+	w := httptest.NewRecorder()
+
+	handler := middleware.ClusterAuth(nextHandler)
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestClusterAuth_InvalidSignature(t *testing.T) {
@@ -581,4 +618,3 @@ func TestGetNodeToken(t *testing.T) {
 	_, err = middleware.getNodeToken(context.Background(), removedNodeID)
 	assert.Error(t, err, "Should not find token for removed node")
 }
-
