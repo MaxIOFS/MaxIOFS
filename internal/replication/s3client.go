@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/maxiofs/maxiofs/internal/transfer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -130,9 +131,19 @@ func NewS3RemoteClient(endpoint, region, accessKey, secretKey string, allowInter
 		transport.DialContext = ssrfBlockingReplicationDialer()
 	}
 
+	// No overall Timeout: this client uploads and downloads object data, and
+	// http.Client.Timeout covers the body, so any value it holds is a maximum
+	// object size. The 120 seconds it used to carry made every object larger
+	// than two minutes of bandwidth permanently unreplicable — and since a
+	// replication target is usually remote, that ceiling is low and the failure
+	// is silent, repeating identically on every retry because the object does
+	// not get smaller.
+	//
+	// A target that stops responding is still cut, by progress instead: the
+	// transfer is cancelled once it has moved nothing for the stall window,
+	// whatever its size or how long it has been running.
 	httpClient := &http.Client{
-		Transport: transport,
-		Timeout:   120 * time.Second,
+		Transport: &transfer.Transport{Base: transport, Stall: transfer.DefaultStallTimeout},
 		// Block redirects to prevent redirect-based SSRF bypass.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return fmt.Errorf("replication client does not follow redirects")

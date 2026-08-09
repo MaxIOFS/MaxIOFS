@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/transfer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,8 +81,9 @@ func NewDynamicProxyClient(getTLS func() *tls.Config) *ProxyClient {
 //
 // A node that has stopped answering still has to fail quickly, and that is what
 // the transport bounds: reaching it, negotiating TLS, and receiving the response
-// headers. After the headers arrive the transfer takes as long as it takes, and
-// the request context cancels it if the caller gives up.
+// headers. Once the headers arrive the transfer is bounded by PROGRESS instead
+// — see internal/transfer — so an object that keeps moving is never cut however
+// long it needs, while one that has gone silent does not hold the request open.
 func buildHTTPClient(tlsCfg *tls.Config) *http.Client {
 	transport := &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -182,9 +184,11 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
 	proxyReq.Header.Set("X-MaxIOFS-Proxy-Node", node.ID)
 
-	// Execute request
+	// Execute request. Bounded by progress rather than by elapsed time: a large
+	// object may legitimately take hours, but a peer that has gone silent
+	// mid-transfer must not hold the request open indefinitely.
 	startTime := time.Now()
-	resp, err := p.getHTTPClient().Do(proxyReq)
+	resp, err := transfer.Do(p.getHTTPClient(), proxyReq, transfer.DefaultStallTimeout)
 	duration := time.Since(startTime)
 
 	if err != nil {

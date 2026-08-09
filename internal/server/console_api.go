@@ -30,6 +30,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/settings"
+	"github.com/maxiofs/maxiofs/internal/transfer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -1426,7 +1427,9 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	// Mark as proxied to prevent loops
 	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
 
-	resp, err := consoleProxyClient.Do(proxyReq)
+	// Bounded by progress, not by elapsed time: an object may take as long as it
+	// takes, but a node that falls silent mid-transfer is cut.
+	resp, err := transfer.Do(consoleProxyClient, proxyReq, transfer.DefaultStallTimeout)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
