@@ -52,7 +52,10 @@ func NewBucketPermissionSyncManager(db *sql.DB, clusterManager *Manager) *Bucket
 // Start begins the bucket permission synchronization loop
 func (m *BucketPermissionSyncManager) Start(ctx context.Context) {
 	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
+	// The proxy client is installed by the constructor with the same dynamic
+	// getter, so re-creating it here bought nothing — and it was a plain
+	// pointer write performed from the initialize/join HTTP handlers while
+	// both servers were already serving and other goroutines were reading it.
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "bucket_permission_sync_interval_seconds")

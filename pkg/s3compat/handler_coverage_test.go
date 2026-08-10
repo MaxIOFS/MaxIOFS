@@ -452,78 +452,8 @@ func TestCheckPublicObjectAccess_FallbackToBucket(t *testing.T) {
 }
 
 // ============================================
-// Tests for checkAuthenticatedBucketAccess (0% coverage)
-// ============================================
-
-func TestCheckAuthenticatedBucketAccess_NoACL(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "auth-access-bucket", env.userID)
-	require.NoError(t, err)
-
-	// Check authenticated access (default ACL doesn't allow authenticated users group)
-	hasAccess := env.handler.checkAuthenticatedBucketAccess(ctx, env.tenantID, "auth-access-bucket", acl.PermissionRead)
-
-	// Default bucket ACL should not allow authenticated users access
-	assert.False(t, hasAccess)
-}
-
-func TestCheckAuthenticatedBucketAccess_NonexistentBucket(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Check access for non-existent bucket
-	hasAccess := env.handler.checkAuthenticatedBucketAccess(ctx, env.tenantID, "nonexistent-bucket", acl.PermissionRead)
-	assert.False(t, hasAccess)
-}
 
 // ============================================
-// Tests for userHasBucketPermission (0% coverage)
-// ============================================
-
-func TestUserHasBucketPermission_WithAuthManager(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "permission-bucket", env.userID)
-	require.NoError(t, err)
-
-	// Test permission check
-	hasPermission := env.handler.userHasBucketPermission(nil, env.tenantID, "permission-bucket", env.userID)
-
-	// With auth manager, should check bucket access
-	// Default behavior may vary based on authManager implementation
-	assert.NotNil(t, hasPermission) // Just checking function executes
-}
-
-func TestUserHasBucketPermission_NilAuthManager(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "nil-auth-bucket", env.userID)
-	require.NoError(t, err)
-
-	// Remove auth manager
-	env.handler.authManager = nil
-
-	// Test permission check without auth manager
-	hasPermission := env.handler.userHasBucketPermission(nil, env.tenantID, "nil-auth-bucket", "some-user")
-
-	// Should fall back to policy check
-	assert.False(t, hasPermission)
-}
 
 // ============================================
 // Tests for checkBucketPolicyPermission (0% coverage)

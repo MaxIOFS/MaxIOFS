@@ -44,6 +44,16 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// This handler authorized nothing, so it served a ZIP of any bucket to any
+	// session — the bulk-read path standing beside every per-action guard the
+	// console gained. It enumerates and then reads, so it needs both
+	// permissions; the read is checked per object below, during enumeration,
+	// because a caller granted only part of a prefix must not receive the rest.
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
+		"You do not have permission to list this bucket") {
+		return
+	}
+
 	tenantID := user.TenantID
 	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
 		tenantID = q
@@ -72,6 +82,16 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 			// Skip folder markers (virtual directories)
 			if strings.HasSuffix(obj.Key, "/") && obj.Size == 0 {
 				continue
+			}
+			// Refused rather than skipped: a ZIP quietly missing the files the
+			// caller may not read looks like a complete archive of a smaller
+			// folder, and a backup taken from it would be short without saying so.
+			if !s.userCanPerformConsoleS3Action(r, user,
+				s.resolveConsoleBucketTenantID(r, bucketName, user),
+				auth.ActionGetObject, consoleObjectARN(bucketName, obj.Key)) {
+				s.writeError(w, "You do not have permission to download every object in this folder",
+					http.StatusForbidden)
+				return
 			}
 			entries = append(entries, zipEntry{key: obj.Key, size: obj.Size, modified: obj.LastModified})
 			totalSize += obj.Size

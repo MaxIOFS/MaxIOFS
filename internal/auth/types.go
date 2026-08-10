@@ -252,6 +252,37 @@ const (
 	ActionGetBucketObjectLockConfiguration = "s3:GetBucketObjectLockConfiguration"
 	ActionPutBucketObjectLockConfiguration = "s3:PutBucketObjectLockConfiguration"
 
+	// Bucket subresources that had no action of their own and were therefore
+	// guarded by an unrelated one — encryption by the CORS permission, logging
+	// and website by lifecycle, notification by bucket-policy, and so on. A
+	// single grant then silently conferred several unrelated configurations,
+	// and the borrowed name gave no way to grant one without the other.
+	//
+	// Replication deserves its own for a second reason: a replication rule
+	// names where a bucket's contents are copied TO, so writing one is the
+	// power to send the data somewhere else.
+	ActionGetBucketReplication  = "s3:GetBucketReplication"
+	ActionPutBucketReplication  = "s3:PutBucketReplication"
+	ActionGetBucketEncryption   = "s3:GetEncryptionConfiguration"
+	ActionPutBucketEncryption   = "s3:PutEncryptionConfiguration"
+	ActionGetBucketLogging      = "s3:GetBucketLogging"
+	ActionPutBucketLogging      = "s3:PutBucketLogging"
+	ActionGetBucketWebsite      = "s3:GetBucketWebsite"
+	ActionPutBucketWebsite      = "s3:PutBucketWebsite"
+	ActionDeleteBucketWebsite   = "s3:DeleteBucketWebsite"
+	ActionGetBucketNotification = "s3:GetBucketNotification"
+	ActionPutBucketNotification = "s3:PutBucketNotification"
+	ActionGetBucketPublicAccess = "s3:GetBucketPublicAccessBlock"
+	ActionPutBucketPublicAccess = "s3:PutBucketPublicAccessBlock"
+	ActionGetBucketOwnership    = "s3:GetBucketOwnershipControls"
+	ActionPutBucketOwnership    = "s3:PutBucketOwnershipControls"
+	ActionGetBucketInventory    = "s3:GetInventoryConfiguration"
+	ActionPutBucketInventory    = "s3:PutInventoryConfiguration"
+	ActionGetAccelerate         = "s3:GetAccelerateConfiguration"
+	ActionPutAccelerate         = "s3:PutAccelerateConfiguration"
+	ActionGetRequestPayment     = "s3:GetBucketRequestPayment"
+	ActionPutRequestPayment     = "s3:PutBucketRequestPayment"
+
 	// ListBucketMultipartUploads covers GET /bucket?uploads (the in-flight
 	// multipart uploads of a bucket, not the parts of one upload).
 	ActionListBucketMultipartUploads = "s3:ListBucketMultipartUploads"

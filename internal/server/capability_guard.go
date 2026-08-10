@@ -31,38 +31,26 @@ func (s *Server) requireCapability(w http.ResponseWriter, r *http.Request, capab
 	return false
 }
 
+// containsAdminRole reports whether a role selection confers administration.
+//
+// Both administrator role names count: the role name is not what scopes an
+// administrator — the tenant is — so handing either one out inside a tenant is
+// still handing out administration.
+func containsAdminRole(roles []string) bool {
+	for _, role := range roles {
+		if role == auth.RoleAdmin || role == auth.RoleTenantAdmin {
+			return true
+		}
+	}
+	return false
+}
+
 func consoleBucketARN(bucketName string) string {
 	return "arn:aws:s3:::" + bucketName
 }
 
 func consoleObjectARN(bucketName, objectKey string) string {
 	return consoleBucketARN(bucketName) + "/" + objectKey
-}
-
-func consoleS3ReadAction(action string) bool {
-	switch action {
-	case auth.ActionListBucket,
-		auth.ActionListBucketVersions,
-		auth.ActionGetBucketLocation,
-		auth.ActionGetBucketVersioning,
-		auth.ActionGetBucketPolicy,
-		auth.ActionGetBucketLifecycle,
-		auth.ActionGetBucketCORS,
-		auth.ActionGetBucketAcl,
-		auth.ActionGetBucketTagging,
-		auth.ActionGetBucketObjectLockConfiguration,
-		auth.ActionListBucketMultipartUploads,
-		auth.ActionGetObject,
-		auth.ActionGetObjectVersion,
-		auth.ActionGetObjectAcl,
-		auth.ActionGetObjectTagging,
-		auth.ActionGetObjectRetention,
-		auth.ActionGetObjectLegalHold,
-		auth.ActionListMultipartUploadParts:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *Server) resolveConsoleBucketTenantID(r *http.Request, bucketName string, user *auth.User) string {
@@ -84,9 +72,22 @@ func (s *Server) userCanPerformConsoleS3Action(r *http.Request, user *auth.User,
 	if user == nil {
 		return false
 	}
+	// The console is the administration surface, and a global administrator
+	// administers it — including a tenant's buckets, which is what the console
+	// has always allowed and what managing tenants requires.
+	//
+	// This is deliberately NOT the rule the S3 path applies. There a super
+	// administrator crossing into a tenant may read and not write
+	// (userCanPerformS3ActionInTenant, pinned by tenant_boundary_test.go),
+	// because that path serves data rather than administers it.
+	//
+	// The read-only rule was applied here too, and unconditionally, so it also
+	// refused a global administrator every write in their OWN space — creating
+	// or deleting a bucket included. The console answered the principal
+	// administrator 403 on the most ordinary operation it has.
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if isGlobalAdmin {
-		return consoleS3ReadAction(action)
+		return true
 	}
 	if user.TenantID != bucketTenantID {
 		return false

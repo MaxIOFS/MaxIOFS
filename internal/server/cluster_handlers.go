@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -662,7 +663,18 @@ func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Get replication rules for this bucket
+	// This endpoint had no check of any kind and returned the rules verbatim,
+	// destination credentials included. GetRulesForBucket filters by bucket
+	// name only — with no tenant predicate — so a caller in one tenant received
+	// another tenant's replication credentials in plaintext.
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketReplication,
+		"You do not have permission to read replication rules for this bucket") {
+		return
+	}
+
+	user, _ := auth.GetUserFromContext(r.Context())
+	bucketTenantID := s.resolveConsoleBucketTenantID(r, bucketName, user)
+
 	rules, err := s.replicationManager.GetRulesForBucket(r.Context(), bucketName)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get replication rules")
@@ -670,10 +682,35 @@ func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Reshaped rather than returned as-is: the rule struct carries the
+	// destination secret, and a response is not the place to decide field by
+	// field what may be seen. Only what a replica view needs is sent.
+	type replicaView struct {
+		ID                  string `json:"id"`
+		SourceBucket        string `json:"source_bucket"`
+		DestinationEndpoint string `json:"destination_endpoint"`
+		DestinationBucket   string `json:"destination_bucket"`
+		Enabled             bool   `json:"enabled"`
+	}
+
+	views := make([]replicaView, 0, len(rules))
+	for _, rule := range rules {
+		if rule.TenantID != bucketTenantID {
+			continue
+		}
+		views = append(views, replicaView{
+			ID:                  rule.ID,
+			SourceBucket:        rule.SourceBucket,
+			DestinationEndpoint: rule.DestinationEndpoint,
+			DestinationBucket:   rule.DestinationBucket,
+			Enabled:             rule.Enabled,
+		})
+	}
+
 	s.writeJSON(w, map[string]interface{}{
 		"bucket": bucketName,
-		"rules":  rules,
-		"total":  len(rules),
+		"rules":  views,
+		"total":  len(views),
 	})
 }
 

@@ -1,12 +1,299 @@
 # MaxIOFS - Development Roadmap
 
-**Last Updated**: August 3, 2026
+**Last Updated**: August 9, 2026
 
 > This file tracks ONLY work in progress and pending work. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## 🔵 In Progress — IAM/STS (implemented, validation pending)
+## 🔴 BLOCKER — the IAM/STS migration was not finished
+
+The premise of the migration was stated plainly: **IAM is the authorization
+model, there is one permission system, and nothing in the request path decides
+by role, by tenant membership or by ACL for an authenticated caller.** The
+handlers that were converted do that. A large number were never converted, and
+the work was reported as complete anyway.
+
+Almost everything below is a place the migration did not reach, plus defects
+introduced while doing it. It is listed here rather than in the changelog
+because none of it is fixed.
+
+**v1.6.0 cannot ship until at least the bypasses are closed.** An installation
+running this build is not protected by the permission model its console
+displays.
+
+### Complete authorization bypasses — no check of any kind
+
+- [x] **`SelectObjectContent` authorizes nothing at all** (`pkg/s3compat/select.go`).
+  Not one call to `GetUserFromContext`, `userCanPerformS3ActionInTenant` or
+  `requireObjectS3Action` exists in the file. It resolves the bucket by bare
+  name across the whole metadata store, so there is no tenant boundary either.
+  Reproduced: the same credential gets `403` on `GetObject` and `200` with the
+  object contents through `POST /{bucket}/{object}?select`. Any authenticated
+  credential reads any CSV/JSON object in the deployment.
+- [x] **`handleDownloadZip` authorizes nothing at all**
+  (`internal/server/download_zip_handler.go`). Reproduced: `403` from
+  `handleGetObject`, `200` and a real ZIP of the whole bucket from the
+  download-zip route beside it. Every per-action guard added to the console is
+  bypassed by the bulk-read path.
+- [x] **`HandlePresignedPost` verifies the signature and then writes with no
+  permission check** (`pkg/s3compat/presigned.go:876`). It resolves the user
+  into the context with a comment saying "for permission checks" and never
+  performs one. Any holder of a valid access key can craft a self-signed POST
+  policy and upload into any bucket.
+- [x] **`handleUpdateBucketOwner` requires only a session**
+  (`internal/server/console_api.go:5127`). Reproduced: a user with no
+  permissions makes themselves the owner of anyone's bucket.
+- [x] **Replication endpoints require only a session**
+  (`internal/server/console_api_replication.go`). Reproduced: a user with an
+  empty policy set creates a rule with an arbitrary destination, and the worker
+  then copies the bucket out with server privileges. The same handlers return
+  `destination_secret_key` in plaintext, and `handleGetBucketReplicas`
+  (`cluster_handlers.go:661`) leaks those credentials **across tenants** with no
+  check at all.
+
+### Privilege escalation
+
+- [x] **A tenant administrator can take over the global administrator account.**
+  `handleChangePassword` (`console_api.go:4067`) scans for `role == "admin"`
+  with no tenant comparison — the exact thing `isGlobalAdmin` exists to prevent
+  — and skips the current-password requirement when the target is someone else.
+  `handleCreateUser` performs no role validation, so a tenant admin can mint an
+  `admin` inside their own tenant to get there. Reproduced end to end: the
+  global administrator's password is changed and `VerifyPassword` confirms it.
+- [x] **Multipart authorizes one key and operates on another.** `UploadPart`,
+  `ListParts`, `CompleteMultipartUpload` and `AbortMultipartUpload` check the
+  URL's bucket and key, then pass only `uploadID` to the object manager, which
+  never verifies the upload belongs to them. Reproduced with a caller explicitly
+  denied on the victim: list `200`, upload part `200`, abort `204` and the
+  victim's upload destroyed. `Complete` writes to the destination recorded in
+  the upload metadata — a bucket the caller holds nothing on. A single ownership
+  assertion fixes all four.
+- [ ] **User permissions are readable and writable across tenants**
+  (`iam_console_handlers.go:452`). `permissionStore` accepts any admin, and
+  neither handler compares the target's tenant to the caller's. A tenant admin
+  reads and rewrites another tenant's users' permissions.
+- [ ] **`handleShareObject` accepts an attacker-supplied `?tenantId`**
+  (`console_api.go:2504`) and checks no read permission. A share makes the
+  object anonymously readable over S3, so this is a permanent public link to
+  another tenant's object. Its two sibling handlers carry the global-admin gate
+  this one is missing.
+
+### Authorization still decided by the old model
+
+- [x] **The ACL / `AuthenticatedUsers` cascade still overrides IAM for
+  authenticated callers** on DELETE (`handler.go:2996`, used by `DeleteObject`
+  and batch `DeleteObjects`) and `HeadBucket` (`:886`). Reproduced: a caller the
+  policies explicitly deny is allowed by an `AuthenticatedUsers` grant. Any
+  bucket ever set to `authenticated-read` hands delete to every credential in
+  the deployment. The same cascade sits in three more validators.
+- [x] **`ListBuckets` decides by role and tenant membership**
+  (`handler.go:478`) — the last `IsAdminUser` in the package — and
+  `s3:ListAllMyBuckets` is catalogued but enforced nowhere, so it is grantable
+  and grants nothing.
+- [x] **Bucket listings never consult the policies.**
+  `FilterBucketsByPermissions` (`internal/bucket/filter.go`) decides by role
+  `admin`, by ownership and by `CheckBucketAccess`, which reads the legacy
+  `bucket_permissions` table that is no longer consulted when authorizing. A
+  bucket granted purely through IAM is invisible in both the console and the S3
+  listing while its objects are fully accessible.
+- [ ] **SOSAPI virtual objects**: the tenant guard is one-directional on
+  `GetObject` (`handler.go:2835`) and absent on `HeadObject` (`:1723`), with no
+  policy check on either. Leaks per-tenant capacity and quota figures.
+- [ ] **Cross-tenant bucket inventory** (`cluster_handlers.go:593`) reads
+  `tenant_id` from a context key the console middleware never sets, so it is
+  always empty and the handler lists every tenant's buckets with counts and
+  sizes.
+
+### Permissions that do not mean what the console says
+
+- [x] **A policy-only grant cannot read an object.**
+  `validateObjectReadPermission` (`handler.go:3395`) still requires an explicit
+  ACL for any authenticated caller, after the policy check has already passed.
+  Reproduced: a user holding `s3:GetObject` on the bucket gets `403`. The IAM
+  read path does not work for anyone who is not the owner. Also breaks
+  `CopyObject` and `UploadPartCopy` on their source object.
+- [ ] **Tenant administrators silently lost permissions, and role policies are
+  ignored for them.** `EffectivePolicyDocumentsInTenant` substitutes a hardcoded
+  `tenantAdminDocument()` and **skips the role's IAM-attached policies**
+  entirely. That hardcoded list omits both Object Lock configuration actions,
+  `s3:BypassGovernanceRetention` and `iam:*`. So a tenant admin cannot read or
+  set immutability configuration at all, and anything an operator attaches to or
+  revokes from a role has no effect on any user who has a tenant. Both halves
+  reproduced.
+- [ ] **Object subresources ignore `versionId`** and check the current-object
+  action: attributes, tagging, retention, legal hold and ACL. A grant of
+  `s3:GetObject` alone reads any historical version, bypassing
+  `s3:GetObjectVersion`. `CopyObject`/`UploadPartCopy` take the source version
+  from a header the check never looks at.
+- [x] **Bucket subresources borrow unrelated permissions** because no catalogued
+  action exists for them: encryption is gated by `s3:PutBucketCORS`; logging,
+  replication, website and inventory by lifecycle actions; notification and
+  public-access-block by bucket-policy actions; ownership controls by ACL
+  actions. One lifecycle grant silently confers four unrelated configurations.
+- [x] **Ownership transfer moves no permission.** `handleUpdateBucketOwner`
+  writes the owner fields and never touches the owner policy, so the new owner
+  gets nothing and the previous one keeps everything.
+- [ ] **The permissions screen bakes inherited permissions into the user.**
+  `GetUserPermissions` resolves *effective* permissions (role, tenant, group,
+  owner) while `SetUserPermissions` stores whatever comes back as the user's own
+  direct grants. Opening any user's screen and pressing Save converts their
+  role-derived permissions into permanent ones that survive losing the role. The
+  same call deletes every `bucket-*` grant while leaving the legacy
+  `bucket_permissions` row in place, so the console keeps displaying a grant
+  that authorizes nothing.
+- [ ] **Bucket-permission changes do not replicate as authorization.** Grants
+  and revocations trigger only the legacy `bucket_permission` sync, which
+  carries a table nobody reads at request time, and no tombstone is recorded
+  when the inline policy is deleted. Because the IAM receiver upserts
+  unconditionally, a peer pushes the revoked policy back and access returns
+  cluster-wide. The same mechanism resurrects `owner-<bucket>` after a bucket is
+  deleted, which is exactly what `RevokeBucketPolicies` exists to prevent.
+  Additionally `IAMSyncManager.Start` returns without starting unless
+  `auto_access_key_sync_enabled` is true — authorization data now rides on a
+  flag meant for access keys.
+- [ ] Dead writes to `user_capability_overrides` remain in the user sync path;
+  those rows authorize nothing now.
+
+### Fixed in this pass, recorded for the record
+
+- [x] **The console refused a global administrator every write, everywhere.**
+  The per-action console guard applied its "may only read" rule to every global
+  administrator rather than only to one reaching INTO a tenant, so creating or
+  deleting a bucket in the global namespace answered 403 — and
+  `TestHandleCreateBucket` had its assertion changed from 200 to 403 in the same
+  commit, with a comment rationalising it, instead of the guard being fixed.
+  Restored, and the two surfaces are now explicitly different: the console is
+  the administration surface and a global administrator administers it, while
+  the S3 path keeps the read-only-when-crossing rule that
+  `tenant_boundary_test.go` pins.
+
+### Regressions introduced while doing the migration
+
+- [x] **Two of three cluster proxy entry points lost every timeout.** Removing
+  `http.Client.Timeout` from the shared client was correct — it was a file-size
+  limit in disguise — but only `ProxyRequest` was converted to the progress
+  watchdog. `ProxyToNodeAPIURL` (the S3 data path) and `DoAuthenticatedRequest`
+  (~45 call sites: HA sync, anti-entropy, migration, reconciliation) now call
+  `.Do()` with **no bound at all**. `ResponseHeaderTimeout` covers only the
+  headers, so a peer that answers `200` and then falls silent wedges the caller
+  forever, on contexts that carry no deadline.
+- [x] **`proxyBucketRequest` falls through to local handling with a consumed
+  body** (`pkg/s3compat/handler.go:340`) — the defect that was fixed in the
+  console proxy and left here. Reproduced: after a failed forward the body reads
+  zero bytes with a `nil` error, so `PutObject` **stores a 0-byte object and
+  returns 200**. The client is told the upload succeeded.
+- [ ] **A download token is accepted on four sibling GET routes** when the
+  object key is literally `acl`, `tags`, `versions` or `legal-hold`
+  (`download_token.go:62`). The suffix test was written as though it matched the
+  route; it matches the path. Bounded — same bucket, same key, GET only, and
+  those handlers still check permissions — but wider than documented.
+- [ ] **The `versionId` fix was applied to one of two call sites.**
+  `ObjectVersionsModal.tsx` was corrected; the identical download button on the
+  bucket page's Versions tab (`pages/buckets/[bucket]/index.tsx:1720`) still
+  downloads the current version under the older version's name.
+- [ ] `transfer.Transport` leaves `req.GetBody` pointing at the unwrapped body,
+  so a transport-level retry uploads without stamping the progress clock.
+- [ ] `APIClient.fetchObjectBlob` has no callers and drops `versionId`, while
+  its comment advertises reading a specific version.
+- [ ] `downloadFolderAsZip` still buffers the whole archive in memory — the case
+  the single-object download was converted away from, and typically larger.
+- [ ] Orphaned i18n keys `downloadingFile` / `downloadingKey` in all 9 locales.
+
+### Not from this migration — pre-existing, surfaced in the same pass
+
+Unrelated to IAM/STS, recorded here so they are not lost.
+
+- [x] **A lost `.metadata` sidecar makes `GetObject` serve raw ciphertext with
+  HTTP 200.** `GetMetadata` falls back to `generateBasicMetadata`, which has no
+  `encrypted` key, so decryption is skipped and the ciphertext is streamed with
+  a `nil` error under the plaintext `Size`/`ETag`. Reproduced: 1312 bytes of
+  AES-GCM served under `Content-Length: 1280`. Reachable when
+  `repairStagedCommit`'s roll-forward rename fails persistently — its own log
+  says the object "stays unreadable", but it is readable as garbage. Must fail
+  closed: basic metadata cannot distinguish a legacy plaintext object from an
+  encrypted one that lost its DEK.
+- [x] **The storage backend never calls `fsync`.** `Sync()` appears zero times
+  in `internal/storage`: not on the data file, not on the sidecar, not on the
+  directory after either rename, and `tempFile.Close()`'s error is discarded.
+  Since v1.5.2 Pebble fsyncs its WAL every second, so metadata is durable while
+  the bytes and the sidecar carrying the DEK are not — after a power cut Pebble
+  confidently reports objects whose data may be zero-length, which is the
+  finding above at scale. The two-phase sidecar commit protects ordering and
+  assumes a durability nothing provides.
+- [x] **Data race on `cluster.Manager.tlsConfig` / `clusterHTTPClient`**
+  (`manager.go:978` writes; `:907`, `:927` and `health.go:212` read).
+  Reproduced under `-race`. `loadTLSConfig` runs from the init/join HTTP
+  handlers while ~20 dynamic proxy clients read the config on every request.
+  `ProxyClient` guards its own rebuild with a mutex, but its input is
+  unsynchronised.
+- [x] **Lost update between `UpdateBucket` and `UpdateBucketMetrics`.**
+  `UpdateBucketMetrics` serialises under the bucket-metrics mutex;
+  `UpdateBucket` writes the same key with no lock. Reproduced: 4-5 of 200
+  increments lost, and in the other direction a bucket setting (quota,
+  versioning, Object Lock) is silently reverted.
+- [x] **Delete paths take no per-key lock**, unlike `PutObject`. Reproduced:
+  bucket size and tenant storage drift after concurrent overwrite/delete. Tenant
+  storage has no clamp and drifts **upward**, consuming real quota until a
+  manual recount — exactly what a retrying backup client produces.
+  `deletePermanently` also swallows `ErrObjectNotFound` and decrements anyway,
+  so two concurrent deletes debit twice.
+- [x] **`DeleteObjectVersion` leaves the main entry pointing at the deleted
+  version** and takes no mutation mutex. `deleteSpecificVersion` repairs it
+  best-effort and returns `nil` on all three failure paths, so the client is
+  told the delete succeeded. The two halves also disagree on durability
+  (`pebble.Sync` vs `commitNoSync`), so a hard kill between them makes the
+  dangling pointer permanent, and non-destructive `Reconcile` will never correct
+  it.
+- [x] **Tenant storage quota is never returned** on versioned deletes or
+  `ForceDeleteBucket` — `DecrementTenantStorage` has exactly one caller, on the
+  non-versioned path — while every new version adds its full size. A tenant
+  using versioning eventually locks itself out at 100% with a fraction actually
+  used.
+- [x] **Goroutine leak on the encrypted-upload error path**
+  (`manager.go:2875`, `:3196`): `FilesystemBackend.Put` returns without draining
+  or closing the pipe, leaving the encryptor blocked in `Write` forever. One
+  leak per upload that fails mid-copy — that is, during a disk-full episode.
+- [ ] `FilesystemBackend.List` returns in-flight and orphaned temp files as
+  objects (`.tmp_*`, `.metadata-tmp-*`, `maxiofs-upload-*`); `Reconcile` already
+  skips all six prefixes. Walk errors are discarded, so an unreadable subtree
+  silently shortens the listing.
+- [x] Zero-byte objects never have their data file deleted: the delete-marker
+  guard tests `Size > 0` instead of `isMetadataDeleteMarker`.
+- [x] Unsynchronised `proxyClient` writes in ten `Start()` methods called from
+  the init/join handlers while both servers are already serving;
+  `LeaderManager.Stop()` panics if called twice; `s.clusterServer` is replaced
+  without synchronisation.
+- [ ] `handleGeneratePresignedURL` has no authorization check, tests for a role
+  `system_admin` that exists nowhere in the repo, and leaks a file handle.
+- [ ] `coordinatorExemptPath` matches substrings rather than path segments, so a
+  bucket named `download` skips the coordinator gate.
+- [ ] TOCTOU on the tenant bucket count, and `UpdateTenant` overwrites the
+  atomic usage counters from a stale snapshot.
+- [ ] Minor: integrity-history lost update; `GetAllLatencyStats` re-locking mid
+  iteration; `metrics.collector` Start/Stop channel race (no production caller);
+  background loops with no stop path in `cluster/cache.go`, `cluster/health.go`
+  (a fresh `http.Transport` per probe, never closed) and
+  `replication/manager.go`.
+
+### Observed, not yet explained
+
+- [ ] `TestBucketPermissionSyncManager_Start` failed once during a full parallel
+  suite run and passed 5/5 in isolation and 2/2 as a package immediately after.
+  Timing-sensitive under load rather than broken, but it will fail CI at random
+  until someone looks at what it waits on.
+
+### CI
+
+- [ ] The test step runs `go test $PKGS -v` with **no `-timeout`**, so the
+  default 600 s per-package budget applies. Locally `internal/cluster`,
+  `internal/server` and `internal/auth` each take 170-190 s without `-race`, and
+  a shared runner is easily 3x slower. This is the most likely cause of the CI
+  failure that could not be reproduced locally. Add `-timeout 20m` and re-run.
+
+---
+
+## 🔵 In Progress — IAM/STS (protocol surface implemented, authorization incomplete — see blocker above)
 
 MaxIOFS speaks both AWS identity protocols on `POST /` of the S3 endpoint:
 **STS** issues short-lived credentials (`ASIA` keys, server-enforced expiry,

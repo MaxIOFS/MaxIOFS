@@ -219,6 +219,12 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The permission above was checked against the URL's key; every operation
+	// below acts on uploadID alone. This ties the two together.
+	if !h.requireUploadTarget(w, r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
+		return
+	}
+
 	// IMPORTANT: Detect UploadPartCopy operation
 	// AWS CLI uses this for copying large files (>5MB) between buckets
 	copySource := r.Header.Get("x-amz-copy-source")
@@ -309,6 +315,12 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: ListParts")
 
 	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionListMultipartUploadParts) {
+		return
+	}
+
+	// The permission above was checked against the URL's key; every operation
+	// below acts on uploadID alone. This ties the two together.
+	if !h.requireUploadTarget(w, r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
 		return
 	}
 
@@ -490,6 +502,31 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// The permission above was checked against the URL's key; the completion
+	// below acts on uploadID alone and assembles the object at the destination
+	// recorded in the upload's own metadata — a bucket and key the caller may
+	// hold nothing on. This ties the two together.
+	//
+	// Reported the way this handler reports everything else: 200 with the error
+	// in the body. It always answers 200 immediately so a large completion
+	// cannot time out a client, and that contract holds for a refusal too.
+	if !h.uploadMatchesTarget(r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(xml.Header)) //nolint:errcheck
+		_ = xml.NewEncoder(w).Encode(struct {
+			XMLName  xml.Name `xml:"Error"`
+			Code     string   `xml:"Code"`
+			Message  string   `xml:"Message"`
+			Resource string   `xml:"Resource"`
+		}{
+			Code:     "NoSuchUpload",
+			Message:  "The specified multipart upload does not exist",
+			Resource: objectKey,
+		})
+		return
+	}
+
 	// Parse the complete multipart upload request
 	var completeRequest CompleteMultipartUploadRequest
 	if err := xml.NewDecoder(r.Body).Decode(&completeRequest); err != nil {
@@ -666,6 +703,12 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The permission above was checked against the URL's key; every operation
+	// below acts on uploadID alone. This ties the two together.
+	if !h.requireUploadTarget(w, r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
+		return
+	}
+
 	// Abort the multipart upload
 	if err := h.objectManager.AbortMultipartUpload(r.Context(), uploadID); err != nil {
 		if err == object.ErrUploadNotFound {
@@ -701,11 +744,19 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	}).Info("UploadPartCopy: Processing copy part")
 
 	user, userExists := auth.GetUserFromContext(r.Context())
-	sourceTenantID := h.resolveBucketTenantID(r, sourceBucket)
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
+	// The source version arrives in x-amz-copy-source, not in the query string,
+	// so the check has to be told about it explicitly — reading the request's
+	// own ?versionId here described the DESTINATION, and a versioned copy was
+	// always authorized as though it were reading the current object.
+	sourceReadAction := auth.ActionGetObject
+	if copySourceVersionID != "" {
+		sourceReadAction = auth.ActionGetObjectVersion
+	}
+	if !h.requireObjectS3ActionOnVersion(w, r, sourceBucket, sourceKey,
+		sourceReadAction, copySourceVersionID) {
 		return
 	}
 	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket, destKey) {
@@ -745,9 +796,6 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	}
 	defer reader.Close()
 
-	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", sourceTenantID, sourceBucketPath, sourceBucket, sourceKey) {
-		return
-	}
 	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
 		return
 	}

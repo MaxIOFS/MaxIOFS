@@ -1239,38 +1239,20 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// STEP 3: Apply permission filtering
+	//
+	// A bucket is listed when the caller may list it, asked of the same policy
+	// set every other console check reads. It used to be decided by the role
+	// name, by ownership, and by CheckBucketAccess — which reads the legacy
+	// bucket_permissions table that is no longer consulted when authorizing. So
+	// a bucket granted purely through IAM was invisible here while every object
+	// in it was perfectly accessible, and a grant revoked in IAM kept the bucket
+	// on screen.
 	var filteredBuckets []bucket.Bucket
-
-	// Global admin = admin role WITHOUT tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-
-	if isGlobalAdmin {
-		// ONLY global admins see all buckets
-		filteredBuckets = allBuckets
-	} else if user.TenantID != "" {
-		// Tenant users (including tenant admins) see only their tenant's buckets
-		for _, b := range allBuckets {
-			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
-				(b.OwnerType == "user" && b.OwnerID == user.ID) {
-				filteredBuckets = append(filteredBuckets, b)
-			}
-		}
-	} else {
-		// Non-admin users without tenant: use permission filtering
-		bucketPointers := make([]*bucket.Bucket, len(allBuckets))
-		for i := range allBuckets {
-			bucketPointers[i] = &allBuckets[i]
-		}
-
-		filteredPointers, err := bucket.FilterBucketsByPermissions(r.Context(), bucketPointers, user.ID, user.Roles, s.authManager)
-		if err != nil {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		filteredBuckets = make([]bucket.Bucket, len(filteredPointers))
-		for i, bp := range filteredPointers {
-			filteredBuckets[i] = *bp
+	for _, b := range allBuckets {
+		bucketTenantID := s.resolveConsoleBucketTenantID(r, b.Name, user)
+		if s.userCanPerformConsoleS3Action(r, user, bucketTenantID,
+			auth.ActionListBucket, consoleBucketARN(b.Name)) {
+			filteredBuckets = append(filteredBuckets, b)
 		}
 	}
 
@@ -2927,6 +2909,16 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		createRequest.Roles = []string{"read"}
 	}
 
+	// Roles were accepted verbatim, so a tenant administrator could mint an
+	// "admin" inside their own tenant — and administration is not scoped by the
+	// role name, only by the checks that read it. Handing out administration is
+	// a global administrator's decision.
+	if !isGlobalAdmin && containsAdminRole(createRequest.Roles) {
+		s.writeError(w, "Only a global administrator can grant the administrator role",
+			http.StatusForbidden)
+		return
+	}
+
 	// Create user (password will be hashed by CreateUser)
 	user := &auth.User{
 		ID:           createRequest.Username,
@@ -3113,6 +3105,15 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		user.Email = *updateRequest.Email
 	}
 	if updateRequest.Roles != nil {
+		// Same rule as creation: promoting someone to administrator is a global
+		// administrator's decision, or a tenant admin could promote a user in
+		// their own tenant and reach everything through them.
+		if !s.isGlobalAdmin(currentUser) && containsAdminRole(updateRequest.Roles) &&
+			!containsAdminRole(user.Roles) {
+			s.writeError(w, "Only a global administrator can grant the administrator role",
+				http.StatusForbidden)
+			return
+		}
 		user.Roles = updateRequest.Roles
 	}
 	if updateRequest.Status != "" {
@@ -4064,14 +4065,12 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if current user is admin
-	isAdmin := false
-	for _, role := range currentUser.Roles {
-		if role == "admin" {
-			isAdmin = true
-			break
-		}
-	}
+	// Whether the caller administers anyone but themselves. This used to be a
+	// bare scan for the "admin" role, which is the same string inside a tenant
+	// as outside it — so a tenant administrator passed it and could reset the
+	// GLOBAL administrator's password, without even supplying the current one.
+	// The tenant is compared below, once the target is known.
+	isAdmin := s.isAdmin(currentUser)
 
 	// Check if user is changing their own password
 	isChangingSelf := currentUser.ID == userID
@@ -4109,6 +4108,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+
+	// A tenant administrator administers their own tenant, nobody else's. Read
+	// after the target is loaded, because the scope depends on who it is: a
+	// tenant admin must not reach a global administrator, and this is the same
+	// guard handleUpdateUser and handleDeleteUser already apply.
+	if !isChangingSelf && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
@@ -5134,11 +5142,22 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	tenantID := user.TenantID
+
+	// Reassigning a bucket decides who holds it, so it is guarded by the
+	// permission that governs who may change access to it. This handler used to
+	// require only a session, which made it a bucket-takeover primitive.
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl,
+		"You do not have permission to change this bucket's owner") {
+		return
+	}
+
+	// The bucket's own tenant, not the caller's: looking it up under the
+	// caller's tenant found nothing for a global administrator.
+	tenantID := s.resolveConsoleBucketTenantID(r, bucketName, user)
 
 	var req struct {
 		OwnerID   string `json:"ownerId"`
-		OwnerType string `json:"ownerType"` // "user" or "tenant"
+		OwnerType string `json:"ownerType"` // "user"
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -5151,8 +5170,10 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.OwnerType != "user" && req.OwnerType != "tenant" {
-		s.writeError(w, "ownerType must be 'user' or 'tenant'", http.StatusBadRequest)
+	// A tenant is a namespace, not a principal: an owner policy written on one
+	// would hand full access to the bucket to every member of that tenant.
+	if req.OwnerType != "user" {
+		s.writeError(w, "ownerType must be 'user'", http.StatusBadRequest)
 		return
 	}
 
@@ -5167,6 +5188,8 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	previousOwnerID, previousOwnerType := bucketInfo.OwnerID, bucketInfo.OwnerType
+
 	// Update owner
 	bucketInfo.OwnerID = req.OwnerID
 	bucketInfo.OwnerType = req.OwnerType
@@ -5175,6 +5198,38 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Ownership is a policy, so moving the owner field alone changed nothing:
+	// the new owner got no access and the previous one kept all of it. The
+	// policy has to move with it.
+	//
+	// Only the previous owner's own `owner-<bucket>` policy is removed, never
+	// every policy naming the bucket — the grants other users hold on it are
+	// not the owner's to revoke.
+	if mover, ok := s.authManager.(interface {
+		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
+		DeleteIAMInlinePolicy(ctx context.Context, targetType, targetID, name string) error
+	}); ok {
+		if previousOwnerID != "" && previousOwnerType == "user" && previousOwnerID != req.OwnerID {
+			if err := mover.DeleteIAMInlinePolicy(r.Context(), auth.IAMTargetUser,
+				previousOwnerID, "owner-"+bucketName); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"bucket": bucketName, "previousOwner": previousOwnerID,
+				}).Warn("Could not remove the previous owner's policy")
+			}
+		}
+		if err := mover.GrantBucketOwnerPolicy(bucketName, req.OwnerType, req.OwnerID); err != nil {
+			// The bucket now records an owner who cannot reach it. Reported
+			// rather than logged: a silent success here is how the console came
+			// to show an owner with no access.
+			logrus.WithError(err).WithField("bucket", bucketName).
+				Error("Failed to grant the new owner's policy")
+			s.writeError(w, "The owner was changed but the new owner could not be granted access",
+				http.StatusInternalServerError)
+			return
+		}
+		s.afterIAMWrite(r.Context())
 	}
 
 	s.writeJSON(w, map[string]interface{}{

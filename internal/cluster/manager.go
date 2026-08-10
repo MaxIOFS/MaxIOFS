@@ -37,11 +37,16 @@ type Manager struct {
 	storage             storage.Backend
 	aclManager          acl.Manager
 	bucketManager       bucketManagerForMigration
-	tlsConfig           *tls.Config
-	clusterHTTPClient   *http.Client
-	currentCert         atomic.Pointer[tls.Certificate]
-	readCounter         uint64 // atomic — round-robin read balancing
-	storagePressureFn   StoragePressureEmitter
+	// Both are replaced at runtime by loadTLSConfig, which runs from the
+	// initialize and join HTTP handlers while every server is already serving —
+	// and they are read on the path of every inter-node request, by ~20 dynamic
+	// proxy clients and by each health tick. Plain pointer fields raced there;
+	// atomics keep the read side free of a lock it would take millions of times.
+	tlsConfig         atomic.Pointer[tls.Config]
+	clusterHTTPClient atomic.Pointer[http.Client]
+	currentCert       atomic.Pointer[tls.Certificate]
+	readCounter       uint64 // atomic — round-robin read balancing
+	storagePressureFn StoragePressureEmitter
 }
 
 // StoragePressureEvent is emitted when a node crosses the storage-pressure
@@ -80,8 +85,8 @@ func NewManager(db *sql.DB, publicAPIURL, clusterURL string) *Manager {
 		healthCheckInterval: 30 * time.Second,
 		stopChan:            make(chan struct{}),
 		log:                 logrus.WithField("component", "cluster-manager"),
-		clusterHTTPClient:   &http.Client{Timeout: 10 * time.Second},
 	}
+	m.clusterHTTPClient.Store(&http.Client{Timeout: 10 * time.Second})
 
 	// Try to load TLS config from DB (if cluster already initialized with certs)
 	if err := m.loadTLSConfig(); err != nil {
@@ -904,7 +909,7 @@ func (m *Manager) GetLocalNodeToken(ctx context.Context) (string, error) {
 // GetTLSConfig returns the cluster TLS config for outbound client connections,
 // or nil if TLS is not configured.
 func (m *Manager) GetTLSConfig() *tls.Config {
-	return m.tlsConfig
+	return m.tlsConfig.Load()
 }
 
 // GetServerTLSConfig returns a TLS config for the cluster server listener.
@@ -924,7 +929,7 @@ func (m *Manager) WaitForNodeReady(ctx context.Context, healthURL string, timeou
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		resp, err := m.clusterHTTPClient.Get(healthURL)
+		resp, err := m.clusterHTTPClient.Load().Get(healthURL)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode < 500 {
@@ -975,13 +980,15 @@ func (m *Manager) loadTLSConfig() error {
 		return fmt.Errorf("failed to build TLS config: %w", err)
 	}
 
-	m.tlsConfig = tlsCfg
-	m.clusterHTTPClient = &http.Client{
+	// Published in this order on purpose: a reader that picks up the new client
+	// must never find the old config still in place behind it.
+	m.tlsConfig.Store(tlsCfg)
+	m.clusterHTTPClient.Store(&http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsCfg,
 		},
-	}
+	})
 
 	return nil
 }

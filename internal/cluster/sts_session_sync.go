@@ -75,7 +75,10 @@ func NewSTSSessionSyncManager(db *sql.DB, clusterManager *Manager) *STSSessionSy
 // sync interval and enable flag: temporary credentials are access keys with a
 // shorter life, and splitting the knobs would only invite them to drift apart.
 func (m *STSSessionSyncManager) Start(ctx context.Context) {
-	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
+	// The proxy client is installed by the constructor with the same dynamic
+	// getter, so re-creating it here bought nothing — and it was a plain
+	// pointer write performed from the initialize/join HTTP handlers while
+	// both servers were already serving and other goroutines were reading it.
 
 	interval := 30
 	if intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds"); err == nil {

@@ -884,7 +884,7 @@ func (h *Handler) GetBucketNotification(w http.ResponseWriter, r *http.Request) 
 	bucketName := vars["bucket"]
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketNotification) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -924,7 +924,7 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketNotification) {
 		return
 	}
 
@@ -989,7 +989,7 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) DeleteBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketNotification) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1040,7 +1040,7 @@ func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketWebsite) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1099,7 +1099,7 @@ func (h *Handler) GetBucketWebsite(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketWebsite) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1162,7 +1162,7 @@ func (h *Handler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketWebsite) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1189,7 +1189,7 @@ func (h *Handler) GetBucketAccelerateConfiguration(w http.ResponseWriter, r *htt
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetAccelerate) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -1203,7 +1203,7 @@ func (h *Handler) PutBucketAccelerateConfiguration(w http.ResponseWriter, r *htt
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutAccelerate) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1214,7 +1214,7 @@ func (h *Handler) GetBucketRequestPayment(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetRequestPayment) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -1230,7 +1230,7 @@ func (h *Handler) PutBucketRequestPayment(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutRequestPayment) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1257,7 +1257,7 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketEncryption) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1294,7 +1294,7 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketEncryption) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1332,7 +1332,7 @@ func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request)
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketCORS) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketEncryption) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1355,7 +1355,7 @@ func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketReplication) {
 		return
 	}
 	h.writeError(w, "ReplicationConfigurationNotFoundError",
@@ -1367,7 +1367,7 @@ func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) {
 		return
 	}
 	h.writeError(w, "NotImplemented",
@@ -1379,7 +1379,7 @@ func (h *Handler) DeleteBucketReplication(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1401,7 +1401,7 @@ func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLogging) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1435,7 +1435,7 @@ func (h *Handler) GetBucketLogging(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLogging) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1488,7 +1488,7 @@ func (h *Handler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPublicAccess) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1523,7 +1523,7 @@ func (h *Handler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPublicAccess) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1557,7 +1557,7 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketPublicAccess) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1594,7 +1594,7 @@ func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketAcl) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketOwnership) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1626,7 +1626,7 @@ func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketOwnership) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1670,7 +1670,7 @@ func (h *Handler) DeleteOwnershipControls(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketOwnership) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)

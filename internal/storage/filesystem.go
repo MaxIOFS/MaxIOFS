@@ -147,7 +147,23 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		return NewErrorWithCause("WriteData", "Failed to write data", err)
 	}
 
-	tempFile.Close()
+	// Force the bytes to the platter before the rename that publishes them.
+	//
+	// Nothing here used to sync anything, so the metadata store — which fsyncs
+	// its WAL every second — could confidently report an object whose bytes were
+	// still only in the page cache. After a power cut that leaves a record
+	// pointing at a file that is short, empty, or missing its sidecar, which is
+	// the "sidecar lost" case at the scale of every object written since the
+	// last flush.
+	if err := tempFile.Sync(); err != nil {
+		return NewErrorWithCause("SyncData", "Failed to flush data to disk", err)
+	}
+
+	// Close is where a delayed write error surfaces; discarding it reported a
+	// successful write for data that never landed.
+	if err := tempFile.Close(); err != nil {
+		return NewErrorWithCause("CloseData", "Failed to close the data file", err)
+	}
 
 	// Add calculated metadata
 	if metadata == nil {
@@ -195,6 +211,18 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		// Data is committed; leave the stage in place so the read-path repair
 		// rolls the metadata commit forward as soon as the rename can succeed.
 		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
+	}
+
+	// Make the two renames themselves durable. Syncing the files puts their
+	// bytes on the platter; syncing the directory is what puts the NAMES that
+	// reach them there — and the whole two-phase scheme reasons about which of
+	// the two renames survived a crash, which is only a meaningful question if
+	// they are durable in the order they were made.
+	//
+	// Reported rather than ignored: the object is on disk either way, but the
+	// caller is entitled to know the write is not yet guaranteed to survive.
+	if err := syncDir(dir); err != nil {
+		return NewErrorWithCause("SyncDirectory", "Failed to flush the directory entry to disk", err)
 	}
 
 	return nil
@@ -676,6 +704,12 @@ func (fs *FilesystemBackend) prepareMetadataTemp(path string, metadata map[strin
 		tempFile.Close()
 		return "", NewErrorWithCause("WriteMetadata", "Failed to write metadata file", err)
 	}
+	// The sidecar carries the wrapped DEK: bytes that survive a crash without
+	// it are unreadable forever, so it is flushed like the data it describes.
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		return "", NewErrorWithCause("SyncMetadata", "Failed to flush metadata to disk", err)
+	}
 	if err := tempFile.Close(); err != nil {
 		return "", NewErrorWithCause("CloseMetadataTempFile", "Failed to close temporary metadata file", err)
 	}
@@ -699,6 +733,12 @@ func (fs *FilesystemBackend) generateBasicMetadata(path string) (map[string]stri
 	metadata := make(map[string]string)
 	metadata["size"] = fmt.Sprintf("%d", stat.Size())
 	metadata["last_modified"] = fmt.Sprintf("%d", stat.ModTime().Unix())
+
+	// Says where these values came from: the bytes on disk, because there was
+	// no sidecar to read. That distinction matters upstream — this map cannot
+	// tell a legacy plaintext object from an encrypted one whose sidecar was
+	// lost, and the second must not be served as though it were the first.
+	metadata[MetadataGeneratedKey] = "true"
 
 	// Try to calculate ETag by reading file
 	file, err := os.Open(fullPath)

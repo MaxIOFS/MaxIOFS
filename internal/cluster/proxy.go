@@ -366,8 +366,13 @@ func shouldUseUnsignedClusterPayload(body io.Reader) bool {
 
 // DoAuthenticatedRequest executes an authenticated cluster request and returns the response
 func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response, error) {
+	// Bounded by progress, like the other two entry points. This one carries
+	// object bodies too — HA sync, anti-entropy, migration and reconciliation
+	// all go through it, on contexts that carry no deadline of their own, so
+	// without a bound a peer that answers and then falls silent wedges the
+	// calling goroutine permanently.
 	startTime := time.Now()
-	resp, err := p.getHTTPClient().Do(req)
+	resp, err := transfer.Do(p.getHTTPClient(), req, transfer.DefaultStallTimeout)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -541,7 +546,9 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 	// Add cluster auth headers (replaces Authorization)
 	AddClusterProxyHeaders(proxyReq, nodeID, clusterToken, userID, tenantID, roles)
 
-	resp, err := p.getHTTPClient().Do(proxyReq)
+	// The S3 data path: this is what carries a client's PUT to the node that
+	// owns the bucket. Bounded by progress rather than by elapsed time.
+	resp, err := transfer.Do(p.getHTTPClient(), proxyReq, transfer.DefaultStallTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to proxy request to %s: %w", node.Name, err)
 	}

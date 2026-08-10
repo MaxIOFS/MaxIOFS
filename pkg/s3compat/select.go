@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
@@ -511,6 +512,15 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	objectKey := getObjectKey(r)
 
 	addS3CompatHeaders(w)
+
+	// Running a query over an object is reading it. This handler authorized
+	// nothing at all, and because the bucket is resolved by bare name across the
+	// whole store it had no tenant boundary either — every authenticated
+	// credential could read every CSV/JSON object in the deployment through a
+	// SELECT while the same credential was refused on GetObject.
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject) {
+		return
+	}
 
 	bucketPath := h.resolveBucketPath(r, bucketName, "")
 

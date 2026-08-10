@@ -344,7 +344,20 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 			"node":   node.Name,
 			"error":  err.Error(),
 		}).Error("proxyBucketRequest: failed to proxy to remote node")
-		// Let the request fall through to local handling (will likely 404, but better than 502)
+
+		// Falling through to local handling was the intent — "better than 502"
+		// — but the attempt streams and closes the request body, so what fell
+		// through was an EMPTY body reporting no error at all. PutObject then
+		// stored a 0-byte object under the client's key and answered 200: the
+		// upload was reported successful and the data was gone.
+		//
+		// A request that carried a body cannot be retried locally once it has
+		// been consumed. Reads have nothing to lose and still fall through.
+		if r.Body != nil && r.ContentLength != 0 {
+			h.writeError(w, "ServiceUnavailable",
+				"The node that owns this bucket could not be reached", bucketName, r)
+			return true
+		}
 		return false
 	}
 	defer resp.Body.Close()
@@ -538,42 +551,31 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		buckets = localBuckets
 	}
 
-	// Global admin = admin WITHOUT tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	// A bucket is listed when the caller may list it, asked of the same policy
+	// set that decides every other request. This used to be decided by the role
+	// name — the last role-based decision in the package — by ownership, and by
+	// the legacy bucket_permissions table that is no longer read when
+	// authorizing. So a bucket granted purely through IAM was invisible while
+	// every object inside it was accessible, and `s3:ListAllMyBuckets` was
+	// catalogued but enforced nowhere: grantable, and granting nothing.
+	// Asked as "may they list buckets at all", not "on this resource": a bucket
+	// grant scopes the action to that bucket's ARN, so a literal check against
+	// "*" would refuse everyone but a holder of full access. The per-bucket
+	// filter below is what decides which ones come back.
+	if !h.userCanPerformS3ActionAnywhere(r.Context(), user, auth.ActionListAllMyBuckets) {
+		h.writeError(w, "AccessDenied", "Access Denied", "", r)
+		return
+	}
 
 	var filteredBuckets []bucket.Bucket
-
-	if isGlobalAdmin {
-		// ONLY global admins see all buckets (already filtered by tenantID="" at manager level)
-		filteredBuckets = buckets
-	} else if user.TenantID != "" {
-		// Tenant users (including tenant admins) see their tenant's buckets + buckets where they have permissions
-		for _, b := range buckets {
-			// Include if bucket belongs to tenant or user owns it
-			if (b.OwnerType == "tenant" && b.OwnerID == user.TenantID) ||
-				(b.OwnerType == "user" && b.OwnerID == user.ID) {
-				filteredBuckets = append(filteredBuckets, b)
-				continue
-			}
-
-			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r, tenantID, b.Name, user.ID) {
-				filteredBuckets = append(filteredBuckets, b)
-			}
+	for _, b := range buckets {
+		bucketTenantID := b.TenantID
+		if b.OwnerType == "tenant" && bucketTenantID == "" {
+			bucketTenantID = b.OwnerID
 		}
-	} else {
-		// Non-admin users without tenant: see their buckets + buckets where they have permissions
-		for _, b := range buckets {
-			// Include if user owns the bucket
-			if b.OwnerType == "user" && b.OwnerID == user.ID {
-				filteredBuckets = append(filteredBuckets, b)
-				continue
-			}
-
-			// Include if user has permissions in bucket policy
-			if h.userHasBucketPermission(r, tenantID, b.Name, user.ID) {
-				filteredBuckets = append(filteredBuckets, b)
-			}
+		if h.userCanPerformS3ActionInTenant(r.Context(), user, bucketTenantID,
+			auth.ActionListBucket, bucketARN(b.Name)) {
+			filteredBuckets = append(filteredBuckets, b)
 		}
 	}
 
@@ -598,24 +600,10 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
-// userHasBucketPermission checks if user has explicit permissions (ACLs or Policy)
-func (h *Handler) userHasBucketPermission(r *http.Request, tenantID, bucketName, userID string) bool {
-	ctx := context.Background()
-	if r != nil {
-		ctx = r.Context()
-	}
-	// Check bucket permissions table (frontend ACLs)
-	if h.authManager != nil {
-		hasAccess, _, err := h.authManager.CheckBucketAccess(ctx, bucketName, userID)
-		if err == nil && hasAccess {
-			return true
-		}
-	}
-
-	// Check bucket policy (S3 style)
-	// For ListBuckets, we check if user has any S3 action permission on the bucket
-	return h.checkBucketPolicyPermission(r, tenantID, bucketName, userID, "s3:ListBucket")
-}
+// userHasBucketPermission was removed with the role-and-ownership bucket
+// listing. It answered "does the legacy bucket_permissions table or a bucket
+// policy mention this user", a question nothing asks any more: listing is
+// decided by the policy set, like every other request.
 
 // checkBucketPolicyPermission evaluates bucket policy for a specific action.
 // r may be nil (e.g. from internal callers); when non-nil, IP and TLS context
@@ -878,35 +866,25 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 
 	if userExists {
-		// The policies decide; ACLs remain as a fallback for what policies do
-		// not describe.
-		if !h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionListBucket, bucketARN(bucketName)) &&
-			!(!h.canResolveIAMPolicy(r.Context(), user) && user.TenantID == tenantID) {
-			// Not granted by policy - check ACL permissions
-			hasPermission := h.checkExplicitBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead)
-
-			// If no explicit ACL permission, check if authenticated users have read access
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasPermission {
-				hasPermission = h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
-			}
-
-			if !hasPermission {
-				logrus.WithFields(logrus.Fields{
-					"bucket":       bucketName,
-					"userID":       user.ID,
-					"userTenantID": user.TenantID,
-					"bucketTenant": tenantID,
-				}).Warn("ACL permission denied for HeadBucket - cross-tenant access")
-				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-				return
-			}
+		// An authenticated caller is decided by their policies, full stop.
+		//
+		// The cascade that used to follow a policy denial — explicit ACL, then
+		// the AuthenticatedUsers group, then public access — could only ever
+		// widen it, so an explicit IAM Deny was overridden by an ACL. Any bucket
+		// ever set to authenticated-read handed read access to every credential
+		// in the deployment regardless of what its policies said, which is not a
+		// fallback for "what policies do not describe": it is a second
+		// permission model with the final word.
+		if !h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionListBucket, bucketARN(bucketName)) {
+			logrus.WithFields(logrus.Fields{
+				"bucket":       bucketName,
+				"userID":       user.ID,
+				"userTenantID": user.TenantID,
+				"bucketTenant": tenantID,
+			}).Warn("Permission denied for HeadBucket")
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
 		}
-		// Same tenant - allow access automatically
 	} else {
 		// Unauthenticated access - check if bucket is public
 		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
@@ -1375,10 +1353,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. El objeto existe - ahora verificar ACL de objeto (solo para cross-tenant)
-	if !h.validateObjectReadPermission(w, r, user, userExists, allowedByPresignedURL, shareTenantID, tenantID, bucketPath, bucketName, objectKey) {
-		return
-	}
-
 	// Parse Range header if present (for parallel/resumable downloads)
 	rangeHeader := r.Header.Get("Range")
 	var rangeStart, rangeEnd int64
@@ -1784,10 +1758,6 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Object exists - now check object-level ACLs for cross-tenant access
-	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", tenantID, bucketPath, bucketName, objectKey) {
-		return
-	}
-
 	h.setHeadObjectResponseHeaders(w, obj)
 	w.WriteHeader(http.StatusOK)
 }
@@ -2697,29 +2667,14 @@ func (h *Handler) checkPublicObjectAccess(ctx context.Context, bucketPath, objec
 	return aclManager.CheckPublicAccess(aclData, permission)
 }
 
-// checkAuthenticatedBucketAccess checks if a bucket allows access to any authenticated user
-func (h *Handler) checkAuthenticatedBucketAccess(ctx context.Context, tenantID, bucketName string, permission acl.Permission) bool {
-	if h.bucketManager == nil {
-		return false
-	}
-
-	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
-	if err != nil {
-		return false
-	}
-
-	aclData, ok := bucketACL.(*acl.ACL)
-	if !ok || aclData == nil {
-		return false
-	}
-
-	aclManager := h.getACLManager()
-	if aclManager == nil {
-		return false
-	}
-
-	return aclManager.CheckAuthenticatedAccess(aclData, permission)
-}
+// checkAuthenticatedBucketAccess was removed along with the ACL cascade.
+//
+// It answered "does this bucket grant the AuthenticatedUsers group?", and every
+// caller consulted it AFTER the policies had already refused — so it could only
+// widen the answer. A bucket set to authenticated-read at any point in its life
+// therefore handed that access to every credential in the deployment, over any
+// explicit IAM Deny. Anonymous requests are decided by public access, which is
+// a different question and still asked.
 
 // getACLManager extracts the ACL manager from bucket manager
 // This is a helper to access the internal ACL manager
@@ -2987,38 +2942,16 @@ func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.Us
 			action = auth.ActionDeleteObjectVersion
 		}
 
-		// The policies decide; ACLs remain as a fallback.
-		if h.userCanPerformS3ActionInTenant(ctx, user, tenantID, action, objectARN(bucketName, objectKey)) {
-			hasPermission = true
-		} else if !h.canResolveIAMPolicy(ctx, user) && user.TenantID == tenantID {
-			hasPermission = true
-		} else {
-			// Not granted by policy - check ACL permissions
-			hasPermission = h.checkExplicitObjectACLPermission(ctx, bucketPath, objectKey, user.ID, acl.PermissionWrite)
-
-			// If no explicit object ACL, check bucket WRITE permission
-			if !hasPermission {
-				hasPermission = h.checkExplicitBucketACLPermission(ctx, tenantID, bucketName, user.ID, acl.PermissionWrite)
-			}
-
-			// Check if authenticated users have write access
-			if !hasPermission {
-				hasPermission = h.checkAuthenticatedBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
-			}
-
-			// Also check FULL_CONTROL as an alternative
-			if !hasPermission {
-				hasPermission = h.checkExplicitBucketACLPermission(ctx, tenantID, bucketName, user.ID, acl.PermissionFullControl)
-			}
-
-			// If still no permission, check if public access is allowed
-			if !hasPermission {
-				hasPermission = h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite)
-				if !hasPermission {
-					hasPermission = h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
-				}
-			}
-		}
+		// An authenticated caller is decided by their policies.
+		//
+		// What followed a denial here was five more chances to say yes: the
+		// object ACL, the bucket ACL, the AuthenticatedUsers group, FULL_CONTROL,
+		// and finally public access. Every one of them could only widen the
+		// answer, so an explicit IAM Deny on deleting an object was overridden
+		// by an ACL — and a bucket set to authenticated-read-write at any point
+		// in its life handed DELETE to every credential in the deployment.
+		hasPermission = h.userCanPerformS3ActionInTenant(ctx, user, tenantID, action,
+			objectARN(bucketName, objectKey))
 	} else {
 		// Unauthenticated access - check if bucket/object allows public WRITE
 		hasPermission = h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite)
@@ -3294,23 +3227,12 @@ func (h *Handler) validateBucketReadPermission(
 			return true
 		}
 
-		logrus.WithFields(logrus.Fields{
-			"userTenantID":   user.TenantID,
-			"bucketTenantID": tenantID,
-			"userID":         user.ID,
-			"bucket":         bucketName,
-		}).Debug("GetObject: policies did not grant access; falling back to ACLs")
-
-		// Cross-tenant - verificar ACLs en cascada
-		if h.checkExplicitBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead) {
-			return true
-		}
-		if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
-			return true
-		}
-		if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
-			return true
-		}
+		// No ACL cascade for an authenticated caller. Each rung could only
+		// widen the answer the policies had already given, so an explicit Deny
+		// was overridden by an ACL — and the AuthenticatedUsers group meant any
+		// bucket ever set to authenticated-read was readable by every
+		// credential in the deployment. ACLs and public access still decide
+		// ANONYMOUS requests, which have no policies to consult.
 
 		logrus.WithFields(logrus.Fields{
 			"bucket":       bucketName,
@@ -3389,41 +3311,6 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 // may not include quotes while the If-Match / If-None-Match header value may differ.
 func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
-}
-
-// validateObjectReadPermission validates object-level read permissions for cross-tenant access
-func (h *Handler) validateObjectReadPermission(
-	w http.ResponseWriter,
-	r *http.Request,
-	user *auth.User,
-	userExists bool,
-	allowedByPresignedURL bool,
-	shareTenantID string,
-	tenantID string,
-	bucketPath string,
-	bucketName string,
-	objectKey string,
-) bool {
-	// Presigned URLs and shares carry their own authorization. Everything else
-	// is decided by the policies, not by whose tenant the bucket is in.
-	if !userExists || allowedByPresignedURL || shareTenantID != "" {
-		return true
-	}
-
-	// Cross-tenant: verificar ACL de objeto
-	if h.checkExplicitObjectACLPermission(r.Context(), bucketPath, objectKey, user.ID, acl.PermissionRead) {
-		return true
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket":       bucketName,
-		"object":       objectKey,
-		"userID":       user.ID,
-		"userTenantID": user.TenantID,
-		"bucketTenant": tenantID,
-	}).Warn("ACL permission denied for GetObject - cross-tenant access (object-level)")
-	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
-	return false
 }
 
 // setGetObjectResponseHeaders sets all response headers for GetObject operation
@@ -3588,23 +3475,13 @@ func (h *Handler) validateBucketWritePermission(
 		return true
 	}
 
-	// Cross-tenant access - check ACL permissions with cascading fallback
-	if h.checkExplicitBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionWrite) {
-		return true
-	}
-
-	// Check if authenticated users have write access
-	if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite) {
-		return true
-	}
-
-	// Check FULL_CONTROL as an alternative
-	if h.checkExplicitBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionFullControl) {
-		return true
-	}
-
-	// Check if public access is allowed
-	return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+	// No ACL cascade for an authenticated caller. Four more chances to say yes
+	// after the policies had said no, each of which could only widen the answer:
+	// an explicit IAM Deny on writing was overridden by an ACL, and a bucket
+	// ever set to authenticated-read-write handed PUT to every credential in
+	// the deployment. ACLs and public access still decide anonymous requests,
+	// which is the branch above.
+	return false
 }
 
 // detectAndDecodeAwsChunked detects AWS chunked encoding and returns appropriate body reader
@@ -3884,20 +3761,8 @@ func (h *Handler) validateHeadBucketReadPermission(
 		return true
 	}
 
-	// Cross-tenant access - check BUCKET ACL permissions with cascading
-	if h.checkExplicitBucketACLPermission(r.Context(), tenantID, bucketName, user.ID, acl.PermissionRead) {
-		return true
-	}
-
-	// Check if authenticated users have access
-	if h.checkAuthenticatedBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
-		return true
-	}
-
-	// Check if public access is allowed
-	if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
-		return true
-	}
+	// No ACL cascade for an authenticated caller — see validateBucketReadPermission.
+	// ACLs and public access decide anonymous requests, in the branch above.
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":       bucketName,
@@ -4176,13 +4041,38 @@ func (h *Handler) requireBucketS3Action(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action string) bool {
+	return h.requireObjectS3ActionOnVersion(w, r, bucketName, objectKey, action,
+		r.URL.Query().Get("versionId"))
+}
+
+// requireObjectS3ActionOnVersion is the same check with the version stated
+// explicitly, for the operations that carry it somewhere other than the query
+// string — a copy names its source version inside x-amz-copy-source.
+//
+// Naming a version is a separate capability from acting on the current object.
+// Every subresource — attributes, tagging, retention, legal hold, ACL — checked
+// only the current-object action, so a grant of s3:GetObject alone read the
+// tags and attributes of any historical version and s3:GetObjectVersion was
+// bypassed entirely. Addressing a version now requires being allowed to address
+// versions, on top of the permission for the operation itself.
+func (h *Handler) requireObjectS3ActionOnVersion(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action, versionID string) bool {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return false
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
-	if h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, action, objectARN(bucketName, objectKey)) {
+	resource := objectARN(bucketName, objectKey)
+
+	if versionID != "" && action != auth.ActionGetObjectVersion &&
+		action != auth.ActionDeleteObjectVersion &&
+		!h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID,
+			auth.ActionGetObjectVersion, resource) {
+		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return false
+	}
+
+	if h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, action, resource) {
 		return true
 	}
 	if !h.canResolveIAMPolicy(r.Context(), user) && user.TenantID == tenantID {
@@ -4190,6 +4080,55 @@ func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, 
 	}
 	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 	return false
+}
+
+// requireUploadTarget asserts that a multipart upload is the one the request
+// claims to be operating on.
+//
+// The permission check reads the bucket and key from the URL, but every
+// multipart operation is then carried out by uploadId alone. Nothing tied the
+// two together, so a caller could pass a key they hold and an uploadId they do
+// not: authorized against their own object, executed against someone else's.
+// That is enough to read another upload's parts, add parts to it, destroy it,
+// or complete it into a bucket the caller has no grant on — the destination
+// comes from the upload's own metadata, not from the URL.
+func (h *Handler) requireUploadTarget(w http.ResponseWriter, r *http.Request, uploadID, bucketPath, objectKey string) bool {
+	if h.uploadMatchesTarget(r, uploadID, bucketPath, objectKey) {
+		return true
+	}
+	h.writeError(w, "NoSuchUpload", "The specified upload does not exist", objectKey, r)
+	return false
+}
+
+// uploadMatchesTarget is the same question without writing a response, for
+// CompleteMultipartUpload — which commits 200 before it knows the outcome and
+// reports failures as XML in the body, so it must phrase the refusal itself.
+//
+// A mismatch is reported as "does not exist" rather than as a refusal:
+// distinguishing the two would confirm that another tenant holds an upload
+// under that id.
+func (h *Handler) uploadMatchesTarget(r *http.Request, uploadID, bucketPath, objectKey string) bool {
+	if h.metadataStore == nil {
+		return false
+	}
+
+	upload, err := h.metadataStore.GetMultipartUpload(r.Context(), uploadID)
+	if err != nil || upload == nil {
+		return false
+	}
+
+	if upload.Bucket != bucketPath || upload.Key != objectKey {
+		logrus.WithFields(logrus.Fields{
+			"uploadId":      uploadID,
+			"requestBucket": bucketPath,
+			"requestKey":    objectKey,
+			"uploadBucket":  upload.Bucket,
+			"uploadKey":     upload.Key,
+		}).Warn("Multipart upload does not belong to the requested object")
+		return false
+	}
+
+	return true
 }
 
 func splitBucketPath(bucketPath string) (tenantID, bucketName string) {
@@ -4231,11 +4170,43 @@ func (h *Handler) userCanPerformS3Action(ctx context.Context, user *auth.User, a
 // "backups" reached each tenant's "backups" as well. A super administrator can
 // cross only for read/audit actions: it administers tenants and identities, not
 // tenant data.
+// userCanPerformS3ActionAnywhere answers whether a caller may perform an action
+// on anything at all, which is a different question from whether they may
+// perform it on a named resource — and the right one for an operation that
+// names none, such as listing the buckets you hold.
+func (h *Handler) userCanPerformS3ActionAnywhere(ctx context.Context, user *auth.User, action string) bool {
+	if h.authManager == nil || user == nil {
+		return false
+	}
+
+	if set, ok := auth.PolicySetFromContext(ctx); ok && set.UserID == user.ID {
+		return set.AllowsAnywhere(action)
+	}
+
+	resolver, ok := h.authManager.(interface {
+		ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
+	})
+	if !ok {
+		return false
+	}
+	set, err := resolver.ResolvePolicySet(ctx, user)
+	return err == nil && set.AllowsAnywhere(action)
+}
+
 func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth.User, bucketTenantID, action, resource string) bool {
 	if user == nil {
 		return false
 	}
-	if user.TenantID != bucketTenantID {
+	// The boundary is between TENANTS. A bucket outside every tenant belongs to
+	// the shared namespace rather than to somebody else, and a tenant user
+	// reaching one is a documented capability (see resolveBucketTenantID). It
+	// used to be granted by an ACL; it is decided by the policies now, which is
+	// narrower than what it replaces.
+	//
+	// Reaching INTO a tenant is the direction that must stay closed, in both
+	// directions of travel: an ARN names a bucket by its bare name, so a grant
+	// on the global "backups" matches every tenant's "backups" as well.
+	if bucketTenantID != "" && user.TenantID != bucketTenantID {
 		if !s3ReadOnlyAuditAction(action) ||
 			!h.userCanPerformS3Action(ctx, user, auth.ActionSuperAdmin, "*") {
 			return false

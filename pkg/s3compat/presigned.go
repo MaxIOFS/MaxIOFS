@@ -870,6 +870,25 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The signature proves who signed the policy, not that they may write here.
+	// This check never existed: the user was resolved into the context "for
+	// permission checks" and none followed, so any holder of any valid access
+	// key could sign their own policy and upload into any bucket.
+	//
+	// Read back from the context rather than reused from above, because the
+	// context is what the resolution above actually populated.
+	user, userExists := auth.GetUserFromContext(r.Context())
+	if !userExists || user == nil {
+		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+		return
+	}
+	if !h.userCanPerformS3ActionInTenant(r.Context(), user,
+		h.resolveBucketTenantID(r, bucketName), auth.ActionPutObject,
+		objectARN(bucketName, objectKey)) {
+		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+		return
+	}
+
 	// Determine bucket path including tenant.
 	bucketPath := h.getBucketPath(r, bucketName)
 

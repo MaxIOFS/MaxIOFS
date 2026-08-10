@@ -341,12 +341,32 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 	}
 
 	key := bucketKey(bucket.TenantID, bucket.Name)
-	if _, closer, err := s.db.Get(key); err == pebble.ErrNotFound {
+
+	// The same mutex UpdateBucketMetrics takes, and for the same reason: both
+	// write this one key. Without it, and without the merge below, the two lost
+	// each other's work — a configuration write built from a snapshot taken
+	// before a concurrent PUT reverted that PUT's counters, and a counter
+	// increment landing between a caller's read and its write reverted the
+	// setting they were saving (a quota, versioning, Object Lock).
+	mu := s.getBucketMetricsMutex(key)
+	mu.Lock()
+	defer mu.Unlock()
+
+	stored, err := s.pebbleGet(key)
+	if err == pebble.ErrNotFound {
 		return ErrBucketNotFound
 	} else if err != nil {
 		return fmt.Errorf("failed to check bucket existence: %w", err)
-	} else {
-		_ = closer.Close()
+	}
+
+	// The counters belong to UpdateBucketMetrics, which owns them under this
+	// same lock. A configuration write carries whatever they happened to be
+	// when its caller read the bucket, which is not an opinion about their
+	// value — so the stored ones win.
+	var current BucketMetadata
+	if err := json.Unmarshal(stored, &current); err == nil {
+		bucket.ObjectCount = current.ObjectCount
+		bucket.TotalSize = current.TotalSize
 	}
 
 	bucket.UpdatedAt = time.Now()

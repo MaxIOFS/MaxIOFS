@@ -466,6 +466,46 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
+	// The object had no sidecar, so everything known about its bytes was derived
+	// from the bytes themselves — including the absence of an `encrypted` flag.
+	//
+	// That absence is not evidence of plaintext. An encrypted object whose
+	// sidecar was lost (a staged-commit roll-forward that never succeeded, a
+	// half-written directory) looks exactly the same, and decryption is then
+	// skipped: the ciphertext was streamed to the client with a nil error, under
+	// the plaintext Content-Length, and a backup tool wrote it to disk as the
+	// restored file.
+	//
+	// The metadata store still holds what the plaintext was, so the two can be
+	// compared. A legacy plaintext object matches; ciphertext does not, because
+	// AES-GCM adds a nonce and a tag. Refusing is the only safe answer — the
+	// bytes cannot be identified, and serving unidentified bytes as an object is
+	// worse than an error.
+	if storageMetadata[storage.MetadataGeneratedKey] == "true" && metaObj != nil {
+		onDiskSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+		onDiskETag := storageMetadata["etag"]
+
+		mismatch := object.Size != onDiskSize
+		// The ETag is a plain MD5 only for single-part objects; a multipart one
+		// is "<md5>-<n>" and can never equal the digest of the assembled file.
+		if !mismatch && onDiskETag != "" && object.ETag != "" &&
+			!strings.Contains(object.ETag, "-") {
+			mismatch = !strings.EqualFold(strings.Trim(object.ETag, `"`), onDiskETag)
+		}
+
+		if mismatch {
+			encryptedReader.Close()
+			logrus.WithFields(logrus.Fields{
+				"bucket":       bucket,
+				"key":          key,
+				"recordedSize": object.Size,
+				"onDiskSize":   onDiskSize,
+			}).Error("Object has no metadata sidecar and its bytes do not match the recorded object; refusing to serve")
+			return nil, nil, fmt.Errorf(
+				"object %q is unreadable: its metadata sidecar is missing and the stored bytes do not match the recorded object", key)
+		}
+	}
+
 	// Check if object is encrypted
 	isEncrypted := storageMetadata["encrypted"] == "true"
 
@@ -962,7 +1002,10 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	// Delete physical file (if not a delete marker). Track success so bucket
 	// size is only decremented when the bytes are actually freed from disk.
 	physicalDeleteOK := true
-	if objMetadata.Size > 0 {
+	// A delete marker has no file to remove. The test used to be Size > 0, which
+	// also skipped legitimately empty objects and orphaned their data file and
+	// sidecar for good; what identifies a delete marker is being one.
+	if !isMetadataDeleteMarker(metaObj) {
 		objectPath := om.getVersionedObjectPath(bucket, key, versionID)
 		if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
 			logrus.WithError(err).Error("Failed to delete physical versioned file; bucket size will not be decremented until the file is cleaned up")
@@ -970,63 +1013,12 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-	// If we deleted the latest version, handle next version or delete object entry
-	if deletingLatest {
-		// RACE-03: re-query versions AFTER the delete to pick up any concurrent
-		// PutObject that inserted a new version between our initial snapshot and now.
-		// Using the stale `allVersions` snapshot could mark an older version as
-		// "latest", hiding the concurrently-written newer version from subsequent GETs.
-		freshVersions, freshErr := om.metadataStore.GetObjectVersions(ctx, bucket, key)
-		if freshErr != nil {
-			logrus.WithError(freshErr).Warn("RACE-03: failed to refresh versions after delete; falling back to stale snapshot")
-			freshVersions = allVersions
-		}
-
-		if len(freshVersions) > 0 {
-			// Find the next most recent version (the target was already deleted from the store)
-			var nextLatest *metadata.ObjectVersion
-			for _, ver := range freshVersions {
-				if ver.VersionID != versionID {
-					if nextLatest == nil || ver.LastModified.After(nextLatest.LastModified) {
-						nextLatest = ver
-					}
-				}
-			}
-
-			if nextLatest != nil {
-				// Mark as latest
-				nextLatest.IsLatest = true
-
-				// Get full object metadata and update
-				nextMetaObj, err := om.metadataStore.GetObject(ctx, bucket, key, nextLatest.VersionID)
-				if err != nil {
-					logrus.WithError(err).Warn("Failed to get object metadata for next latest")
-				} else {
-					// Ensure bucket and key are set correctly (they might be empty from version metadata)
-					if nextMetaObj.Bucket == "" {
-						nextMetaObj.Bucket = bucket
-					}
-					if nextMetaObj.Key == "" {
-						nextMetaObj.Key = key
-					}
-
-					err = om.metadataStore.PutObjectVersion(ctx, nextMetaObj, nextLatest)
-					if err != nil {
-						logrus.WithError(err).Warn("Failed to mark next version as latest")
-					}
-				}
-			}
-		} else {
-			// No remaining versions after the delete — remove the main object entry.
-			if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
-				logrus.WithError(err).Warn("Failed to delete main object entry")
-			}
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucket,
-				"key":    key,
-			}).Info("Deleted main object entry - no versions remaining")
-		}
-	}
+	// Promoting the next version into the main entry, or removing that entry when
+	// none is left, is done by DeleteObjectVersion in the same atomic batch as the
+	// delete itself. It used to be repeated here afterwards, non-atomically and
+	// best-effort: all three of its failure paths logged and returned nil, so the
+	// client was told the delete succeeded while the main entry still described
+	// data that no longer existed.
 
 	// Adjust object count based on what we deleted and the new latest version.
 	// ObjectCount tracks only visible (non-delete-marker) objects, mirroring S3:
@@ -1062,6 +1054,21 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 
 		tenantID, bucketName := om.parseBucketPath(bucket)
+
+		// Return the bytes to the tenant's quota. Every new version ADDS its
+		// full size on write, and this was the only delete path that never gave
+		// any back — so a tenant using versioning accumulated usage forever and
+		// was eventually locked out at 100% with a fraction of that on disk.
+		// Bucket metrics clamp at zero; tenant storage does not, and it drifts
+		// in the direction that denies service.
+		if om.authManager != nil && tenantID != "" && freedBytes > 0 {
+			if err := om.authManager.DecrementTenantStorage(ctx, tenantID, freedBytes); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"tenant": tenantID, "bucket": bucketName,
+				}).Warn("Failed to return freed bytes to the tenant's storage quota")
+			}
+		}
+
 		switch {
 		case !hasNextVersion && !deletedIsDeleteMarker:
 			// Last real version gone
@@ -1092,6 +1099,15 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 
 // deletePermanently permanently deletes an object (legacy behavior without versioning)
 func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string, bypassGovernance bool) error {
+	// The same shard lock PutObject takes (RACE-02). It was written for
+	// writer-vs-writer only, so DELETE ran unserialised against both: two
+	// concurrent deletes each read the size and each debited it, and a delete
+	// racing an overwrite debited the size it read while different bytes were
+	// removed. Bucket metrics clamp at zero so that drifts downward and weakens
+	// quota enforcement; tenant storage has no clamp and drifts upward, eating
+	// quota the tenant is not using.
+	defer om.lockKey(bucket, key)()
+
 	objectPath := om.getObjectPath(bucket, key)
 
 	// Get metadata
@@ -1158,6 +1174,14 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 		if err != metadata.ErrObjectNotFound {
 			return fmt.Errorf("failed to delete metadata: %w", err)
 		}
+		// Someone else removed it first. Falling through to the accounting
+		// below would debit this object's size a second time for a removal
+		// that happened once.
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucket,
+			"key":    key,
+		}).Debug("Object was already deleted; skipping the metric adjustment")
+		return nil
 	}
 
 	// Step 2: Delete physical file (best-effort; orphan cleanup handles failures)
@@ -2874,6 +2898,14 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 	// Create a pipe for streaming encryption
 	pipeReader, pipeWriter := io.Pipe()
 
+	// Closing the read end is what unblocks the encryptor if the consumer below
+	// gives up. FilesystemBackend.Put returns the moment its io.Copy fails
+	// without draining or closing what it was handed, so on any write error —
+	// a full disk, an I/O fault — the goroutine stayed blocked in
+	// pipeWriter.Write forever, holding the pipe and the DEK. One leak per
+	// failed upload, during exactly the episode that has no headroom to spare.
+	defer pipeReader.Close()
+
 	// Encrypt in background goroutine
 	go func() {
 		defer pipeWriter.Close()
@@ -3194,6 +3226,14 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 
 	// Create a pipe for streaming encryption
 	pipeReader, pipeWriter := io.Pipe()
+
+	// Closing the read end is what unblocks the encryptor if the consumer below
+	// gives up. FilesystemBackend.Put returns the moment its io.Copy fails
+	// without draining or closing what it was handed, so on any write error —
+	// a full disk, an I/O fault — the goroutine stayed blocked in
+	// pipeWriter.Write forever, holding the pipe and the DEK. One leak per
+	// failed upload, during exactly the episode that has no headroom to spare.
+	defer pipeReader.Close()
 
 	// Encrypt in background goroutine
 	go func() {

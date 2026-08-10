@@ -82,6 +82,7 @@ type LeaderManager struct {
 	clusterManager *Manager
 	proxyClient    *ProxyClient
 	stopChan       chan struct{}
+	stopOnce       sync.Once
 	log            *logrus.Entry
 
 	mu sync.RWMutex
@@ -172,7 +173,10 @@ func (m *LeaderManager) LeaderID(ctx context.Context) string {
 // Start begins campaigning and renewing. A single-node deployment leads
 // immediately: with one node, a majority is itself.
 func (m *LeaderManager) Start(ctx context.Context) {
-	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
+	// The proxy client is installed by the constructor with the same dynamic
+	// getter, so re-creating it here bought nothing — and it was a plain
+	// pointer write performed from the initialize/join HTTP handlers while
+	// both servers were already serving and other goroutines were reading it.
 	m.rememberLocalID(ctx)
 	go m.loop(ctx)
 }
@@ -180,8 +184,13 @@ func (m *LeaderManager) Start(ctx context.Context) {
 // Stop halts the loop and releases the lease, so a planned shutdown hands over
 // in seconds instead of leaving the cluster leaderless for a full lease.
 func (m *LeaderManager) Stop() {
-	close(m.stopChan)
-	m.release(context.Background())
+	// Idempotent: a bare close panics on the second call, and shutdown paths
+	// that can both fire — a signal handler and an explicit stop — would take
+	// the process down while it was already on its way out.
+	m.stopOnce.Do(func() {
+		close(m.stopChan)
+		m.release(context.Background())
+	})
 }
 
 func (m *LeaderManager) loop(ctx context.Context) {

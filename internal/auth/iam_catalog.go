@@ -123,6 +123,33 @@ var permissionCatalog = []CatalogPermission{
 	{Action: "s3:PutBucketCORS", Group: "bucket-config", Label: "Change CORS rules", ResourceScoped: true},
 	{Action: "s3:DeleteBucketCORS", Group: "bucket-config", Label: "Delete CORS rules", ResourceScoped: true},
 
+	// Subresources that used to borrow another permission. Replication is
+	// listed first because it is the one that moves data off the system.
+	{Action: "s3:GetBucketReplication", Group: "bucket-config", Label: "Read replication rules", ResourceScoped: true},
+	{Action: "s3:PutBucketReplication", Group: "bucket-config", Label: "Change replication rules",
+		Description: "A replication rule names where this bucket's contents are copied to", ResourceScoped: true},
+	{Action: "s3:GetEncryptionConfiguration", Group: "bucket-config", Label: "Read encryption settings", ResourceScoped: true},
+	{Action: "s3:PutEncryptionConfiguration", Group: "bucket-config", Label: "Change encryption settings", ResourceScoped: true},
+	{Action: "s3:GetBucketLogging", Group: "bucket-config", Label: "Read access-logging settings", ResourceScoped: true},
+	{Action: "s3:PutBucketLogging", Group: "bucket-config", Label: "Change access-logging settings", ResourceScoped: true},
+	{Action: "s3:GetBucketWebsite", Group: "bucket-config", Label: "Read website settings", ResourceScoped: true},
+	{Action: "s3:PutBucketWebsite", Group: "bucket-config", Label: "Change website settings", ResourceScoped: true},
+	{Action: "s3:DeleteBucketWebsite", Group: "bucket-config", Label: "Delete website settings", ResourceScoped: true},
+	{Action: "s3:GetBucketNotification", Group: "bucket-config", Label: "Read event notifications", ResourceScoped: true},
+	{Action: "s3:PutBucketNotification", Group: "bucket-config", Label: "Change event notifications", ResourceScoped: true},
+	{Action: "s3:GetInventoryConfiguration", Group: "bucket-config", Label: "Read inventory settings", ResourceScoped: true},
+	{Action: "s3:PutInventoryConfiguration", Group: "bucket-config", Label: "Change inventory settings", ResourceScoped: true},
+	{Action: "s3:GetAccelerateConfiguration", Group: "bucket-config", Label: "Read transfer acceleration", ResourceScoped: true},
+	{Action: "s3:PutAccelerateConfiguration", Group: "bucket-config", Label: "Change transfer acceleration", ResourceScoped: true},
+	{Action: "s3:GetBucketRequestPayment", Group: "bucket-config", Label: "Read requester-pays setting", ResourceScoped: true},
+	{Action: "s3:PutBucketRequestPayment", Group: "bucket-config", Label: "Change requester-pays setting", ResourceScoped: true},
+
+	{Action: "s3:GetBucketPublicAccessBlock", Group: "bucket-policy", Label: "Read public-access block", ResourceScoped: true},
+	{Action: "s3:PutBucketPublicAccessBlock", Group: "bucket-policy", Label: "Change public-access block",
+		Description: "Decides whether bucket policies and ACLs may make objects public", ResourceScoped: true},
+	{Action: "s3:GetBucketOwnershipControls", Group: "bucket-policy", Label: "Read ownership controls", ResourceScoped: true},
+	{Action: "s3:PutBucketOwnershipControls", Group: "bucket-policy", Label: "Change ownership controls", ResourceScoped: true},
+
 	{Action: "s3:GetBucketPolicy", Group: "bucket-policy", Label: "Read bucket policy", ResourceScoped: true},
 	{Action: "s3:PutBucketPolicy", Group: "bucket-policy", Label: "Change bucket policy", ResourceScoped: true},
 	{Action: "s3:DeleteBucketPolicy", Group: "bucket-policy", Label: "Delete bucket policy", ResourceScoped: true},

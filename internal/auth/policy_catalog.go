@@ -86,13 +86,27 @@ var PolicyCatalog = []catalogEntry{
 	},
 	{
 		Name:        PolicyBucketConfigure,
-		Description: "Change bucket settings: versioning, lifecycle, CORS, tagging, ACLs",
+		Description: "Change bucket settings: versioning, lifecycle, CORS, tagging, ACLs, replication and the rest",
 		Actions: []string{
 			ActionGetBucketVersioning, ActionPutBucketVersioning,
 			ActionGetBucketLifecycle, ActionPutBucketLifecycle, ActionDeleteBucketLifecycle,
 			ActionGetBucketCORS, ActionPutBucketCORS, ActionDeleteBucketCORS,
 			ActionGetBucketTagging, ActionPutBucketTagging, ActionDeleteBucketTagging,
 			ActionGetBucketAcl, ActionPutBucketAcl,
+			// Subresources that used to be reached through one of the above
+			// because they had no action of their own. They stay in this policy
+			// so an installation converted before they existed keeps the same
+			// reach; granting them individually is what the catalogue is for.
+			ActionGetBucketReplication, ActionPutBucketReplication,
+			ActionGetBucketEncryption, ActionPutBucketEncryption,
+			ActionGetBucketLogging, ActionPutBucketLogging,
+			ActionGetBucketWebsite, ActionPutBucketWebsite, ActionDeleteBucketWebsite,
+			ActionGetBucketNotification, ActionPutBucketNotification,
+			ActionGetBucketInventory, ActionPutBucketInventory,
+			ActionGetAccelerate, ActionPutAccelerate,
+			ActionGetRequestPayment, ActionPutRequestPayment,
+			ActionGetBucketPublicAccess, ActionPutBucketPublicAccess,
+			ActionGetBucketOwnership, ActionPutBucketOwnership,
 		},
 	},
 	{

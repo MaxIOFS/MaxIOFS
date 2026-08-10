@@ -209,8 +209,8 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 
 	// Create HTTP client with timeout, using cluster TLS if available
 	transport := &http.Transport{}
-	if m.tlsConfig != nil {
-		transport.TLSClientConfig = m.tlsConfig.Clone()
+	if cfg := m.tlsConfig.Load(); cfg != nil {
+		transport.TLSClientConfig = cfg.Clone()
 	}
 	client := &http.Client{
 		Timeout:   5 * time.Second,

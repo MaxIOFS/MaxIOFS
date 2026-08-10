@@ -758,19 +758,113 @@ func (s *PebbleStore) HasActiveComplianceRetention(ctx context.Context, bucket s
 	return found, nil
 }
 
-// DeleteObjectVersion removes a specific version of an object.
+// DeleteObjectVersion removes a specific version of an object, and promotes the
+// next newest into the main entry when the deleted one was the latest.
+//
+// PutObjectVersion mirrors the latest version's document into `obj:{bucket}:
+// {key}`, so deleting only the version key left the main entry describing data
+// that no longer exists: listings advertised the object, every GET on it failed,
+// and a non-destructive reconcile has no way to notice, let alone correct it.
+//
+// The whole thing is one batch under the bucket mutation mutex. It used to be a
+// bare delete here plus a best-effort repair in the caller, and those two halves
+// did not even agree on durability — the delete committed with Sync while the
+// repair did not — so a hard kill in between made the dangling entry permanent.
 func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
-	versionKey := objectVersionKey(bucket, key, versionID)
+	mu := s.getBucketMutationMutex(bucket)
+	mu.Lock()
+	defer mu.Unlock()
 
-	if _, closer, err := s.db.Get(versionKey); err == pebble.ErrNotFound {
+	versionKey := objectVersionKey(bucket, key, versionID)
+	if _, err := s.pebbleGet(versionKey); err == pebble.ErrNotFound {
 		return ErrVersionNotFound
 	} else if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
-	} else {
-		_ = closer.Close()
 	}
 
-	return s.db.Delete(versionKey, pebble.Sync)
+	batch := s.db.NewBatch()
+	defer batch.Close()
+
+	if err := batch.Delete(versionKey, nil); err != nil {
+		return fmt.Errorf("failed to delete version in batch: %w", err)
+	}
+
+	// Does the main entry describe the version being removed? If it describes a
+	// different one, it is already correct and must not be touched.
+	objKey := objectKey(bucket, key)
+	mainData, err := s.pebbleGet(objKey)
+	if err != nil && err != pebble.ErrNotFound {
+		return fmt.Errorf("failed to read the main object entry: %w", err)
+	}
+
+	mainPointsAtDeleted := false
+	if err == nil {
+		var main ObjectMetadata
+		if err := json.Unmarshal(mainData, &main); err == nil {
+			mainPointsAtDeleted = main.VersionID == versionID
+		}
+	}
+
+	if mainPointsAtDeleted {
+		next, err := s.newestRemainingVersion(bucket, key, versionID)
+		if err != nil {
+			return err
+		}
+		if next == nil {
+			// Nothing left to describe.
+			if err := batch.Delete(objKey, nil); err != nil {
+				return fmt.Errorf("failed to delete the main object entry: %w", err)
+			}
+		} else {
+			next.IsLatest = true
+			promoted, err := json.Marshal(next)
+			if err != nil {
+				return fmt.Errorf("failed to marshal the promoted version: %w", err)
+			}
+			if err := batch.Set(objKey, promoted, nil); err != nil {
+				return fmt.Errorf("failed to promote the next version: %w", err)
+			}
+			// The version's own record has to agree that it is now the latest,
+			// or the two copies disagree the moment anything reads the list.
+			if err := batch.Set(objectVersionKey(bucket, key, next.VersionID), promoted, nil); err != nil {
+				return fmt.Errorf("failed to mark the promoted version as latest: %w", err)
+			}
+		}
+	}
+
+	// Sync: a delete that is not durable resurrects the object on the next boot.
+	return batch.Commit(pebble.Sync)
+}
+
+// newestRemainingVersion returns the newest version of an object other than the
+// one being removed, or nil when none is left.
+func (s *PebbleStore) newestRemainingVersion(bucket, key, excludingVersionID string) (*ObjectMetadata, error) {
+	prefix := []byte(fmt.Sprintf("version:%s:%s:", bucket, key))
+	iter, err := s.pebbleIter(prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var newest *ObjectMetadata
+	for iter.First(); iter.Valid(); iter.Next() {
+		valCopy := append([]byte(nil), iter.Value()...)
+		var candidate ObjectMetadata
+		if err := json.Unmarshal(valCopy, &candidate); err != nil {
+			continue
+		}
+		if candidate.VersionID == excludingVersionID {
+			continue
+		}
+		if newest == nil || candidate.LastModified.After(newest.LastModified) {
+			c := candidate
+			newest = &c
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("failed while looking for the next version: %w", err)
+	}
+	return newest, nil
 }
 
 // ==================== Tags ====================

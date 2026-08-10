@@ -109,7 +109,10 @@ func NewIAMSyncManager(db *sql.DB, clusterManager *Manager) *IAMSyncManager {
 // the two replicate on different schedules would only create windows where a
 // credential exists on a node that does not yet know its permissions.
 func (m *IAMSyncManager) Start(ctx context.Context) {
-	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
+	// The proxy client is installed by the constructor with the same dynamic
+	// getter, so re-creating it here bought nothing — and it was a plain
+	// pointer write performed from the initialize/join HTTP handlers while
+	// both servers were already serving and other goroutines were reading it.
 
 	interval := 30
 	if intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds"); err == nil {

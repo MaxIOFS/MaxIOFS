@@ -54,7 +54,10 @@ func NewGroupSyncManager(db *sql.DB, clusterManager *Manager) *GroupSyncManager 
 
 // Start begins the group synchronization loop.
 func (m *GroupSyncManager) Start(ctx context.Context) {
-	m.proxyClient = NewDynamicProxyClient(m.clusterManager.GetTLSConfig)
+	// The proxy client is installed by the constructor with the same dynamic
+	// getter, so re-creating it here bought nothing — and it was a plain
+	// pointer write performed from the initialize/join HTTP handlers while
+	// both servers were already serving and other goroutines were reading it.
 
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "group_sync_interval_seconds")
 	if err != nil {

@@ -216,7 +216,7 @@ func (h *Handler) GetBucketInventoryConfiguration(w http.ResponseWriter, r *http
 		return
 	}
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketInventory) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -248,7 +248,7 @@ func (h *Handler) PutBucketInventoryConfiguration(w http.ResponseWriter, r *http
 		return
 	}
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketInventory) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -307,7 +307,7 @@ func (h *Handler) DeleteBucketInventoryConfiguration(w http.ResponseWriter, r *h
 		return
 	}
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketInventory) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -337,7 +337,7 @@ func (h *Handler) ListBucketInventoryConfigurations(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketInventory) {
 		return
 	}
 	tenantID := h.resolveBucketTenantID(r, bucketName)

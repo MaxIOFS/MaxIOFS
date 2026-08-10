@@ -512,9 +512,21 @@ func TestHandleCreateBucket(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.handleCreateBucket(rr, req)
 
-	// Global admins administer tenants and identities; bucket mutation requires
-	// tenant-scoped IAM permissions.
-	assert.Equal(t, http.StatusForbidden, rr.Code)
+	// A global administrator creating a bucket in the global namespace is the
+	// most ordinary operation the console has.
+	//
+	// This assertion was 200, and was changed to 403 when the console moved to
+	// per-action permission checks — the guard applied its "may only read"
+	// rule to every global administrator instead of only to one reaching INTO a
+	// tenant, so it refused them every write anywhere, and the test was adjusted
+	// to match rather than the guard fixed. It is back to what it was; the
+	// read-only rule for crossing a tenant boundary is pinned separately.
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var response APIResponse
+	err = json.NewDecoder(rr.Body).Decode(&response)
+	assert.NoError(t, err)
+	assert.True(t, response.Success)
 }
 
 // TestHandleAPIHealth tests the /health endpoint.

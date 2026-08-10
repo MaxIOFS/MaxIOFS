@@ -745,10 +745,18 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, userExists := auth.GetUserFromContext(r.Context())
-	sourceTenantID := h.resolveBucketTenantID(r, sourceBucket)
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	if !h.validateBucketReadPermission(w, r, user, userExists, false, false, "", sourceTenantID, sourceBucket, sourceKey) {
+	// The source version arrives in x-amz-copy-source, not in the query string,
+	// so the check has to be told about it explicitly — reading the request's
+	// own ?versionId here described the DESTINATION, and a versioned copy was
+	// always authorized as though it were reading the current object.
+	sourceReadAction := auth.ActionGetObject
+	if copySourceVersionID != "" {
+		sourceReadAction = auth.ActionGetObjectVersion
+	}
+	if !h.requireObjectS3ActionOnVersion(w, r, sourceBucket, sourceKey,
+		sourceReadAction, copySourceVersionID) {
 		return
 	}
 	if !h.validateBucketWritePermission(r, user, userExists, destTenantID, destBucket, destKey) {
@@ -784,10 +792,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer reader.Close()
-
-	if !h.validateObjectReadPermission(w, r, user, userExists, false, "", sourceTenantID, sourceBucketPath, sourceBucket, sourceKey) {
-		return
-	}
 
 	logrus.WithFields(logrus.Fields{
 		"source_bucket": sourceBucket,
