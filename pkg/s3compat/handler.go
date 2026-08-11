@@ -1700,6 +1700,13 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 			return
 		}
+		// This branch checked only that SOMEBODY was authenticated — no tenant
+		// comparison at all — so any credential could head another tenant's
+		// capacity document.
+		if !h.sameTenantOrSuperAdmin(r.Context(), user, tenantID) {
+			h.writeError(w, "AccessDenied", "Access denied", objectKey, r)
+			return
+		}
 
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -2787,7 +2794,12 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 		h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 		return true
 	}
-	if user.TenantID != "" && user.TenantID != tenantID {
+	// Membership of the tenant, deliberately — a capacity document describes the
+	// TENANT, not the bucket, so every member may read it without being given
+	// the bucket. What was wrong is that the test ran in one direction only: it
+	// refused a caller who HAD a tenant and let a tenant-less credential into
+	// every one of them, and these documents carry quota and capacity figures.
+	if !h.sameTenantOrSuperAdmin(r.Context(), user, tenantID) {
 		h.writeError(w, "AccessDenied", "Access denied", objectKey, r)
 		return true
 	}
@@ -4131,6 +4143,17 @@ func (h *Handler) uploadMatchesTarget(r *http.Request, uploadID, bucketPath, obj
 	return true
 }
 
+// BucketOwnerRecorder is how ownership reaches the permission model. It is a
+// named interface rather than an anonymous one asserted at each call site so
+// that changing a signature is a compile error: when the test harnesses
+// asserted an anonymous shape, a changed signature simply stopped matching —
+// no error, no warning — and the owner policy was never written, which surfaced
+// as ten unrelated tests failing with "the owner cannot read its own bucket".
+type BucketOwnerRecorder interface {
+	GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
+	RevokeBucketPolicies(bucketName string) ([]auth.InlinePolicyRef, error)
+}
+
 func splitBucketPath(bucketPath string) (tenantID, bucketName string) {
 	parts := strings.SplitN(bucketPath, "/", 2)
 	if len(parts) == 2 {
@@ -4174,6 +4197,19 @@ func (h *Handler) userCanPerformS3Action(ctx context.Context, user *auth.User, a
 // on anything at all, which is a different question from whether they may
 // perform it on a named resource — and the right one for an operation that
 // names none, such as listing the buckets you hold.
+// sameTenantOrSuperAdmin is the boundary on its own, for the few responses that
+// describe a TENANT rather than an object — the SOSAPI capacity and system
+// documents. Every member of the tenant may read those; nobody outside it may.
+func (h *Handler) sameTenantOrSuperAdmin(ctx context.Context, user *auth.User, tenantID string) bool {
+	if user == nil {
+		return false
+	}
+	if user.TenantID == tenantID {
+		return true
+	}
+	return h.userCanPerformS3Action(ctx, user, auth.ActionSuperAdmin, "*")
+}
+
 func (h *Handler) userCanPerformS3ActionAnywhere(ctx context.Context, user *auth.User, action string) bool {
 	if h.authManager == nil || user == nil {
 		return false

@@ -912,55 +912,25 @@ export class APIClient {
     return `${API_CONFIG.baseURL}/buckets/${request.bucket}/objects/${key}?${params.toString()}`;
   }
 
+
   /**
-   * Fetches an object's bytes into memory.
-   *
-   * Only for callers that need the CONTENT in the page — previewing a file,
-   * reading a specific version. To save a file to disk use
-   * getObjectDownloadURL, which does not hold it in memory at all.
+   * Builds a URL the browser can navigate to in order to download a folder as
+   * a ZIP. Same reasoning as getObjectDownloadURL, and more so: a folder
+   * archive is unbounded where a single object at least has a known size, and
+   * this one buffered the whole thing in the tab before writing any of it.
    */
-  static async fetchObjectBlob(request: DownloadRequest): Promise<Blob> {
-    const url = request.tenantId
-      ? `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}?tenantId=${encodeURIComponent(request.tenantId)}`
-      : `/buckets/${request.bucket}/objects/${encodeURIComponent(request.key)}`;
-
-    const config = {
-      responseType: 'blob' as const,
-      timeout: 0,
-      headers: {
-        ...(request.range ? { Range: request.range } : {}),
-        // Don't send Accept: application/json for downloads
-        'Accept': '*/*',
-      },
-      onDownloadProgress: request.onProgress ? (progressEvent: any) => {
-        const total = progressEvent.total ?? 0;
-        const progress = {
-          loaded: progressEvent.loaded,
-          total,
-          percentage: total > 0 ? Math.round((progressEvent.loaded * 100) / total) : 0,
-          speed: 0, // TODO: Calculate speed
-        };
-        request.onProgress!(progress);
-      } : undefined,
-    };
-
-    // Use API client with authentication instead of direct S3 client
-    const response = await apiClient.get<Blob>(url, config);
-    return response.data;
-  }
-
-  static async downloadFolderAsZip(bucket: string, prefix: string, tenantId?: string): Promise<Blob> {
+  static async getFolderDownloadURL(bucket: string, prefix: string, tenantId?: string): Promise<string> {
     const params = new URLSearchParams({ prefix });
     if (tenantId) params.append('tenantId', tenantId);
-    const response = await apiClient.get<Blob>(
-      `/buckets/${bucket}/download-zip?${params.toString()}`,
-      {
-        responseType: 'blob' as const,
-        timeout: 0, // No timeout — large folders may take a while
-        headers: { 'Accept': 'application/zip' },
-      }
+    const query = params.toString();
+
+    const response = await apiClient.post<{ token: string }>(
+      `/buckets/${bucket}/download-zip-token?${query}`
     );
-    return response.data;
+    const token = unwrapAPIData(response.data).token;
+
+    params.append('downloadToken', token);
+    return `${API_CONFIG.baseURL}/buckets/${bucket}/download-zip?${params.toString()}`;
   }
 
   static async renameObject(bucket: string, key: string, newKey: string, tenantId?: string): Promise<{ newKey: string }> {

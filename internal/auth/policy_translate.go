@@ -211,13 +211,23 @@ func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []st
 	}
 
 	for _, role := range roles {
-		if tenantID != "" && (role == RoleAdmin || role == RoleTenantAdmin) {
-			documents = append(documents, tenantAdminDocument())
-			continue
-		}
 		roleDocs, err := s.IAMEffectiveDocuments(IAMTargetRole, role)
 		if err != nil {
 			return nil, err
+		}
+
+		if tenantID != "" && (role == RoleAdmin || role == RoleTenantAdmin) {
+			// An administrator inside a tenant administers that tenant, so the
+			// role's unscoped full access is replaced by a bounded document.
+			//
+			// It used to REPLACE every document the role carried, which meant
+			// anything an operator attached to or revoked from a role had no
+			// effect whatsoever on any user with a tenant — role editing was
+			// silently a no-op for them. Only the unscoped grant is dropped
+			// now; everything else the role carries still applies.
+			documents = append(documents, tenantAdminDocument())
+			documents = append(documents, withoutUnscopedFullAccess(roleDocs)...)
+			continue
 		}
 		documents = append(documents, roleDocs...)
 	}
@@ -231,6 +241,38 @@ func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []st
 	}
 
 	return documents, nil
+}
+
+// withoutUnscopedFullAccess drops any document that allows everything
+// everywhere, which is the one thing an administrator scoped to a tenant must
+// not hold — it would reach every other tenant's buckets. Everything else the
+// role carries is kept.
+func withoutUnscopedFullAccess(documents []string) []string {
+	kept := make([]string, 0, len(documents))
+	for _, raw := range documents {
+		if grantsEverythingEverywhere(raw) {
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	return kept
+}
+
+func grantsEverythingEverywhere(document string) bool {
+	policy, err := ParseIAMPolicy(document, IAMMaxManagedPolicyBytes)
+	if err != nil {
+		return false
+	}
+	for _, st := range policy.Statement {
+		if st.Effect != EffectAllow {
+			continue
+		}
+		if containsAction(policyStringValues(st.Action), "*") &&
+			containsAction(policyStringValues(st.Resource), "*") {
+			return true
+		}
+	}
+	return false
 }
 
 func tenantAdminDocument() string {
@@ -274,6 +316,11 @@ func tenantAdminDocument() string {
 		ActionPutObjectRetention,
 		ActionGetObjectLegalHold,
 		ActionPutObjectLegalHold,
+		// Immutability is a tenant's own compliance decision, and the list left
+		// both of these out — so a tenant administrator could not even read
+		// whether a bucket was locked, let alone set its default retention.
+		ActionGetBucketObjectLockConfiguration,
+		ActionPutBucketObjectLockConfiguration,
 		ActionRestoreObject,
 		ActionAbortMultipartUpload,
 		ActionListMultipartUploadParts,

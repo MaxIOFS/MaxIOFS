@@ -328,9 +328,26 @@ func (fs *FilesystemBackend) Exists(ctx context.Context, path string) (bool, err
 	return true, nil
 }
 
+// isTransientArtifact reports whether a file is work in progress or the remains
+// of a crashed one, rather than an object.
+func isTransientArtifact(name string) bool {
+	switch {
+	case name == ".maxiofs-bucket" || name == ".maxiofs-folder",
+		strings.HasSuffix(name, metadataStagingSuffix),
+		strings.HasPrefix(name, ".tmp_"),
+		strings.HasPrefix(name, ".metadata-tmp-"),
+		strings.HasPrefix(name, "maxiofs-upload-"),
+		strings.HasPrefix(name, "maxiofs-encmigrate"),
+		strings.HasPrefix(name, "maxiofs-multipart-"):
+		return true
+	}
+	return false
+}
+
 // List lists objects with the given prefix
 func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive bool) ([]ObjectInfo, error) {
 	var objects []ObjectInfo
+	var walkErr error
 
 	// Validate prefix to prevent directory traversal via crafted prefix values.
 	// An empty prefix is valid (list all); non-empty prefixes must stay within root.
@@ -344,7 +361,18 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			// A path that is not there is not a failure: listing a prefix that
+			// does not exist returns nothing, and a file removed by another
+			// caller mid-walk is ordinary.
+			//
+			// Anything else — a permission denied, an I/O error — is recorded
+			// rather than swallowed. It used to produce a SHORT listing with
+			// nothing to say part of the tree had been skipped, and the only
+			// consumer of this listing deletes what it is handed.
+			if !os.IsNotExist(err) {
+				walkErr = err
+			}
+			return nil
 		}
 
 		// Skip metadata files (final and staged)
@@ -354,6 +382,14 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 
 		// Skip MaxIOFS internal folder markers
 		if strings.HasSuffix(path, ".maxiofs-folder") {
+			return nil
+		}
+
+		// Skip work in progress and the debris a crash leaves behind. The
+		// recovery walk already skips all of these; this one never learned to,
+		// so an in-flight upload appeared in the listing as an object — and the
+		// only consumer of this listing deletes what it is handed.
+		if isTransientArtifact(filepath.Base(path)) {
 			return nil
 		}
 
@@ -445,6 +481,9 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 
 	if err != nil {
 		return nil, NewErrorWithCause("WalkDirectory", "Failed to walk directory", err)
+	}
+	if walkErr != nil {
+		return nil, NewErrorWithCause("WalkDirectory", "Failed to read part of the tree", walkErr)
 	}
 
 	return objects, nil

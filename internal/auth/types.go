@@ -19,6 +19,7 @@ var (
 	ErrInvalidSignature     = errors.New("invalid signature")
 	ErrTimestampSkew        = errors.New("timestamp skew too large")
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	ErrBucketQuotaExceeded  = errors.New("bucket quota exceeded")
 )
 
 // Role represents a user role

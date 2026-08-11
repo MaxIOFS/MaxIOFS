@@ -202,20 +202,42 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 }
 
 // performHealthCheck performs an HTTP health check on the given endpoint.
+// healthClient returns the shared client used to probe nodes, rebuilding it
+// only when the cluster TLS configuration has changed.
+func (m *Manager) healthClient() *http.Client {
+	current := m.tlsConfig.Load()
+
+	m.healthClientMu.Lock()
+	defer m.healthClientMu.Unlock()
+
+	if m.healthHTTPClient == nil || m.healthClientTLS != current {
+		if m.healthHTTPClient != nil {
+			m.healthHTTPClient.CloseIdleConnections()
+		}
+		transport := &http.Transport{
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 2,
+			IdleConnTimeout:     90 * time.Second,
+		}
+		if current != nil {
+			transport.TLSClientConfig = current.Clone()
+		}
+		m.healthHTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: transport}
+		m.healthClientTLS = current
+	}
+	return m.healthHTTPClient
+}
+
 // It also reads capacity_total and capacity_used from the health response
 // so that node storage stats are kept current in the cluster DB.
 func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 	start := time.Now()
 
-	// Create HTTP client with timeout, using cluster TLS if available
-	transport := &http.Transport{}
-	if cfg := m.tlsConfig.Load(); cfg != nil {
-		transport.TLSClientConfig = cfg.Clone()
-	}
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: transport,
-	}
+	// A fresh transport was built for every probe of every node and never
+	// closed, so each 30-second tick leaked a connection pool. It is built once
+	// per TLS configuration and reused; the total timeout is right here, since
+	// a health check carries no data and must answer quickly or not at all.
+	client := m.healthClient()
 
 	// Perform GET request to /health endpoint
 	healthURL := fmt.Sprintf("%s/health", endpoint)

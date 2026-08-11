@@ -121,10 +121,15 @@ func (m *IAMSyncManager) Start(ctx context.Context) {
 		}
 	}
 
-	enabledStr, err := GetGlobalConfig(ctx, m.db, "auto_access_key_sync_enabled")
-	if err != nil || enabledStr != "true" {
-		m.log.Info("Automatic IAM synchronization is disabled")
-		return
+	// The INTERVAL is shared with access keys, for the reason above. The enable
+	// flag is not, and used to be: turning off access-key synchronisation also
+	// stopped authorization from replicating, so a permission revoked on one
+	// node was never heard by the others and they went on granting it. Failing
+	// to replicate a credential is an inconvenience; failing to replicate a
+	// revocation is a security hole, and it is not what an operator disabling
+	// key sync asked for.
+	if _, err := GetGlobalConfig(ctx, m.db, "auto_access_key_sync_enabled"); err != nil {
+		m.log.WithError(err).Debug("Could not read the sync settings; using defaults for IAM synchronization")
 	}
 
 	m.log.WithField("interval_seconds", interval).Info("Starting IAM synchronization manager")

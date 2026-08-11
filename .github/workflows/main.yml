@@ -130,7 +130,13 @@ jobs:
           echo "Running backend tests..."
           PKGS=$(go list ./... | grep -v '/node_modules/')
           echo "Testing packages:" $PKGS
-          go test $PKGS -v
+          # -timeout: go's default is 10 minutes PER PACKAGE, and internal/auth,
+          # internal/cluster and internal/server each take 3 minutes locally.
+          # A shared runner is several times slower, so the default was being
+          # hit and the package failed as a timeout with nothing actually broken
+          # — which is the most likely explanation for CI failing while every
+          # command passed on a developer machine.
+          go test $PKGS -v -timeout 30m
           echo "✅ All backend tests passed"
 
       - name: Run benchmarks

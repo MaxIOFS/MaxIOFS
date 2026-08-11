@@ -37,7 +37,6 @@
   "previous": "Previous",
   "next": "Next",
   "errorLoadingBuckets": "Error loading buckets: {{error}}",
-
   "bucketNotEmpty": "Bucket is not empty",
   "bucketNotEmptyMessage": "The bucket \"{{name}}\" contains objects. Do you want to force delete it and all its contents? This action cannot be undone.",
   "forceDeleteConfirm": "Yes, force delete",
@@ -60,7 +59,6 @@
   "scanning": "scanning",
   "issueCount_one": "{{count}} issue",
   "issueCount_other": "{{count}} issues",
-
   "integrityTitle": "Verify Bucket Integrity",
   "integrityBucketDesc": "Bucket: {{name}}",
   "readyToScan": "Ready to scan",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} object",
   "scanObjects_other": "{{count}} objects",
   "scanClean": "Clean",
-
   "permissionsTitle": "Bucket Permissions: {{name}}",
   "globalBucket": "Global bucket",
   "tenantBucket": "Tenant bucket",
@@ -161,7 +158,6 @@
   "granting": "Granting...",
   "selectUserRequired": "Please select a user",
   "revokePermissionTooltip": "Revoke permission",
-
   "backToBuckets": "Back to Buckets",
   "upToParentFolder": "Up to Parent Folder",
   "currentPath": "Current path: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Global admins cannot delete from tenant buckets",
   "globalAdminReadOnlyHint": "Global admins have read-only access to tenant buckets",
   "uploadFilesTitle": "Upload files to this bucket",
-
   "filesAndFolders": "Files and folders",
   "storageUsed": "Storage used",
   "storageRegion": "Storage region",
-
   "objectLockEnabled": "Object Lock Enabled (WORM)",
   "objectLockDesc": "This bucket has WORM (Write Once Read Many) protection enabled. Objects are immutable and cannot be deleted until their retention expires.",
   "defaultRetention": "Default retention:",
@@ -193,7 +187,6 @@
   "notSpecified": "Not specified",
   "complianceMode": "⚠️ COMPLIANCE: Cannot be deleted under any circumstances",
   "governanceMode": "⚠️ GOVERNANCE: Requires special permissions to delete",
-
   "searchObjects": "Search objects...",
   "filters": "Filters",
   "objectsLabel": "Objects",
@@ -206,7 +199,6 @@
   "noObjectsFound": "No objects found",
   "tryAdjustingSearch": "Try adjusting your search terms",
   "emptyBucketHint": "Create folders or upload files to get started",
-
   "tableModified": "Modified",
   "tableType": "Type",
   "tableStorageClass": "Storage Class",
@@ -226,7 +218,6 @@
   "deletingKey": "Deleting \"{{key}}\"",
   "noRetention": "No retention",
   "legalHoldActiveTitle": "Legal Hold is active - object cannot be deleted",
-
   "download": "Download",
   "viewCopyShareLink": "View/Copy share link",
   "sharePublicLink": "Share (Public Link)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Generate Presigned URL",
   "enableLegalHold": "Enable Legal Hold",
   "disableLegalHold": "Disable Legal Hold",
-
-  "downloadingFile": "Downloading file...",
-  "downloadingKey": "Downloading \"{{key}}\"",
   "linkCopied": "Link copied to clipboard",
   "generatingLink": "Generating shareable link...",
   "creatingLinkFor": "Creating link for \"{{key}}\"",
-
   "uploadFilesModalTitle": "Upload",
   "uploadModeFiles": "Files",
   "uploadModeFolder": "Folder",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Browse folder",
   "browseFolderUnsupported": "Drag & drop to select a folder (your browser does not support folder browsing)",
   "cancel": "Cancel",
-
   "createNewFolder": "Create New Folder",
   "s3FoldersInfo": "<strong>💡 About S3 Folders:</strong> In S3, folders are <strong>virtual</strong> - they don't physically exist. A folder is represented by adding \"/\" to object names (e.g., \"photos/vacation.jpg\"). This is the standard S3 behavior used by AWS and all S3-compatible systems.",
   "folderNameLabel": "Folder Name",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Full path: {{name}}/",
   "creating": "Creating...",
   "createFolder": "Create Folder",
-
   "objectAlreadyShared": "Object Already Shared",
   "copyLink": "Copy Link",
   "unshare": "Unshare",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Select a group —",
   "noEligibleGroups": "No eligible groups found. Create groups first in the Groups section.",
   "selectGroupRequired": "Please select a group.",
-
   "downloadFolderZip": "Download as ZIP",
-  "downloadingFolder": "Preparing ZIP download...",
-  "downloadingFolderKey": "Compressing \"{{prefix}}\"",
-
   "back": "Back",
   "copy": "Copy",
   "deleteObject": "Delete object",
-
   "tabProperties": "Properties",
   "tabPermissions": "Permissions",
   "tabVersions": "Versions",
-
   "objLastModified": "Last modified",
   "objContentType": "Content type",
   "objKey": "Key",
@@ -333,8 +312,6 @@
   "objNoVersions": "Versioning is not enabled for this object.",
   "objVersionId": "Version ID",
   "objVersionStatus": "Status",
-
-  "actions": "Actions",
   "bucketInfo": "Bucket Info",
   "copyS3BucketUri": "Copy S3 URI",
   "copyS3BucketUriSuccess": "Bucket S3 URI copied to clipboard",
@@ -362,7 +339,6 @@
   "addTag": "Add Tag",
   "tagsUpdated": "Tags updated successfully",
   "save": "Save",
-
   "showVersions": "Show versions",
   "hideVersions": "Hide versions",
   "versionsView": "Versions",

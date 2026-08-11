@@ -37,7 +37,6 @@
   "previous": "前へ",
   "next": "次へ",
   "errorLoadingBuckets": "バケットの読み込みエラー: {{error}}",
-
   "bucketNotEmpty": "バケットが空ではありません",
   "bucketNotEmptyMessage": "バケット「{{name}}」にはオブジェクトが含まれています。強制削除してすべての内容を削除しますか？この操作は元に戻せません。",
   "forceDeleteConfirm": "はい、強制削除する",
@@ -60,7 +59,6 @@
   "scanning": "スキャン中",
   "issueCount_one": "{{count}}件の問題",
   "issueCount_other": "{{count}}件の問題",
-
   "integrityTitle": "バケット整合性の検証",
   "integrityBucketDesc": "バケット: {{name}}",
   "readyToScan": "スキャン準備完了",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}}個のオブジェクト",
   "scanObjects_other": "{{count}}個のオブジェクト",
   "scanClean": "問題なし",
-
   "permissionsTitle": "バケット権限: {{name}}",
   "globalBucket": "グローバルバケット",
   "tenantBucket": "テナントバケット",
@@ -161,7 +158,6 @@
   "granting": "付与中...",
   "selectUserRequired": "ユーザーを選択してください",
   "revokePermissionTooltip": "権限を取り消す",
-
   "backToBuckets": "バケット一覧に戻る",
   "upToParentFolder": "親フォルダに移動",
   "currentPath": "現在のパス: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "グローバル管理者はテナントバケットから削除できません",
   "globalAdminReadOnlyHint": "グローバル管理者はテナントバケットへの読み取り専用アクセスを持ちます",
   "uploadFilesTitle": "このバケットにファイルをアップロード",
-
   "filesAndFolders": "ファイルとフォルダ",
   "storageUsed": "使用ストレージ",
   "storageRegion": "ストレージリージョン",
-
   "objectLockEnabled": "オブジェクトロック有効 (WORM)",
   "objectLockDesc": "このバケットはWORM（Write Once Read Many）保護が有効です。オブジェクトは不変であり、保持期間が満了するまで削除できません。",
   "defaultRetention": "デフォルト保持期間:",
@@ -193,7 +187,6 @@
   "notSpecified": "未指定",
   "complianceMode": "⚠️ コンプライアンス: いかなる状況でも削除不可",
   "governanceMode": "⚠️ ガバナンス: 削除には特別な権限が必要",
-
   "searchObjects": "オブジェクトを検索...",
   "filters": "フィルター",
   "objectsLabel": "オブジェクト",
@@ -206,7 +199,6 @@
   "noObjectsFound": "オブジェクトが見つかりません",
   "tryAdjustingSearch": "検索条件を変更してみてください",
   "emptyBucketHint": "フォルダを作成するかファイルをアップロードして始めましょう",
-
   "tableModified": "更新日時",
   "tableType": "タイプ",
   "tableStorageClass": "ストレージクラス",
@@ -226,7 +218,6 @@
   "deletingKey": "「{{key}}」を削除中",
   "noRetention": "保持期間なし",
   "legalHoldActiveTitle": "リーガルホールドが有効です - オブジェクトは削除できません",
-
   "download": "ダウンロード",
   "viewCopyShareLink": "共有リンクを表示/コピー",
   "sharePublicLink": "共有（公開リンク）",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "署名付きURLを生成",
   "enableLegalHold": "リーガルホールドを有効化",
   "disableLegalHold": "リーガルホールドを無効化",
-
-  "downloadingFile": "ファイルをダウンロード中...",
-  "downloadingKey": "「{{key}}」をダウンロード中",
   "linkCopied": "リンクをクリップボードにコピーしました",
   "generatingLink": "共有リンクを生成中...",
   "creatingLinkFor": "「{{key}}」のリンクを作成中",
-
   "uploadFilesModalTitle": "アップロード",
   "uploadModeFiles": "ファイル",
   "uploadModeFolder": "フォルダ",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "フォルダを参照",
   "browseFolderUnsupported": "フォルダを選択するにはドラッグ＆ドロップしてください（お使いのブラウザはフォルダ参照をサポートしていません）",
   "cancel": "キャンセル",
-
   "createNewFolder": "新しいフォルダを作成",
   "s3FoldersInfo": "<strong>💡 S3フォルダについて:</strong> S3では、フォルダは<strong>仮想的</strong>なものです — 物理的には存在しません。フォルダはオブジェクト名に「/」を追加することで表現されます（例: \"photos/vacation.jpg\"）。これはAWSおよびすべてのS3互換システムで使用される標準的なS3の動作です。",
   "folderNameLabel": "フォルダ名",
@@ -272,7 +258,6 @@
   "fullPath": "📁 フルパス: {{name}}/",
   "creating": "作成中...",
   "createFolder": "フォルダを作成",
-
   "objectAlreadyShared": "オブジェクトは既に共有されています",
   "copyLink": "リンクをコピー",
   "unshare": "共有を解除",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— グループを選択 —",
   "noEligibleGroups": "適切なグループが見つかりません。まずグループセクションでグループを作成してください。",
   "selectGroupRequired": "グループを選択してください。",
-
   "downloadFolderZip": "ZIPとしてダウンロード",
-  "downloadingFolder": "ZIPダウンロードを準備中...",
-  "downloadingFolderKey": "「{{prefix}}」を圧縮中",
-
   "back": "戻る",
   "copy": "コピー",
   "deleteObject": "オブジェクトを削除",
-
   "tabProperties": "プロパティ",
   "tabPermissions": "権限",
   "tabVersions": "バージョン",
-
   "objLastModified": "最終更新日時",
   "objContentType": "コンテンツタイプ",
   "objKey": "キー",
@@ -333,8 +312,6 @@
   "objNoVersions": "このオブジェクトのバージョニングは有効ではありません。",
   "objVersionId": "バージョンID",
   "objVersionStatus": "ステータス",
-
-  "actions": "操作",
   "bucketInfo": "バケット情報",
   "copyS3BucketUri": "S3 URIをコピー",
   "copyS3BucketUriSuccess": "バケットのS3 URIをクリップボードにコピーしました",
@@ -362,7 +339,6 @@
   "addTag": "タグを追加",
   "tagsUpdated": "タグが正常に更新されました",
   "save": "保存",
-
   "showVersions": "バージョンを表示",
   "hideVersions": "バージョンを非表示",
   "versionsView": "バージョン",

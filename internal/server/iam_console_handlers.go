@@ -11,6 +11,7 @@ package server
 // cross the boundary the rest of the system maintains.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -325,16 +326,26 @@ func decodeIAMDocument(raw json.RawMessage) string {
 func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, created bool) {
 	store, ok := s.authManager.(interface {
 		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
-		RevokeBucketPolicies(bucketName string) error
+		RevokeBucketPolicies(bucketName string) ([]auth.InlinePolicyRef, error)
 	})
 	if !ok {
 		return
 	}
 
 	if !created {
-		if err := store.RevokeBucketPolicies(bucketName); err != nil {
+		revoked, err := store.RevokeBucketPolicies(bucketName)
+		if err != nil {
 			logrus.WithError(err).WithField("bucket", bucketName).
 				Warn("Failed to remove bucket policies after deletion")
+			return
+		}
+		// One tombstone per policy removed. Without them a peer that still
+		// holds the policy pushes it back, so a bucket recreated under the same
+		// name hands full access to whoever owned the previous one — which is
+		// precisely what removing these was for.
+		for _, ref := range revoked {
+			s.recordIAMDeletion(context.Background(), cluster.EntityTypeIAMInlinePolicy,
+				iamInlineTombstoneID(ref.TargetType, ref.TargetID, ref.Name))
 		}
 		return
 	}
@@ -386,7 +397,12 @@ func (s *Server) handleGetUserPermissions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	permissions, err := store.GetUserPermissions(mux.Vars(r)["id"])
+	targetID := mux.Vars(r)["id"]
+	if !s.canAdministerUser(w, r, targetID) {
+		return
+	}
+
+	permissions, err := store.GetUserPermissions(targetID)
 	if err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
@@ -419,6 +435,9 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 	}
 
 	userID := mux.Vars(r)["id"]
+	if !s.canAdministerUser(w, r, userID) {
+		return
+	}
 	if err := store.SetUserPermissions(userID, &permissions); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
@@ -449,6 +468,39 @@ func grantsAdministration(permissions *auth.UserPermissions) bool {
 
 // permissionStore resolves the store and checks the caller may hand out
 // permissions at all.
+// canAdministerUser reports whether the caller may see or change this user.
+//
+// permissionStore only asked "is the caller an administrator", and neither
+// handler compared the target's tenant to the caller's — so a tenant admin read
+// and rewrote the permissions of another tenant's users, including revoking
+// their console access. handleUpdateUser and handleDeleteUser already scope
+// this way; these two did not.
+func (s *Server) canAdministerUser(w http.ResponseWriter, r *http.Request, targetUserID string) bool {
+	caller := s.getAuthUser(r)
+	if caller == nil {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return false
+	}
+	if s.isGlobalAdmin(caller) {
+		return true
+	}
+
+	target, err := s.authManager.GetUser(r.Context(), targetUserID)
+	if err != nil {
+		if err == auth.ErrUserNotFound {
+			s.writeError(w, "User not found", http.StatusNotFound)
+		} else {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
+		return false
+	}
+	if target.TenantID != caller.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 func (s *Server) permissionStore(w http.ResponseWriter, r *http.Request) (interface {
 	GetUserPermissions(userID string) (*auth.UserPermissions, error)
 	SetUserPermissions(userID string, permissions *auth.UserPermissions) error

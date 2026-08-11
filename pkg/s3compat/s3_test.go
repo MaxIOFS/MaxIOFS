@@ -125,13 +125,10 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	if bom, ok := bucketManager.(interface {
 		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
 	}); ok {
-		if store, ok := authManager.(interface {
-			GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
-			RevokeBucketPolicies(bucketName string) error
-		}); ok {
+		if store, ok := authManager.(BucketOwnerRecorder); ok {
 			bom.SetBucketOwnerPolicyCallback(func(bucketName, tenantID, ownerID string, created bool) {
 				if !created {
-					_ = store.RevokeBucketPolicies(bucketName)
+					_, _ = store.RevokeBucketPolicies(bucketName)
 					return
 				}
 				if ownerID != "" {

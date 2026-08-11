@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,14 @@ type Manager struct {
 	// atomics keep the read side free of a lock it would take millions of times.
 	tlsConfig         atomic.Pointer[tls.Config]
 	clusterHTTPClient atomic.Pointer[http.Client]
+
+	// The health prober's client, rebuilt only when the TLS config changes. It
+	// used to be built fresh for every probe of every node and never closed, so
+	// each 30-second tick left a connection pool behind.
+	healthClientMu   sync.Mutex
+	healthHTTPClient *http.Client
+	healthClientTLS  *tls.Config
+
 	currentCert       atomic.Pointer[tls.Certificate]
 	readCounter       uint64 // atomic — round-robin read balancing
 	storagePressureFn StoragePressureEmitter

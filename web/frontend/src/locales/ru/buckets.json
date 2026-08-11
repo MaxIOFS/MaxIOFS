@@ -37,7 +37,6 @@
   "previous": "Назад",
   "next": "Далее",
   "errorLoadingBuckets": "Ошибка загрузки бакетов: {{error}}",
-
   "bucketNotEmpty": "Бакет не пуст",
   "bucketNotEmptyMessage": "Бакет «{{name}}» содержит объекты. Вы хотите принудительно удалить его вместе со всем содержимым? Это действие нельзя отменить.",
   "forceDeleteConfirm": "Да, принудительно удалить",
@@ -60,7 +59,6 @@
   "scanning": "сканирование",
   "issueCount_one": "{{count}} проблема",
   "issueCount_other": "{{count}} проблем",
-
   "integrityTitle": "Проверка целостности бакета",
   "integrityBucketDesc": "Бакет: {{name}}",
   "readyToScan": "Готово к сканированию",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} объект",
   "scanObjects_other": "{{count}} объектов",
   "scanClean": "Без ошибок",
-
   "permissionsTitle": "Права доступа к бакету: {{name}}",
   "globalBucket": "Глобальный бакет",
   "tenantBucket": "Бакет тенанта",
@@ -161,7 +158,6 @@
   "granting": "Выдача...",
   "selectUserRequired": "Пожалуйста, выберите пользователя",
   "revokePermissionTooltip": "Отозвать право",
-
   "backToBuckets": "Назад к бакетам",
   "upToParentFolder": "Перейти в родительскую папку",
   "currentPath": "Текущий путь: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Глобальные администраторы не могут удалять объекты из бакетов тенантов",
   "globalAdminReadOnlyHint": "Глобальные администраторы имеют доступ только для чтения к бакетам тенантов",
   "uploadFilesTitle": "Загрузка файлов в этот бакет",
-
   "filesAndFolders": "Файлы и папки",
   "storageUsed": "Использовано хранилища",
   "storageRegion": "Регион хранилища",
-
   "objectLockEnabled": "Object Lock включён (WORM)",
   "objectLockDesc": "В этом бакете включена защита WORM (Write Once Read Many). Объекты неизменяемы и не могут быть удалены до истечения срока хранения.",
   "defaultRetention": "Хранение по умолчанию:",
@@ -193,7 +187,6 @@
   "notSpecified": "Не задано",
   "complianceMode": "⚠️ СООТВЕТСТВИЕ: Не может быть удалён ни при каких условиях",
   "governanceMode": "⚠️ УПРАВЛЕНИЕ: Требует специальных прав для удаления",
-
   "searchObjects": "Поиск объектов...",
   "filters": "Фильтры",
   "objectsLabel": "Объекты",
@@ -206,7 +199,6 @@
   "noObjectsFound": "Объекты не найдены",
   "tryAdjustingSearch": "Попробуйте изменить параметры поиска",
   "emptyBucketHint": "Создайте папки или загрузите файлы для начала работы",
-
   "tableModified": "Изменён",
   "tableType": "Тип",
   "tableStorageClass": "Класс хранилища",
@@ -226,7 +218,6 @@
   "deletingKey": "Удаление «{{key}}»",
   "noRetention": "Без срока хранения",
   "legalHoldActiveTitle": "Юридическое удержание активно — объект нельзя удалить",
-
   "download": "Скачать",
   "viewCopyShareLink": "Просмотреть/скопировать ссылку для общего доступа",
   "sharePublicLink": "Поделиться (публичная ссылка)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Создать подписанный URL",
   "enableLegalHold": "Включить юридическое удержание",
   "disableLegalHold": "Отключить юридическое удержание",
-
-  "downloadingFile": "Скачивание файла...",
-  "downloadingKey": "Скачивание «{{key}}»",
   "linkCopied": "Ссылка скопирована в буфер обмена",
   "generatingLink": "Создание ссылки для общего доступа...",
   "creatingLinkFor": "Создание ссылки для «{{key}}»",
-
   "uploadFilesModalTitle": "Загрузка",
   "uploadModeFiles": "Файлы",
   "uploadModeFolder": "Папка",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Обзор папки",
   "browseFolderUnsupported": "Перетащите папку для выбора (ваш браузер не поддерживает просмотр папок)",
   "cancel": "Отмена",
-
   "createNewFolder": "Создать новую папку",
   "s3FoldersInfo": "<strong>💡 О папках S3:</strong> В S3 папки являются <strong>виртуальными</strong> — они физически не существуют. Папка представляется добавлением «/» к именам объектов (например, «photos/vacation.jpg»). Это стандартное поведение S3, используемое AWS и всеми S3-совместимыми системами.",
   "folderNameLabel": "Имя папки",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Полный путь: {{name}}/",
   "creating": "Создание...",
   "createFolder": "Создать папку",
-
   "objectAlreadyShared": "Объект уже доступен для общего доступа",
   "copyLink": "Скопировать ссылку",
   "unshare": "Отменить общий доступ",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Выберите группу —",
   "noEligibleGroups": "Подходящие группы не найдены. Сначала создайте группы в разделе «Группы».",
   "selectGroupRequired": "Пожалуйста, выберите группу.",
-
   "downloadFolderZip": "Скачать как ZIP",
-  "downloadingFolder": "Подготовка ZIP-архива...",
-  "downloadingFolderKey": "Сжатие «{{prefix}}»",
-
   "back": "Назад",
   "copy": "Копировать",
   "deleteObject": "Удалить объект",
-
   "tabProperties": "Свойства",
   "tabPermissions": "Права доступа",
   "tabVersions": "Версии",
-
   "objLastModified": "Последнее изменение",
   "objContentType": "Тип содержимого",
   "objKey": "Ключ",
@@ -333,8 +312,6 @@
   "objNoVersions": "Версионирование для этого объекта не включено.",
   "objVersionId": "Идентификатор версии",
   "objVersionStatus": "Статус",
-
-  "actions": "Действия",
   "bucketInfo": "Информация о бакете",
   "copyS3BucketUri": "Копировать S3 URI",
   "copyS3BucketUriSuccess": "S3 URI бакета скопирован в буфер обмена",
@@ -362,7 +339,6 @@
   "addTag": "Добавить тег",
   "tagsUpdated": "Теги успешно обновлены",
   "save": "Сохранить",
-
   "showVersions": "Показать версии",
   "hideVersions": "Скрыть версии",
   "versionsView": "Версии",

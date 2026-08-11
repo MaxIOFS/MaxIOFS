@@ -69,11 +69,11 @@ displays.
   victim's upload destroyed. `Complete` writes to the destination recorded in
   the upload metadata — a bucket the caller holds nothing on. A single ownership
   assertion fixes all four.
-- [ ] **User permissions are readable and writable across tenants**
+- [x] **User permissions are readable and writable across tenants**
   (`iam_console_handlers.go:452`). `permissionStore` accepts any admin, and
   neither handler compares the target's tenant to the caller's. A tenant admin
   reads and rewrites another tenant's users' permissions.
-- [ ] **`handleShareObject` accepts an attacker-supplied `?tenantId`**
+- [x] **`handleShareObject` accepts an attacker-supplied `?tenantId`**
   (`console_api.go:2504`) and checks no read permission. A share makes the
   object anonymously readable over S3, so this is a permanent public link to
   another tenant's object. Its two sibling handlers carry the global-admin gate
@@ -97,10 +97,10 @@ displays.
   `bucket_permissions` table that is no longer consulted when authorizing. A
   bucket granted purely through IAM is invisible in both the console and the S3
   listing while its objects are fully accessible.
-- [ ] **SOSAPI virtual objects**: the tenant guard is one-directional on
+- [x] **SOSAPI virtual objects**: the tenant guard is one-directional on
   `GetObject` (`handler.go:2835`) and absent on `HeadObject` (`:1723`), with no
   policy check on either. Leaks per-tenant capacity and quota figures.
-- [ ] **Cross-tenant bucket inventory** (`cluster_handlers.go:593`) reads
+- [x] **Cross-tenant bucket inventory** (`cluster_handlers.go:593`) reads
   `tenant_id` from a context key the console middleware never sets, so it is
   always empty and the handler lists every tenant's buckets with counts and
   sizes.
@@ -113,7 +113,7 @@ displays.
   Reproduced: a user holding `s3:GetObject` on the bucket gets `403`. The IAM
   read path does not work for anyone who is not the owner. Also breaks
   `CopyObject` and `UploadPartCopy` on their source object.
-- [ ] **Tenant administrators silently lost permissions, and role policies are
+- [x] **Tenant administrators silently lost permissions, and role policies are
   ignored for them.** `EffectivePolicyDocumentsInTenant` substitutes a hardcoded
   `tenantAdminDocument()` and **skips the role's IAM-attached policies**
   entirely. That hardcoded list omits both Object Lock configuration actions,
@@ -121,7 +121,7 @@ displays.
   set immutability configuration at all, and anything an operator attaches to or
   revokes from a role has no effect on any user who has a tenant. Both halves
   reproduced.
-- [ ] **Object subresources ignore `versionId`** and check the current-object
+- [x] **Object subresources ignore `versionId`** and check the current-object
   action: attributes, tagging, retention, legal hold and ACL. A grant of
   `s3:GetObject` alone reads any historical version, bypassing
   `s3:GetObjectVersion`. `CopyObject`/`UploadPartCopy` take the source version
@@ -134,7 +134,7 @@ displays.
 - [x] **Ownership transfer moves no permission.** `handleUpdateBucketOwner`
   writes the owner fields and never touches the owner policy, so the new owner
   gets nothing and the previous one keeps everything.
-- [ ] **The permissions screen bakes inherited permissions into the user.**
+- [x] **The permissions screen bakes inherited permissions into the user.**
   `GetUserPermissions` resolves *effective* permissions (role, tenant, group,
   owner) while `SetUserPermissions` stores whatever comes back as the user's own
   direct grants. Opening any user's screen and pressing Save converts their
@@ -142,7 +142,7 @@ displays.
   same call deletes every `bucket-*` grant while leaving the legacy
   `bucket_permissions` row in place, so the console keeps displaying a grant
   that authorizes nothing.
-- [ ] **Bucket-permission changes do not replicate as authorization.** Grants
+- [x] **Bucket-permission changes do not replicate as authorization.** Grants
   and revocations trigger only the legacy `bucket_permission` sync, which
   carries a table nobody reads at request time, and no tombstone is recorded
   when the inline policy is deleted. Because the IAM receiver upserts
@@ -152,7 +152,7 @@ displays.
   Additionally `IAMSyncManager.Start` returns without starting unless
   `auto_access_key_sync_enabled` is true — authorization data now rides on a
   flag meant for access keys.
-- [ ] Dead writes to `user_capability_overrides` remain in the user sync path;
+- [x] Dead writes to `user_capability_overrides` remain in the user sync path;
   those rows authorize nothing now.
 
 ### Fixed in this pass, recorded for the record
@@ -183,22 +183,22 @@ displays.
   console proxy and left here. Reproduced: after a failed forward the body reads
   zero bytes with a `nil` error, so `PutObject` **stores a 0-byte object and
   returns 200**. The client is told the upload succeeded.
-- [ ] **A download token is accepted on four sibling GET routes** when the
+- [x] **A download token is accepted on four sibling GET routes** when the
   object key is literally `acl`, `tags`, `versions` or `legal-hold`
   (`download_token.go:62`). The suffix test was written as though it matched the
   route; it matches the path. Bounded — same bucket, same key, GET only, and
   those handlers still check permissions — but wider than documented.
-- [ ] **The `versionId` fix was applied to one of two call sites.**
+- [x] **The `versionId` fix was applied to one of two call sites.**
   `ObjectVersionsModal.tsx` was corrected; the identical download button on the
   bucket page's Versions tab (`pages/buckets/[bucket]/index.tsx:1720`) still
   downloads the current version under the older version's name.
-- [ ] `transfer.Transport` leaves `req.GetBody` pointing at the unwrapped body,
+- [x] `transfer.Transport` leaves `req.GetBody` pointing at the unwrapped body,
   so a transport-level retry uploads without stamping the progress clock.
-- [ ] `APIClient.fetchObjectBlob` has no callers and drops `versionId`, while
+- [x] `APIClient.fetchObjectBlob` has no callers and drops `versionId`, while
   its comment advertises reading a specific version.
-- [ ] `downloadFolderAsZip` still buffers the whole archive in memory — the case
+- [x] `downloadFolderAsZip` still buffers the whole archive in memory — the case
   the single-object download was converted away from, and typically larger.
-- [ ] Orphaned i18n keys `downloadingFile` / `downloadingKey` in all 9 locales.
+- [x] Orphaned i18n keys `downloadingFile` / `downloadingKey` in all 9 locales.
 
 ### Not from this migration — pre-existing, surfaced in the same pass
 
@@ -254,7 +254,7 @@ Unrelated to IAM/STS, recorded here so they are not lost.
   (`manager.go:2875`, `:3196`): `FilesystemBackend.Put` returns without draining
   or closing the pipe, leaving the encryptor blocked in `Write` forever. One
   leak per upload that fails mid-copy — that is, during a disk-full episode.
-- [ ] `FilesystemBackend.List` returns in-flight and orphaned temp files as
+- [x] `FilesystemBackend.List` returns in-flight and orphaned temp files as
   objects (`.tmp_*`, `.metadata-tmp-*`, `maxiofs-upload-*`); `Reconcile` already
   skips all six prefixes. Walk errors are discarded, so an unreadable subtree
   silently shortens the listing.
@@ -264,28 +264,41 @@ Unrelated to IAM/STS, recorded here so they are not lost.
   the init/join handlers while both servers are already serving;
   `LeaderManager.Stop()` panics if called twice; `s.clusterServer` is replaced
   without synchronisation.
-- [ ] `handleGeneratePresignedURL` has no authorization check, tests for a role
+- [x] `handleGeneratePresignedURL` has no authorization check, tests for a role
   `system_admin` that exists nowhere in the repo, and leaks a file handle.
-- [ ] `coordinatorExemptPath` matches substrings rather than path segments, so a
+- [x] `coordinatorExemptPath` matches substrings rather than path segments, so a
   bucket named `download` skips the coordinator gate.
-- [ ] TOCTOU on the tenant bucket count, and `UpdateTenant` overwrites the
+- [x] TOCTOU on the tenant bucket count, and `UpdateTenant` overwrites the
   atomic usage counters from a stale snapshot.
-- [ ] Minor: integrity-history lost update; `GetAllLatencyStats` re-locking mid
+- [x] Minor: integrity-history lost update; `GetAllLatencyStats` re-locking mid
   iteration; `metrics.collector` Start/Stop channel race (no production caller);
   background loops with no stop path in `cluster/cache.go`, `cluster/health.go`
   (a fresh `http.Transport` per probe, never closed) and
   `replication/manager.go`.
 
+### Test-harness trap worth removing
+
+- [x] The s3compat harnesses wire bucket ownership through a type assertion on
+  an anonymous interface. When a method's signature changes, the assertion
+  simply stops matching: no compile error, no warning — the owner policy is
+  never written, and ten unrelated tests fail as "the owner cannot read its own
+  bucket". It cost a confusing debugging round this pass. An explicit named
+  interface would fail to compile instead.
+
 ### Observed, not yet explained
 
-- [ ] `TestBucketPermissionSyncManager_Start` failed once during a full parallel
-  suite run and passed 5/5 in isolation and 2/2 as a package immediately after.
-  Timing-sensitive under load rather than broken, but it will fail CI at random
-  until someone looks at what it waits on.
+- [x] The intermittent failures under parallel load were **not** timing. Root
+  cause: the SQLite DSN. The driver is `modernc.org/sqlite`, whose parameters
+  are written `_pragma=name(value)`; seven test files and three production
+  databases used the OTHER driver's form (`_busy_timeout=`, `_journal_mode=`),
+  which modernc accepts without complaint and applies not at all — leaving
+  rollback-journal mode and a zero busy timeout, so a second writer got
+  SQLITE_BUSY instead of waiting. Fixed everywhere, pinned by
+  `internal/db/dsn_test.go`, and three consecutive full-suite runs are clean.
 
 ### CI
 
-- [ ] The test step runs `go test $PKGS -v` with **no `-timeout`**, so the
+- [x] The test step runs `go test $PKGS -v` with **no `-timeout`**, so the
   default 600 s per-package budget applies. Locally `internal/cluster`,
   `internal/server` and `internal/auth` each take 170-190 s without `-race`, and
   a shared runner is easily 3x slower. This is the most likely cause of the CI

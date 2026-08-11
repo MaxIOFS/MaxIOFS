@@ -381,7 +381,7 @@ func TestReplicationEndToEnd_WithInMemoryStores(t *testing.T) {
 	// Setup replication manager
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "replication.db")
-	replicationDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
+	replicationDB, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 	defer replicationDB.Close()
 
@@ -552,7 +552,7 @@ func TestSchedulerTriggers(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "replication.db")
-	replicationDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
+	replicationDB, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 	defer replicationDB.Close()
 
@@ -656,7 +656,7 @@ func TestReplicationRetries(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "replication.db")
-	replicationDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
+	replicationDB, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 	defer replicationDB.Close()
 

@@ -37,7 +37,6 @@
   "previous": "Précédent",
   "next": "Suivant",
   "errorLoadingBuckets": "Erreur lors du chargement des buckets : {{error}}",
-
   "bucketNotEmpty": "Le bucket n'est pas vide",
   "bucketNotEmptyMessage": "Le bucket \"{{name}}\" contient des objets. Voulez-vous forcer sa suppression ainsi que tout son contenu ? Cette action est irréversible.",
   "forceDeleteConfirm": "Oui, forcer la suppression",
@@ -60,7 +59,6 @@
   "scanning": "analyse en cours",
   "issueCount_one": "{{count}} problème",
   "issueCount_other": "{{count}} problèmes",
-
   "integrityTitle": "Vérifier l'intégrité du bucket",
   "integrityBucketDesc": "Bucket : {{name}}",
   "readyToScan": "Prêt à analyser",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} objet",
   "scanObjects_other": "{{count}} objets",
   "scanClean": "Propre",
-
   "permissionsTitle": "Permissions du bucket : {{name}}",
   "globalBucket": "Bucket global",
   "tenantBucket": "Bucket tenant",
@@ -161,7 +158,6 @@
   "granting": "Octroi...",
   "selectUserRequired": "Veuillez sélectionner un utilisateur",
   "revokePermissionTooltip": "Révoquer la permission",
-
   "backToBuckets": "Retour aux buckets",
   "upToParentFolder": "Remonter au dossier parent",
   "currentPath": "Chemin actuel : /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Les administrateurs globaux ne peuvent pas supprimer depuis les buckets des tenants",
   "globalAdminReadOnlyHint": "Les administrateurs globaux ont un accès en lecture seule aux buckets des tenants",
   "uploadFilesTitle": "Téléverser des fichiers dans ce bucket",
-
   "filesAndFolders": "Fichiers et dossiers",
   "storageUsed": "Stockage utilisé",
   "storageRegion": "Région de stockage",
-
   "objectLockEnabled": "Object Lock activé (WORM)",
   "objectLockDesc": "Ce bucket a la protection WORM (Write Once Read Many) activée. Les objets sont immuables et ne peuvent pas être supprimés jusqu'à l'expiration de leur rétention.",
   "defaultRetention": "Rétention par défaut :",
@@ -193,7 +187,6 @@
   "notSpecified": "Non spécifié",
   "complianceMode": "⚠️ CONFORMITÉ : Ne peut être supprimé en aucune circonstance",
   "governanceMode": "⚠️ GOUVERNANCE : Nécessite des permissions spéciales pour supprimer",
-
   "searchObjects": "Rechercher des objets...",
   "filters": "Filtres",
   "objectsLabel": "Objets",
@@ -206,7 +199,6 @@
   "noObjectsFound": "Aucun objet trouvé",
   "tryAdjustingSearch": "Essayez de modifier vos termes de recherche",
   "emptyBucketHint": "Créez des dossiers ou téléversez des fichiers pour commencer",
-
   "tableModified": "Modifié",
   "tableType": "Type",
   "tableStorageClass": "Classe de stockage",
@@ -226,7 +218,6 @@
   "deletingKey": "Suppression de \"{{key}}\"",
   "noRetention": "Aucune rétention",
   "legalHoldActiveTitle": "La conservation légale est active - l'objet ne peut pas être supprimé",
-
   "download": "Télécharger",
   "viewCopyShareLink": "Voir/Copier le lien de partage",
   "sharePublicLink": "Partager (lien public)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Générer une URL présignée",
   "enableLegalHold": "Activer la conservation légale",
   "disableLegalHold": "Désactiver la conservation légale",
-
-  "downloadingFile": "Téléchargement du fichier...",
-  "downloadingKey": "Téléchargement de \"{{key}}\"",
   "linkCopied": "Lien copié dans le presse-papiers",
   "generatingLink": "Génération du lien partageable...",
   "creatingLinkFor": "Création du lien pour \"{{key}}\"",
-
   "uploadFilesModalTitle": "Téléversement",
   "uploadModeFiles": "Fichiers",
   "uploadModeFolder": "Dossier",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Parcourir le dossier",
   "browseFolderUnsupported": "Glissez-déposez pour sélectionner un dossier (votre navigateur ne prend pas en charge la navigation dans les dossiers)",
   "cancel": "Annuler",
-
   "createNewFolder": "Créer un nouveau dossier",
   "s3FoldersInfo": "<strong>💡 À propos des dossiers S3 :</strong> Dans S3, les dossiers sont <strong>virtuels</strong> - ils n'existent pas physiquement. Un dossier est représenté en ajoutant \"/\" aux noms d'objets (ex. \"photos/vacances.jpg\"). C'est le comportement S3 standard utilisé par AWS et tous les systèmes compatibles S3.",
   "folderNameLabel": "Nom du dossier",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Chemin complet : {{name}}/",
   "creating": "Création...",
   "createFolder": "Créer le dossier",
-
   "objectAlreadyShared": "Objet déjà partagé",
   "copyLink": "Copier le lien",
   "unshare": "Annuler le partage",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Sélectionner un groupe —",
   "noEligibleGroups": "Aucun groupe éligible trouvé. Créez d'abord des groupes dans la section Groupes.",
   "selectGroupRequired": "Veuillez sélectionner un groupe.",
-
   "downloadFolderZip": "Télécharger en ZIP",
-  "downloadingFolder": "Préparation du téléchargement ZIP...",
-  "downloadingFolderKey": "Compression de \"{{prefix}}\"",
-
   "back": "Retour",
   "copy": "Copier",
   "deleteObject": "Supprimer l'objet",
-
   "tabProperties": "Propriétés",
   "tabPermissions": "Permissions",
   "tabVersions": "Versions",
-
   "objLastModified": "Dernière modification",
   "objContentType": "Type de contenu",
   "objKey": "Clé",
@@ -333,8 +312,6 @@
   "objNoVersions": "La gestion des versions n'est pas activée pour cet objet.",
   "objVersionId": "ID de version",
   "objVersionStatus": "Statut",
-
-  "actions": "Actions",
   "bucketInfo": "Informations du bucket",
   "copyS3BucketUri": "Copier l'URI S3",
   "copyS3BucketUriSuccess": "URI S3 du bucket copié dans le presse-papiers",
@@ -362,7 +339,6 @@
   "addTag": "Ajouter une étiquette",
   "tagsUpdated": "Étiquettes mises à jour avec succès",
   "save": "Enregistrer",
-
   "showVersions": "Afficher les versions",
   "hideVersions": "Masquer les versions",
   "versionsView": "Versions",

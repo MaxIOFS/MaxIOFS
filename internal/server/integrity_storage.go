@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -70,6 +71,14 @@ func (s *Server) saveIntegrityResult(ctx context.Context, bucketPath string, rep
 		Source:     source,
 	}
 
+	// One bucket's history at a time: this is a read-modify-write, and the 24h
+	// scrubber and a manual scan can reach it together — one record was simply
+	// dropped. Cosmetic, since the history is only displayed, but the fix is a
+	// lock.
+	mu := integrityHistoryMutex(bucketPath)
+	mu.Lock()
+	defer mu.Unlock()
+
 	// Load existing history, prepend the new record, cap at maxScanHistory.
 	existing, _ := s.getIntegrityHistory(ctx, bucketPath)
 	history := append([]*LastScanRecord{rec}, existing...)
@@ -86,6 +95,15 @@ func (s *Server) saveIntegrityResult(ctx context.Context, bucketPath string, rep
 	if err := kvStore.PutRaw(ctx, integrityScanKey(bucketPath), data); err != nil {
 		logrus.WithError(err).WithField("bucket", bucketPath).Error("integrity: failed to save scan history")
 	}
+}
+
+// integrityHistoryMutexes serialises the read-modify-write of one bucket's scan
+// history, keyed by bucket so unrelated buckets never wait on each other.
+var integrityHistoryMutexes sync.Map
+
+func integrityHistoryMutex(bucketPath string) *sync.Mutex {
+	actual, _ := integrityHistoryMutexes.LoadOrStore(bucketPath, &sync.Mutex{})
+	return actual.(*sync.Mutex)
 }
 
 // getIntegrityHistory retrieves the stored scan history for a bucket (newest

@@ -37,7 +37,6 @@
   "previous": "Zurück",
   "next": "Weiter",
   "errorLoadingBuckets": "Fehler beim Laden der Buckets: {{error}}",
-
   "bucketNotEmpty": "Bucket ist nicht leer",
   "bucketNotEmptyMessage": "Der Bucket \"{{name}}\" enthält Objekte. Möchten Sie ihn und alle Inhalte erzwungen löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
   "forceDeleteConfirm": "Ja, erzwungen löschen",
@@ -60,7 +59,6 @@
   "scanning": "Wird gescannt",
   "issueCount_one": "{{count}} Problem",
   "issueCount_other": "{{count}} Probleme",
-
   "integrityTitle": "Bucket-Integrität prüfen",
   "integrityBucketDesc": "Bucket: {{name}}",
   "readyToScan": "Bereit zum Scannen",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} Objekt",
   "scanObjects_other": "{{count}} Objekte",
   "scanClean": "Sauber",
-
   "permissionsTitle": "Bucket-Berechtigungen: {{name}}",
   "globalBucket": "Globaler Bucket",
   "tenantBucket": "Mandanten-Bucket",
@@ -161,7 +158,6 @@
   "granting": "Wird erteilt...",
   "selectUserRequired": "Bitte wählen Sie einen Benutzer aus",
   "revokePermissionTooltip": "Berechtigung widerrufen",
-
   "backToBuckets": "Zurück zu Buckets",
   "upToParentFolder": "Zum übergeordneten Ordner",
   "currentPath": "Aktueller Pfad: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Globale Administratoren können Objekte aus Mandanten-Buckets nicht löschen",
   "globalAdminReadOnlyHint": "Globale Administratoren haben nur Lesezugriff auf Mandanten-Buckets",
   "uploadFilesTitle": "Dateien in diesen Bucket hochladen",
-
   "filesAndFolders": "Dateien und Ordner",
   "storageUsed": "Speicher belegt",
   "storageRegion": "Speicherregion",
-
   "objectLockEnabled": "Object Lock aktiviert (WORM)",
   "objectLockDesc": "Dieser Bucket hat WORM-Schutz (Write Once Read Many) aktiviert. Objekte sind unveränderlich und können erst nach Ablauf der Aufbewahrungsfrist gelöscht werden.",
   "defaultRetention": "Standard-Aufbewahrung:",
@@ -193,7 +187,6 @@
   "notSpecified": "Nicht angegeben",
   "complianceMode": "⚠️ COMPLIANCE: Kann unter keinen Umständen gelöscht werden",
   "governanceMode": "⚠️ GOVERNANCE: Erfordert spezielle Berechtigungen zum Löschen",
-
   "searchObjects": "Objekte suchen...",
   "filters": "Filter",
   "objectsLabel": "Objekte",
@@ -206,7 +199,6 @@
   "noObjectsFound": "Keine Objekte gefunden",
   "tryAdjustingSearch": "Passen Sie Ihre Suchbegriffe an",
   "emptyBucketHint": "Erstellen Sie Ordner oder laden Sie Dateien hoch, um zu beginnen",
-
   "tableModified": "Geändert",
   "tableType": "Typ",
   "tableStorageClass": "Speicherklasse",
@@ -226,7 +218,6 @@
   "deletingKey": "\"{{key}}\" wird gelöscht",
   "noRetention": "Keine Aufbewahrung",
   "legalHoldActiveTitle": "Gesetzliche Aufbewahrungspflicht ist aktiv - Objekt kann nicht gelöscht werden",
-
   "download": "Herunterladen",
   "viewCopyShareLink": "Link anzeigen/kopieren",
   "sharePublicLink": "Teilen (Öffentlicher Link)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Vorzeichenbehaftete URL generieren",
   "enableLegalHold": "Gesetzliche Aufbewahrungspflicht aktivieren",
   "disableLegalHold": "Gesetzliche Aufbewahrungspflicht deaktivieren",
-
-  "downloadingFile": "Datei wird heruntergeladen...",
-  "downloadingKey": "\"{{key}}\" wird heruntergeladen",
   "linkCopied": "Link in die Zwischenablage kopiert",
   "generatingLink": "Teilbarer Link wird generiert...",
   "creatingLinkFor": "Link wird erstellt für \"{{key}}\"",
-
   "uploadFilesModalTitle": "Hochladen",
   "uploadModeFiles": "Dateien",
   "uploadModeFolder": "Ordner",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Ordner durchsuchen",
   "browseFolderUnsupported": "Drag & Drop, um einen Ordner auszuwählen (Ihr Browser unterstützt das Durchsuchen von Ordnern nicht)",
   "cancel": "Abbrechen",
-
   "createNewFolder": "Neuen Ordner erstellen",
   "s3FoldersInfo": "<strong>💡 Über S3-Ordner:</strong> In S3 sind Ordner <strong>virtuell</strong> — sie existieren nicht physisch. Ein Ordner wird durch das Hinzufügen von \"/\" zu Objektnamen dargestellt (z. B. \"fotos/urlaub.jpg\"). Dies ist das Standard-S3-Verhalten, das von AWS und allen S3-kompatiblen Systemen verwendet wird.",
   "folderNameLabel": "Ordnername",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Vollständiger Pfad: {{name}}/",
   "creating": "Wird erstellt...",
   "createFolder": "Ordner erstellen",
-
   "objectAlreadyShared": "Objekt bereits geteilt",
   "copyLink": "Link kopieren",
   "unshare": "Freigabe aufheben",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Gruppe auswählen —",
   "noEligibleGroups": "Keine berechtigten Gruppen gefunden. Erstellen Sie zuerst Gruppen im Bereich Gruppen.",
   "selectGroupRequired": "Bitte wählen Sie eine Gruppe aus.",
-
   "downloadFolderZip": "Als ZIP herunterladen",
-  "downloadingFolder": "ZIP-Download wird vorbereitet...",
-  "downloadingFolderKey": "\"{{prefix}}\" wird komprimiert",
-
   "back": "Zurück",
   "copy": "Kopieren",
   "deleteObject": "Objekt löschen",
-
   "tabProperties": "Eigenschaften",
   "tabPermissions": "Berechtigungen",
   "tabVersions": "Versionen",
-
   "objLastModified": "Zuletzt geändert",
   "objContentType": "Inhaltstyp",
   "objKey": "Schlüssel",
@@ -333,8 +312,6 @@
   "objNoVersions": "Die Versionierung ist für dieses Objekt nicht aktiviert.",
   "objVersionId": "Versions-ID",
   "objVersionStatus": "Status",
-
-  "actions": "Aktionen",
   "bucketInfo": "Bucket-Informationen",
   "copyS3BucketUri": "S3-URI kopieren",
   "copyS3BucketUriSuccess": "Bucket-S3-URI in die Zwischenablage kopiert",
@@ -362,7 +339,6 @@
   "addTag": "Tag hinzufügen",
   "tagsUpdated": "Tags erfolgreich aktualisiert",
   "save": "Speichern",
-
   "showVersions": "Versionen anzeigen",
   "hideVersions": "Versionen ausblenden",
   "versionsView": "Versionen",

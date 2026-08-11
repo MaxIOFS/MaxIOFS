@@ -581,7 +581,7 @@ export default function BucketDetailsPage() {
     }
   };
 
-  const handleDownloadObject = async (key: string) => {
+  const handleDownloadObject = async (key: string, versionId?: string) => {
     try {
       // Hand the transfer to the browser rather than pulling the object into
       // the page: it streams to disk, shows its own progress, and survives a
@@ -589,6 +589,7 @@ export default function BucketDetailsPage() {
       const url = await APIClient.getObjectDownloadURL({
         bucket: bucketName,
         ...(tenantId && { tenantId }),
+        ...(versionId && { versionId }),
         key,
       });
 
@@ -606,20 +607,17 @@ export default function BucketDetailsPage() {
   const handleDownloadFolderZip = async (key: string) => {
     const folderName = key.replace(/\/$/, '').split('/').pop() || key;
     try {
-      ModalManager.loading(t('downloadingFolder'), t('downloadingFolderKey', { prefix: folderName }));
-      const blob = await APIClient.downloadFolderAsZip(bucketName, key, tenantId);
-      ModalManager.close();
-      const url = window.URL.createObjectURL(blob);
+      // Streamed to disk by the browser, like a single object. A folder archive
+      // is unbounded, so holding it in the tab first was the worse case of the
+      // two.
+      const url = await APIClient.getFolderDownloadURL(bucketName, key, tenantId);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${folderName}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      ModalManager.successDownload(`${folderName}.zip`);
     } catch (error: unknown) {
-      ModalManager.close();
       ModalManager.apiError(error);
     }
   };
@@ -1717,7 +1715,7 @@ export default function BucketDetailsPage() {
                               <button
                                 title={t('download')}
                                 className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-                                onClick={() => handleDownloadObject(v.key)}
+                                onClick={() => handleDownloadObject(v.key, v.versionId)}
                               >
                                 <DownloadIcon className="h-4 w-4" />
                               </button>

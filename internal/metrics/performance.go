@@ -159,7 +159,13 @@ func (pc *PerformanceCollector) CalculateThroughput() ThroughputStats {
 func (pc *PerformanceCollector) GetLatencyStats(op OperationType) *LatencyStats {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
+	return pc.latencyStatsLocked(op)
+}
 
+// latencyStatsLocked computes one operation's statistics with the read lock
+// already held, so a caller iterating every operation does not have to release
+// and retake it between steps.
+func (pc *PerformanceCollector) latencyStatsLocked(op OperationType) *LatencyStats {
 	latencies := pc.latencies[op]
 	if len(latencies) == 0 {
 		return &LatencyStats{
@@ -224,12 +230,13 @@ func (pc *PerformanceCollector) GetAllLatencyStats() map[OperationType]*LatencyS
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 
-	stats := make(map[OperationType]*LatencyStats)
+	// One consistent snapshot, under one lock. Releasing and retaking it
+	// between iterations bought nothing and let the map grow or rehash mid-walk,
+	// so a Prometheus scrape could return a picture that missed or duplicated
+	// operation types.
+	stats := make(map[OperationType]*LatencyStats, len(pc.latencies))
 	for op := range pc.latencies {
-		// Temporarily unlock to call GetLatencyStats (which needs read lock)
-		pc.mu.RUnlock()
-		stats[op] = pc.GetLatencyStats(op)
-		pc.mu.RLock()
+		stats[op] = pc.latencyStatsLocked(op)
 	}
 
 	return stats

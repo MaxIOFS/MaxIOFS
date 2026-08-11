@@ -21,7 +21,7 @@ func setupHealthTestDB(t *testing.T) (*sql.DB, func()) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_health.db")
 
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 
 	// Initialize schema

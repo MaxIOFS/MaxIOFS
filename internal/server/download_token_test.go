@@ -2,11 +2,16 @@ package server
 
 // Where a download token is accepted.
 //
-// The middleware treats it as a credential, so the question these answer is
-// not "does the download work" but "what else does this open". Only GET on the
-// object-download route may be authorised by one; every sibling route lives
-// under the same path prefix, so a prefix check would have handed a token good
-// for reading a file the power to rewrite its ACL.
+// The middleware treats it as a credential, so the question these answer is not
+// "does the download work" but "what else does this open". Only two routes may
+// be authorised by one — the object download and the folder archive — and both
+// are matched by ROUTE IDENTITY rather than by the shape of the path.
+//
+// Shape was not enough: the previous test asked whether the path ended with the
+// object key, which every sibling route satisfies when the key is exactly that
+// segment, so a token for an object named "acl" also redeemed on the ACL route.
+// These tests dispatch through a real router for that reason — checking the
+// helper with hand-set variables would not have caught it.
 
 import (
 	"net/http"
@@ -15,98 +20,98 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// requestForTarget builds a request the way mux would deliver it, with the
-// route variables already populated.
-func requestForTarget(method, path, bucket, object string, query string) *http.Request {
-	url := path
-	if query != "" {
-		url += "?" + query
+// routerForTokenTests mirrors the console's object routes, names the two that
+// a token may authorise, and reports what the middleware would have decided.
+func routerForTokenTests(s *Server, seen *string, ok *bool) *mux.Router {
+	router := mux.NewRouter()
+
+	record := func(w http.ResponseWriter, r *http.Request) {
+		*seen, *ok = s.downloadTokenResource(r)
 	}
-	r := httptest.NewRequest(method, url, nil)
-	return mux.SetURLVars(r, map[string]string{"bucket": bucket, "object": object})
+
+	base := "/api/v1/buckets/{bucket}/objects/{object:.*}"
+	router.HandleFunc(base+"/acl", record).Methods("GET")
+	router.HandleFunc(base+"/tags", record).Methods("GET")
+	router.HandleFunc(base+"/versions", record).Methods("GET")
+	router.HandleFunc(base+"/legal-hold", record).Methods("GET")
+	router.HandleFunc(base+"/download-token", record).Methods("POST")
+	router.HandleFunc("/api/v1/buckets/{bucket}/download-zip-token", record).Methods("POST")
+
+	router.HandleFunc("/api/v1/buckets/{bucket}/download-zip", record).
+		Methods("GET").Name(routeFolderDownload)
+	router.HandleFunc(base, record).Methods("GET").Name(routeObjectDownload)
+	router.HandleFunc(base, record).Methods("PUT", "DELETE")
+
+	return router
 }
 
-func TestDownloadRequestTarget_OnlyTheDownloadRoute(t *testing.T) {
-	s := &Server{}
+// resourceFor dispatches a request and returns what a token would have to name.
+func resourceFor(t *testing.T, s *Server, method, path string) (string, bool) {
+	t.Helper()
+	var seen string
+	var ok bool
+	routerForTokenTests(s, &seen, &ok).ServeHTTP(
+		httptest.NewRecorder(), httptest.NewRequest(method, path, nil))
+	return seen, ok
+}
 
-	t.Run("the download itself is accepted", func(t *testing.T) {
-		r := requestForTarget(http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf",
-			"backups", "report.pdf", "")
-		tenant, bucket, key, version, ok := s.downloadRequestTarget(r)
-		assert.True(t, ok)
-		assert.Equal(t, "", tenant)
-		assert.Equal(t, "backups", bucket)
-		assert.Equal(t, "report.pdf", key)
-		assert.Equal(t, "", version)
+func TestDownloadToken_OnlyTheTwoDownloadRoutes(t *testing.T) {
+	s := getSharedServer()
+
+	t.Run("the object download is accepted", func(t *testing.T) {
+		resource, ok := resourceFor(t, s, http.MethodGet,
+			"/api/v1/buckets/backups/objects/report.pdf")
+		require.True(t, ok)
+		assert.Equal(t, downloadResource("", "backups", "report.pdf", ""), resource)
 	})
 
-	t.Run("tenant and version travel with it", func(t *testing.T) {
-		r := requestForTarget(http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf",
-			"backups", "report.pdf", "tenantId=acme&versionId=v7")
-		tenant, _, _, version, ok := s.downloadRequestTarget(r)
-		assert.True(t, ok)
-		assert.Equal(t, "acme", tenant)
-		assert.Equal(t, "v7", version)
+	t.Run("the folder archive is accepted", func(t *testing.T) {
+		resource, ok := resourceFor(t, s, http.MethodGet,
+			"/api/v1/buckets/backups/download-zip?prefix=folder/")
+		require.True(t, ok)
+		assert.Equal(t, downloadZipResource("", "backups", "folder/"), resource)
+	})
+
+	t.Run("tenant and version travel with the object", func(t *testing.T) {
+		resource, ok := resourceFor(t, s, http.MethodGet,
+			"/api/v1/buckets/backups/objects/report.pdf?tenantId=acme&versionId=v7")
+		require.True(t, ok)
+		assert.Equal(t, downloadResource("acme", "backups", "report.pdf", "v7"), resource)
 	})
 
 	t.Run("a key containing slashes still matches", func(t *testing.T) {
-		r := requestForTarget(http.MethodGet, "/api/v1/buckets/backups/objects/2026/07/report.pdf",
-			"backups", "2026/07/report.pdf", "")
-		_, _, key, _, ok := s.downloadRequestTarget(r)
-		assert.True(t, ok)
-		assert.Equal(t, "2026/07/report.pdf", key)
+		resource, ok := resourceFor(t, s, http.MethodGet,
+			"/api/v1/buckets/backups/objects/2026/07/report.pdf")
+		require.True(t, ok)
+		assert.Equal(t, downloadResource("", "backups", "2026/07/report.pdf", ""), resource)
 	})
 
-	t.Run("a key needing escaping still matches", func(t *testing.T) {
-		const key = "informe final.pdf"
-		r := requestForTarget(http.MethodGet, "/api/v1/buckets/backups/objects/informe%20final.pdf",
-			"backups", key, "")
-		_, _, got, _, ok := s.downloadRequestTarget(r)
-		assert.True(t, ok)
-		assert.Equal(t, key, got)
-	})
-
-	// The sibling routes. Every one of these has the download path as a prefix,
-	// which is exactly why the check is not a prefix check.
-	for _, sibling := range []struct {
-		name   string
-		method string
-		path   string
-	}{
+	// The sibling routes. Each has the download path as a prefix, and the one
+	// that used to slip through is the key named after the route itself.
+	for _, sibling := range []struct{ name, method, path string }{
 		{"object ACL", http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf/acl"},
-		{"versions", http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf/versions"},
-		{"tags", http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf/tags"},
-		{"legal hold", http.MethodGet, "/api/v1/buckets/backups/objects/report.pdf/legal-hold"},
-		{"minting another token", http.MethodPost, "/api/v1/buckets/backups/objects/report.pdf/download-token"},
+		{"a key literally named acl", http.MethodGet, "/api/v1/buckets/backups/objects/acl/acl"},
+		{"a key literally named tags", http.MethodGet, "/api/v1/buckets/backups/objects/tags/tags"},
+		{"a key literally named versions", http.MethodGet, "/api/v1/buckets/backups/objects/versions/versions"},
+		{"a key literally named legal-hold", http.MethodGet, "/api/v1/buckets/backups/objects/legal-hold/legal-hold"},
+		{"minting another object token", http.MethodPost, "/api/v1/buckets/backups/objects/report.pdf/download-token"},
+		{"minting a folder token", http.MethodPost, "/api/v1/buckets/backups/download-zip-token"},
+		{"writing over the object", http.MethodPut, "/api/v1/buckets/backups/objects/report.pdf"},
+		{"deleting the object", http.MethodDelete, "/api/v1/buckets/backups/objects/report.pdf"},
 	} {
 		t.Run("refused: "+sibling.name, func(t *testing.T) {
-			r := requestForTarget(sibling.method, sibling.path, "backups", "report.pdf", "")
-			_, _, _, _, ok := s.downloadRequestTarget(r)
+			_, ok := resourceFor(t, s, sibling.method, sibling.path)
 			assert.False(t, ok, "a download token must not reach %s", sibling.name)
 		})
 	}
-
-	t.Run("refused: writing over the object", func(t *testing.T) {
-		r := requestForTarget(http.MethodPut, "/api/v1/buckets/backups/objects/report.pdf",
-			"backups", "report.pdf", "")
-		_, _, _, _, ok := s.downloadRequestTarget(r)
-		assert.False(t, ok)
-	})
-
-	t.Run("refused: deleting the object", func(t *testing.T) {
-		r := requestForTarget(http.MethodDelete, "/api/v1/buckets/backups/objects/report.pdf",
-			"backups", "report.pdf", "")
-		_, _, _, _, ok := s.downloadRequestTarget(r)
-		assert.False(t, ok)
-	})
 }
 
 // TestDownloadResource_CannotBeSpelledTwoWays: the parts are joined with a NUL
-// so no combination of tenant, bucket and key produces another combination's
-// string. With a "/" separator, bucket "a/b" key "c" and bucket "a" key "b/c"
-// would be the same resource, and a token for one would open the other.
+// so no combination produces another's string, and the leading kind keeps an
+// object token from redeeming as a folder archive.
 func TestDownloadResource_CannotBeSpelledTwoWays(t *testing.T) {
 	assert.NotEqual(t,
 		downloadResource("", "a/b", "c", ""),
@@ -115,4 +120,9 @@ func TestDownloadResource_CannotBeSpelledTwoWays(t *testing.T) {
 	assert.NotEqual(t,
 		downloadResource("t", "b", "k", ""),
 		downloadResource("", "t", "b", "k"))
+
+	assert.NotEqual(t,
+		downloadResource("", "backups", "folder/", ""),
+		downloadZipResource("", "backups", "folder/"),
+		"reading one object is not archiving everything under a prefix")
 }

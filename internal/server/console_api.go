@@ -404,7 +404,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/verify-integrity", s.handleVerifyBucketIntegrity).Methods("POST", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleGetIntegrityStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/integrity-status", s.handleSaveIntegrityStatus).Methods("POST", "OPTIONS")
-	router.HandleFunc("/buckets/{bucket}/download-zip", s.handleDownloadZip).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/download-zip-token", s.handleCreateDownloadZipToken).Methods("POST", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/download-zip", s.handleDownloadZip).
+		Methods("GET", "OPTIONS").Name(routeFolderDownload)
 
 	// Replication endpoints
 	router.HandleFunc("/buckets/{bucket}/replication/rules", s.handleListReplicationRules).Methods("GET", "OPTIONS")
@@ -448,7 +450,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/download-token", s.handleCreateDownloadToken).Methods("POST", "OPTIONS")
-	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleGetObject).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleGetObject).
+		Methods("GET", "OPTIONS").Name(routeObjectDownload)
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleUploadObject).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}", s.handleDeleteObject).Methods("DELETE", "OPTIONS")
 
@@ -2482,12 +2485,22 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if tenantId is provided in query params (for accessing tenant buckets from console)
+	// A share makes the object anonymously readable over the S3 endpoint, so
+	// creating one is at least as much as reading it. This handler asked for no
+	// permission at all.
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
+		"You do not have permission to share this object") {
+		return
+	}
+
+	// The tenant used to be taken from the query string with no check, unlike
+	// its two sibling handlers, which gate that override on being a global
+	// administrator. Any console user could therefore name another tenant and
+	// publish an object out of it — permanently, since a share is a standing
+	// public link.
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
-
-	// If tenantId is explicitly provided in query, use it (for global admins or console navigation)
-	if queryTenantID != "" {
+	if queryTenantID != "" && s.isGlobalAdmin(user) {
 		tenantID = queryTenantID
 		logrus.WithFields(logrus.Fields{
 			"queryTenantID": queryTenantID,
@@ -4954,6 +4967,20 @@ func (s *Server) grantScopedGroupBucketAccess(r *http.Request, bucketName, bucke
 }
 
 func (s *Server) revokeScopedBucketAccess(r *http.Request, bucketName, bucketTenantID, userID, tenantID string) error {
+	err := s.revokeScopedBucketAccessRow(r, bucketName, bucketTenantID, userID, tenantID)
+	if err == nil {
+		// A revocation deletes the user's inline `bucket-<name>` policy, and a
+		// deletion with no tombstone is undone by the next sync: the receiver
+		// upserts whatever a peer reports, and its freshness guard cannot fire
+		// on a row that is gone. So access came back cluster-wide within the
+		// sync interval, and stayed.
+		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
+			iamInlineTombstoneID(auth.IAMTargetUser, userID, "bucket-"+bucketName))
+	}
+	return err
+}
+
+func (s *Server) revokeScopedBucketAccessRow(r *http.Request, bucketName, bucketTenantID, userID, tenantID string) error {
 	if mgr, ok := s.scopedBucketPermissionManager(); ok {
 		return mgr.RevokeBucketAccessScoped(r.Context(), bucketName, bucketTenantID, userID, tenantID)
 	}
@@ -4964,6 +4991,15 @@ func (s *Server) revokeScopedBucketAccess(r *http.Request, bucketName, bucketTen
 }
 
 func (s *Server) revokeScopedGroupBucketAccess(r *http.Request, bucketName, bucketTenantID, groupID string) error {
+	err := s.revokeScopedGroupBucketAccessRow(r, bucketName, bucketTenantID, groupID)
+	if err == nil {
+		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
+			iamInlineTombstoneID(auth.IAMTargetGroup, groupID, "bucket-"+bucketName))
+	}
+	return err
+}
+
+func (s *Server) revokeScopedGroupBucketAccessRow(r *http.Request, bucketName, bucketTenantID, groupID string) error {
 	if mgr, ok := s.scopedBucketPermissionManager(); ok {
 		return mgr.RevokeGroupBucketAccessScoped(r.Context(), bucketName, bucketTenantID, groupID)
 	}
@@ -5398,6 +5434,14 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 		"object": objectKey,
 	}).Info("Generate presigned URL request")
 
+	// A presigned URL hands out access to this object, so producing one needs
+	// permission to read it. This handler asked for none: it confirmed the
+	// object's existence to any authenticated caller and signed a URL for it.
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
+		"You do not have permission to share this object") {
+		return
+	}
+
 	// Get user from context
 	user, ok := auth.GetUserFromContext(r.Context())
 	if !ok {
@@ -5437,18 +5481,12 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 	// Determine tenant ID for bucket path
 	tenantID := user.TenantID
 	queryTenantID := r.URL.Query().Get("tenantId")
-	if queryTenantID != "" {
-		// Check if user is system admin (has "system_admin" role)
-		isAdmin := false
-		for _, role := range user.Roles {
-			if role == "system_admin" {
-				isAdmin = true
-				break
-			}
-		}
-		if isAdmin {
-			tenantID = queryTenantID
-		}
+	// Only a global administrator may sign for another tenant's bucket. This
+	// tested for a role named "system_admin", which exists nowhere else in the
+	// repository — so the override could never fire, and the check read as a
+	// safeguard while doing nothing at all.
+	if queryTenantID != "" && s.isGlobalAdmin(user) {
+		tenantID = queryTenantID
 	}
 
 	// Get bucket info to verify it exists
@@ -5465,7 +5503,12 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 	} else {
 		bucketPath = bucketName
 	}
-	_, _, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	// The reader is opened only to confirm the object exists, so it has to be
+	// closed: discarding it leaked a file handle per presigned URL issued.
+	_, existenceReader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	if existenceReader != nil {
+		existenceReader.Close()
+	}
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Object not found: %v", err), http.StatusNotFound)
 		return

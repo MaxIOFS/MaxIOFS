@@ -37,7 +37,6 @@
   "previous": "上一页",
   "next": "下一页",
   "errorLoadingBuckets": "加载存储桶时出错：{{error}}",
-
   "bucketNotEmpty": "存储桶不为空",
   "bucketNotEmptyMessage": "存储桶 \"{{name}}\" 包含对象，您是否要强制删除它及其所有内容？此操作无法撤销。",
   "forceDeleteConfirm": "是的，强制删除",
@@ -60,7 +59,6 @@
   "scanning": "扫描中",
   "issueCount_one": "{{count}} 个问题",
   "issueCount_other": "{{count}} 个问题",
-
   "integrityTitle": "验证存储桶完整性",
   "integrityBucketDesc": "存储桶：{{name}}",
   "readyToScan": "准备扫描",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} 个对象",
   "scanObjects_other": "{{count}} 个对象",
   "scanClean": "正常",
-
   "permissionsTitle": "存储桶权限：{{name}}",
   "globalBucket": "全局存储桶",
   "tenantBucket": "租户存储桶",
@@ -161,7 +158,6 @@
   "granting": "授权中...",
   "selectUserRequired": "请选择用户",
   "revokePermissionTooltip": "撤销权限",
-
   "backToBuckets": "返回存储桶列表",
   "upToParentFolder": "返回上级文件夹",
   "currentPath": "当前路径：/{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "全局管理员无法从租户存储桶中删除",
   "globalAdminReadOnlyHint": "全局管理员对租户存储桶具有只读访问权限",
   "uploadFilesTitle": "上传文件到此存储桶",
-
   "filesAndFolders": "文件和文件夹",
   "storageUsed": "已用存储",
   "storageRegion": "存储区域",
-
   "objectLockEnabled": "对象锁定已启用 (WORM)",
   "objectLockDesc": "此存储桶已启用 WORM（一次写入多次读取）保护，对象是不可变的，在其保留期到期之前无法删除。",
   "defaultRetention": "默认保留期：",
@@ -193,7 +187,6 @@
   "notSpecified": "未指定",
   "complianceMode": "⚠️ 合规模式：在任何情况下都无法删除",
   "governanceMode": "⚠️ 治理模式：需要特殊权限才能删除",
-
   "searchObjects": "搜索对象...",
   "filters": "筛选",
   "objectsLabel": "对象",
@@ -206,7 +199,6 @@
   "noObjectsFound": "未找到对象",
   "tryAdjustingSearch": "请调整搜索词后重试",
   "emptyBucketHint": "创建文件夹或上传文件以开始使用",
-
   "tableModified": "修改时间",
   "tableType": "类型",
   "tableStorageClass": "存储类",
@@ -226,7 +218,6 @@
   "deletingKey": "正在删除 \"{{key}}\"",
   "noRetention": "无保留期",
   "legalHoldActiveTitle": "合法保留已激活 - 对象无法删除",
-
   "download": "下载",
   "viewCopyShareLink": "查看/复制分享链接",
   "sharePublicLink": "分享（公开链接）",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "生成预签名 URL",
   "enableLegalHold": "启用合法保留",
   "disableLegalHold": "禁用合法保留",
-
-  "downloadingFile": "正在下载文件...",
-  "downloadingKey": "正在下载 \"{{key}}\"",
   "linkCopied": "链接已复制到剪贴板",
   "generatingLink": "正在生成可分享链接...",
   "creatingLinkFor": "正在为 \"{{key}}\" 创建链接",
-
   "uploadFilesModalTitle": "上传",
   "uploadModeFiles": "文件",
   "uploadModeFolder": "文件夹",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "浏览文件夹",
   "browseFolderUnsupported": "拖放以选择文件夹（您的浏览器不支持文件夹浏览）",
   "cancel": "取消",
-
   "createNewFolder": "新建文件夹",
   "s3FoldersInfo": "<strong>💡 关于 S3 文件夹：</strong>在 S3 中，文件夹是<strong>虚拟的</strong> - 它们并不实际存在。文件夹通过在对象名称中添加 \"/\" 来表示（例如 \"photos/vacation.jpg\"）。这是 AWS 和所有 S3 兼容系统使用的标准 S3 行为。",
   "folderNameLabel": "文件夹名称",
@@ -272,7 +258,6 @@
   "fullPath": "📁 完整路径：{{name}}/",
   "creating": "创建中...",
   "createFolder": "创建文件夹",
-
   "objectAlreadyShared": "对象已共享",
   "copyLink": "复制链接",
   "unshare": "取消共享",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— 选择用户组 —",
   "noEligibleGroups": "未找到合格的用户组，请先在用户组部分创建用户组。",
   "selectGroupRequired": "请选择用户组。",
-
   "downloadFolderZip": "下载为 ZIP",
-  "downloadingFolder": "正在准备 ZIP 下载...",
-  "downloadingFolderKey": "正在压缩 \"{{prefix}}\"",
-
   "back": "返回",
   "copy": "复制",
   "deleteObject": "删除对象",
-
   "tabProperties": "属性",
   "tabPermissions": "权限",
   "tabVersions": "版本",
-
   "objLastModified": "最后修改",
   "objContentType": "内容类型",
   "objKey": "键",
@@ -333,8 +312,6 @@
   "objNoVersions": "此对象未启用版本控制。",
   "objVersionId": "版本 ID",
   "objVersionStatus": "状态",
-
-  "actions": "操作",
   "bucketInfo": "存储桶信息",
   "copyS3BucketUri": "复制 S3 URI",
   "copyS3BucketUriSuccess": "存储桶 S3 URI 已复制到剪贴板",
@@ -362,7 +339,6 @@
   "addTag": "添加标签",
   "tagsUpdated": "标签更新成功",
   "save": "保存",
-
   "showVersions": "显示版本",
   "hideVersions": "隐藏版本",
   "versionsView": "版本",

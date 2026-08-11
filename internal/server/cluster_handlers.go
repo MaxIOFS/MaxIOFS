@@ -592,10 +592,19 @@ func (s *Server) handleCheckNodeHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleGetClusterBuckets lists all buckets with replication information
 func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request) {
-	// Get tenant from context (for multi-tenancy support)
-	tenantID, ok := r.Context().Value("tenant_id").(string)
-	if !ok {
-		tenantID = "" // Global admin sees all buckets
+	// The tenant came from a context key the console auth middleware never sets
+	// — it sets "user" — so this was always empty and the handler listed every
+	// tenant's buckets, with object counts and sizes, to any authenticated
+	// caller. It is read from the caller now, and only a global administrator
+	// sees past their own.
+	caller := s.getAuthUser(r)
+	if caller == nil {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	tenantID := caller.TenantID
+	if s.isGlobalAdmin(caller) {
+		tenantID = "" // a global administrator sees all buckets
 	}
 
 	// List all buckets

@@ -26,7 +26,7 @@ func setupWorkerDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)

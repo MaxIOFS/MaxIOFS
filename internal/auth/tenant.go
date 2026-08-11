@@ -227,11 +227,16 @@ func (s *SQLiteStore) UpdateTenant(tenant *Tenant) error {
 	}
 	defer tx.Rollback()
 
+	// The usage counters are deliberately absent from this statement. They are
+	// maintained atomically by IncrementTenantStorage and IncrementTenantBucketCount,
+	// and a caller editing a tenant carries whatever they happened to be when it
+	// read the record — writing those back rolled usage backwards whenever a PUT
+	// landed while an administrator had the form open.
 	_, err = tx.Exec(`
 		UPDATE tenants
-		SET display_name = ?, description = ?, status = ?, max_access_keys = ?, max_storage_bytes = ?, current_storage_bytes = ?, max_bandwidth_bytes_per_sec = ?, max_buckets = ?, current_buckets = ?, metadata = ?, updated_at = ?
+		SET display_name = ?, description = ?, status = ?, max_access_keys = ?, max_storage_bytes = ?, max_bandwidth_bytes_per_sec = ?, max_buckets = ?, metadata = ?, updated_at = ?
 		WHERE id = ?
-	`, tenant.DisplayName, tenant.Description, tenant.Status, tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.CurrentStorageBytes, tenant.MaxBandwidthBytesPerSec, tenant.MaxBuckets, tenant.CurrentBuckets, string(metadataJSON), tenant.UpdatedAt, tenant.ID)
+	`, tenant.DisplayName, tenant.Description, tenant.Status, tenant.MaxAccessKeys, tenant.MaxStorageBytes, tenant.MaxBandwidthBytesPerSec, tenant.MaxBuckets, string(metadataJSON), tenant.UpdatedAt, tenant.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update tenant: %w", err)
@@ -388,14 +393,30 @@ func (s *SQLiteStore) IncrementTenantBucketCount(tenantID string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	// Atomic, with the quota enforced in the same statement — the same shape
+	// IncrementTenantStorage already used. The caller checked the count and
+	// then created the bucket, so two concurrent creates both read a count
+	// below the limit and both passed it.
+	res, err := tx.Exec(`
 		UPDATE tenants
 		SET current_buckets = current_buckets + 1, updated_at = ?
 		WHERE id = ?
+		AND (max_buckets = 0 OR current_buckets + 1 <= max_buckets)
 	`, time.Now().Unix(), tenantID)
 
 	if err != nil {
 		return fmt.Errorf("failed to increment bucket count: %w", err)
+	}
+
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		// Either the tenant is gone or its bucket quota is full. Told apart so
+		// the caller can say which.
+		var exists int
+		if qErr := tx.QueryRow(`SELECT COUNT(*) FROM tenants WHERE id = ?`, tenantID).
+			Scan(&exists); qErr == nil && exists == 0 {
+			return fmt.Errorf("tenant %s not found", tenantID)
+		}
+		return ErrBucketQuotaExceeded
 	}
 
 	return tx.Commit()

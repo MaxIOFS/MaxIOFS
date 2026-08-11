@@ -37,7 +37,6 @@
   "previous": "Anterior",
   "next": "Siguiente",
   "errorLoadingBuckets": "Error al cargar buckets: {{error}}",
-
   "bucketNotEmpty": "El bucket no está vacío",
   "bucketNotEmptyMessage": "El bucket \"{{name}}\" contiene objetos. ¿Desea forzar su eliminación y todo su contenido? Esta acción no se puede deshacer.",
   "forceDeleteConfirm": "Sí, forzar eliminación",
@@ -60,7 +59,6 @@
   "scanning": "escaneando",
   "issueCount_one": "{{count}} problema",
   "issueCount_other": "{{count}} problemas",
-
   "integrityTitle": "Verificar Integridad del Bucket",
   "integrityBucketDesc": "Bucket: {{name}}",
   "readyToScan": "Listo para escanear",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} objeto",
   "scanObjects_other": "{{count}} objetos",
   "scanClean": "Limpio",
-
   "permissionsTitle": "Permisos del Bucket: {{name}}",
   "globalBucket": "Bucket Global",
   "tenantBucket": "Bucket de Inquilino",
@@ -161,7 +158,6 @@
   "granting": "Otorgando...",
   "selectUserRequired": "Por favor seleccione un usuario",
   "revokePermissionTooltip": "Revocar permiso",
-
   "backToBuckets": "Volver a Buckets",
   "upToParentFolder": "Subir a Carpeta Superior",
   "currentPath": "Ruta actual: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Los administradores globales no pueden eliminar de buckets de tenants",
   "globalAdminReadOnlyHint": "Los administradores globales tienen acceso de solo lectura a los buckets de tenants",
   "uploadFilesTitle": "Subir archivos a este bucket",
-
   "filesAndFolders": "Archivos y carpetas",
   "storageUsed": "Almacenamiento usado",
   "storageRegion": "Región de almacenamiento",
-
   "objectLockEnabled": "Object Lock Activado (WORM)",
   "objectLockDesc": "Este bucket tiene protección WORM (Write Once Read Many) activada. Los objetos son inmutables y no pueden eliminarse hasta que expire su retención.",
   "defaultRetention": "Retención por defecto:",
@@ -193,7 +187,6 @@
   "notSpecified": "No especificado",
   "complianceMode": "⚠️ COMPLIANCE: No puede eliminarse bajo ninguna circunstancia",
   "governanceMode": "⚠️ GOVERNANCE: Requiere permisos especiales para eliminar",
-
   "searchObjects": "Buscar objetos...",
   "filters": "Filtros",
   "objectsLabel": "Objetos",
@@ -206,7 +199,6 @@
   "noObjectsFound": "No se encontraron objetos",
   "tryAdjustingSearch": "Intenta ajustar los términos de búsqueda",
   "emptyBucketHint": "Crea carpetas o sube archivos para comenzar",
-
   "tableModified": "Modificado",
   "tableType": "Tipo",
   "tableStorageClass": "Clase de almacenamiento",
@@ -226,7 +218,6 @@
   "deletingKey": "Eliminando \"{{key}}\"",
   "noRetention": "Sin retención",
   "legalHoldActiveTitle": "La retención legal está activa - el objeto no puede eliminarse",
-
   "download": "Descargar",
   "viewCopyShareLink": "Ver/Copiar enlace de compartir",
   "sharePublicLink": "Compartir (Enlace Público)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Generar URL Prefirmada",
   "enableLegalHold": "Activar Retención Legal",
   "disableLegalHold": "Desactivar Retención Legal",
-
-  "downloadingFile": "Descargando archivo...",
-  "downloadingKey": "Descargando \"{{key}}\"",
   "linkCopied": "Enlace copiado al portapapeles",
   "generatingLink": "Generando enlace compartible...",
   "creatingLinkFor": "Creando enlace para \"{{key}}\"",
-
   "uploadFilesModalTitle": "Subir",
   "uploadModeFiles": "Archivos",
   "uploadModeFolder": "Carpeta",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Buscar carpeta",
   "browseFolderUnsupported": "Arrastra una carpeta aquí (tu navegador no soporta selección de carpetas)",
   "cancel": "Cancelar",
-
   "createNewFolder": "Crear Nueva Carpeta",
   "s3FoldersInfo": "<strong>💡 Acerca de las Carpetas S3:</strong> En S3, las carpetas son <strong>virtuales</strong> - no existen físicamente. Una carpeta se representa añadiendo \"/\" al nombre de los objetos (ej: \"fotos/vacaciones.jpg\"). Este es el comportamiento estándar de S3 usado por AWS y todos los sistemas compatibles.",
   "folderNameLabel": "Nombre de Carpeta",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Ruta completa: {{name}}/",
   "creating": "Creando...",
   "createFolder": "Crear Carpeta",
-
   "objectAlreadyShared": "Objeto ya Compartido",
   "copyLink": "Copiar Enlace",
   "unshare": "Dejar de Compartir",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Selecciona un grupo —",
   "noEligibleGroups": "No se encontraron grupos elegibles. Crea grupos primero en la sección de Grupos.",
   "selectGroupRequired": "Por favor selecciona un grupo.",
-
   "downloadFolderZip": "Descargar como ZIP",
-  "downloadingFolder": "Preparando descarga ZIP...",
-  "downloadingFolderKey": "Comprimiendo \"{{prefix}}\"",
-
   "back": "Volver",
   "copy": "Copiar",
   "deleteObject": "Eliminar objeto",
-
   "tabProperties": "Propiedades",
   "tabPermissions": "Permisos",
   "tabVersions": "Versiones",
-
   "objLastModified": "Última modificación",
   "objContentType": "Tipo de contenido",
   "objKey": "Clave",
@@ -333,8 +312,6 @@
   "objNoVersions": "El versionado no está habilitado para este objeto.",
   "objVersionId": "ID de versión",
   "objVersionStatus": "Estado",
-
-  "actions": "Acciones",
   "bucketInfo": "Info del Bucket",
   "copyS3BucketUri": "Copiar URI S3",
   "copyS3BucketUriSuccess": "URI S3 del bucket copiada al portapapeles",
@@ -362,7 +339,6 @@
   "addTag": "Añadir etiqueta",
   "tagsUpdated": "Etiquetas actualizadas correctamente",
   "save": "Guardar",
-
   "showVersions": "Mostrar versiones",
   "hideVersions": "Ocultar versiones",
   "versionsView": "Versiones",

@@ -76,7 +76,7 @@ func (m *MockBucketLister) ListObjects(ctx context.Context, tenantID, bucket, pr
 func setupTestDB(t *testing.T) *sql.DB {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_replication.db")
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&cache=shared")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	require.NoError(t, err)
 	return db
 }

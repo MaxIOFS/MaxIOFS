@@ -352,9 +352,47 @@ func (s *SQLiteStore) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID stri
 
 // RevokeBucketPolicies removes every policy naming a bucket, so deleting one
 // does not leave grants behind that a later bucket of the same name inherits.
-func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef, error) {
+	names := []string{"owner-" + bucketName, "bucket-" + bucketName}
+
+	// Read them first: the caller has to record a tombstone for each, and once
+	// the rows are gone there is nothing left to say who held them. Without
+	// that, a peer still holding the policy pushes it back and the grant
+	// returns — which is exactly what deleting them was meant to prevent, since
+	// a bucket recreated under the same name would inherit the old owner.
+	rows, err := s.db.Query(
+		`SELECT target_type, target_id, name FROM iam_inline_policies WHERE name IN (?, ?)`,
+		names[0], names[1])
+	if err != nil {
+		return nil, err
+	}
+
+	var revoked []InlinePolicyRef
+	for rows.Next() {
+		var ref InlinePolicyRef
+		if err := rows.Scan(&ref.TargetType, &ref.TargetID, &ref.Name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		revoked = append(revoked, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.db.Exec(
 		`DELETE FROM iam_inline_policies WHERE name IN (?, ?)`,
-		"owner-"+bucketName, "bucket-"+bucketName)
-	return err
+		names[0], names[1]); err != nil {
+		return nil, err
+	}
+	return revoked, nil
+}
+
+// InlinePolicyRef identifies one inline policy, which is what a tombstone needs
+// to name.
+type InlinePolicyRef struct {
+	TargetType string
+	TargetID   string
+	Name       string
 }

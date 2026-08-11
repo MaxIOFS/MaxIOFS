@@ -37,7 +37,6 @@
   "previous": "Precedente",
   "next": "Avanti",
   "errorLoadingBuckets": "Errore durante il caricamento dei bucket: {{error}}",
-
   "bucketNotEmpty": "Il bucket non è vuoto",
   "bucketNotEmptyMessage": "Il bucket \"{{name}}\" contiene oggetti. Eliminarlo forzatamente con tutto il suo contenuto? Questa azione non può essere annullata.",
   "forceDeleteConfirm": "Sì, elimina forzatamente",
@@ -60,7 +59,6 @@
   "scanning": "analisi in corso",
   "issueCount_one": "{{count}} problema",
   "issueCount_other": "{{count}} problemi",
-
   "integrityTitle": "Verifica integrità bucket",
   "integrityBucketDesc": "Bucket: {{name}}",
   "readyToScan": "Pronto per l'analisi",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} oggetto",
   "scanObjects_other": "{{count}} oggetti",
   "scanClean": "Pulito",
-
   "permissionsTitle": "Autorizzazioni bucket: {{name}}",
   "globalBucket": "Bucket globale",
   "tenantBucket": "Bucket tenant",
@@ -161,7 +158,6 @@
   "granting": "Concessione...",
   "selectUserRequired": "Selezionare un utente",
   "revokePermissionTooltip": "Revoca autorizzazione",
-
   "backToBuckets": "Torna ai bucket",
   "upToParentFolder": "Vai alla cartella superiore",
   "currentPath": "Percorso corrente: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Gli amministratori globali non possono eliminare da bucket tenant",
   "globalAdminReadOnlyHint": "Gli amministratori globali hanno accesso di sola lettura ai bucket tenant",
   "uploadFilesTitle": "Carica file in questo bucket",
-
   "filesAndFolders": "File e cartelle",
   "storageUsed": "Spazio utilizzato",
   "storageRegion": "Regione di archiviazione",
-
   "objectLockEnabled": "Object Lock abilitato (WORM)",
   "objectLockDesc": "Questo bucket ha la protezione WORM (Write Once Read Many) abilitata. Gli oggetti sono immutabili e non possono essere eliminati fino alla scadenza della conservazione.",
   "defaultRetention": "Conservazione predefinita:",
@@ -193,7 +187,6 @@
   "notSpecified": "Non specificato",
   "complianceMode": "⚠️ COMPLIANCE: Non può essere eliminato in nessuna circostanza",
   "governanceMode": "⚠️ GOVERNANCE: Richiede autorizzazioni speciali per l'eliminazione",
-
   "searchObjects": "Cerca oggetti...",
   "filters": "Filtri",
   "objectsLabel": "Oggetti",
@@ -206,7 +199,6 @@
   "noObjectsFound": "Nessun oggetto trovato",
   "tryAdjustingSearch": "Modificare i termini di ricerca",
   "emptyBucketHint": "Crea cartelle o carica file per iniziare",
-
   "tableModified": "Modificato",
   "tableType": "Tipo",
   "tableStorageClass": "Classe di archiviazione",
@@ -226,7 +218,6 @@
   "deletingKey": "Eliminazione di \"{{key}}\"",
   "noRetention": "Nessuna conservazione",
   "legalHoldActiveTitle": "Il blocco legale è attivo - l'oggetto non può essere eliminato",
-
   "download": "Scarica",
   "viewCopyShareLink": "Visualizza/Copia link di condivisione",
   "sharePublicLink": "Condividi (link pubblico)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Genera URL prefirmato",
   "enableLegalHold": "Abilita blocco legale",
   "disableLegalHold": "Disabilita blocco legale",
-
-  "downloadingFile": "Download file in corso...",
-  "downloadingKey": "Download di \"{{key}}\"",
   "linkCopied": "Link copiato negli appunti",
   "generatingLink": "Generazione link condivisibile...",
   "creatingLinkFor": "Creazione link per \"{{key}}\"",
-
   "uploadFilesModalTitle": "Carica",
   "uploadModeFiles": "File",
   "uploadModeFolder": "Cartella",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Sfoglia cartella",
   "browseFolderUnsupported": "Trascina e rilascia per selezionare una cartella (il browser non supporta la navigazione cartelle)",
   "cancel": "Annulla",
-
   "createNewFolder": "Crea nuova cartella",
   "s3FoldersInfo": "<strong>💡 Informazioni sulle cartelle S3:</strong> In S3, le cartelle sono <strong>virtuali</strong> — non esistono fisicamente. Una cartella è rappresentata aggiungendo \"/\" ai nomi degli oggetti (es. \"photos/vacation.jpg\"). Questo è il comportamento S3 standard utilizzato da AWS e da tutti i sistemi compatibili S3.",
   "folderNameLabel": "Nome cartella",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Percorso completo: {{name}}/",
   "creating": "Creazione...",
   "createFolder": "Crea cartella",
-
   "objectAlreadyShared": "Oggetto già condiviso",
   "copyLink": "Copia link",
   "unshare": "Annulla condivisione",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Seleziona un gruppo —",
   "noEligibleGroups": "Nessun gruppo idoneo trovato. Crea prima i gruppi nella sezione Gruppi.",
   "selectGroupRequired": "Selezionare un gruppo.",
-
   "downloadFolderZip": "Scarica come ZIP",
-  "downloadingFolder": "Preparazione download ZIP...",
-  "downloadingFolderKey": "Compressione di \"{{prefix}}\"",
-
   "back": "Indietro",
   "copy": "Copia",
   "deleteObject": "Elimina oggetto",
-
   "tabProperties": "Proprietà",
   "tabPermissions": "Autorizzazioni",
   "tabVersions": "Versioni",
-
   "objLastModified": "Ultima modifica",
   "objContentType": "Tipo di contenuto",
   "objKey": "Chiave",
@@ -333,8 +312,6 @@
   "objNoVersions": "Il versioning non è abilitato per questo oggetto.",
   "objVersionId": "ID versione",
   "objVersionStatus": "Stato",
-
-  "actions": "Azioni",
   "bucketInfo": "Informazioni bucket",
   "copyS3BucketUri": "Copia URI S3",
   "copyS3BucketUriSuccess": "URI S3 del bucket copiato negli appunti",
@@ -362,7 +339,6 @@
   "addTag": "Aggiungi tag",
   "tagsUpdated": "Tag aggiornati con successo",
   "save": "Salva",
-
   "showVersions": "Mostra versioni",
   "hideVersions": "Nascondi versioni",
   "versionsView": "Versioni",

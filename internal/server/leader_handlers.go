@@ -11,6 +11,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
@@ -135,21 +136,28 @@ func coordinatorExemptPath(path string) bool {
 	}
 
 	for _, prefix := range exempt {
-		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
+		if strings.HasPrefix(path, prefix) {
 			return true
 		}
-		if containsSegment(path, prefix) {
+		if hasPathSegment(path, prefix) {
 			return true
 		}
 	}
 	return false
 }
 
-// containsSegment reports whether a path contains the given segment, so
-// "/api/v1/buckets/x/objects" matches the "/objects" exemption.
-func containsSegment(path, segment string) bool {
-	for i := 0; i+len(segment) <= len(path); i++ {
-		if path[i:i+len(segment)] == segment {
+// hasPathSegment reports whether a path contains the given "/name" as a whole
+// SEGMENT, so "/api/v1/buckets/x/objects" matches the "/objects" exemption.
+//
+// It used to be a plain substring scan, which matched anything merely
+// CONTAINING the text — a bucket or user named "download" skipped the
+// coordinator gate, and so did any key with "objects" in it. The gate exists so
+// two nodes cannot edit the same configuration at once; a name should not be
+// able to opt out of it.
+func hasPathSegment(path, segment string) bool {
+	name := strings.TrimPrefix(segment, "/")
+	for _, part := range strings.Split(path, "/") {
+		if part == name {
 			return true
 		}
 	}

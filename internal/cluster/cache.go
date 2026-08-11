@@ -10,6 +10,9 @@ type BucketLocationCache struct {
 	mu      sync.RWMutex
 	entries map[string]*cacheEntry
 	ttl     time.Duration
+
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 type cacheEntry struct {
@@ -22,6 +25,7 @@ func NewBucketLocationCache(ttl time.Duration) *BucketLocationCache {
 	cache := &BucketLocationCache{
 		entries: make(map[string]*cacheEntry),
 		ttl:     ttl,
+		stop:    make(chan struct{}),
 	}
 
 	// Start background cleanup goroutine
@@ -89,7 +93,13 @@ func (c *BucketLocationCache) cleanupExpired() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-c.stop:
+			return
+		case <-ticker.C:
+		}
+
 		c.mu.Lock()
 		now := time.Now()
 		for bucket, entry := range c.entries {
@@ -99,6 +109,12 @@ func (c *BucketLocationCache) cleanupExpired() {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// Stop ends the cleanup loop. Without one, every cache ever created kept a
+// goroutine alive for the life of the process.
+func (c *BucketLocationCache) Stop() {
+	c.stopOnce.Do(func() { close(c.stop) })
 }
 
 // GetStats returns cache statistics

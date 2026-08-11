@@ -37,7 +37,6 @@
   "previous": "Anterior",
   "next": "Próximo",
   "errorLoadingBuckets": "Erro ao carregar buckets: {{error}}",
-
   "bucketNotEmpty": "Bucket não está vazio",
   "bucketNotEmptyMessage": "O bucket \"{{name}}\" contém objetos. Deseja forçar a exclusão e todo o seu conteúdo? Esta ação não pode ser desfeita.",
   "forceDeleteConfirm": "Sim, forçar exclusão",
@@ -60,7 +59,6 @@
   "scanning": "verificando",
   "issueCount_one": "{{count}} problema",
   "issueCount_other": "{{count}} problemas",
-
   "integrityTitle": "Verificar Integridade do Bucket",
   "integrityBucketDesc": "Bucket: {{name}}",
   "readyToScan": "Pronto para verificar",
@@ -119,7 +117,6 @@
   "scanObjects_one": "{{count}} objeto",
   "scanObjects_other": "{{count}} objetos",
   "scanClean": "Limpo",
-
   "permissionsTitle": "Permissões do Bucket: {{name}}",
   "globalBucket": "Bucket global",
   "tenantBucket": "Bucket de tenant",
@@ -161,7 +158,6 @@
   "granting": "Concedendo...",
   "selectUserRequired": "Por favor, selecione um usuário",
   "revokePermissionTooltip": "Revogar permissão",
-
   "backToBuckets": "Voltar para Buckets",
   "upToParentFolder": "Subir para a Pasta Pai",
   "currentPath": "Caminho atual: /{{prefix}}",
@@ -178,11 +174,9 @@
   "globalAdminCannotDelete": "Administradores globais não podem excluir de buckets de tenant",
   "globalAdminReadOnlyHint": "Administradores globais têm acesso somente leitura a buckets de tenant",
   "uploadFilesTitle": "Fazer upload de arquivos para este bucket",
-
   "filesAndFolders": "Arquivos e pastas",
   "storageUsed": "Armazenamento utilizado",
   "storageRegion": "Região de armazenamento",
-
   "objectLockEnabled": "Object Lock Ativado (WORM)",
   "objectLockDesc": "Este bucket tem proteção WORM (Write Once Read Many) ativada. Os objetos são imutáveis e não podem ser excluídos até que sua retenção expire.",
   "defaultRetention": "Retenção padrão:",
@@ -193,7 +187,6 @@
   "notSpecified": "Não especificado",
   "complianceMode": "⚠️ CONFORMIDADE: Não pode ser excluído sob nenhuma circunstância",
   "governanceMode": "⚠️ GOVERNANÇA: Requer permissões especiais para excluir",
-
   "searchObjects": "Pesquisar objetos...",
   "filters": "Filtros",
   "objectsLabel": "Objetos",
@@ -206,7 +199,6 @@
   "noObjectsFound": "Nenhum objeto encontrado",
   "tryAdjustingSearch": "Tente ajustar os termos de pesquisa",
   "emptyBucketHint": "Crie pastas ou faça upload de arquivos para começar",
-
   "tableModified": "Modificado",
   "tableType": "Tipo",
   "tableStorageClass": "Classe de Armazenamento",
@@ -226,7 +218,6 @@
   "deletingKey": "Excluindo \"{{key}}\"",
   "noRetention": "Sem retenção",
   "legalHoldActiveTitle": "Bloqueio Legal ativo — o objeto não pode ser excluído",
-
   "download": "Baixar",
   "viewCopyShareLink": "Visualizar/Copiar link de compartilhamento",
   "sharePublicLink": "Compartilhar (Link Público)",
@@ -234,13 +225,9 @@
   "generatePresignedUrl": "Gerar URL Pré-assinada",
   "enableLegalHold": "Ativar Bloqueio Legal",
   "disableLegalHold": "Desativar Bloqueio Legal",
-
-  "downloadingFile": "Baixando arquivo...",
-  "downloadingKey": "Baixando \"{{key}}\"",
   "linkCopied": "Link copiado para a área de transferência",
   "generatingLink": "Gerando link compartilhável...",
   "creatingLinkFor": "Criando link para \"{{key}}\"",
-
   "uploadFilesModalTitle": "Upload",
   "uploadModeFiles": "Arquivos",
   "uploadModeFolder": "Pasta",
@@ -262,7 +249,6 @@
   "browseFolderLabel": "Navegar pela pasta",
   "browseFolderUnsupported": "Arraste e solte para selecionar uma pasta (seu navegador não suporta navegação por pasta)",
   "cancel": "Cancelar",
-
   "createNewFolder": "Criar Nova Pasta",
   "s3FoldersInfo": "<strong>💡 Sobre Pastas S3:</strong> No S3, as pastas são <strong>virtuais</strong> — elas não existem fisicamente. Uma pasta é representada adicionando \"/\" aos nomes dos objetos (ex.: \"fotos/ferias.jpg\"). Este é o comportamento padrão S3 usado pela AWS e todos os sistemas compatíveis com S3.",
   "folderNameLabel": "Nome da Pasta",
@@ -272,7 +258,6 @@
   "fullPath": "📁 Caminho completo: {{name}}/",
   "creating": "Criando...",
   "createFolder": "Criar Pasta",
-
   "objectAlreadyShared": "Objeto Já Compartilhado",
   "copyLink": "Copiar Link",
   "unshare": "Descompartilhar",
@@ -301,19 +286,13 @@
   "selectGroupPlaceholder": "— Selecione um grupo —",
   "noEligibleGroups": "Nenhum grupo elegível encontrado. Crie grupos primeiro na seção Grupos.",
   "selectGroupRequired": "Por favor, selecione um grupo.",
-
   "downloadFolderZip": "Baixar como ZIP",
-  "downloadingFolder": "Preparando download ZIP...",
-  "downloadingFolderKey": "Comprimindo \"{{prefix}}\"",
-
   "back": "Voltar",
   "copy": "Copiar",
   "deleteObject": "Excluir objeto",
-
   "tabProperties": "Propriedades",
   "tabPermissions": "Permissões",
   "tabVersions": "Versões",
-
   "objLastModified": "Última modificação",
   "objContentType": "Tipo de conteúdo",
   "objKey": "Chave",
@@ -333,8 +312,6 @@
   "objNoVersions": "O versionamento não está ativado para este objeto.",
   "objVersionId": "ID da Versão",
   "objVersionStatus": "Status",
-
-  "actions": "Ações",
   "bucketInfo": "Informações do Bucket",
   "copyS3BucketUri": "Copiar URI S3",
   "copyS3BucketUriSuccess": "URI S3 do bucket copiado para a área de transferência",
@@ -362,7 +339,6 @@
   "addTag": "Adicionar Tag",
   "tagsUpdated": "Tags atualizadas com sucesso",
   "save": "Salvar",
-
   "showVersions": "Mostrar versões",
   "hideVersions": "Ocultar versões",
   "versionsView": "Versões",

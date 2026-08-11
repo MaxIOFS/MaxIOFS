@@ -473,33 +473,11 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		logrus.WithField("user_id", user.ID).Debug("Inserted new user")
 	}
 
-	// Apply capability overrides: replace all local overrides for this user atomically.
-	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM user_capability_overrides WHERE user_id = ?`, user.ID,
-	); err != nil {
-		logrus.WithError(err).WithField("user_id", user.ID).Warn("Failed to clear capability overrides during sync")
-	} else {
-		for _, o := range user.CapabilityOverrides {
-			grantedInt := 0
-			if o.Granted {
-				grantedInt = 1
-			}
-			if _, err := s.db.ExecContext(ctx, `
-				INSERT INTO user_capability_overrides (id, user_id, capability, granted, granted_by, created_at)
-				VALUES (?, ?, ?, ?, ?, ?)
-				ON CONFLICT(user_id, capability) DO UPDATE SET
-					granted    = excluded.granted,
-					granted_by = excluded.granted_by,
-					created_at = excluded.created_at
-			`, fmt.Sprintf("cap-%s-%s", user.ID, o.Capability), user.ID, o.Capability, grantedInt, o.GrantedBy, o.CreatedAt,
-			); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
-					"user_id":    user.ID,
-					"capability": o.Capability,
-				}).Warn("Failed to sync capability override")
-			}
-		}
-	}
+	// The capability overrides that used to be replicated here authorize
+	// nothing: the request path reads IAM policies, and those tables are
+	// consulted only by the one-time conversion. Writing them made an
+	// operator find rows in the database that looked like permissions and
+	// were not.
 
 	return nil
 }

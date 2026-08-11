@@ -187,6 +187,21 @@ func (s *SQLiteStore) SetUserPermissions(userID string, permissions *UserPermiss
 		}
 	}
 
+	// Only what this user does NOT already inherit is stored.
+	//
+	// The screen shows EFFECTIVE permissions — role, tenant, group and owner
+	// policies included — because a screen showing only the direct ones would
+	// tell an administrator that an admin has nothing. But it saves what it
+	// shows, so pressing Save on an unchanged screen turned every inherited
+	// permission into a permanent direct grant that outlived the role it came
+	// from. Subtracting what is inherited makes saving an unchanged screen the
+	// no-op it looks like.
+	inherited, err := s.inheritedActions(userID)
+	if err != nil {
+		return err
+	}
+	permissions = subtractInherited(permissions, inherited)
+
 	existing, err := s.ListIAMInlinePolicies(IAMTargetUser, userID)
 	if err != nil {
 		return err
@@ -220,6 +235,84 @@ func (s *SQLiteStore) SetUserPermissions(userID string, permissions *UserPermiss
 		}
 	}
 	return nil
+}
+
+// inheritedActions is everything a user holds that is NOT written on them
+// directly: their roles, their tenant and their groups.
+func (s *SQLiteStore) inheritedActions(userID string) (map[string]map[string]bool, error) {
+	var roles []string
+	if user, err := s.GetUserByID(userID); err == nil {
+		roles = user.Roles
+	}
+
+	direct, err := s.IAMEffectiveDocumentsForUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	directSet := make(map[string]bool, len(direct))
+	for _, d := range direct {
+		directSet[d] = true
+	}
+
+	all, err := s.EffectivePolicyDocuments(userID, roles)
+	if err != nil {
+		return nil, err
+	}
+
+	// action -> bucket ("" for a global grant) -> held
+	inherited := make(map[string]map[string]bool)
+	for _, document := range all {
+		if directSet[document] {
+			continue
+		}
+		policy, err := ParseIAMPolicy(document, IAMMaxManagedPolicyBytes)
+		if err != nil {
+			continue
+		}
+		for _, st := range policy.Statement {
+			if st.Effect != EffectAllow {
+				continue
+			}
+			actions := expandWildcardActions(policyStringValues(st.Action))
+			for _, resource := range policyStringValues(st.Resource) {
+				bucket := bucketFromResource(resource)
+				for _, action := range actions {
+					if inherited[action] == nil {
+						inherited[action] = make(map[string]bool)
+					}
+					inherited[action][bucket] = true
+				}
+			}
+		}
+	}
+	return inherited, nil
+}
+
+// subtractInherited removes from a selection everything the user already holds
+// by other means, so only the genuinely direct grants are written.
+func subtractInherited(permissions *UserPermissions, inherited map[string]map[string]bool) *UserPermissions {
+	out := &UserPermissions{Global: []string{}, Buckets: []BucketGrant{}}
+
+	for _, action := range permissions.Global {
+		if inherited[action][""] {
+			continue
+		}
+		out.Global = append(out.Global, action)
+	}
+
+	for _, grant := range permissions.Buckets {
+		var kept []string
+		for _, action := range grant.Actions {
+			if inherited[action][grant.Bucket] || inherited[action][""] {
+				continue
+			}
+			kept = append(kept, action)
+		}
+		if len(kept) > 0 {
+			out.Buckets = append(out.Buckets, BucketGrant{Bucket: grant.Bucket, Actions: kept})
+		}
+	}
+	return out
 }
 
 // expandWildcardActions turns a wildcard into the permissions it covers, so a
@@ -302,7 +395,7 @@ func (am *authManager) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID str
 }
 
 // RevokeBucketPolicies removes every policy naming a bucket.
-func (am *authManager) RevokeBucketPolicies(bucketName string) error {
+func (am *authManager) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef, error) {
 	return am.store.RevokeBucketPolicies(bucketName)
 }
 

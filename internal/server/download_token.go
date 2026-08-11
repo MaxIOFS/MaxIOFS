@@ -14,7 +14,6 @@ package server
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -24,6 +23,28 @@ import (
 
 // downloadTokenParam is the query parameter the browser navigates with.
 const downloadTokenParam = "downloadToken"
+
+// The two routes a download token may authorise, named so they can be matched
+// by identity rather than by shape.
+//
+// The previous test asked whether the path ENDED WITH the object key, which a
+// sibling route satisfies whenever the key is exactly that segment: a token for
+// an object literally named "acl" also redeemed on .../objects/acl/acl, the
+// ACL route. Bounded — same bucket, same key, GET only, and those handlers run
+// their own permission checks — but wider than it was written to be, and the
+// kind of thing that stops being bounded when a route is added.
+const (
+	routeObjectDownload = "console.object.download"
+	routeFolderDownload = "console.folder.download"
+)
+
+// matchedRouteName reports which route gorilla/mux selected for this request.
+func matchedRouteName(r *http.Request) string {
+	if route := mux.CurrentRoute(r); route != nil {
+		return route.GetName()
+	}
+	return ""
+}
 
 // downloadResource is the identity a token is bound to: the tenant, the bucket,
 // the key and the version. It is what the mint request signs and what the
@@ -35,7 +56,14 @@ const downloadTokenParam = "downloadToken"
 // NUL so no combination of values can be made to spell another: without it
 // bucket "a/b" with key "c" and bucket "a" with key "b/c" are the same string.
 func downloadResource(tenantID, bucketName, objectKey, versionID string) string {
-	return strings.Join([]string{tenantID, bucketName, objectKey, versionID}, "\x00")
+	return strings.Join([]string{"object", tenantID, bucketName, objectKey, versionID}, "\x00")
+}
+
+// downloadZipResource names a folder download. The leading kind keeps the two
+// apart: a token minted to read one object must not redeem for an archive of
+// everything under a prefix that happens to spell the same thing.
+func downloadZipResource(tenantID, bucketName, prefix string) string {
+	return strings.Join([]string{"zip", tenantID, bucketName, prefix}, "\x00")
 }
 
 // downloadRequestTarget reports the object a request is for, and whether the
@@ -57,22 +85,14 @@ func (s *Server) downloadRequestTarget(r *http.Request) (tenantID, bucketName, o
 		return "", "", "", "", false
 	}
 
-	// mux populates "object" for every /objects/{object:.*}/... route, so the
-	// suffix is what distinguishes the download from its siblings.
-	trimmed := strings.TrimSuffix(r.URL.Path, "/")
-	if !strings.HasSuffix(trimmed, "/"+escapedPathSuffix(objectKey)) &&
-		!strings.HasSuffix(trimmed, "/"+objectKey) {
+	// Which route matched, not what the path looks like. mux populates "object"
+	// for every /objects/{object:.*}/... route, so shape cannot tell them apart.
+	if matchedRouteName(r) != routeObjectDownload {
 		return "", "", "", "", false
 	}
 
 	query := r.URL.Query()
 	return query.Get("tenantId"), bucketName, objectKey, query.Get("versionId"), true
-}
-
-// escapedPathSuffix renders a key the way it appears in a URL, so a key with
-// spaces or accents still matches the path it arrived on.
-func escapedPathSuffix(objectKey string) string {
-	return (&url.URL{Path: objectKey}).EscapedPath()
 }
 
 // userFromDownloadToken resolves the caller when the request carries a download
@@ -89,24 +109,85 @@ func (s *Server) userFromDownloadToken(w http.ResponseWriter, r *http.Request) (
 		return nil, false
 	}
 
-	tenantID, bucketName, objectKey, versionID, ok := s.downloadRequestTarget(r)
+	resource, ok := s.downloadTokenResource(r)
 	if !ok {
-		s.writeError(w, "This link is only valid for downloading an object", http.StatusForbidden)
+		s.writeError(w, "This link is only valid for downloading", http.StatusForbidden)
 		return nil, true
 	}
 
-	user, err := s.authManager.ValidateDownloadToken(r.Context(),
-		token, downloadResource(tenantID, bucketName, objectKey, versionID))
+	user, err := s.authManager.ValidateDownloadToken(r.Context(), token, resource)
 	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
-		}).Warn("Download token rejected")
+		logrus.WithError(err).WithField("path", r.URL.Path).
+			Warn("Download token rejected")
 		s.writeError(w, "This download link is invalid or has expired", http.StatusUnauthorized)
 		return nil, true
 	}
 
 	return user, false
+}
+
+// downloadTokenResource names what a request is asking for, and reports whether
+// a download token may authorise it at all.
+//
+// Two routes qualify: the object download, and the folder archive. Both are
+// GET, both stream, and both are things a browser must navigate to rather than
+// fetch. Everything else is refused.
+func (s *Server) downloadTokenResource(r *http.Request) (string, bool) {
+	if r.Method != http.MethodGet {
+		return "", false
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	if bucketName == "" {
+		return "", false
+	}
+	query := r.URL.Query()
+
+	switch matchedRouteName(r) {
+	case routeFolderDownload:
+		return downloadZipResource(query.Get("tenantId"), bucketName, query.Get("prefix")), true
+	case routeObjectDownload:
+	default:
+		return "", false
+	}
+
+	tenantID, bucket, objectKey, versionID, ok := s.downloadRequestTarget(r)
+	if !ok {
+		return "", false
+	}
+	return downloadResource(tenantID, bucket, objectKey, versionID), true
+}
+
+// handleCreateDownloadZipToken mints the token for one folder archive. The
+// permission is checked here, as an ordinary authenticated request; the archive
+// itself re-checks every object as it enumerates.
+func (s *Server) handleCreateDownloadZipToken(w http.ResponseWriter, r *http.Request) {
+	bucketName := mux.Vars(r)["bucket"]
+
+	user, exists := auth.GetUserFromContext(r.Context())
+	if !exists {
+		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
+		"You do not have permission to list this bucket") {
+		return
+	}
+
+	query := r.URL.Query()
+	token, err := s.authManager.GenerateDownloadToken(r.Context(), user,
+		downloadZipResource(query.Get("tenantId"), bucketName, query.Get("prefix")))
+	if err != nil {
+		logrus.WithError(err).Error("Failed to mint folder download token")
+		s.writeError(w, "Could not prepare the download", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSON(w, map[string]interface{}{
+		"token":     token,
+		"expiresIn": auth.DownloadTokenTTL,
+	})
 }
 
 // handleCreateDownloadToken mints the token for one object.

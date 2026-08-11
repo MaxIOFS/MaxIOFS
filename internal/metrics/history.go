@@ -55,7 +55,7 @@ func NewHistoryStore(dataDir string, retentionDays int) (*HistoryStore, error) {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metrics database: %w", err)
 	}

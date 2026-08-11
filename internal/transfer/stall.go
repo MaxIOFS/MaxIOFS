@@ -116,6 +116,20 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	outgoing := req.Clone(ctx)
 	if outgoing.Body != nil && outgoing.Body != http.NoBody {
 		outgoing.Body = &progressBody{ReadCloser: outgoing.Body, watchdog: w}
+
+		// GetBody has to produce a wrapped reader too. net/http calls it to
+		// replay a request on a connection that turned out to be stale, and an
+		// unwrapped replay stops stamping the clock — so a long upload retried
+		// that way looked silent and was cancelled while it was flowing.
+		if original := outgoing.GetBody; original != nil {
+			outgoing.GetBody = func() (io.ReadCloser, error) {
+				body, err := original()
+				if err != nil {
+					return nil, err
+				}
+				return &progressBody{ReadCloser: body, watchdog: w}, nil
+			}
+		}
 	}
 
 	resp, err := base.RoundTrip(outgoing)
