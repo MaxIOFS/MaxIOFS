@@ -1,26 +1,22 @@
 # MaxIOFS - Development Roadmap
 
-**Last Updated**: August 9, 2026
+**Last Updated**: August 13, 2026
 
 > This file tracks ONLY work in progress and pending work. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## 🔴 BLOCKER — the IAM/STS migration was not finished
+## ✅ Closed — the IAM/STS migration
 
-The premise of the migration was stated plainly: **IAM is the authorization
-model, there is one permission system, and nothing in the request path decides
-by role, by tenant membership or by ACL for an authenticated caller.** The
-handlers that were converted do that. A large number were never converted, and
-the work was reported as complete anyway.
+**IAM is the authorization model: one permission system, and nothing in the
+request path decides by role, by tenant membership or by ACL for an
+authenticated caller.** Everything below was a place the migration had not
+reached, or a defect introduced while doing it. All of it is closed; the list
+stays as the record of what was checked.
 
-Almost everything below is a place the migration did not reach, plus defects
-introduced while doing it. It is listed here rather than in the changelog
-because none of it is fixed.
-
-**v1.6.0 cannot ship until at least the bypasses are closed.** An installation
-running this build is not protected by the permission model its console
-displays.
+Customers are on **1.5.2**. **1.6.0 is an internal development version** that
+has not been released to anyone — whoever uses a nightly build does so at their
+own risk.
 
 ### Complete authorization bypasses — no check of any kind
 
@@ -352,7 +348,7 @@ in-process fakes and never with two nodes holding two databases.
 
 ---
 
-## 🔵 In Progress — IAM/STS (protocol surface implemented, authorization incomplete — see blocker above)
+## 🔵 In Progress — IAM/STS
 
 MaxIOFS speaks both AWS identity protocols on `POST /` of the S3 endpoint:
 **STS** issues short-lived credentials (`ASIA` keys, server-enforced expiry,
@@ -368,9 +364,11 @@ their policies as a grant. Nothing that already worked changes behaviour.
 
 ### Before this can ship
 
-- [ ] Manual end-to-end check with a real S3 client (AWS CLI / SDK) using temporary credentials, with and without a session policy — the automated round-trip signs with the server's own canonicalisation, which does not prove SDK interoperability
-- [ ] Manual check of the AWS STS surface with a real SDK (`aws sts get-session-token --endpoint-url <s3-endpoint>`, then `aws sts assume-role --role-arn ...`) — this is what the payload-hash middleware exists for, and only a real signer exercises it
-- [ ] Manual check of the AWS IAM surface with `aws iam --endpoint-url <s3-endpoint>`: create-user, create-access-key, put-user-policy, attach-user-policy, create-policy-version — then verify the created credential can do exactly what its policy says and nothing else
+- [x] Manual end-to-end check with a real S3 client (AWS CLI) using temporary credentials, with and without a session policy — **done August 13, 2026** against a running deployment. `ASIA` key signs SigV4 with the session token; the same key without the token is refused; a temporary credential cannot mint another (`AccessDenied`); the session is listed and revocable from the console.
+- [x] Manual check of the AWS STS surface with a real SDK — **done**. `aws sts get-session-token` and `aws sts assume-role` both work unmodified. An unknown `RoleArn` answers `NoSuchEntity`, and a role whose trust policy does not name the caller answers `AccessDenied` rather than assuming silently. A session policy narrows a role session and cannot widen it: with `s3:GetObject` only, `GetObject` succeeds and `ListBuckets` is denied even though the role allows it.
+- [x] Manual check of the AWS IAM surface with `aws iam --endpoint-url` — **done**: create-user, get-user, list-users, create-access-key, put-user-policy, get-user-policy, list-user-policies, create-policy, create-policy-version (`--set-as-default`), list-policy-versions, attach-user-policy, list-attached-user-policies, create-role, put-role-policy, and every delete. The created credential does exactly what its policy says: with a read-only inline policy it reads the named bucket and its object, while `PutObject`, `DeleteObject` and `CreateBucket` all answer `AccessDenied` and nothing is written. Another bucket is denied. With no policy at all it can do nothing.
+
+  > One deliberate difference from AWS: `ListAllMyBuckets` returns only the buckets the caller's policies reach, not every bucket in the deployment. AWS lists them all because a bucket list is per account; here it is filtered, which is what a multi-tenant deployment needs.
 - [ ] Veeam interop: confirm it discovers the endpoints from `system.xml` (`IAMSTS=true`) and completes its create-user → put-user-policy → create-access-key flow
 - [x] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back — **done on a real two-node cluster (August 12, 2026)**; all four pass, and it uncovered two defects that no test in the repository could see, described below
 - [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
@@ -387,11 +385,16 @@ only `pkg/s3compat/tenant_boundary_test.go` holds it in place. Two consequences
 worth keeping in mind before extending the model:
 
 - [ ] Every new path that consults a `PolicySet` against a bucket has to go
-  through the boundary check. A direct `set.Allows(...)` is unbounded.
-- [ ] Should tenant buckets get tenant-qualified ARNs
-  (`arn:aws:s3:::<tenant>/<bucket>`)? That would move the boundary into the
-  documents and make it self-enforcing, at the cost of rewriting every stored
-  policy that names a bucket. Not needed while the check holds.
+  through the boundary check. A direct `set.Allows(...)` is unbounded. The rule
+  to follow is the standard one, not the convenient one: AWS resolves the
+  account boundary structurally, at resource resolution, and never inside the
+  policy document. That is the shape to keep.
+- [x] **Decided: no tenant-qualified ARNs.** `arn:aws:s3:::<tenant>/<bucket>`
+  would move the boundary into the documents, but it is not an ARN any AWS SDK
+  or tool understands — S3 ARNs carry no account precisely because the bucket
+  name is global. Inventing a format breaks compatibility with the clients this
+  server exists to serve. The boundary stays structural, which is also what AWS
+  does.
 
 ### Known limitations (deliberate)
 
