@@ -1,18 +1,5 @@
 package cluster
 
-// Cluster synchronization for IAM entities.
-//
-// Policies, roles, attachments and inline policies are few, small and change
-// rarely, so each cycle pushes the complete local set to every peer. The
-// receiver upserts rather than replaces: a wholesale replace would let a batch
-// from one node erase an entity another node created seconds earlier, and the
-// two would then undo each other on every tick without ever converging.
-//
-// Edits converge on updated_at — the newest write wins. Deletions travel as
-// tombstones in the shared cluster_deletion_log, which is what stops a node
-// that has not heard about a delete from resurrecting the entity on its next
-// push.
-
 import (
 	"bytes"
 	"context"
@@ -104,15 +91,8 @@ func NewIAMSyncManager(db *sql.DB, clusterManager *Manager) *IAMSyncManager {
 	}
 }
 
-// Start begins the periodic synchronization loop. It shares the access-key
-// interval and enable flag: IAM entities decide what a key may do, so having
-// the two replicate on different schedules would only create windows where a
-// credential exists on a node that does not yet know its permissions.
+// Start begins the periodic synchronization loop.
 func (m *IAMSyncManager) Start(ctx context.Context) {
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	interval := 30
 	if intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds"); err == nil {
@@ -121,13 +101,6 @@ func (m *IAMSyncManager) Start(ctx context.Context) {
 		}
 	}
 
-	// The INTERVAL is shared with access keys, for the reason above. The enable
-	// flag is not, and used to be: turning off access-key synchronisation also
-	// stopped authorization from replicating, so a permission revoked on one
-	// node was never heard by the others and they went on granting it. Failing
-	// to replicate a credential is an inconvenience; failing to replicate a
-	// revocation is a security hole, and it is not what an operator disabling
-	// key sync asked for.
 	if _, err := GetGlobalConfig(ctx, m.db, "auto_access_key_sync_enabled"); err != nil {
 		m.log.WithError(err).Debug("Could not read the sync settings; using defaults for IAM synchronization")
 	}
@@ -145,7 +118,7 @@ func (m *IAMSyncManager) Stop() {
 // created through the IAM API can use its credentials on any node right away
 // instead of waiting out the interval behind a load balancer.
 func (m *IAMSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAll(context.WithoutCancel(ctx))
+	runDetached(ctx, m.syncAll)
 }
 
 func (m *IAMSyncManager) syncLoop(ctx context.Context, interval time.Duration) {

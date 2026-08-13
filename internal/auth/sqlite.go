@@ -28,10 +28,6 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 	if err := ensureDir(filepath.Dir(dbPath)); err != nil {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
-	// busy_timeout: wait up to 10 s before returning SQLITE_BUSY — prevents
-	// "database is locked" errors during concurrent bulk delete operations.
-	// WAL mode already allows concurrent readers; busy_timeout handles the
-	// rare case where two writers collide without blocking normal read traffic.
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -67,10 +63,6 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to seed built-in IAM policies: %w", err)
 	}
 
-	// Convert the pre-IAM permission model into IAM entities. Whether it is still
-	// needed is decided by looking at whether any policies exist, so a database
-	// that never got converted heals itself on the next boot instead of leaving
-	// everyone without permissions.
 	needsConversion, err := store.NeedsLegacyConversion()
 	if err != nil {
 		db.Close()
@@ -795,9 +787,6 @@ func ensureDir(dir string) error {
 	return nil
 }
 
-// =============================================================================
-// Two-Factor Authentication (2FA) Store Methods
-// =============================================================================
 
 // Enable2FA enables 2FA for a user
 func (s *SQLiteStore) Enable2FA(ctx context.Context, userID string, secret string, backupCodes []string) error {

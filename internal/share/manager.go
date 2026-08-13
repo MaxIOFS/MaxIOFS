@@ -38,11 +38,6 @@ func NewManager(store Store) Manager {
 // encryptionKey is used to encrypt secret_key at rest (AES-256-GCM); pass "" to disable.
 func NewManagerWithDB(dataDir string, encryptionKey string) (Manager, error) {
 	dbPath := filepath.Join(dataDir, "db", "maxiofs.db")
-	// The DSN syntax is the one modernc.org/sqlite understands. The other
-	// driver's form (_busy_timeout=..., _journal_mode=...) is accepted without
-	// complaint and does nothing at all, which leaves the database in rollback
-	// journal mode with no wait — so a concurrent writer gets SQLITE_BUSY
-	// immediately instead of waiting its turn.
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)

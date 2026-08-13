@@ -1,12 +1,5 @@
 package auth
 
-// Download tokens.
-//
-// These travel in a URL, which is written to access logs, kept in browser
-// history and handed onward in Referer. Every test here is about the same
-// thing: what a leaked one is worth. The answer has to stay "one object, for
-// two minutes, and nothing else".
-
 import (
 	"context"
 	"testing"

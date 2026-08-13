@@ -1,12 +1,5 @@
 package cluster
 
-// The safety properties of the election, tested against the cases that break
-// leader election in practice rather than the happy path.
-//
-// Every test here drives GrantLease directly, which is the decision each node
-// makes on its own. Whether two leaders can exist is decided entirely by what a
-// node is willing to grant, so that is what is worth testing.
-
 import (
 	"context"
 	"database/sql"
@@ -122,9 +115,6 @@ func TestLease_ExpiredLeaseIsGrantedToSomebodyElse(t *testing.T) {
 }
 
 // TestLease_NoTwoLeadersAcrossAMajority is the split-brain check, run over a
-// three-node cluster: whatever the two candidates do, they cannot both collect
-// two votes, because the two majorities would have to overlap on a node that
-// granted the same term twice.
 func TestLease_NoTwoLeadersAcrossAMajority(t *testing.T) {
 	nodes := make([]*LeaderManager, 3)
 	for i := range nodes {
@@ -230,3 +220,43 @@ func TestLease_SchemaIsIdempotent(t *testing.T) {
 }
 
 var _ = sql.ErrNoRows
+
+// TestQuorum_CountedOverRespondingNodes pins the rule that decides whether a
+func TestQuorum_CountedOverRespondingNodes(t *testing.T) {
+	cases := []struct {
+		name         string
+		participants int
+		needed       int
+	}{
+		{"alone in the world, one vote is the majority", 1, 1},
+		{"two nodes both answering still need both", 2, 2},
+		{"two of three answering: a majority of the two", 2, 2},
+		{"three answering need two", 3, 2},
+		{"five answering need three", 5, 3},
+		{"nobody answered, not even this node: never zero", 0, 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			round := electionRound{participants: tc.participants}
+			assert.Equal(t, tc.needed, round.needed())
+		})
+	}
+}
+
+// TestQuorum_SurvivorOfATwoNodeClusterCanWin is the failure this rule exists
+// for: the master of a two-node cluster dies, and the node still standing has
+// to be able to take over on its own vote.
+func TestQuorum_SurvivorOfATwoNodeClusterCanWin(t *testing.T) {
+	// One vote — its own — out of one node that answered. The dead peer did
+	// not take part, so it is not counted in the majority it cannot reach.
+	round := electionRound{votes: 1, participants: 1}
+	assert.GreaterOrEqual(t, round.votes, round.needed(),
+		"the surviving node must be able to elect itself")
+
+	// While the peer is alive and refusing, it does count, and a candidate
+	// that cannot convince it does not become a second leader.
+	contested := electionRound{votes: 1, participants: 2}
+	assert.Less(t, contested.votes, contested.needed(),
+		"a peer that answers still has to agree")
+}

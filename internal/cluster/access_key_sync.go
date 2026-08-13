@@ -48,11 +48,6 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 
 // Start begins the access key synchronization loop
 func (m *AccessKeySyncManager) Start(ctx context.Context) {
-	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds")
@@ -339,10 +334,6 @@ func (m *AccessKeySyncManager) updateSyncStatus(ctx context.Context, accessKeyID
 }
 
 // syncDeletions sends deletion tombstones for access keys to target nodes.
-// Each tombstone is sent at most once per destination node: after successful
-// delivery the result is recorded in cluster_access_key_sync with checksum
-// "DELETED" so subsequent cycles skip it.  The stale reconciler handles
-// nodes that were offline when the deletion first occurred.
 func (m *AccessKeySyncManager) syncDeletions(ctx context.Context, targetNodes []*Node, localNodeID string) {
 	deletions, err := ListDeletions(ctx, m.db, EntityTypeAccessKey)
 	if err != nil {
@@ -428,7 +419,7 @@ func (m *AccessKeySyncManager) Stop() {
 // TriggerSync immediately runs a full access key sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *AccessKeySyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllAccessKeys(ctx)
+	runDetached(ctx, m.syncAllAccessKeys)
 }
 
 // SyncToNode immediately pushes all local access keys to the given node.

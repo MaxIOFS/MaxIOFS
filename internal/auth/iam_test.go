@@ -193,9 +193,6 @@ func TestPolicies_AreAGrantForAnyUser(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	// A user created through the IAM API has no role, so everything it can do
-	// comes from the policies attached to it — there is no separate class of
-	// identity, only a user that happens to hold no role.
 	service, err := am.CreateIAMUser(ctx, "veeam-agent", "/", "")
 	require.NoError(t, err)
 	require.Empty(t, service.Roles)
@@ -224,9 +221,6 @@ func TestPolicies_ReachTheCapabilityAndBucketChecks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, am.PutIAMInlinePolicy(ctx, IAMTargetUser, service.ID, "job", readOnlyBucketDocument))
 
-	// Both questions are answered from the same policy set, so a policy that
-	// allows reading a bucket satisfies the capability check and the bucket
-	// check alike. Neither can contradict the other.
 	allowed, err := am.HasCapability(ctx, service.ID, service.Roles, CapObjectDownload)
 	require.NoError(t, err)
 	assert.True(t, allowed)

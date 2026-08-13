@@ -1,13 +1,5 @@
 package server
 
-// The vote endpoint, and the gate that keeps configuration writes on one node.
-//
-// Object traffic is untouched by any of this: every node serves reads and
-// writes as before. What is gated is the control plane — creating users,
-// editing policies, granting buckets — because two nodes writing the same
-// entity converge on last-write-wins with one-second resolution, which can
-// leave the cluster permanently disagreeing.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -50,12 +42,6 @@ func (s *Server) handleLeaderLease(w http.ResponseWriter, r *http.Request) {
 }
 
 // requireCoordinator lets a configuration write proceed on this node, or
-// forwards it to the coordinator. It reports whether the caller should continue
-// serving the request locally.
-//
-// Forwarding rather than refusing is the point: which node arbitrates is the
-// cluster's business, not the user's. Somebody editing a policy saves it from
-// whichever node they happened to open, and it works.
 func (s *Server) requireCoordinator(w http.ResponseWriter, r *http.Request) bool {
 	// Without a cluster there is nobody to disagree with.
 	if s.leaderMgr == nil || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
@@ -65,9 +51,6 @@ func (s *Server) requireCoordinator(w http.ResponseWriter, r *http.Request) bool
 		return true
 	}
 
-	// A request that has already been forwarded is not forwarded again. If it
-	// arrived here it is because this node was the coordinator a moment ago and
-	// no longer is; bouncing it onward could loop between nodes that disagree.
 	if r.Header.Get(forwardedHeader) == "true" {
 		w.Header().Set("Retry-After", "5")
 		s.writeError(w,
@@ -86,12 +69,6 @@ func (s *Server) requireCoordinator(w http.ResponseWriter, r *http.Request) bool
 }
 
 // coordinatorMiddleware gates the console's configuration writes.
-//
-// It gates by method rather than by an explicit list of paths: every mutating
-// console request is a configuration change, and a list would silently miss
-// whatever endpoint gets added next. The exemptions are the requests that write
-// nothing shared, or that must keep working precisely when the cluster is
-// unhealthy.
 func (s *Server) coordinatorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -116,9 +93,6 @@ func (s *Server) coordinatorMiddleware(next http.Handler) http.Handler {
 // configuration change, and so may be served by any node.
 func coordinatorExemptPath(path string) bool {
 	exempt := []string{
-		// Signing in must work on any node — requiring the coordinator would
-		// lock everybody out during an election, which is when an operator is
-		// most likely to be trying to log in.
 		"/auth/login",
 		"/auth/logout",
 		"/auth/refresh",
@@ -147,13 +121,6 @@ func coordinatorExemptPath(path string) bool {
 }
 
 // hasPathSegment reports whether a path contains the given "/name" as a whole
-// SEGMENT, so "/api/v1/buckets/x/objects" matches the "/objects" exemption.
-//
-// It used to be a plain substring scan, which matched anything merely
-// CONTAINING the text — a bucket or user named "download" skipped the
-// coordinator gate, and so did any key with "objects" in it. The gate exists so
-// two nodes cannot edit the same configuration at once; a name should not be
-// able to opt out of it.
 func hasPathSegment(path, segment string) bool {
 	name := strings.TrimPrefix(segment, "/")
 	for _, part := range strings.Split(path, "/") {

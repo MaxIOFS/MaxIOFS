@@ -1,20 +1,5 @@
 package server
 
-// The AWS IAM query protocol. See docs/API.md, "AWS IAM protocol".
-//
-// This is what lets a client manage identities, credentials and policies with
-// the AWS IAM API it already speaks, instead of the MaxIOFS console API. It is
-// also the missing half of the pair Veeam looks for: SOSAPI advertises IAM and
-// STS together, and this endpoint is what makes that claim true.
-//
-// It shares the transport with STS — a form-encoded POST to the S3 API root —
-// and is dispatched by Action name, so IAMEndpoint and STSEndpoint are the same
-// URL as the S3 endpoint.
-//
-// Every action requires a signature made with PERMANENT credentials belonging
-// to a user holding iam:manage. Temporary credentials are refused: a session
-// that could mint identities would outlive its own expiry.
-
 import (
 	"encoding/xml"
 	"errors"
@@ -54,12 +39,6 @@ var iamActions = map[string]bool{
 func IsIAMAction(action string) bool { return iamActions[action] }
 
 // iamSTSEndpointForSOSAPI returns the URL to advertise to Veeam as both the IAM
-// and the STS endpoint, or "" when there is nothing to advertise.
-//
-// It returns empty unless the IAM surface is switched on, because the SOSAPI
-// capability claims IAM and STS together: announcing the pair while only STS
-// answered would point Veeam at an endpoint that refuses it, which is worse for
-// the integration than not announcing at all.
 func (s *Server) iamSTSEndpointForSOSAPI() string {
 	if s.settingsManager == nil {
 		return ""
@@ -73,9 +52,6 @@ func (s *Server) iamSTSEndpointForSOSAPI() string {
 
 	endpoint := strings.TrimRight(s.config.PublicAPIURL, "/")
 	if endpoint == "" {
-		// Without a configured public URL there is no address that is correct
-		// from the client's side of the network, and a guess would send Veeam
-		// somewhere it cannot reach.
 		return ""
 	}
 	return endpoint
@@ -302,9 +278,6 @@ func (s *Server) authorizeIAMCaller(r *http.Request) (*auth.User, error) {
 func (s *Server) iamCreateUser(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	userName := r.PostForm.Get("UserName")
 
-	// The new identity lands in the caller's tenant. An integration must not be
-	// able to create identities outside the boundary it was given, and there is
-	// no parameter in the AWS protocol that could express one anyway.
 	user, err := im.CreateIAMUser(r.Context(), userName, r.PostForm.Get("Path"), caller.TenantID)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
@@ -1039,9 +1012,6 @@ func writeIAMResult(w http.ResponseWriter, r *http.Request, action string, resul
 }
 
 // writeIAMErrorFor maps an internal error to the AWS IAM error code a client
-// knows how to react to. Anything unrecognised is a server fault rather than a
-// client one — reporting it as a validation error would send the caller looking
-// for a mistake it did not make.
 func writeIAMErrorFor(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, auth.ErrIAMNoSuchEntity):

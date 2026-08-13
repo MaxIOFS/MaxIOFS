@@ -1,13 +1,5 @@
 package auth
 
-// Bootstrap checks: what a real installation looks like on the first boot after
-// upgrading, and on a database that reached the IAM schema without ever being
-// converted.
-//
-// This is the failure that locked the administrator out of the console: the
-// request path reads only IAM policies, so an installation whose permissions
-// were never converted has nobody with any permission at all.
-
 import (
 	"context"
 	"testing"

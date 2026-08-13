@@ -119,9 +119,6 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	// Create managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
 
-	// Buckets get their owner's policy written on creation, exactly as the real
-	// server wires it — without this the creator has no permission on their own
-	// bucket, because ownership only exists as a policy now.
 	if bom, ok := bucketManager.(interface {
 		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
 	}); ok {
@@ -967,9 +964,6 @@ func TestS3MultipartUpload(t *testing.T) {
 	})
 
 	t.Run("Complete multipart upload with invalid uploadId returns NoSuchUpload in body", func(t *testing.T) {
-		// AWS S3 behaviour: CompleteMultipartUpload always returns 200 OK immediately
-		// to prevent client timeouts on large objects. If processing fails, the error
-		// is embedded as XML in the body (clients must parse the body on 200 responses).
 		completeXML := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"abc"</ETag></Part></CompleteMultipartUpload>`
 		req, w := env.makeS3Request("POST", fmt.Sprintf("/%s/nonexistent.dat?uploadId=invalid-upload-id-xyz", bucketName), []byte(completeXML))
 		req.Header.Set("Content-Type", "application/xml")
@@ -2156,9 +2150,6 @@ func TestGetBucketLocation(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code, "Should get bucket location successfully")
 
-	// Verify response contains LocationConstraint with S3 namespace and XML declaration.
-	// Per AWS S3 spec, buckets in the default region return an empty LocationConstraint body;
-	// the region is conveyed via the x-amz-bucket-region response header instead.
 	body := w.Body.String()
 	assert.Contains(t, body, "LocationConstraint", "Response should contain LocationConstraint")
 	assert.Contains(t, body, `xmlns="http://s3.amazonaws.com/doc/2006-03-01/"`, "LocationConstraint must include S3 namespace")
@@ -3634,9 +3625,6 @@ func TestS3EncodingTypeURL(t *testing.T) {
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 	bucketPath := env.tenantID + "/" + bucketName
 
-	// Object keys that contain characters requiring percent-encoding.
-	// Note: < > ? : * | are not valid in Windows file names, so we use
-	// space, &, and + — all valid on Windows but encoded by s3URLEncode.
 	specialKeys := []string{
 		"folder/file with spaces.txt",
 		"folder/ampersand&file.txt",

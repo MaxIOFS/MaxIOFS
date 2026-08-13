@@ -332,10 +332,6 @@ func (r *Router) GetCacheStats() map[string]interface{} {
 }
 
 // SelectReadNode selects the best node to serve a read request for the given bucket.
-// Returns nil when the local node should handle the request.
-// When factor > 1 and ready replicas exist, the local node and all ready replicas
-// participate in a round-robin rotation to distribute read load.
-// Falls back to nil (local) if no ready replicas are available.
 func (r *Router) SelectReadNode(ctx context.Context, bucket string) (*Node, error) {
 	if !r.manager.IsClusterEnabled() {
 		return nil, nil

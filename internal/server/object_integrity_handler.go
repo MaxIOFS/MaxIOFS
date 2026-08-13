@@ -16,11 +16,6 @@ import (
 )
 
 // handleVerifyBucketIntegrity handles POST /buckets/{bucket}/verify-integrity
-// Only global admins may call this endpoint.
-//
-// Rate limit: when marker is empty (first page of a new scan) the handler
-// checks that at least minManualScanInterval has elapsed since the last manual
-// scan for this bucket.  Continuation pages (marker != "") are always allowed.
 func (s *Server) handleVerifyBucketIntegrity(w http.ResponseWriter, r *http.Request) {
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {

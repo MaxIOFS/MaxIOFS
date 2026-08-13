@@ -37,9 +37,6 @@ func (n *nonFSBackend) SetMetadata(_ context.Context, _ string, _ map[string]str
 }
 func (n *nonFSBackend) Close() error { return nil }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // makeDir creates a directory (and all parents) inside the given root.
 func makeDir(t *testing.T, root string, parts ...string) string {
@@ -129,9 +126,6 @@ func TestCleanupEmptyDirectories_StopsAtNonEmptyParent(t *testing.T) {
 
 	root := om.storage.(interface{ GetRootPath() string }).GetRootPath()
 
-	// bucket/parent/
-	//   sibling.txt  ← keeps parent alive
-	//   subdir/      ← should be removed (empty)
 	makeFile(t, root, "bucket", "parent", "sibling.txt")
 	subdir := makeDir(t, root, "bucket", "parent", "subdir")
 	parentDir := filepath.Join(root, "bucket", "parent")

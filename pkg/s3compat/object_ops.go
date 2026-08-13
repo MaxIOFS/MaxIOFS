@@ -747,10 +747,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	// The source version arrives in x-amz-copy-source, not in the query string,
-	// so the check has to be told about it explicitly — reading the request's
-	// own ?versionId here described the DESTINATION, and a versioned copy was
-	// always authorized as though it were reading the current object.
 	sourceReadAction := auth.ActionGetObject
 	if copySourceVersionID != "" {
 		sourceReadAction = auth.ActionGetObjectVersion
@@ -873,9 +869,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
-	// IMPORTANT: Use streaming copy instead of loading all data into memory
-	// This prevents OOM errors and timeouts with large checkpoint files
-	// The reader is directly passed to PutObject which handles the streaming internally
 	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)
 	if err != nil {
 		if err == object.ErrBucketNotFound {

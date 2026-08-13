@@ -1,10 +1,5 @@
 package server
 
-// The administration permissions.
-//
-// They sat in the catalogue for a while without being enforced, which is worse
-// than not having them: the console offered a box that granted nothing.
-
 import (
 	"testing"
 
@@ -13,9 +8,6 @@ import (
 )
 
 // TestAdmin_TenantScopeStillSeparatesAdministrators is the escalation this
-// guards against: the admin role grants "*", and a role is the same role inside
-// a tenant as outside it. Reading super-administrator off a wildcard would turn
-// every tenant's administrator into an administrator of all of them.
 func TestAdmin_TenantScopeStillSeparatesAdministrators(t *testing.T) {
 	server := getSharedServer()
 

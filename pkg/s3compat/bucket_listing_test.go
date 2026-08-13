@@ -1,14 +1,5 @@
 package s3compat
 
-// Which buckets a caller sees.
-//
-// Listing used to be decided by the role name, by ownership, and by
-// CheckBucketAccess — which reads the legacy bucket_permissions table that is
-// no longer consulted when authorizing. The two answers had drifted apart: a
-// bucket granted purely through IAM was invisible in the listing while every
-// object inside it was perfectly accessible, and a grant revoked in IAM kept
-// its bucket on screen.
-
 import (
 	"context"
 	"encoding/xml"

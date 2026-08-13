@@ -79,9 +79,6 @@ func TestMain(m *testing.M) {
 		panic("Failed to create shared server: " + err.Error())
 	}
 
-	// Production sets serverCtx in Start(); tests skip Start() so they must
-	// initialize it explicitly — handlers like handleInitializeCluster pass
-	// s.serverCtx into background goroutines that would otherwise panic on nil.
 	testCtx, testCancel := context.WithCancel(context.Background())
 	sharedServer.serverCtx = testCtx
 	defer testCancel()
@@ -203,9 +200,6 @@ func TestServerSetVersion(t *testing.T) {
 
 // TestServerConcurrentRequests removed - requires HTTP server binding which is flaky on Windows in this test setup.
 
-// ============================================================================
-// COMPREHENSIVE SERVER LIFECYCLE TESTS
-// ============================================================================
 
 // TestServerWithBackgroundWorkers tests that all background workers start and stop correctly
 func TestServerWithBackgroundWorkers(t *testing.T) {
@@ -368,9 +362,6 @@ func TestServerBucketOperations(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// COMPREHENSIVE HANDLER TESTS FOR COVERAGE
-// ============================================================================
 
 // Helper function to create authenticated request with user context
 func createAuthenticatedRequest(method, url string, body io.Reader, tenantID, userID string, isAdmin bool) *http.Request {
@@ -1750,9 +1741,6 @@ func TestHandlePutBucketACL(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Logout and Account Management Tests
-// ============================================================================
 
 // TestHandleLogout tests the logout handler
 func TestHandleLogout(t *testing.T) {
@@ -1843,9 +1831,6 @@ func TestHandleUnlockAccount(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// 2FA Tests (additional edge cases - main tests in console_api_test.go)
-// ============================================================================
 
 // TestHandleEnable2FA tests the 2FA enable handler
 func TestHandleEnable2FA(t *testing.T) {
@@ -2027,9 +2012,6 @@ func TestHandleRegenerateBackupCodes(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Bucket Permission Tests
-// ============================================================================
 
 // TestHandleListBucketPermissions tests listing bucket permissions
 func TestHandleListBucketPermissions(t *testing.T) {
@@ -2260,9 +2242,6 @@ func TestHandleUpdateBucketOwner(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Object ACL Tests
-// ============================================================================
 
 // TestHandleGetObjectACL tests getting object ACL
 func TestHandleGetObjectACL(t *testing.T) {
@@ -2382,9 +2361,6 @@ func TestHandlePutObjectACL(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Shares and Presigned URL Tests
-// ============================================================================
 
 // TestHandleListBucketShares tests listing bucket shares
 func TestHandleListBucketShares(t *testing.T) {
@@ -2553,9 +2529,6 @@ func TestHandleGeneratePresignedURL(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Settings Tests
-// ============================================================================
 
 // TestHandleListCategories tests listing setting categories
 func TestHandleListCategories(t *testing.T) {
@@ -2704,9 +2677,6 @@ func TestHandleUpdateSetting(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Audit Log Tests
-// ============================================================================
 
 // TestHandleGetAuditLog tests getting a specific audit log
 func TestHandleGetAuditLog(t *testing.T) {
@@ -2770,9 +2740,6 @@ func TestHandleGetAuditLog(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Notification Tests
-// ============================================================================
 
 // TestHandleGetBucketNotification tests getting bucket notification configuration
 func TestHandleGetBucketNotification(t *testing.T) {
@@ -2816,9 +2783,6 @@ func TestHandleGetBucketNotification(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Tenant Users Tests
-// ============================================================================
 
 // TestHandleListTenantUsers tests listing users for a tenant
 func TestHandleListTenantUsers(t *testing.T) {
@@ -2858,9 +2822,6 @@ func TestHandleListTenantUsers(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// API Root and History Stats Tests
-// ============================================================================
 
 // TestHandleAPIRoot tests the API root endpoint
 func TestHandleAPIRoot(t *testing.T) {
@@ -2897,9 +2858,6 @@ func TestHandleGetHistoryStats(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// List All Access Keys Test
-// ============================================================================
 
 // TestHandleListAllAccessKeys tests listing all access keys (admin only)
 func TestHandleListAllAccessKeys(t *testing.T) {
@@ -2944,9 +2902,6 @@ func TestHandleListAllAccessKeys(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Object Versions Test
-// ============================================================================
 
 // TestHandleListObjectVersions tests listing object versions
 func TestHandleListObjectVersions(t *testing.T) {
@@ -2991,9 +2946,6 @@ func TestHandleListObjectVersions(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Cluster Handlers Tests
-// ============================================================================
 
 // TestHandleInitializeCluster tests cluster initialization
 func TestHandleInitializeCluster(t *testing.T) {
@@ -3035,9 +2987,6 @@ func TestHandleInitializeCluster(t *testing.T) {
 }
 
 // TestHandleJoinCluster tests joining an existing cluster.
-// The current join flow accepts a ClusterJoinPackage pushed by Node A; missing
-// required fields (token, CA cert/key, self endpoint) are rejected by
-// AcceptClusterJoin and surface as 500 from the handler.
 func TestHandleJoinCluster(t *testing.T) {
 	server := getSharedServer()
 
@@ -3316,9 +3265,6 @@ func TestHandleInvalidateCache(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Inventory Handlers Tests
-// ============================================================================
 
 // TestHandlePutBucketInventory tests putting bucket inventory configuration
 func TestHandlePutBucketInventory(t *testing.T) {
@@ -3561,9 +3507,6 @@ func TestHandleListBucketInventoryReports(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Replication Handlers Tests
-// ============================================================================
 
 // TestHandleCreateReplicationRule tests creating replication rules
 func TestHandleCreateReplicationRule(t *testing.T) {
@@ -3914,9 +3857,6 @@ func TestHandleTriggerReplicationSync(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Object Lock and Legal Hold Tests
-// ============================================================================
 
 // TestHandlePutObjectLockConfiguration tests putting object lock configuration
 func TestHandlePutObjectLockConfiguration(t *testing.T) {
@@ -4188,9 +4128,6 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Bulk Settings Tests
-// ============================================================================
 
 // TestHandleBulkUpdateSettings tests bulk updating settings
 func TestHandleBulkUpdateSettings(t *testing.T) {
@@ -4266,9 +4203,6 @@ func TestHandleBulkUpdateSettings(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Bucket Notification Tests (Additional)
-// ============================================================================
 
 // TestHandlePutBucketNotification tests putting bucket notification configuration
 func TestHandlePutBucketNotification(t *testing.T) {
@@ -4398,9 +4332,6 @@ func TestHandleDeleteBucketNotification(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Profiling Handlers Tests
-// ============================================================================
 
 // TestRequireGlobalAdminMiddleware tests the global admin middleware
 func TestRequireGlobalAdminMiddleware(t *testing.T) {
@@ -4577,9 +4508,6 @@ func TestHandleAllocs(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Cluster Internal Handlers Tests (Reusing Cluster Infrastructure)
-// ============================================================================
 
 // createClusterAuthenticatedRequest creates a request with cluster node authentication
 func createClusterAuthenticatedRequest(method, url string, body io.Reader, nodeID string) *http.Request {
@@ -5019,13 +4947,7 @@ func TestHandleReceiveAccessKeySync(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// Cluster Replication Handlers Tests
-// ============================================================================
 
-// ============================================================================
-// Additional Cluster Object Handlers Tests
-// ============================================================================
 
 // TestHandleReceiveBucketInventory tests receiving bucket inventory sync
 func TestHandleReceiveBucketInventory(t *testing.T) {

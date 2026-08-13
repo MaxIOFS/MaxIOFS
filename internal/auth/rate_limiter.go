@@ -121,9 +121,6 @@ func (l *LoginRateLimiter) ResetIP(ip string) {
 }
 
 // CheckAndRecord atomically checks whether a login attempt from ip is allowed
-// AND records it in the same write-lock acquisition, eliminating the TOCTOU
-// window that exists when AllowLogin and RecordFailedAttempt are called separately.
-// Returns true if the attempt is allowed (counter incremented), false if blocked.
 func (l *LoginRateLimiter) CheckAndRecord(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()

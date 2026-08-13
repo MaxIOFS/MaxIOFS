@@ -1,13 +1,5 @@
 package s3compat
 
-// S3 BucketInventory API — GET/PUT/DELETE /{bucket}?inventory&id=xxx
-//                           GET /{bucket}?inventory  (list all)
-//
-// The inventory backend already exists in internal/inventory/ and is exposed
-// through the Console API. These handlers add the standard S3 wire format on
-// top, so tools like the AWS CLI, Terraform, and SDK-based pipelines work
-// without any changes.
-
 import (
 	"encoding/xml"
 	"net/http"
@@ -58,9 +50,6 @@ type listInventoryConfigurationsResultXML struct {
 	IsTruncated      bool                 `xml:"IsTruncated"`
 }
 
-// ============================================================================
-// Field name translation
-// ============================================================================
 
 // s3FieldToInternal maps S3 OptionalFields names to our internal field constants.
 var s3FieldToInternal = map[string]string{
@@ -199,9 +188,6 @@ func xmlToInternal(x inventoryConfigXML, bucketName, tenantID string) *inventory
 	}
 }
 
-// ============================================================================
-// Handlers
-// ============================================================================
 
 // GetBucketInventoryConfiguration handles GET /{bucket}?inventory&id={id}
 func (h *Handler) GetBucketInventoryConfiguration(w http.ResponseWriter, r *http.Request) {

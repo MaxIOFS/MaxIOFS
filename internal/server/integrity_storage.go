@@ -71,10 +71,6 @@ func (s *Server) saveIntegrityResult(ctx context.Context, bucketPath string, rep
 		Source:     source,
 	}
 
-	// One bucket's history at a time: this is a read-modify-write, and the 24h
-	// scrubber and a manual scan can reach it together — one record was simply
-	// dropped. Cosmetic, since the history is only displayed, but the fix is a
-	// lock.
 	mu := integrityHistoryMutex(bucketPath)
 	mu.Lock()
 	defer mu.Unlock()
@@ -107,9 +103,6 @@ func integrityHistoryMutex(bucketPath string) *sync.Mutex {
 }
 
 // getIntegrityHistory retrieves the stored scan history for a bucket (newest
-// first).  Returns nil, nil if no scan has ever been recorded.
-// It is backward-compatible: if the stored value is a single object (old
-// format) it is wrapped in a one-element slice.
 func (s *Server) getIntegrityHistory(ctx context.Context, bucketPath string) ([]*LastScanRecord, error) {
 	kvStore, ok := s.metadataStore.(metadata.RawKVStore)
 	if !ok {

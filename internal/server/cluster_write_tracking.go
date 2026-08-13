@@ -8,12 +8,6 @@ import (
 )
 
 // touchLocalWriteAt stamps last_local_write_at on the local cluster node row
-// whenever a client-facing mutation succeeds.  This lets the StaleReconciler
-// distinguish ModeOffline (no writes during isolation) from ModePartition
-// (had writes → bidirectional LWW merge required).
-//
-// Best-effort: failures are logged at debug level and never propagated to the
-// caller so they cannot affect the HTTP response.
 func (s *Server) touchLocalWriteAt(ctx context.Context) {
 	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
 		return

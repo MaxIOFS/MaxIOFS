@@ -1,13 +1,5 @@
 package auth
 
-// Startup against the schema an installation actually has.
-//
-// Amending a migration that a database already applied changes nothing there.
-// Three times today a change was made to migration 18 and verified only against
-// a fresh database, where the amended migration runs; on an installation that
-// had already applied it the old shape remained and the server died on boot.
-// These tests run against the old shape on purpose.
-
 import (
 	"testing"
 

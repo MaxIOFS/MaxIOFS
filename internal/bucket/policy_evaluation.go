@@ -31,11 +31,6 @@ const (
 )
 
 // EvaluatePolicy evaluates a bucket policy against a request
-// Returns DecisionAllow, DecisionDeny, or DecisionExplicitDeny
-// AWS Policy evaluation logic:
-// 1. By default, all requests are denied (implicit deny)
-// 2. An explicit allow in a policy overrides the default deny
-// 3. An explicit deny in a policy overrides any allows
 func EvaluatePolicy(ctx context.Context, policy *Policy, request PolicyEvaluationRequest) PolicyDecision {
 	if policy == nil || len(policy.Statement) == 0 {
 		// No policy = implicit deny (default deny)
@@ -265,9 +260,6 @@ func matchResource(policyResource, requestResource, bucketName string) bool {
 		return true
 	}
 
-	// Normalize resource ARNs
-	// Policy might use: "arn:aws:s3:::bucket/*" or just "bucket/*"
-	// Request might use: "arn:aws:s3:::bucket/object.txt"
 	normalizedPolicy := normalizeResourceARN(policyResource, bucketName)
 	normalizedRequest := normalizeResourceARN(requestResource, bucketName)
 

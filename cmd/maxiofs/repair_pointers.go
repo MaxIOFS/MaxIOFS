@@ -9,9 +9,6 @@ import (
 )
 
 // newRepairPointersCmd rebuilds "latest object" pointers (obj:bucket:key) that
-// were wrongly deleted by the faulty reconcile, from the surviving per-version
-// entries. Strictly additive: only writes missing pointers, never deletes,
-// never touches object files. Run with the server STOPPED.
 func newRepairPointersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repair-pointers",

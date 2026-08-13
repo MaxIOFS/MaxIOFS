@@ -13,9 +13,6 @@ import (
 )
 
 // Regression test: a quota-rejected overwrite must leave the existing object
-// completely intact. The quota check used to run AFTER the store step, so on
-// a non-versioned bucket the original object had already been replaced on
-// disk and the rejection cleanup deleted it — destroying the only copy.
 func TestQuotaRejectedOverwriteKeepsOriginalObject(t *testing.T) {
 	ctx := context.Background()
 	om, _, metaStore := setupManagerWithConfigKey(t)

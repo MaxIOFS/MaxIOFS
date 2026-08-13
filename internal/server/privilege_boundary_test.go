@@ -1,14 +1,5 @@
 package server
 
-// The boundary between a tenant administrator and a global one.
-//
-// The role name is identical inside a tenant and outside it, so the name has
-// never been what separates them — the tenant is. Every check that reads the
-// role without also reading the tenant erases the distinction, and two of them
-// together were enough to walk from one to the other: mint an administrator
-// inside your own tenant, then reset the global administrator's password with
-// it.
-
 import (
 	"testing"
 

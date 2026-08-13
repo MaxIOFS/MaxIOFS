@@ -597,9 +597,6 @@ func TestVerboseResponseWriter(t *testing.T) {
 
 		wrapper.Write(largeData)
 
-		// Body continues capturing until it reaches the 1000 byte check
-		// The implementation checks if body.Len() < 1000 before writing
-		// So it will stop capturing after reaching 1000 bytes
 		assert.Greater(t, wrapper.body.Len(), 1000)
 	})
 }

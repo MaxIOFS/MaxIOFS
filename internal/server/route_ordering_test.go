@@ -13,10 +13,6 @@ import (
 )
 
 // TestRouteOrdering_ClusterNotCapturedByS3 verifies that cluster endpoints on the
-// dedicated cluster port return 401 when no authentication is provided.
-// (Historically, cluster routes shared the S3 port and could be captured by the
-// S3 catch-all handler.  Now they live on a dedicated port so the test verifies
-// the cluster server directly.)
 func TestRouteOrdering_ClusterNotCapturedByS3(t *testing.T) {
 	server, _, cleanup := setupServerWithCluster(t)
 	defer cleanup()
@@ -126,9 +122,6 @@ func TestRouteOrdering_S3EndpointsStillWork(t *testing.T) {
 	ts := httptest.NewServer(server.httpServer.Handler)
 	defer ts.Close()
 
-	// S3ClientMiddleware redirects browser-like requests (no S3 auth headers) to the
-	// console URL. Use a no-redirect client so we receive the redirect response directly
-	// instead of following it to a non-existent host in the test environment.
 	noRedirectClient := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -193,16 +186,6 @@ func TestRouteOrdering_BugReproduction(t *testing.T) {
 	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
-	// Reproduce the EXACT request that was failing:
-	// GET /api/internal/cluster/buckets
-	//
-	// With WRONG route ordering, S3 handler would capture this as:
-	// - Bucket name: "api"
-	// - Object key: "internal/cluster/buckets"
-	// - Result: 403 "Access denied. Object is not shared."
-	//
-	// With CORRECT route ordering, cluster handler captures it:
-	// - Result: 401 "Missing authentication headers"
 
 	resp, err := http.Get(ts.URL + "/api/internal/cluster/buckets")
 	require.NoError(t, err)
@@ -299,13 +282,6 @@ func TestRouteOrdering_WithoutCluster(t *testing.T) {
 	ts := httptest.NewServer(server.httpServer.Handler)
 	defer ts.Close()
 
-	// When cluster is disabled, /api/internal/cluster/* paths will be captured by S3 handler
-	// This is expected behavior - cluster routes aren't registered, so S3 (with PathPrefix("/")) gets them
-	// The key test is that S3 endpoints continue to work properly.
-	//
-	// S3ClientMiddleware redirects browser-like requests to the console URL; use a
-	// no-redirect client so the redirect response is received directly instead of
-	// following it to a non-existent host in the test environment.
 	noRedirectClient := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse

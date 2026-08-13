@@ -1,19 +1,5 @@
 package auth
 
-// IAM entities. See docs/SECURITY.md, "IAM".
-//
-// MaxIOFS reuses its own users, groups and access keys as the IAM user, group
-// and access-key entities; what IAM adds on top is policies (managed, with
-// versions, plus inline) and roles (with a trust policy that decides who may
-// assume them).
-//
-// Policies are the whole authorization model. What a user may do is what the
-// policies attached to them, their groups, their tenant and their roles allow —
-// evaluated AWS-style: default deny, explicit Deny wins. There is no second
-// mechanism and no per-request translation of an older one; the permissions an
-// installation already had were converted into these entities once, on upgrade
-// (policy_migration.go).
-
 import (
 	"errors"
 	"fmt"
@@ -85,10 +71,7 @@ type IAMInlinePolicy struct {
 	UpdatedAt  int64  `json:"updated_at"`
 }
 
-// IAMRole is an assumable identity. AssumeRolePolicy is the trust policy: it
-// answers "who may assume this role", and is the only thing standing between a
-// caller and the role's permissions, so it is required and never defaulted to
-// something permissive.
+// IAMRole is an assumable identity.
 type IAMRole struct {
 	Name               string `json:"name"`
 	ARN                string `json:"arn"`
@@ -118,11 +101,7 @@ func IAMUserARN(username string) string {
 	return "arn:aws:iam:::user/" + username
 }
 
-// ParseIAMARN extracts the resource type and name from an IAM ARN. It is
-// deliberately tolerant of the account field: callers write ARNs by hand and by
-// copy-paste from AWS examples, and rejecting "arn:aws:iam::123456789012:role/x"
-// while accepting "arn:aws:iam:::role/x" would be a pointless trap when the
-// name is what identifies the entity here.
+// ParseIAMARN extracts the resource type and name from an IAM ARN.
 func ParseIAMARN(arn string) (resourceType, name string, err error) {
 	parts := strings.SplitN(arn, ":", 6)
 	if len(parts) != 6 || parts[0] != "arn" || parts[2] != "iam" {
@@ -162,9 +141,6 @@ func ValidateIAMName(name string) error {
 }
 
 // builtinIAMPolicies are seeded on startup so a fresh install has something to
-// attach without writing JSON by hand. They are marked is_builtin and refused
-// for deletion, but their documents are only written once — an operator who
-// edits one keeps their edit across restarts.
 var builtinIAMPolicies = []struct {
 	Name        string
 	Description string

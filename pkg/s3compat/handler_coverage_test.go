@@ -118,9 +118,6 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 	// Create managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
 
-	// Buckets get their owner's policy written on creation, exactly as the real
-	// server wires it — without this the creator has no permission on their own
-	// bucket, because ownership only exists as a policy now.
 	if bom, ok := bucketManager.(interface {
 		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
 	}); ok {
@@ -167,9 +164,6 @@ func setupCoverageTestEnvironment(t *testing.T) *coverageTestEnv {
 	}
 }
 
-// ============================================
-// Tests for Setter Functions (0% coverage)
-// ============================================
 
 // TestSetShareManager tests the SetShareManager function
 func TestSetShareManager(t *testing.T) {
@@ -327,9 +321,6 @@ func TestDeleteBucket_Success(t *testing.T) {
 }
 
 // A user who may not delete any bucket is refused before the bucket is looked
-// up, so a missing bucket and one they simply cannot touch are indistinguishable
-// from outside. Permission is no longer a global flag that everyone with a role
-// carries — it comes from the buckets they actually hold.
 func TestDeleteBucket_NotFound_WithoutPermission(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
@@ -817,10 +808,6 @@ func TestHeadBucket_Success(t *testing.T) {
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "head-bucket", env.userID)
 	require.NoError(t, err)
 
-	// Test directly calling checkBucketACLPermission - this is already tested
-	// and working in acl_security_test.go. The HeadBucket handler is complex
-	// and requires proper middleware setup that's hard to mock in unit tests.
-	// For coverage purposes, we test the internal permission check function.
 	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "head-bucket", env.userID, acl.PermissionRead)
 	// Default ACL allows owner (bucket creator) to have access
 	assert.NotNil(t, hasPermission) // Just verify function executes
@@ -832,9 +819,6 @@ func TestHeadBucket_Success(t *testing.T) {
 }
 
 // A user with no permission on a bucket is refused before it is looked up, so a
-// bucket that does not exist and one they cannot reach are indistinguishable
-// from outside. That is deliberate: answering 404 would confirm which bucket
-// names exist to somebody with no access to them.
 func TestHeadBucket_NotFound(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
@@ -951,10 +935,6 @@ func TestListObjects_CrossTenantDenied(t *testing.T) {
 	w := httptest.NewRecorder()
 	env.handler.ListObjects(w, req)
 
-	// Cross-tenant user trying to access bucket from another tenant
-	// The bucket exists in env.tenantID but user has "other-tenant"
-	// getTenantIDFromRequest returns "other-tenant", so bucket lookup fails
-	// This results in 404 (bucket not found in user's tenant) or 403 (access denied)
 	assert.True(t, w.Code == http.StatusForbidden || w.Code == http.StatusNotFound,
 		"Cross-tenant access should be denied or bucket not found. Got: %d - %s", w.Code, w.Body.String())
 }
@@ -1093,9 +1073,6 @@ func TestWriteXMLResponse(t *testing.T) {
 }
 
 // TestWriteXMLResponseDeclaration verifies that writeXMLResponse always includes
-// the XML declaration (<?xml version="1.0" encoding="UTF-8"?>) in every response,
-// matching AWS S3 behaviour. Strict XML parsers (Java, some enterprise clients)
-// require the declaration.
 func TestWriteXMLResponseDeclaration(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
@@ -1269,13 +1246,6 @@ func TestDeleteObjectVersion_Redirect(t *testing.T) {
 		"Expected redirect to DeleteObject handler, got: %d", w.Code)
 }
 
-// ============================================
-// M6: PresignedOperation route has been removed.
-// Presigned URL requests (GET/PUT/DELETE with X-Amz-Algorithm) are now handled
-// directly by GetObject, PutObject, and DeleteObject — which validate presigned
-// credentials inline via validatePresignedURLAccess.
-// The test below verifies that a presigned GET with missing credentials returns
-// 403 Forbidden (not 501 Not Implemented).
 // ============================================
 
 func TestPresignedGetRoutesFallsThrough(t *testing.T) {
@@ -1470,11 +1440,6 @@ func TestParseObjectLockConfigXML_ReadError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// ============================================
-// Tests for validateObjectLockModeImmutable — REMOVED (I7)
-// validateObjectLockModeImmutable was deleted: AWS S3 allows changing the
-// bucket-level default retention mode (e.g. GOVERNANCE ↔ COMPLIANCE).
-// ============================================
 
 // ============================================
 // Tests for calculateRetentionDays (0% coverage)
@@ -1496,12 +1461,6 @@ func TestCalculateRetentionDays_Days(t *testing.T) {
 	assert.Equal(t, 0, result)
 }
 
-// ============================================
-// Tests for validateRetentionPeriodIncrease — REMOVED (I7)
-// validateRetentionPeriodIncrease was deleted: AWS S3 allows decreasing the
-// bucket-level default retention period (only individual object retention
-// under COMPLIANCE mode is immutable per the S3 spec).
-// ============================================
 
 // ============================================
 // Tests for updateBucketRetentionConfig (0% coverage)

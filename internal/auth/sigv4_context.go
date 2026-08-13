@@ -6,10 +6,6 @@ import "context"
 type sigv4ContextKey string
 
 const (
-	// OriginalSigV4PathKey is the context key for the original request path
-	// before virtual-hosted-style to path-style rewriting. When present, it must
-	// be used when building the canonical request for SigV4 verification, because
-	// the client signed using this path (bucket in host, not in path).
 	OriginalSigV4PathKey sigv4ContextKey = "original_sigv4_path"
 )
 

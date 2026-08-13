@@ -1,22 +1,5 @@
 package recovery
 
-// RepairLatestPointers rebuilds the "latest object" pointers (obj:bucket:key)
-// that were wrongly deleted by the pre-fix reconcile ghost-removal, using the
-// surviving per-version entries (version:bucket:key:versionID).
-//
-// Why this works: a versioned object stores its bytes under .versions/ and is
-// tracked by TWO metadata keys — the latest pointer obj:bucket:key and one
-// version:bucket:key:versionID per version. The faulty reconcile deleted only
-// the obj: pointer (DeleteObject with no versionID), never the version: keys,
-// which is a SEPARATE keyspace and carries the full ObjectMetadata including
-// Retention/LegalHold. So every deleted pointer can be reconstructed byte-for-
-// byte from its latest surviving version, with Object Lock intact.
-//
-// This operation is strictly ADDITIVE: it only writes obj: keys that are
-// currently MISSING, copying from an existing version entry. It never deletes,
-// never modifies a version entry, and never touches the filesystem. Run it
-// with the server stopped, against the live (damaged) metadata store.
-
 import (
 	"context"
 	"encoding/json"
@@ -120,25 +103,16 @@ func repairOne(ctx context.Context, store *metadata.PebbleStore, bucket, key str
 		return fmt.Errorf("probe obj pointer: %w", err)
 	}
 
-	// Pick the latest surviving version: prefer the one flagged IsLatest; if
-	// none (the flip was lost) or several, fall back to the largest versionID
-	// (version IDs are nanosecond-timestamp-prefixed → lexicographically sortable).
 	latest := pickLatest(group)
 	if latest == nil {
 		return fmt.Errorf("no usable version among %d entries", len(group))
 	}
 
-	// A delete marker as latest means the object was logically deleted; do NOT
-	// resurrect it with a pointer. (Immutable Veeam objects have no delete
-	// markers, so this branch simply never fires for them.)
 	if latest.meta.ETag == "" && latest.meta.Size == 0 {
 		report.DeleteMarkerLatest++
 		return nil
 	}
 
-	// Rebuild the pointer: the obj: value is byte-identical to the latest
-	// version entry with IsLatest=true (that is exactly how PutObjectVersion
-	// writes both keys). Copy the version JSON, force IsLatest=true.
 	rebuilt := latest.meta
 	rebuilt.IsLatest = true
 	rebuilt.Bucket = bucket
@@ -188,9 +162,6 @@ func pickLatest(group []versionRecord) *versionRecord {
 }
 
 // parseVersionKey splits "version:{bucket}:{key}:{versionID}".
-// bucket has no colon (S3 naming); versionID has no colon; the object key may
-// contain colons, so bucket is taken up to the FIRST colon and versionID from
-// the LAST colon, leaving the (possibly colon-containing) key in the middle.
 func parseVersionKey(rawKey string) (bucket, key, versionID string, ok bool) {
 	rest, found := strings.CutPrefix(rawKey, "version:")
 	if !found {

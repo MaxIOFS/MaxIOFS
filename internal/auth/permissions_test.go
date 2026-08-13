@@ -321,9 +321,6 @@ func TestRevokeBucketAccess(t *testing.T) {
 	}
 }
 
-// TestRevokeBucketAccess_Tenant is skipped because it would require
-// creating a tenant first, which needs tenant management setup
-// The tenant revoke functionality is tested via integration tests
 
 // TestRevokeBucketAccess_NonExistent tests revoking non-existent permission
 func TestRevokeBucketAccess_NonExistent(t *testing.T) {

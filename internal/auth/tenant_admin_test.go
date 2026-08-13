@@ -1,13 +1,5 @@
 package auth
 
-// What an administrator inside a tenant holds.
-//
-// The role's unscoped full access is replaced by a bounded document, so a
-// tenant administrator does not reach other tenants. That substitution used to
-// discard EVERY document the role carried, which made editing a role a silent
-// no-op for every user with a tenant — an operator could attach a policy or
-// revoke one and nothing changed.
-
 import (
 	"context"
 	"testing"
@@ -57,9 +49,6 @@ func TestTenantAdmin_ManagesImmutabilityForTheirTenant(t *testing.T) {
 		ID: "ta-admin2", TenantID: "ta2", Roles: []string{RoleAdmin}})
 	require.NoError(t, err)
 
-	// Immutability is a tenant's own compliance decision; the bounded document
-	// left both of these out, so a tenant administrator could not even read
-	// whether one of their buckets was locked.
 	assert.True(t, set.Allows(ActionGetBucketObjectLockConfiguration, "arn:aws:s3:::b"))
 	assert.True(t, set.Allows(ActionPutBucketObjectLockConfiguration, "arn:aws:s3:::b"))
 }

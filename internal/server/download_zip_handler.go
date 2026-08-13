@@ -26,13 +26,6 @@ type zipEntry struct {
 }
 
 // handleDownloadZip streams all objects under a given prefix as a ZIP archive.
-// GET /buckets/{bucket}/download-zip?prefix=folder/[&tenantId=...]
-//
-// Limits (enforced before streaming begins):
-//   - Maximum 10 000 objects
-//   - Maximum 10 GB total size
-//
-// Objects are stored without compression (zip.Store) to minimise CPU usage.
 func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -44,11 +37,6 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// This handler authorized nothing, so it served a ZIP of any bucket to any
-	// session — the bulk-read path standing beside every per-action guard the
-	// console gained. It enumerates and then reads, so it needs both
-	// permissions; the read is checked per object below, during enumeration,
-	// because a caller granted only part of a prefix must not receive the rest.
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
 		"You do not have permission to list this bucket") {
 		return
@@ -83,9 +71,6 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(obj.Key, "/") && obj.Size == 0 {
 				continue
 			}
-			// Refused rather than skipped: a ZIP quietly missing the files the
-			// caller may not read looks like a complete archive of a smaller
-			// folder, and a backup taken from it would be short without saying so.
 			if !s.userCanPerformConsoleS3Action(r, user,
 				s.resolveConsoleBucketTenantID(r, bucketName, user),
 				auth.ActionGetObject, consoleObjectARN(bucketName, obj.Key)) {
@@ -163,11 +148,6 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Setting UncompressedSize64 / CompressedSize64 causes Go's zip writer to
-		// write the sizes in the local file header instead of a trailing data
-		// descriptor.  Data descriptors are part of the ZIP spec but some tools
-		// (including Windows Explorer with Store-method entries) do not handle them
-		// correctly and show the archive as empty or corrupted.
 		fh := &zip.FileHeader{
 			Name:               entryName,
 			Method:             zip.Store,

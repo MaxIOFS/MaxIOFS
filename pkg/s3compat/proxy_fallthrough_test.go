@@ -1,13 +1,5 @@
 package s3compat
 
-// What happens to a write when the node that owns the bucket cannot be reached.
-//
-// Forwarding streams the request body to the peer, which consumes and closes
-// it. Falling back to local handling after that failed attempt therefore acts
-// on an EMPTY body that reports no error — so a PUT stored a zero-byte object
-// under the client's key and answered 200. The upload was reported successful
-// and the data was gone.
-
 import (
 	"io"
 	"net/http"
@@ -34,9 +26,6 @@ func TestProxyFallthrough_AConsumedBodyIsNotHandledLocally(t *testing.T) {
 	require.NoError(t, req.Body.Close())
 	require.Len(t, drained, len(payload))
 
-	// This is the part that made it silent: reading again yields nothing AND no
-	// error, so a handler downstream cannot tell an emptied body from an empty
-	// upload. ContentLength is what still remembers.
 	rest, err := io.ReadAll(req.Body)
 	assert.Empty(t, rest)
 	assert.NoError(t, err,
@@ -47,9 +36,6 @@ func TestProxyFallthrough_AConsumedBodyIsNotHandledLocally(t *testing.T) {
 }
 
 // TestProxyFallthrough_ReadsMayStillFallThrough: the fallback exists so a
-// request that cannot reach the owning node is still answered where possible.
-// A request with no body has nothing to lose, so it must keep that behaviour —
-// narrowing it to writes is the whole point of the fix.
 func TestProxyFallthrough_ReadsMayStillFallThrough(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/bucket/object.bin", nil)
 

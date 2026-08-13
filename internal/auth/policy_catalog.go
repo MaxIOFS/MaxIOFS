@@ -1,24 +1,5 @@
 package auth
 
-// The policy catalogue: the single vocabulary in which every permission in
-// MaxIOFS is expressed.
-//
-// There is one kind of user and one set of permissions per user. A request is
-// the same request whether it arrived on a console session or signed with one
-// of that user's access keys — the keys carry the user's permissions, they do
-// not have permissions of their own.
-//
-// Actions are namespaced by the service they belong to:
-//
-//	s3:*       object and bucket operations
-//	console:*  operations that only exist in the console (creating a bucket
-//	           through the UI, managing one's own keys)
-//	iam:*      managing identities, policies and roles
-//
-// The namespace is not a division between kinds of user. It exists because a
-// policy has to be able to name every operation; without it, the operations
-// outside S3 would need a second mechanism, which is exactly what this replaces.
-
 // Non-S3 actions. These complete the vocabulary so that a single policy set can
 // describe everything a user may do.
 const (
@@ -61,13 +42,6 @@ type catalogEntry struct {
 }
 
 // PolicyCatalog is every permission the system can express, one policy per
-// coherent group of actions.
-//
-// The granularity is deliberate. Object Lock is three separate policies rather
-// than part of "write", because permission to store an object into an immutable
-// bucket, permission to set how long it stays immutable, and permission to
-// override that retention are three different decisions, and an operator who
-// grants the first should not be silently granting the third.
 var PolicyCatalog = []catalogEntry{
 	{
 		Name:        PolicyFullAccess,
@@ -93,10 +67,6 @@ var PolicyCatalog = []catalogEntry{
 			ActionGetBucketCORS, ActionPutBucketCORS, ActionDeleteBucketCORS,
 			ActionGetBucketTagging, ActionPutBucketTagging, ActionDeleteBucketTagging,
 			ActionGetBucketAcl, ActionPutBucketAcl,
-			// Subresources that used to be reached through one of the above
-			// because they had no action of their own. They stay in this policy
-			// so an installation converted before they existed keeps the same
-			// reach; granting them individually is what the catalogue is for.
 			ActionGetBucketReplication, ActionPutBucketReplication,
 			ActionGetBucketEncryption, ActionPutBucketEncryption,
 			ActionGetBucketLogging, ActionPutBucketLogging,
@@ -179,13 +149,6 @@ var PolicyCatalog = []catalogEntry{
 }
 
 // capabilityPolicies maps each legacy capability onto the catalogue policies
-// that express it. This is the translation table: it is what lets an existing
-// installation's role configuration be read as policies without anybody having
-// to reconfigure anything.
-//
-// It must stay faithful — the equivalence tests compare the decisions the
-// policy evaluator makes against the decisions the capability system made, for
-// every capability, and a drift here fails them.
 var capabilityPolicies = map[string][]string{
 	CapBucketCreate:         {PolicyBucketCreate},
 	CapBucketDelete:         {PolicyBucketDelete},

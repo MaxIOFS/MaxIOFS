@@ -1,18 +1,5 @@
 package s3compat
 
-// An ACL cannot overrule the policies for an authenticated caller.
-//
-// Every permission check used to fall through, on a policy denial, into a
-// cascade: the object ACL, the bucket ACL, the AuthenticatedUsers group,
-// FULL_CONTROL, then public access. Each rung could only widen the answer, so
-// an explicit IAM Deny was overridden by an ACL — and because AuthenticatedUsers
-// means "anyone with a credential", a bucket set to authenticated-read-write at
-// any point in its life handed that access to every credential in the
-// deployment, permanently and invisibly.
-//
-// ACLs and public access still decide ANONYMOUS requests. Those have no
-// policies to consult, which is the whole reason the mechanism exists.
-
 import (
 	"context"
 	"net/http"

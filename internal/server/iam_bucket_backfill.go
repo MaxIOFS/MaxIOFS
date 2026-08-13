@@ -1,13 +1,5 @@
 package server
 
-// Backfilling the owner policy of buckets that existed before ownership became
-// a policy.
-//
-// Ownership used to be an implicit fact the handlers checked. Now it is a
-// policy written when a bucket is created — which leaves every bucket created
-// earlier with no policy at all. Enforcing the policy without this would take
-// away access to every existing bucket, so the two go together.
-
 import (
 	"context"
 
@@ -29,9 +21,6 @@ func (s *Server) backfillBucketOwnerPolicies(ctx context.Context) {
 		return
 	}
 
-	// Listing with an empty tenant returns every bucket the node holds, which
-	// is what a backfill has to cover — a bucket whose owner never got a policy
-	// is invisible to authorization regardless of whose tenant it is in.
 	buckets, err := s.bucketManager.ListBuckets(ctx, "")
 	if err != nil {
 		logrus.WithError(err).Warn("Could not list buckets to backfill their owner policies")

@@ -1,19 +1,4 @@
 // Package kek manages the Key Encryption Key (KEK) used for envelope
-// encryption. The KEK lives in the SQLite database (encryption_keys table,
-// created by migration 16) and wraps each object's per-object DEK.
-//
-// Bootstrap resolves the KEK on startup with the following priority:
-//  1. A current KEK already exists in the DB → use it.
-//  2. No KEK in the DB but config.yaml provides storage.encryption_key →
-//     seed the DB with it as KEK version 1 (migration path: existing
-//     objects were encrypted directly with this key, so it MUST become
-//     KEK-v1 or they would stop decrypting).
-//  3. Neither → generate a fresh random 32-byte KEK and persist it as
-//     version 1 (self-provisioning for deployments started with only
-//     --data-dir and no config file).
-//
-// After bootstrap the DB is the source of truth; the config value is only
-// ever a seed.
 package kek
 
 import (
@@ -42,9 +27,6 @@ type Provider interface {
 	// KEKByVersion returns the key for a specific version (needed to
 	// unwrap DEKs of objects written before a rotation).
 	KEKByVersion(version int) ([]byte, error)
-	// IsClusterShared reports whether a KEK version is shared across all
-	// cluster nodes — objects wrapped with a shared version can be
-	// replicated as ciphertext (the destination can unwrap the DEK).
 	IsClusterShared(version int) bool
 }
 
@@ -57,10 +39,6 @@ type Store struct {
 	keys          map[int][]byte
 	clusterShared map[int]bool
 	current       int
-	// writeMu serialises multi-step mutations (Rotate, EnsureClusterKey,
-	// AdoptClusterKeys): two concurrent rotations would otherwise compute the
-	// same next version and collide on the UNIQUE constraint with a cryptic
-	// error. Never held while mu is held the other way around.
 	writeMu sync.Mutex
 }
 
@@ -186,10 +164,6 @@ func (s *Store) EnsureClusterKey() ([]KeyRecord, error) {
 }
 
 // AdoptClusterKeys merges the cluster-shared keys received in a join package.
-// A version that exists locally with different key material is a hard
-// conflict (this node's objects reference it) and rejects the join — the
-// operator must recover or empty the node first. The record marked current
-// becomes this node's current KEK.
 func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -270,15 +244,6 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 }
 
 // Rotate creates a fresh KEK as the next free version and makes it current.
-// Existing versions are kept: objects wrapped with them stay decryptable and
-// the background worker re-wraps their DEKs to the new version over time.
-// Old versions are deliberately never deleted — they cost nothing, the
-// recovery bundle includes them, and removing one would orphan any file that
-// still references it (e.g. sidecar-only objects outside the metadata index).
-//
-// clusterShared must be true when the node is part of a cluster, so the new
-// key can be distributed to peers and keep raw (ciphertext) replication
-// working for new objects.
 func (s *Store) Rotate(clusterShared bool) (int, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

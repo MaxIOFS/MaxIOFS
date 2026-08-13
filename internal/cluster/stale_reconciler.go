@@ -21,15 +21,8 @@ import (
 type ReconcileMode int
 
 const (
-	// ModeOffline means the node was unreachable but made no local writes
-	// during the stale period.  Only tombstones need to be propagated
-	// immediately; entity data will arrive through the normal periodic sync
-	// from healthy peers once the stale flag is cleared.
 	ModeOffline ReconcileMode = iota
 
-	// ModePartition means the node was isolated but continued accepting
-	// writes.  A full LWW push of locally-newer entities is performed before
-	// clearing the stale flag.
 	ModePartition
 )
 
@@ -41,11 +34,6 @@ func (m ReconcileMode) String() string {
 }
 
 // StaleReconciler runs once when a stale node reconnects to the cluster.
-// It pushes locally-newer entities to each reachable peer, syncs tombstones
-// bidirectionally, and finally clears the is_stale flag so normal periodic
-// sync resumes.
-// When objMgr and bucketMgr are set (via SetObjectManagers), it also performs
-// a delta sync of objects modified while this node was offline.
 type StaleReconciler struct {
 	db             *sql.DB
 	clusterManager *Manager
@@ -78,21 +66,12 @@ func (r *StaleReconciler) SetObjectManagers(objMgr object.Manager, bucketMgr buc
 var ErrNoPeers = fmt.Errorf("no reachable peers for stale-node reconciliation")
 
 // Reconcile performs the full stale-node reconciliation sequence.
-// It is safe to call even when the node is not stale — it detects that and
-// returns immediately.
-// Returns ErrNoPeers when no healthy peers are reachable so the caller can
-// distinguish a transient condition from a fatal error.
 func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 	localNodeID, err := r.clusterManager.GetLocalNodeID(ctx)
 	if err != nil {
 		return fmt.Errorf("get local node ID: %w", err)
 	}
 
-	// Quick read of is_stale without modifying DB state.
-	// We check for peers BEFORE committing to the snapshotAndClearWriteFlag
-	// transaction so we don't clear last_local_write_at and then find out there
-	// is nobody to reconcile with — that would force a retry into ModeOffline
-	// even if writes occurred during the unavailable window.
 	staleFlag, err := r.readStaleFlag(ctx, localNodeID)
 	if err != nil {
 		return fmt.Errorf("check stale flag: %w", err)
@@ -124,9 +103,6 @@ func (r *StaleReconciler) Reconcile(ctx context.Context) error {
 		return ErrNoPeers
 	}
 
-	// Peers are available: atomically snapshot last_local_write_at and clear it.
-	// Any write that arrives after this transaction commits starts a fresh window
-	// tracked by the NEXT reconciliation cycle.
 	_, mode, err := r.snapshotAndClearWriteFlag(ctx, localNodeID)
 	if err != nil {
 		return fmt.Errorf("snapshot stale state: %w", err)
@@ -187,9 +163,6 @@ func (r *StaleReconciler) readStaleFlag(ctx context.Context, nodeID string) (boo
 }
 
 // snapshotAndClearWriteFlag reads last_local_write_at inside a serializable
-// transaction and immediately clears it to NULL. Any write arriving after this
-// transaction commits starts a fresh tracking window for the NEXT reconciliation
-// cycle. Callers must verify the node IS stale before calling this function.
 func (r *StaleReconciler) snapshotAndClearWriteFlag(ctx context.Context, nodeID string) (stale bool, mode ReconcileMode, err error) {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -261,9 +234,6 @@ func (r *StaleReconciler) reconcileWithPeer(ctx context.Context, mode ReconcileM
 		"remote_tombstones": len(remote.Tombstones),
 	}).Debug("Fetched remote snapshot")
 
-	// ModePartition: push locally-newer entities to the peer.
-	// ModeOffline: skip — peer already has authoritative data; normal sync
-	// will deliver it once the stale flag is cleared.
 	if mode == ModePartition {
 		if err := r.pushNewerEntities(ctx, local, remote, peer, localNodeID, nodeToken); err != nil {
 			return fmt.Errorf("push newer entities: %w", err)
@@ -439,9 +409,6 @@ func (r *StaleReconciler) applyRemoteTombstones(ctx context.Context, remote, loc
 			continue // already have an equal or newer tombstone
 		}
 
-		// Wrap the LWW check and the tombstone insert in a single serializable
-		// transaction so no concurrent writer can delete the entity between the
-		// two operations and cause us to incorrectly skip a tombstone.
 		tx, txErr := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 		if txErr != nil {
 			r.log.WithError(txErr).WithFields(logrus.Fields{
@@ -669,9 +636,6 @@ func (r *StaleReconciler) pushGroupMapping(ctx context.Context, id string, peer 
 // ── HA object delta sync ─────────────────────────────────────────────────────
 
 // reconcileObjects performs a delta sync of objects modified while this node
-// was offline. It only runs when there is a prior SyncJobDone entry for this
-// node, meaning this node was previously a ready HA replica.
-// It contacts any healthy peer to list changed objects and pulls them locally.
 func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID string, peers []*Node) error {
 	if len(peers) == 0 {
 		return nil

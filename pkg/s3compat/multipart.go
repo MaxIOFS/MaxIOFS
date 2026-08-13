@@ -244,9 +244,6 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle AWS chunked encoding
-	// IMPORTANT: Some clients (like warp/MinIO-Go) send AWS chunked format
-	// WITHOUT the Content-Encoding header. We need to detect it.
 	contentEncoding := r.Header.Get("Content-Encoding")
 	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
 
@@ -502,14 +499,6 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// The permission above was checked against the URL's key; the completion
-	// below acts on uploadID alone and assembles the object at the destination
-	// recorded in the upload's own metadata — a bucket and key the caller may
-	// hold nothing on. This ties the two together.
-	//
-	// Reported the way this handler reports everything else: 200 with the error
-	// in the body. It always answers 200 immediately so a large completion
-	// cannot time out a client, and that contract holds for a refusal too.
 	if !h.uploadMatchesTarget(r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
@@ -550,9 +539,6 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Resolve bucket path and capture x-amz-acl BEFORE launching the goroutine.
-	// The upload metadata (which stores the ACL header from CreateMultipartUpload)
-	// is deleted during CompleteMultipartUpload, so we must read it now.
 	bucketPath := h.getBucketPath(r, bucketName)
 	var storedCannedACL string
 	if h.metadataStore != nil {
@@ -563,10 +549,6 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// AWS S3 behaviour for long-running completions: send 200 OK immediately, then
-	// stream whitespace to keep the TCP connection alive while the server combines
-	// the parts. The actual result XML (success or error) is flushed at the end.
-	// Without this, clients time out waiting for the status line on large objects.
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
@@ -588,9 +570,6 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		resultCh <- completionResult{obj, err}
 	}()
 
-	// Send a whitespace byte every 10 seconds to keep the TCP connection alive.
-	// Real S3 clients (CloudBerry, MSP360, s3cmd, etc.) ignore leading whitespace
-	// before the XML payload.
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -747,10 +726,6 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	destTenantID := h.resolveBucketTenantID(r, destBucket)
 
-	// The source version arrives in x-amz-copy-source, not in the query string,
-	// so the check has to be told about it explicitly — reading the request's
-	// own ?versionId here described the DESTINATION, and a versioned copy was
-	// always authorized as though it were reading the current object.
 	sourceReadAction := auth.ActionGetObject
 	if copySourceVersionID != "" {
 		sourceReadAction = auth.ActionGetObjectVersion

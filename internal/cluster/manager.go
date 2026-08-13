@@ -22,9 +22,6 @@ import (
 )
 
 // ErrClusterDegraded is returned when a write cannot satisfy the configured
-// replication quorum: either no healthy replica is available, or fanout fell
-// short of ceil(factor/2) confirmations. S3 handlers map this to
-// 503 ServiceUnavailable + Retry-After.
 var ErrClusterDegraded = errors.New("cluster degraded — write quorum unavailable")
 
 // Manager handles cluster operations
@@ -38,17 +35,9 @@ type Manager struct {
 	storage             storage.Backend
 	aclManager          acl.Manager
 	bucketManager       bucketManagerForMigration
-	// Both are replaced at runtime by loadTLSConfig, which runs from the
-	// initialize and join HTTP handlers while every server is already serving —
-	// and they are read on the path of every inter-node request, by ~20 dynamic
-	// proxy clients and by each health tick. Plain pointer fields raced there;
-	// atomics keep the read side free of a lock it would take millions of times.
 	tlsConfig         atomic.Pointer[tls.Config]
 	clusterHTTPClient atomic.Pointer[http.Client]
 
-	// The health prober's client, rebuilt only when the TLS config changes. It
-	// used to be built fresh for every probe of every node and never closed, so
-	// each 30-second tick left a connection pool behind.
 	healthClientMu   sync.Mutex
 	healthHTTPClient *http.Client
 	healthClientTLS  *tls.Config
@@ -102,9 +91,6 @@ func NewManager(db *sql.DB, publicAPIURL, clusterURL string) *Manager {
 		m.log.WithError(err).Debug("No TLS config loaded (cluster may not be initialized yet)")
 	}
 
-	// Repair any cluster_nodes rows with empty node_token — can happen when nodes were
-	// joined with an older binary that stripped NodeToken during JSON serialization.
-	// All nodes in a cluster share the same cluster_token, so it is safe to back-fill.
 	m.repairEmptyNodeTokens()
 
 	return m
@@ -220,9 +206,6 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 }
 
 // JoinPackageNode is the wire format for a Node inside a ClusterJoinPackage.
-// It explicitly includes node_token (unlike Node, which has json:"-" to prevent
-// token leakage through the public console API). Without the token, the receiving
-// node cannot verify HMAC signatures from the senders in the existing cluster.
 type JoinPackageNode struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -266,9 +249,6 @@ type ClusterJoinPackage struct {
 	NodeEndpoint string             `json:"node_endpoint"` // Node A's 8082 URL
 	APIURL       string             `json:"api_url"`       // Node B's S3 API public URL
 	Nodes        []*JoinPackageNode `json:"nodes"`
-	// EncryptionKeys carries the cluster-shared KEK versions so every node
-	// wraps new objects with the same key — the basis for ciphertext HA
-	// replication (replicas store encrypted bytes as-is, no decrypt/re-encrypt).
 	EncryptionKeys []kek.KeyRecord `json:"encryption_keys,omitempty"`
 }
 
@@ -292,10 +272,6 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 		return fmt.Errorf("failed to clear cluster config: %w", err)
 	}
 
-	// Remove all global users (tenant_id IS NULL or empty) from this node so the cluster
-	// primary can sync them with the correct UUIDs. Without this, the local admin user
-	// conflicts with the primary's admin by username UNIQUE constraint, blocking all user sync.
-	// Tenant-scoped users are left untouched; they will be synced separately.
 	if _, err := m.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id IS NULL OR tenant_id = ''`); err != nil {
 		m.log.WithError(err).Warn("Failed to clear local global users before join — user sync may fail")
 	}
@@ -623,9 +599,6 @@ func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Read path: include storage_pressure nodes — they still hold valid data and
-	// should serve reads. Only writes are diverted away (via GetHealthyNodes /
-	// replicaTargets, which keep the strict =healthy filter).
 	rows, err := m.db.QueryContext(ctx, `
 		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.api_url, cn.node_token, cn.region, cn.priority,
 		       cn.health_status, cn.last_health_check, cn.last_seen, cn.latency_ms,
@@ -684,13 +657,6 @@ func (m *Manager) SelectReadNode(ctx context.Context, bucket string) (*Node, err
 }
 
 // SelectReadNodes returns an ordered list of replica candidates for a read.
-// The list is sorted by latency_ms ascending (primary), priority ascending,
-// then name for determinism. The list is then rotated by an atomic counter so
-// successive calls start at a different node — preserving round-robin load
-// distribution while still giving the caller a deterministic retry path.
-//
-// An empty slice means the caller should serve the read locally (cluster
-// disabled, factor=1, or no ready replicas yet).
 func (m *Manager) SelectReadNodes(ctx context.Context, bucket string) ([]*Node, error) {
 	if !m.IsClusterEnabled() {
 		return nil, nil
@@ -740,14 +706,6 @@ func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.
 }
 
 // TryProxyRead forwards a read to the given replica and only writes to w when
-// the replica's response is "definitive" — 2xx, 3xx, or a non-404 client
-// error (401/403/412/416). On 404, 5xx, or transport failure, w is left
-// untouched and served=false is returned so the caller can try the next
-// candidate. 5xx and transport failures also flip the node to Unavailable.
-//
-// Mid-stream failures (replica returned 200 then the connection died) are
-// surfaced as truncated responses to the client — by then bytes are already
-// committed to the wire and we cannot retry.
 func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) (served bool, err error) {
 	client := NewProxyClient(m.GetTLSConfig())
 	// SEC-05: strip internal cluster headers so external clients cannot spoof them.
@@ -776,15 +734,6 @@ func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *ht
 }
 
 // markNodeUnavailable flips a node's health_status to unavailable, mirroring
-// the side-effect of the write-fanout path. Errors are logged, not returned —
-// the caller is mid-request and cannot do anything useful with a DB failure.
-//
-// Dead nodes are skipped: once a node is dead, only the dead-node reconciler
-// (or an explicit re-add by the operator) can change its lifecycle state.
-//
-// unavailable_since is set only on transition; subsequent fanout failures
-// leave the original outage start intact so the dead-node reconciler can
-// measure continuous unavailability.
 func (m *Manager) markNodeUnavailable(ctx context.Context, nodeID, reason string) {
 	now := time.Now()
 	if _, err := m.db.ExecContext(ctx,
@@ -922,9 +871,6 @@ func (m *Manager) GetTLSConfig() *tls.Config {
 }
 
 // GetServerTLSConfig returns a TLS config for the cluster server listener.
-// It always returns a valid config: a temporary self-signed cert is used before
-// the cluster is initialized, and the real CA-signed cert is served afterward via
-// the atomic hot-swap mechanism — no listener restart required.
 func (m *Manager) GetServerTLSConfig() (*tls.Config, error) {
 	return BuildServerTLSConfig(&m.currentCert)
 }
@@ -1129,15 +1075,6 @@ func (m *Manager) SetReplicationFactor(ctx context.Context, factor int) error {
 }
 
 // ClusterCanAcceptWrites reports whether the cluster has enough healthy
-// non-local replicas to satisfy the configured replication quorum.
-//
-// Quorum math: needed = ceil(factor/2). The local write counts as 1, so the
-// number of replica confirmations required is ceil(factor/2)-1.
-//   - factor=1: always returns true (no replication).
-//   - factor=2: needs 0 replicas (best-effort 2nd copy).
-//   - factor=3: needs at least 1 healthy non-local node.
-//
-// Cluster disabled returns true (single-node mode).
 func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
 	if !m.IsClusterEnabled() {
 		return true, nil

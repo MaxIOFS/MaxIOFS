@@ -18,10 +18,7 @@ func getFrontendFS() (fs.FS, error) {
 	return web.GetFrontendFS()
 }
 
-// spaHandler serves the embedded SPA. Static assets are served directly;
-// everything else falls back to index.html for client-side routing.
-// The basePath prefix has already been stripped by the console server wrapper
-// before this handler is invoked, so all paths arrive rooted at "/".
+// spaHandler serves the embedded SPA.
 type spaHandler struct {
 	staticFS   http.FileSystem
 	indexBytes []byte
@@ -86,9 +83,6 @@ func extractBasePath(urlStr string) string {
 }
 
 // setupEmbeddedFrontend loads the embedded frontend and returns an http.Handler.
-// It injects <base href="/ui/"> and window.BASE_PATH into index.html so that
-// React Router and the API client resolve paths correctly when the console is
-// served under a subpath (e.g. /ui/).
 func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
 	frontendFS, err := getFrontendFS()
 	if err != nil {
@@ -117,9 +111,6 @@ func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
 		return nil, err
 	}
 
-	// Inject <base> tag and window.BASE_PATH right after <head>.
-	// With Vite base='./', all asset paths in the bundle are relative and will
-	// resolve correctly once the browser knows the subpath via <base href="/ui/">.
 	baseTag := []byte(`<base href="` + basePath + `">`)
 	scriptTag := []byte(`<script>
 		window.__BASE_PATH__ = "` + basePath + `";

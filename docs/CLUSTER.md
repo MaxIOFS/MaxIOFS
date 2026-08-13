@@ -9,6 +9,7 @@
 ## Table of Contents
 
 1. [Overview](#overview)
+   - [What happens when a node fails](#what-happens-when-a-node-fails)
 2. [Architecture](#architecture)
 3. [Quick Start](#quick-start)
 4. [Cluster Setup](#cluster-setup)
@@ -48,6 +49,56 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 3. **Disaster Recovery** - Replicate data to backup nodes
 4. **Load Balancing** - Distribute requests across healthy nodes
 5. **Zero-Downtime Maintenance** - Update nodes without service interruption
+
+### What happens when a node fails
+
+A cluster has two planes, and it is worth knowing how each one behaves.
+
+**The data plane (S3 API, port 8080) needs no coordinator at all.** Every node
+serves reads and writes on its own. With a replication factor of 2 the write
+quorum is deliberately *one* — the local write — so an object written while the
+other node is down still succeeds, and the stale-object reconciler copies it
+across when the peer returns. Two nodes are a real mirror: both hold a full
+copy, either one serves everything, and losing one loses no data and stops no
+S3 traffic.
+
+**The control plane (web console, port 8081) elects a coordinator**, so that two
+nodes cannot edit the same entity at the same instant and quietly disagree about
+the result. Configuration — users, access keys, policies, roles, tenants — is
+written on the elected node; a change made on any other node is forwarded to it,
+which is invisible to whoever is using the console.
+
+**When the coordinator dies, the nodes that are still alive hold an election and
+one of them takes over.** The majority is counted over the nodes that answer,
+not over every node the cluster has ever known, so a node that is gone does not
+get a vote in whether the cluster may continue. In a two-node cluster the
+survivor elects itself within about twenty seconds — one lease — and from then
+on it is the coordinator: every configuration change works normally on it.
+
+**When the failed node comes back, it comes back as a member.** It finds a live
+lease under a newer term, follows it, and the synchronisation managers bring it
+up to date with everything that changed while it was away. Nothing needs to be
+done by hand, and nothing has to be removed or re-joined. If you *do* want to
+decommission it permanently, remove it from the console in the ordinary way —
+the surviving node is a coordinator, so that works too.
+
+| | 2 nodes | 3 nodes |
+|---|---|---|
+| Object reads and writes with a node down | ✅ Continue | ✅ Continue |
+| Data redundancy (full copy per node) | ✅ Yes | ✅ Yes |
+| Configuration changes with a node down | ✅ Continue on the survivor | ✅ Continue |
+| Failed node returns | ✅ Rejoins and syncs | ✅ Rejoins and syncs |
+
+> **The trade this makes, stated plainly.** If both nodes are alive but the
+> network between them fails, each sees only itself and each becomes the
+> coordinator of what it can see, so both accept configuration changes. When the
+> link is restored, the synchronisation reconciles them the way it reconciles
+> everything else: newest write wins, entity by entity, by `updated_at`. Object
+> data is never affected, since it does not go through the coordinator at all.
+> The alternative — freezing administration until a strict majority is
+> available — was rejected on purpose: it means a two-node cluster locks its
+> operator out the moment either node fails, including out of the very
+> operations needed to recover.
 
 ---
 
@@ -293,6 +344,21 @@ cluster_listen: ":8082"
 ```
 
 Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
+
+> ⚠️ **Every node must use the same cluster port.**
+>
+> When you add a node from the primary's console, the primary builds the new
+> node's cluster address from the **primary's own** `cluster_listen` port — it
+> asks the remote node for its console address, not for its cluster port. A
+> node running `cluster_listen: ":9082"` while the primary runs `:8082` is
+> therefore registered at `:8082` and is never reachable: health checks fail,
+> the node never votes, and the cluster reports it unhealthy for no visible
+> reason.
+>
+> Change the port if 8082 is taken, but change it **on every node**. The
+> *Join Cluster* form on the joining node accepts an explicit `IP:port` for the
+> node it is contacting, which is a different thing: it says where to *find* the
+> cluster, not what port this node will be reached on.
 
 ### Cluster Initialization Parameters
 
@@ -978,6 +1044,40 @@ groups:
 ---
 
 ## Troubleshooting
+
+### 0. "The cluster is choosing a coordinator" on every configuration change
+
+**Symptoms:** The console answers `503` with *"the cluster is choosing a
+coordinator for configuration changes"*, or *"this node is no longer the
+coordinator"*, on anything that saves. **S3 traffic is unaffected** — objects
+upload and download normally, which is the clue that this is the control plane
+and not the cluster as a whole.
+
+**Diagnosis:**
+```bash
+# Who holds the lease, and in which term?
+sqlite3 /data/node1/db/maxiofs.db "SELECT leader_id, term, expires_at FROM cluster_leader;"
+
+# The election says why it failed, on every node
+grep '"component":"leader"' /var/log/maxiofs/maxiofs.log | tail -20
+```
+
+The log names the peer, its answer and its term:
+
+- `reason: unreachable` — the peer's **cluster port** is not answering. Check
+  the port is open between nodes and that every node uses the same
+  `cluster_listen` port (see [Configuration](#configuration)).
+- `reason: voted no: lease still held` — normal for a few seconds after a
+  leader changes. Persisting means clocks are far apart, or a node was
+  restored from a backup of another node's database.
+- `got 1 of 2 votes needed among 2 responding nodes` — both nodes are alive and
+  disagree, which is normal for a few seconds during an election. Persisting
+  means the two are campaigning against each other; check the clocks and that
+  neither database was restored from a copy of the other's.
+
+**Note:** in builds before 1.6.0 a two-node cluster could never elect anybody at
+all — the term climbed without bound and configuration changes were refused for
+ever, whether or not both nodes were up. Upgrade rather than chasing it.
 
 ### 1. Node Shows as "Unavailable"
 

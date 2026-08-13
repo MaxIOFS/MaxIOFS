@@ -63,9 +63,6 @@ type CircuitBreaker struct {
 }
 
 // NewCircuitBreaker creates a new circuit breaker
-// failureThreshold: number of failures before opening circuit
-// successThreshold: number of successes to close circuit from half-open
-// timeout: duration before attempting recovery
 func NewCircuitBreaker(nodeID string, failureThreshold, successThreshold int, timeout time.Duration) *CircuitBreaker {
 	return &CircuitBreaker{
 		failureThreshold: failureThreshold,

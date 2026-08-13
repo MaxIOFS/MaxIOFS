@@ -23,11 +23,7 @@ func bucketAlertKey(tenantID, bucketName string) string {
 	return tenantID + "/" + bucketName
 }
 
-// checkBucketQuotaAlert is invoked after a bucket's cached size grows. It fires
-// SSE + email only when the alert level escalates (none→warning, warning→critical),
-// and emits a "resolved" event when usage falls back to normal. Mirrors the
-// tenant-level checkQuotaAlert but is keyed per bucket and works for global
-// buckets (empty tenantID) too.
+// checkBucketQuotaAlert is invoked after a bucket's cached size grows.
 func (s *Server) checkBucketQuotaAlert(tenantID, bucketName string, currentBytes, maxBytes int64) {
 	if maxBytes == 0 {
 		return // unlimited

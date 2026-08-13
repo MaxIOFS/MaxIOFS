@@ -1,22 +1,4 @@
 // Package recovery rebuilds the Pebble metadata store from the filesystem
-// object tree — the disaster-recovery path for "metadata DB lost or corrupt,
-// object files intact".
-//
-// Every object on disk carries a .metadata sidecar with everything needed to
-// reconstruct its Pebble entry (size, etag, content-type, encryption fields
-// including the wrapped DEK). Buckets are identified by their .maxiofs-bucket
-// marker (whose sidecar records the owning tenant). Given a KEK recovery
-// bundle, the tool also verifies that every envelope object's DEK unwraps and
-// restores the keys into the auth SQLite so the recovered server can decrypt.
-//
-// The rebuild always writes into a FRESH Pebble directory — it never touches
-// an existing (possibly corrupt) store.
-//
-// Known limitation (deliberate, data-recovery bias): delete markers exist
-// only in the metadata store, not on the filesystem. A versioned object whose
-// latest "version" was a deletion therefore comes back VISIBLE after a
-// rebuild — its stored versions are all real files, and the marker that hid
-// them is gone. The operator re-deletes if the deletion should stand.
 package recovery
 
 import (
@@ -282,10 +264,6 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 			if obj == nil {
 				return nil
 			}
-			// Partial failure (e.g. the wrapped DEK does not unwrap with the
-			// bundle keys): the bytes exist on disk, so the object is still
-			// indexed — hiding it from listings would make it unrecoverable
-			// forever. The failure stays in the report for the operator.
 		}
 
 		switch class {
@@ -516,9 +494,6 @@ func rebuildPebble(outDB string, buckets []*bucketEntry, report *Report) error {
 }
 
 // restoreKEKs writes the bundle's key versions into the auth SQLite so the
-// recovered server's bootstrap loads them instead of generating a new KEK.
-// The table is created with the pre-cluster schema so pending migrations
-// still apply cleanly on the next server start.
 func restoreKEKs(dbPath, bundlePath, passphrase string) (int, error) {
 	data, err := os.ReadFile(bundlePath)
 	if err != nil {
@@ -550,10 +525,6 @@ func restoreKEKs(dbPath, bundlePath, passphrase string) (int, error) {
 	}
 
 	// Does the DB already have a current key? A partially-surviving database
-	// is more recent than any external bundle, so its current marker wins;
-	// the bundle's current is only applied when the DB had none. Inserting the
-	// bundle's is_current flag blindly could leave TWO current rows and make
-	// the server's bootstrap pick one non-deterministically.
 	var existingCurrent int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM encryption_keys WHERE is_current = 1`).Scan(&existingCurrent); err != nil {
 		return 0, err

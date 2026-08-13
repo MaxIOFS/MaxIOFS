@@ -49,10 +49,6 @@ func (a *RealObjectAdapter) CopyObject(ctx context.Context, sourceBucket, source
 		"content_type": contentType,
 	}).Debug("Retrieved source object from local storage")
 
-	// Note: The actual upload to remote S3 is handled by the worker
-	// using the rule's destination credentials. This method just returns
-	// the size for metrics tracking. The worker will create the S3 client
-	// and perform the upload.
 
 	return size, nil
 }

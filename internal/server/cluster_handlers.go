@@ -104,9 +104,6 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Adopt the cluster-shared encryption KEKs BEFORE anything else can write:
-	// a version conflict (this node already holds objects wrapped with a key
-	// of the same version but different material) must abort the join.
 	if len(pkg.EncryptionKeys) > 0 && s.kekStore != nil {
 		if err := s.kekStore.AdoptClusterKeys(pkg.EncryptionKeys); err != nil {
 			logrus.WithError(err).Error("Failed to adopt cluster encryption keys")
@@ -592,11 +589,6 @@ func (s *Server) handleCheckNodeHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleGetClusterBuckets lists all buckets with replication information
 func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request) {
-	// The tenant came from a context key the console auth middleware never sets
-	// — it sets "user" — so this was always empty and the handler listed every
-	// tenant's buckets, with object counts and sizes, to any authenticated
-	// caller. It is read from the caller now, and only a global administrator
-	// sees past their own.
 	caller := s.getAuthUser(r)
 	if caller == nil {
 		s.writeError(w, "Access denied", http.StatusForbidden)
@@ -672,10 +664,6 @@ func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// This endpoint had no check of any kind and returned the rules verbatim,
-	// destination credentials included. GetRulesForBucket filters by bucket
-	// name only — with no tenant predicate — so a caller in one tenant received
-	// another tenant's replication credentials in plaintext.
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketReplication,
 		"You do not have permission to read replication rules for this bucket") {
 		return
@@ -810,9 +798,6 @@ func (s *Server) handleBucketExists(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["name"]
 
-	// Inter-node lookups don't know the tenant, so scan all buckets by name.
-	// BucketExists with empty tenant only matches global (untenanted) buckets and
-	// would falsely report tenant-scoped buckets as missing.
 	bucketMeta, err := s.metadataStore.GetBucketByName(r.Context(), bucketName)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -981,11 +966,6 @@ func (s *Server) writeClusterJSON(w http.ResponseWriter, data interface{}) {
 }
 
 // resolveLocalClusterEndpoint returns this node's cluster endpoint.
-// Priority: 1) overrideAddr (admin picked from UI), 2) cluster_advertise_address
-// config (Docker/K8s), 3) ClusterListen host, 4) auto-detection via UDP dial.
-//
-// The cluster inter-node port always uses HTTPS — it manages its own TLS via
-// the internal cluster CA, independent of the console reverse proxy scheme.
 func (s *Server) resolveLocalClusterEndpoint(r *http.Request, overrideAddr string) (string, error) {
 	scheme := "https"
 
@@ -1027,13 +1007,6 @@ func (s *Server) resolveLocalClusterEndpoint(r *http.Request, overrideAddr strin
 }
 
 // parseNodeAddress parses a user-provided node address into a full URL.
-// The input can be:
-//   - "192.168.1.10"          → http://192.168.1.10:<defaultPort>
-//   - "192.168.1.10:9000"     → http://192.168.1.10:9000
-//   - "http://192.168.1.10"   → http://192.168.1.10:<defaultPort>  (scheme kept, port added)
-//   - "http://192.168.1.10:9000" → http://192.168.1.10:9000        (used as-is)
-//
-// defaultPort is "8081" for console communication or "8082" for cluster communication.
 func parseNodeAddress(input, defaultPort string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -1068,9 +1041,6 @@ func parseNodeAddress(input, defaultPort string) (string, error) {
 }
 
 // kickstartNewNodeSync performs an immediate health check on the new node (to mark it
-// healthy in the DB so periodic sync loops will target it), then pushes all local users,
-// access keys, and tenants to the node without waiting for the next ticker cycle.
-// Runs in a goroutine — does not block the caller.
 func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
 	ctx := context.Background()
 

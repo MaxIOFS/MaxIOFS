@@ -81,9 +81,6 @@ func GetCannedACLGrants(cannedACL string, ownerID, ownerDisplayName string) []Gr
 		}
 
 	case CannedACLBucketOwnerRead:
-		// For objects: gives owner FULL_CONTROL and bucket owner READ
-		// For simplicity, we'll just give owner FULL_CONTROL
-		// In production, this would need bucket owner context
 		return []Grant{
 			{
 				Grantee: Grantee{
@@ -96,9 +93,6 @@ func GetCannedACLGrants(cannedACL string, ownerID, ownerDisplayName string) []Gr
 		}
 
 	case CannedACLBucketOwnerFullControl:
-		// For objects: gives owner and bucket owner FULL_CONTROL
-		// For simplicity, we'll just give owner FULL_CONTROL
-		// In production, this would need bucket owner context
 		return []Grant{
 			{
 				Grantee: Grantee{

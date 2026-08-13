@@ -44,9 +44,6 @@ type Store interface {
 	// DeleteBucket deletes a bucket and all its metadata
 	DeleteBucket(ctx context.Context, tenantID, name string) error
 
-	// DeleteBucketIfEmpty deletes the bucket only when no object keys exist under it.
-	// Returns ErrBucketNotEmpty if objects are found, ErrBucketNotFound if the bucket
-	// does not exist. The check and delete are performed as a single atomic operation.
 	DeleteBucketIfEmpty(ctx context.Context, tenantID, name string) error
 
 	// ListBuckets lists all buckets for a tenant (empty tenantID = global)
@@ -75,9 +72,6 @@ type Store interface {
 	// ListObjects lists objects in a bucket with optional prefix and pagination
 	ListObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int) ([]*ObjectMetadata, string, error)
 
-	// ListObjectsDelimited lists objects with delimiter support, returning objects at the
-	// current hierarchy level and common prefixes (folders). Uses SeekGE to skip past
-	// entire common prefixes for O(results) instead of O(total objects) performance.
 	ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error)
 
 	// SearchObjects searches objects with filters, returning matching objects with pagination
@@ -97,9 +91,6 @@ type Store interface {
 	// ListAllObjectVersions lists all versions of all objects in a bucket (for versioning support)
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error)
 
-	// HasActiveComplianceRetention returns true if any object or version in the bucket
-	// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
-	// This is used to prevent bucket deletion when immutable data is present.
 	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
 
 	// DeleteObjectVersion deletes a specific version of an object

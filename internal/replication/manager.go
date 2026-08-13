@@ -602,9 +602,6 @@ func (m *Manager) loadPendingItems(ctx context.Context) {
 
 		itemCount++
 
-		// Try to queue item (non-blocking). If the channel is full, keep the
-		// claim in 'retrying' state — resetStaleClaimedItems will recover it
-		// after 60 s if a worker never picks it up.
 		select {
 		case m.queue <- item:
 			// Successfully queued

@@ -16,9 +16,6 @@ import (
 )
 
 // startSTSSessionSweep periodically deletes sessions that expired more than an
-// hour ago. This is hygiene, not enforcement: an expired session is rejected by
-// signature validation (and deleted on touch) regardless of the sweep, and the
-// one-hour grace keeps a just-expired session visible in the console.
 func (s *Server) startSTSSessionSweep(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

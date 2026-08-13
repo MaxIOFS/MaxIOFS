@@ -1,14 +1,5 @@
 package metadata
 
-// Two writers, one key.
-//
-// UpdateBucketMetrics does a read-modify-write of the bucket document under a
-// mutex; UpdateBucket wrote the whole document with no lock at all. Every
-// bucket setting is saved as GetBucket → mutate → UpdateBucket, so the two
-// clobbered each other in both directions: an increment landing inside that
-// window was reverted by the setting being saved, and a setting was reverted by
-// an increment that had read the bucket first.
-
 import (
 	"context"
 	"os"

@@ -128,9 +128,6 @@ func TestSearchObjects_DateRangeFilter(t *testing.T) {
 	store, cleanup := setupSearchTestData(t)
 	defer cleanup()
 
-	// PutObject preserves the seeded LastModified values (-72h, -48h, -24h,
-	// -12h, -1h), so the date filters operate on real distinct timestamps.
-	// ModifiedAfter -30h → photo(-24h), logo(-12h), small(-1h).
 	after := time.Now().Add(-30 * time.Hour)
 	filter := &ObjectFilter{
 		ModifiedAfter: &after,

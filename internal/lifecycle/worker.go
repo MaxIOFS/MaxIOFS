@@ -211,10 +211,6 @@ func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath str
 
 	// For each key, check if it only has a delete marker
 	for key, versions := range versionsByKey {
-		// An expired delete marker exists when:
-		// 1. There is only one version
-		// 2. That version is a delete marker
-		// 3. It is the latest version
 		if len(versions) == 1 && isLifecycleDeleteMarker(versions[0]) && versions[0].IsLatest {
 			// Delete this expired delete marker
 			// Use the versionID to delete it permanently

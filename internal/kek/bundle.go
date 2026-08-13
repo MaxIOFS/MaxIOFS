@@ -16,14 +16,6 @@ import (
 )
 
 // Recovery bundle: an export of every KEK version, encrypted under an admin
-// passphrase, meant to be stored OUTSIDE the system. It is the disaster-
-// recovery path for the "database lost, filesystem intact" scenario — with
-// the bundle (plus its passphrase) every envelope-encrypted object on disk
-// remains decryptable.
-//
-// File format (JSON): header in the clear (format, KDF parameters, salt,
-// nonce) + AES-256-GCM ciphertext of the key list. The encryption key is
-// derived from the passphrase with PBKDF2-SHA256.
 
 const (
 	bundleFormat     = "maxiofs-kek-bundle-v1"

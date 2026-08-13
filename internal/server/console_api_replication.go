@@ -38,10 +38,6 @@ type ReplicationRuleResponse struct {
 	DestinationEndpoint  string                         `json:"destination_endpoint"`
 	DestinationBucket    string                         `json:"destination_bucket"`
 	DestinationAccessKey string                         `json:"destination_access_key"`
-	// The destination secret is never returned. It is write-only: the console
-	// sends it when the rule is created or changed and has no reason to read it
-	// back, while every response carrying it was one more place it could leak —
-	// and one of them did, to any tenant.
 	DestinationSecretKey string                         `json:"-"`
 	DestinationRegion    string                         `json:"destination_region,omitempty"`
 	Prefix               string                         `json:"prefix,omitempty"`
@@ -87,9 +83,6 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Replication rules name where this bucket's contents are copied TO, so
-	// writing one is the power to send the data somewhere else — and the rule
-	// carries the destination credentials. This required only a session.
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication,
 		"You do not have permission to manage replication for this bucket") {
 		return
@@ -269,9 +262,6 @@ func (s *Server) handleGetReplicationRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// The permission belongs to the bucket the rule replicates, which is only
-	// known once the rule is loaded. Reading a rule returns its destination
-	// credentials, and this endpoint required only a session.
 	if !s.requireConsoleBucketS3Action(w, r, rule.SourceBucket, auth.ActionGetBucketReplication,
 		"You do not have permission to read replication rules for this bucket") {
 		return
@@ -331,9 +321,6 @@ func (s *Server) handleUpdateReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The permission belongs to the bucket the rule replicates, known only once
-	// the rule is loaded. Writing a rule decides where this bucket's contents
-	// are sent, and this endpoint required only a session.
 	if !s.requireConsoleBucketS3Action(w, r, existingRule.SourceBucket, auth.ActionPutBucketReplication,
 		"You do not have permission to manage replication for this bucket") {
 		return
@@ -435,9 +422,6 @@ func (s *Server) handleDeleteReplicationRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The permission belongs to the bucket the rule replicates, known only once
-	// the rule is loaded. Writing a rule decides where this bucket's contents
-	// are sent, and this endpoint required only a session.
 	if !s.requireConsoleBucketS3Action(w, r, existingRule.SourceBucket, auth.ActionPutBucketReplication,
 		"You do not have permission to manage replication for this bucket") {
 		return
@@ -497,9 +481,6 @@ func (s *Server) handleGetReplicationMetrics(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The permission belongs to the bucket the rule replicates, which is only
-	// known once the rule is loaded. Reading a rule returns its destination
-	// credentials, and this endpoint required only a session.
 	if !s.requireConsoleBucketS3Action(w, r, rule.SourceBucket, auth.ActionGetBucketReplication,
 		"You do not have permission to read replication rules for this bucket") {
 		return
@@ -566,9 +547,6 @@ func (s *Server) handleTriggerReplicationSync(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Triggering a sync sends the bucket's contents to the destination now, so
-	// it is the write permission, not the read one. This endpoint required
-	// only a session.
 	if !s.requireConsoleBucketS3Action(w, r, rule.SourceBucket, auth.ActionPutBucketReplication,
 		"You do not have permission to manage replication for this bucket") {
 		return

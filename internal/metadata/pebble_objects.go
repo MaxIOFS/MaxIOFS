@@ -35,11 +35,6 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		obj.CreatedAt = now
 	}
 	obj.UpdatedAt = now
-	// Preserve a caller-provided LastModified: HA replicas and the disaster
-	// recovery rebuild must keep the PRIMARY/original modification time, or
-	// the anti-entropy LWW comparison sees every replica as "newer" and
-	// lifecycle timers reset. Only stamp when the caller left it unset
-	// (zero value or a non-positive epoch from a failed timestamp parse).
 	if obj.LastModified.IsZero() || obj.LastModified.Unix() <= 0 {
 		obj.LastModified = now
 	}
@@ -52,9 +47,6 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 	batch := s.db.NewBatch()
 	defer batch.Close() //nolint:errcheck
 
-	// Remove tag indices from the object currently stored at this key. Without
-	// this, overwriting an object with a different tag set leaves stale tag_idx
-	// entries that make tag searches return objects that no longer match.
 	if existingData, err := s.pebbleGet(objectKey(obj.Bucket, obj.Key)); err == nil {
 		var existing ObjectMetadata
 		if err := json.Unmarshal(existingData, &existing); err == nil {
@@ -69,11 +61,6 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		return fmt.Errorf("failed to get existing object: %w", err)
 	}
 
-	// When the object has a VersionID, write to the versioned key so that
-	// SetObjectRetention / SetObjectLegalHold updates the per-version entry that
-	// deleteSpecificVersion reads.  Also write to the plain objectKey when this
-	// is (or will be) the latest version (IsLatest=true) or when there is no
-	// version at all.
 	if obj.VersionID != "" {
 		vKey := objectVersionKey(obj.Bucket, obj.Key, obj.VersionID)
 		if err := batch.Set(vKey, data, nil); err != nil {
@@ -184,9 +171,6 @@ func (s *PebbleStore) DeleteObject(ctx context.Context, bucket, key string, vers
 		return fmt.Errorf("failed to delete object in batch: %w", err)
 	}
 
-	// Deletes are synced: the physical file is removed right after this
-	// commit, so losing the tombstone on a hard kill would leave a ghost
-	// entry that lists but can never be served.
 	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit delete: %w", err)
 	}
@@ -233,10 +217,7 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 		valid = iter.First()
 	}
 
-	// lastKey tracks the last key consumed by this page. NextMarker must be
-	// the LAST key of the page (S3 semantics: the next request skips the
-	// marker key) — returning the first key of the NEXT page instead would
-	// make marker-loop clients silently lose one object per page boundary.
+	// lastKey tracks the last key consumed by this page.
 	var lastKey string
 	for ; valid; valid = iter.Next() {
 		objKeyStr := extractObjectKeyFromKey(string(iter.Key()))
@@ -247,9 +228,6 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 				started = true
 				continue
 			}
-			// SeekGE guarantees objKeyStr >= marker, so here objKeyStr > marker.
-			// The marker doesn't exist as a real key (e.g. it was a synthesised
-			// "skip-past-prefix" sentinel). Start collecting from this key.
 			started = true
 		}
 
@@ -279,10 +257,6 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 }
 
 // ListObjectsDelimited lists objects with delimiter support using SeekGE to skip
-// entire common prefixes. When a key belongs to a "folder" (contains the delimiter
-// after the listing prefix), the iterator jumps past all keys sharing that common
-// prefix instead of reading them one by one. This makes hierarchical listing
-// O(results) instead of O(total objects in bucket).
 func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error) {
 	if bucket == "" {
 		return nil, fmt.Errorf("bucket name is required")
@@ -309,9 +283,6 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 	count := 0 // objects + common prefixes counted together
 
 	// lastItem tracks the last object key or common prefix RETURNED in this
-	// page. NextMarker must be the last returned item (S3 semantics: the next
-	// request resumes strictly after the marker) — returning the first item
-	// of the NEXT page would lose one entry per page boundary.
 	var lastItem string
 
 	var valid bool
@@ -521,9 +492,6 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		}
 	}
 
-	// Store the new version as full ObjectMetadata (not ObjectVersion) so that
-	// retention / legal-hold fields are preserved at the per-version key and
-	// can be read back by deleteSpecificVersion / SetObjectRetention / SetObjectLegalHold.
 	obj.VersionID = version.VersionID
 	obj.IsLatest = version.IsLatest
 	versionKey := objectVersionKey(obj.Bucket, obj.Key, version.VersionID)
@@ -759,17 +727,6 @@ func (s *PebbleStore) HasActiveComplianceRetention(ctx context.Context, bucket s
 }
 
 // DeleteObjectVersion removes a specific version of an object, and promotes the
-// next newest into the main entry when the deleted one was the latest.
-//
-// PutObjectVersion mirrors the latest version's document into `obj:{bucket}:
-// {key}`, so deleting only the version key left the main entry describing data
-// that no longer exists: listings advertised the object, every GET on it failed,
-// and a non-destructive reconcile has no way to notice, let alone correct it.
-//
-// The whole thing is one batch under the bucket mutation mutex. It used to be a
-// bare delete here plus a best-effort repair in the caller, and those two halves
-// did not even agree on durability — the delete committed with Sync while the
-// repair did not — so a hard kill in between made the dangling entry permanent.
 func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
 	mu := s.getBucketMutationMutex(bucket)
 	mu.Lock()

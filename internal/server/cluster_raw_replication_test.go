@@ -19,10 +19,6 @@ import (
 )
 
 // TestHAReceiveRawPut exercises the receiving side of ciphertext replication:
-// an object written locally (envelope, cluster-shared KEK) is read raw and
-// re-ingested through the HA raw endpoint under a different key — as if it
-// arrived from a peer node sharing the same KEK. The replica copy must be
-// byte-identical ciphertext and decrypt on read.
 func TestHAReceiveRawPut(t *testing.T) {
 	server := getSharedServer()
 	ctx := context.Background()

@@ -19,13 +19,6 @@ func NewS3AuthHelper(manager Manager) *S3AuthHelper {
 }
 
 // GetS3Action extracts S3 action from HTTP request.
-// Not wired into request authorization today (that is done by roles, the
-// capability system, bucket policies and ACLs) — kept as the action-mapping
-// primitive for the future IAM policy engine.
-//
-// Unmapped requests fall back to the most restrictive action. Callers that use
-// the action to RESTRICT access (STS session policies) must use
-// S3ActionForRequest instead, which reports "" and lets them fail closed.
 func (s *S3AuthHelper) GetS3Action(r *http.Request) string {
 	if action := S3ActionForRequest(r); action != "" {
 		return action
@@ -39,12 +32,6 @@ func (s *S3AuthHelper) GetResourceARN(r *http.Request) string {
 }
 
 // S3ActionForRequest maps an S3 request to its IAM action name, or "" when the
-// request does not correspond to an action this mapping knows.
-//
-// The empty return is the point: a policy evaluator that restricts access must
-// be able to tell "this is a GetObject" from "I do not know what this is", and
-// deny the second. Requests arrive here already rewritten to path style
-// (virtualHostedStyleMiddleware runs before the S3 router).
 func S3ActionForRequest(r *http.Request) string {
 	method := r.Method
 	path := r.URL.Path

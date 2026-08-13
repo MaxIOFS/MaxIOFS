@@ -1,13 +1,5 @@
 package cluster
 
-// State that is written while the servers are already serving.
-//
-// loadTLSConfig runs from the initialize and join HTTP handlers, and what it
-// replaces is read on the path of every inter-node request — by roughly twenty
-// dynamic proxy clients and by each health tick. Plain pointer fields raced
-// there, and the irony was that ProxyClient carefully guards its own rebuild
-// with a mutex while the value it reads through the getter was unsynchronised.
-
 import (
 	"crypto/tls"
 	"net/http"
@@ -78,9 +70,6 @@ func TestLeaderManager_StopIsIdempotent(t *testing.T) {
 }
 
 // TestStartDoesNotReplaceTheProxyClient: ten Start methods re-created the proxy
-// client from the initialize/join handlers, while other goroutines were already
-// reading it. The constructor installs it with the same dynamic getter, so the
-// reassignment bought nothing and only introduced the race.
 func TestStartDoesNotReplaceTheProxyClient(t *testing.T) {
 	source := mustReadClusterSources(t)
 	assert.NotContains(t, source, "m.proxyClient = NewDynamicProxyClient",

@@ -40,9 +40,6 @@ func getObjectKey(r *http.Request) string {
 }
 
 // s3URLEncode performs percent-encoding compatible with the S3 encoding-type=url
-// query parameter. Only RFC 3986 unreserved characters (A-Z a-z 0-9 - . _ ~)
-// and the object-key path separator '/' are kept as-is; every other byte is
-// encoded as %XX. This matches AWS S3 behaviour (e.g. space → %20, & → %26).
 func s3URLEncode(s string) string {
 	const unreservedAndSlash = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
 	var buf strings.Builder
@@ -142,10 +139,6 @@ type Handler struct {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 	}
 	publicAPIURL string
-	// iamSTSEndpoint returns the URL to advertise as the IAM and STS endpoint
-	// in SOSAPI, or "" when the IAM surface is switched off. It is a function
-	// because the setting behind it can change while the server is running, and
-	// a stale "yes" would send Veeam to an endpoint that now refuses it.
 	iamSTSEndpoint   func() string
 	dataDir          string             // For calculating disk capacity in SOSAPI
 	notifHTTPClient  *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
@@ -223,11 +216,6 @@ func (h *Handler) SetInventoryManager(im interface {
 }
 
 // buildLocationURL constructs the absolute <Location> URL for CompleteMultipartUpload
-// responses, mirroring the addressing style of the incoming request:
-//
-//   - Virtual-hosted-style (bucket.s3.host/key)  → https://bucket.s3.host/key
-//   - Path-style (s3.host/bucket/key)             → https://s3.host/bucket/key
-//   - No usable host (tests / internal calls)     → falls back to publicAPIURL
 func (h *Handler) buildLocationURL(r *http.Request, bucketName, objectKey string) string {
 	// Determine scheme: use https unless we know the server is plain http.
 	scheme := "https"
@@ -345,14 +333,6 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 			"error":  err.Error(),
 		}).Error("proxyBucketRequest: failed to proxy to remote node")
 
-		// Falling through to local handling was the intent — "better than 502"
-		// — but the attempt streams and closes the request body, so what fell
-		// through was an EMPTY body reporting no error at all. PutObject then
-		// stored a 0-byte object under the client's key and answered 200: the
-		// upload was reported successful and the data was gone.
-		//
-		// A request that carried a body cannot be retried locally once it has
-		// been consumed. Reads have nothing to lose and still fall through.
 		if r.Body != nil && r.ContentLength != 0 {
 			h.writeError(w, "ServiceUnavailable",
 				"The node that owns this bucket could not be reached", bucketName, r)
@@ -551,17 +531,6 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		buckets = localBuckets
 	}
 
-	// A bucket is listed when the caller may list it, asked of the same policy
-	// set that decides every other request. This used to be decided by the role
-	// name — the last role-based decision in the package — by ownership, and by
-	// the legacy bucket_permissions table that is no longer read when
-	// authorizing. So a bucket granted purely through IAM was invisible while
-	// every object inside it was accessible, and `s3:ListAllMyBuckets` was
-	// catalogued but enforced nowhere: grantable, and granting nothing.
-	// Asked as "may they list buckets at all", not "on this resource": a bucket
-	// grant scopes the action to that bucket's ARN, so a literal check against
-	// "*" would refuse everyone but a holder of full access. The per-bucket
-	// filter below is what decides which ones come back.
 	if !h.userCanPerformS3ActionAnywhere(r.Context(), user, auth.ActionListAllMyBuckets) {
 		h.writeError(w, "AccessDenied", "Access Denied", "", r)
 		return
@@ -600,10 +569,6 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
-// userHasBucketPermission was removed with the role-and-ownership bucket
-// listing. It answered "does the legacy bucket_permissions table or a bucket
-// policy mention this user", a question nothing asks any more: listing is
-// decided by the policy set, like every other request.
 
 // checkBucketPolicyPermission evaluates bucket policy for a specific action.
 // r may be nil (e.g. from internal callers); when non-nil, IP and TLS context
@@ -625,9 +590,6 @@ func (h *Handler) checkBucketPolicyPermission(r *http.Request, tenantID, bucketN
 		return false
 	}
 
-	// Construct resource ARN for the bucket
-	// For bucket-level actions (ListBucket, etc.), use bucket ARN
-	// For object-level actions (GetObject, PutObject), caller should pass object path
 	resource := fmt.Sprintf("arn:aws:s3:::%s", bucketName)
 	if strings.Contains(action, "Object") {
 		// Object-level actions need /* wildcard
@@ -728,9 +690,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine tenantID - use user's tenantID
-	// Global admins (TenantID="") can create global buckets
-	// Tenant users/admins create buckets within their tenant
 	tenantID := user.TenantID
 
 	// Check tenant bucket quota before creation (for tenant users)
@@ -759,10 +718,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.bucketManager.CreateBucket(r.Context(), tenantID, bucketName, user.ID); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
-			// AWS S3 distinguishes two cases:
-			//   - BucketAlreadyOwnedByYou (409): the caller already owns the bucket.
-			//   - BucketAlreadyExists     (409): a different account owns it.
-			// Determine ownership by fetching the existing bucket metadata.
 			errorCode := "BucketAlreadyExists"
 			errorMsg := "The requested bucket name is not available"
 			if existingBucket, infoErr := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName); infoErr == nil {
@@ -866,15 +821,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 
 	if userExists {
-		// An authenticated caller is decided by their policies, full stop.
-		//
-		// The cascade that used to follow a policy denial — explicit ACL, then
-		// the AuthenticatedUsers group, then public access — could only ever
-		// widen it, so an explicit IAM Deny was overridden by an ACL. Any bucket
-		// ever set to authenticated-read handed read access to every credential
-		// in the deployment regardless of what its policies said, which is not a
-		// fallback for "what policies do not describe": it is a second
-		// permission model with the final word.
 		if !h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionListBucket, bucketARN(bucketName)) {
 			logrus.WithFields(logrus.Fields{
 				"bucket":       bucketName,
@@ -904,15 +850,8 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// x-amz-bucket-region: MinIO and AWS S3 always return this header in HeadBucket.
-	// Veeam uses it to determine the bucket region and decide whether multi-bucket mode
-	// is needed. Without this header, Veeam cannot confirm same-region access and may
-	// fall back to enabling multi-bucket mode as a safe default.
 	w.Header().Set("x-amz-bucket-region", "us-east-1")
 
-	// x-amz-bucket-object-lock-enabled: AWS S3 and MinIO return this header when the
-	// bucket was created with Object Lock enabled. Veeam uses it to determine if the
-	// bucket supports immutability before proceeding with Object Lock configuration.
 	if bkt.ObjectLock != nil && bkt.ObjectLock.ObjectLockEnabled {
 		w.Header().Set("x-amz-bucket-object-lock-enabled", "true")
 	}
@@ -1053,11 +992,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListObjectsV2 handles GET /{bucket}?list-type=2 per the AWS S3 ListObjectsV2 API.
-// Key differences from V1 ListObjects:
-//   - Uses ContinuationToken/NextContinuationToken instead of Marker/NextMarker
-//   - Supports start-after to skip objects lexicographically prior to a key
-//   - Adds KeyCount to the response (number of objects returned)
-//   - Owner is omitted by default unless fetch-owner=true is requested
 func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1220,9 +1154,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
 
-	// SOSAPI virtual objects are authenticated tenant metadata, not real object
-	// downloads. They must not require ownership of the bucket, but they must
-	// stay inside the bucket's tenant.
 	if isVeeamSOSAPIObject(objectKey) {
 		if !userExists {
 			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
@@ -1273,9 +1204,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If NOT authenticated and NOT allowed by presigned URL, check if object has an active share (Public Link)
-	// We need to handle two URL formats:
-	// 1. /bucket/object (global bucket)
-	// 2. /tenant-xxx/bucket/object (tenant bucket)
 	var shareTenantID string
 	allowedByShare := false
 	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
@@ -1310,10 +1238,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Read load balancing with ordered fallback: try each ready replica in
-	// turn. TryProxyRead does not write to w until the response is definitive,
-	// so a 404/5xx from one replica still lets us try the next (and finally
-	// fall through to the local read below).
 	if h.clusterManager != nil {
 		nodes, _ := h.clusterManager.SelectReadNodes(r.Context(), bucketPath)
 		for _, node := range nodes {
@@ -1700,9 +1624,6 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 			return
 		}
-		// This branch checked only that SOMEBODY was authenticated — no tenant
-		// comparison at all — so any credential could head another tenant's
-		// capacity document.
 		if !h.sameTenantOrSuperAdmin(r.Context(), user, tenantID) {
 			h.writeError(w, "AccessDenied", "Access denied", objectKey, r)
 			return
@@ -1832,15 +1753,6 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build versioning response
-	// AWS S3 behavior:
-	// - Unversioned (never enabled): No <Status> element or empty
-	// - Enabled: <Status>Enabled</Status>
-	// - Suspended: <Status>Suspended</Status>
-	//
-	// Object Lock buckets require versioning to be Enabled. If Object Lock is enabled
-	// but versioning is Suspended or unset, return Enabled (versioning is permanently
-	// enabled when Object Lock is active, per AWS S3 spec).
 	versioningStatus := ""
 	if bkt.Versioning != nil {
 		versioningStatus = bkt.Versioning.Status
@@ -2055,9 +1967,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Writing this sets the default retention EVERY new upload inherits, so a
-	// compliance-mode default locks data that does not exist yet and nobody can
-	// unlock it afterwards. It is asked of the policies like any other write.
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration) {
 		return
 	}
@@ -2082,9 +1991,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Verificar que Object Lock esté habilitado.
-	// AWS S3 spec: PutObjectLockConfiguration on a bucket without Object Lock returns
-	// InvalidBucketState (409), not ObjectLockConfigurationNotFoundError (404).
 	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
 		logrus.Warn("PutObjectLockConfiguration - Object Lock not enabled on bucket")
 		h.writeError(w, "InvalidBucketState",
@@ -2098,10 +2004,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Rule is optional per AWS S3 spec. Omitting Rule clears the bucket-level default
-	// retention (existing per-object locks are unaffected). Clients such as Veeam B&R
-	// send PUT without Rule to remove a pre-existing default retention before they
-	// manage retention at the per-object level themselves.
 	if newConfig.Rule != nil && newConfig.Rule.DefaultRetention == nil {
 		h.writeError(w, "MalformedXML",
 			"Object Lock Rule element must include DefaultRetention", bucketName, r)
@@ -2265,9 +2167,6 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 
 	w.WriteHeader(statusCode)
 
-	// RFC 7231: HEAD responses MUST NOT include a message body. Sending an XML
-	// body on a HEAD error causes strict clients to block waiting for bytes that
-	// will never arrive, or to report a protocol violation.
 	if r != nil && r.Method == http.MethodHead {
 		return
 	}
@@ -2674,14 +2573,6 @@ func (h *Handler) checkPublicObjectAccess(ctx context.Context, bucketPath, objec
 	return aclManager.CheckPublicAccess(aclData, permission)
 }
 
-// checkAuthenticatedBucketAccess was removed along with the ACL cascade.
-//
-// It answered "does this bucket grant the AuthenticatedUsers group?", and every
-// caller consulted it AFTER the policies had already refused — so it could only
-// widen the answer. A bucket set to authenticated-read at any point in its life
-// therefore handed that access to every credential in the deployment, over any
-// explicit IAM Deny. Anonymous requests are decided by public access, which is
-// a different question and still asked.
 
 // getACLManager extracts the ACL manager from bucket manager
 // This is a helper to access the internal ACL manager
@@ -2733,10 +2624,6 @@ func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
 	h.DeleteObject(w, r)
 }
 
-// Note: The following operations are now implemented in separate files:
-// - bucket_ops.go: Bucket Policy, Lifecycle, CORS operations
-// - object_ops.go: Object Lock, Tagging, ACL, CopyObject operations
-// - multipart.go: Multipart Upload operations
 
 // ========== GetObject Helper Functions (Refactoring for Complexity Reduction) ==========
 
@@ -2794,11 +2681,6 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 		h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 		return true
 	}
-	// Membership of the tenant, deliberately — a capacity document describes the
-	// TENANT, not the bucket, so every member may read it without being given
-	// the bucket. What was wrong is that the test ran in one direction only: it
-	// refused a caller who HAD a tenant and let a tenant-less credential into
-	// every one of them, and these documents carry quota and capacity figures.
 	if !h.sameTenantOrSuperAdmin(r.Context(), user, tenantID) {
 		h.writeError(w, "AccessDenied", "Access denied", objectKey, r)
 		return true
@@ -2954,14 +2836,6 @@ func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.Us
 			action = auth.ActionDeleteObjectVersion
 		}
 
-		// An authenticated caller is decided by their policies.
-		//
-		// What followed a denial here was five more chances to say yes: the
-		// object ACL, the bucket ACL, the AuthenticatedUsers group, FULL_CONTROL,
-		// and finally public access. Every one of them could only widen the
-		// answer, so an explicit IAM Deny on deleting an object was overridden
-		// by an ACL — and a bucket set to authenticated-read-write at any point
-		// in its life handed DELETE to every credential in the deployment.
 		hasPermission = h.userCanPerformS3ActionInTenant(ctx, user, tenantID, action,
 			objectARN(bucketName, objectKey))
 	} else {
@@ -2976,13 +2850,6 @@ func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.Us
 }
 
 // validateBypassGovernance authorizes deleting an object that is still under
-// governance-mode retention.
-//
-// This is the strongest thing a caller can ask for on a WORM bucket, so it is a
-// permission of its own rather than something the admin role carries
-// implicitly: overriding retention and merely being an administrator are
-// different decisions, and a compliance target is exactly where they should not
-// be conflated.
 func (h *Handler) validateBypassGovernance(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName, objectKey string) error {
 	if !userExists {
 		return fmt.Errorf("authentication required for bypass governance retention")
@@ -3229,9 +3096,6 @@ func (h *Handler) validateBucketReadPermission(
 			action = auth.ActionGetObjectVersion
 		}
 
-		// The policies decide. Sharing a tenant with a bucket used to be enough
-		// on its own, which let a credential whose policy named one bucket read
-		// every other bucket beside it.
 		if h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, action, objectARN(bucketName, objectKey)) {
 			return true
 		}
@@ -3239,12 +3103,6 @@ func (h *Handler) validateBucketReadPermission(
 			return true
 		}
 
-		// No ACL cascade for an authenticated caller. Each rung could only
-		// widen the answer the policies had already given, so an explicit Deny
-		// was overridden by an ACL — and the AuthenticatedUsers group meant any
-		// bucket ever set to authenticated-read was readable by every
-		// credential in the deployment. ACLs and public access still decide
-		// ANONYMOUS requests, which have no policies to consult.
 
 		logrus.WithFields(logrus.Fields{
 			"bucket":       bucketName,
@@ -3277,9 +3135,6 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 	ifMatch := r.Header.Get("If-Match")
 	ifNoneMatch := r.Header.Get("If-None-Match")
 
-	// ETag conditions take precedence over date conditions (RFC 7232 §6).
-	// Normalize both sides to strip surrounding double-quotes before comparing so that
-	// stored ETags with quotes ("abc123") are handled identically to those without.
 	if ifMatch != "" {
 		if normalizeETag(etag) != normalizeETag(ifMatch) {
 			w.WriteHeader(http.StatusPreconditionFailed)
@@ -3381,9 +3236,6 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 	}
 }
 
-// ============================================================================
-// PutObject Helper Functions
-// ============================================================================
 
 // validateTenantQuota checks tenant storage quota before accepting upload
 // Returns error if quota is exceeded, nil if quota check passes or is skipped
@@ -3487,12 +3339,6 @@ func (h *Handler) validateBucketWritePermission(
 		return true
 	}
 
-	// No ACL cascade for an authenticated caller. Four more chances to say yes
-	// after the policies had said no, each of which could only widen the answer:
-	// an explicit IAM Deny on writing was overridden by an ACL, and a bucket
-	// ever set to authenticated-read-write handed PUT to every credential in
-	// the deployment. ACLs and public access still decide anonymous requests,
-	// which is the branch above.
 	return false
 }
 
@@ -3732,9 +3578,6 @@ func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object
 	}
 }
 
-// ============================================================================
-// HeadObject Helper Functions
-// ============================================================================
 
 // validateHeadBucketReadPermission checks if user has READ permission on bucket (not object)
 // Similar to validateBucketReadPermission but without presigned URL or share support
@@ -3851,17 +3694,7 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	}
 }
 
-// ============================================================================
-// PutObjectLockConfiguration Helper Functions
-// ============================================================================
 
-// validateObjectLockPermissions was removed: it took the tenant from
-// getTenantIDFromRequest, which returns the CALLER's tenant, and then compared
-// it against the caller's own tenant — a condition that can never be true. It
-// looked like an authorization check and was one only by appearance, so
-// PutObjectLockConfiguration asked for nothing beyond being signed in.
-//
-// The permission is now asked of the policies, like every other bucket write.
 
 // parseObjectLockConfigXML reads and parses Object Lock configuration XML from request body
 func (h *Handler) parseObjectLockConfigXML(
@@ -3931,17 +3764,8 @@ func storageClassOrStandard(sc string) string {
 	return sc
 }
 
-// ============================================================================
-// RestoreObject handler
-// ============================================================================
 
 // RestoreObject handles POST /{bucket}/{object}?restore.
-// Since MaxIOFS has no cold-storage tier, objects are always "online".
-// The handler accepts the standard RestoreRequest XML, marks the object as
-// restored for the requested number of Days, and returns 200 OK.
-// Tools that use S3 lifecycle rules targeting Glacier tiers (Veeam, Commvault,
-// NetBackup) call this endpoint before reading objects; without it they fail
-// with a 405 or 501 even when the data is already accessible.
 func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -4021,12 +3845,6 @@ func (h *Handler) GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 }
 
 // userCanPerformS3Action asks the user's policies whether they allow a specific
-// S3 action on a specific resource.
-//
-// It is the only question asked of an authenticated request. Sharing a tenant
-// with a bucket used to be enough on its own, which let a credential whose
-// policy named one bucket list every other bucket beside it. ACLs and public
-// access still govern anonymous requests, which have no policies to consult.
 func bucketARN(bucketName string) string {
 	return "arn:aws:s3:::" + bucketName
 }
@@ -4058,15 +3876,6 @@ func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, 
 }
 
 // requireObjectS3ActionOnVersion is the same check with the version stated
-// explicitly, for the operations that carry it somewhere other than the query
-// string — a copy names its source version inside x-amz-copy-source.
-//
-// Naming a version is a separate capability from acting on the current object.
-// Every subresource — attributes, tagging, retention, legal hold, ACL — checked
-// only the current-object action, so a grant of s3:GetObject alone read the
-// tags and attributes of any historical version and s3:GetObjectVersion was
-// bypassed entirely. Addressing a version now requires being allowed to address
-// versions, on top of the permission for the operation itself.
 func (h *Handler) requireObjectS3ActionOnVersion(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action, versionID string) bool {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
@@ -4095,15 +3904,6 @@ func (h *Handler) requireObjectS3ActionOnVersion(w http.ResponseWriter, r *http.
 }
 
 // requireUploadTarget asserts that a multipart upload is the one the request
-// claims to be operating on.
-//
-// The permission check reads the bucket and key from the URL, but every
-// multipart operation is then carried out by uploadId alone. Nothing tied the
-// two together, so a caller could pass a key they hold and an uploadId they do
-// not: authorized against their own object, executed against someone else's.
-// That is enough to read another upload's parts, add parts to it, destroy it,
-// or complete it into a bucket the caller has no grant on — the destination
-// comes from the upload's own metadata, not from the URL.
 func (h *Handler) requireUploadTarget(w http.ResponseWriter, r *http.Request, uploadID, bucketPath, objectKey string) bool {
 	if h.uploadMatchesTarget(r, uploadID, bucketPath, objectKey) {
 		return true
@@ -4113,12 +3913,6 @@ func (h *Handler) requireUploadTarget(w http.ResponseWriter, r *http.Request, up
 }
 
 // uploadMatchesTarget is the same question without writing a response, for
-// CompleteMultipartUpload — which commits 200 before it knows the outcome and
-// reports failures as XML in the body, so it must phrase the refusal itself.
-//
-// A mismatch is reported as "does not exist" rather than as a refusal:
-// distinguishing the two would confirm that another tenant holds an upload
-// under that id.
 func (h *Handler) uploadMatchesTarget(r *http.Request, uploadID, bucketPath, objectKey string) bool {
 	if h.metadataStore == nil {
 		return false
@@ -4143,12 +3937,7 @@ func (h *Handler) uploadMatchesTarget(r *http.Request, uploadID, bucketPath, obj
 	return true
 }
 
-// BucketOwnerRecorder is how ownership reaches the permission model. It is a
-// named interface rather than an anonymous one asserted at each call site so
-// that changing a signature is a compile error: when the test harnesses
-// asserted an anonymous shape, a changed signature simply stopped matching —
-// no error, no warning — and the owner policy was never written, which surfaced
-// as ten unrelated tests failing with "the owner cannot read its own bucket".
+// BucketOwnerRecorder is how ownership reaches the permission model.
 type BucketOwnerRecorder interface {
 	GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
 	RevokeBucketPolicies(bucketName string) ([]auth.InlinePolicyRef, error)
@@ -4183,23 +3972,6 @@ func (h *Handler) userCanPerformS3Action(ctx context.Context, user *auth.User, a
 }
 
 // userCanPerformS3ActionInTenant answers the same question inside the tenant
-// boundary, which is structural rather than written into the policies — the way
-// an AWS account bounds what a policy saying "*" can reach.
-//
-// The boundary has to hold in BOTH directions. An ARN names a bucket by its
-// bare name, and two tenants may each hold a bucket called the same thing, so a
-// grant on "arn:aws:s3:::backups" matches every "backups" there is. Letting a
-// tenant-less credential through meant a user with a grant on the global
-// "backups" reached each tenant's "backups" as well. A super administrator can
-// cross only for read/audit actions: it administers tenants and identities, not
-// tenant data.
-// userCanPerformS3ActionAnywhere answers whether a caller may perform an action
-// on anything at all, which is a different question from whether they may
-// perform it on a named resource — and the right one for an operation that
-// names none, such as listing the buckets you hold.
-// sameTenantOrSuperAdmin is the boundary on its own, for the few responses that
-// describe a TENANT rather than an object — the SOSAPI capacity and system
-// documents. Every member of the tenant may read those; nobody outside it may.
 func (h *Handler) sameTenantOrSuperAdmin(ctx context.Context, user *auth.User, tenantID string) bool {
 	if user == nil {
 		return false
@@ -4233,26 +4005,12 @@ func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth
 	if user == nil {
 		return false
 	}
-	// The boundary is between TENANTS. A bucket outside every tenant belongs to
-	// the shared namespace rather than to somebody else, and a tenant user
-	// reaching one is a documented capability (see resolveBucketTenantID). It
-	// used to be granted by an ACL; it is decided by the policies now, which is
-	// narrower than what it replaces.
-	//
-	// Reaching INTO a tenant is the direction that must stay closed, in both
-	// directions of travel: an ARN names a bucket by its bare name, so a grant
-	// on the global "backups" matches every tenant's "backups" as well.
 	if bucketTenantID != "" && user.TenantID != bucketTenantID {
 		if !s3ReadOnlyAuditAction(action) ||
 			!h.userCanPerformS3Action(ctx, user, auth.ActionSuperAdmin, "*") {
 			return false
 		}
 		return h.userCanPerformS3Action(ctx, user, action, resource)
-	}
-	if user.TenantID == "" &&
-		h.userCanPerformS3Action(ctx, user, auth.ActionSuperAdmin, "*") &&
-		!s3ReadOnlyAuditAction(action) {
-		return false
 	}
 	return h.userCanPerformS3Action(ctx, user, action, resource)
 }

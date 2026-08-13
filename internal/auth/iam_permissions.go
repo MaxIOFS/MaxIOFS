@@ -1,12 +1,5 @@
 package auth
 
-// The assignable-permission catalogue, and reading or writing a user's
-// permissions as a selection rather than as a document.
-//
-// An operator picks permissions from a list — by group or one action at a time,
-// globally or on a particular bucket. The policy document is what that
-// selection is stored as; nobody has to write or read one.
-
 import (
 	"database/sql"
 	"fmt"
@@ -103,11 +96,6 @@ func (s *SQLiteStore) IsResourceScopedAction(action string) (bool, error) {
 }
 
 // GetUserPermissions reads back what a user may do, so the console can show the
-// boxes that are ticked.
-//
-// It resolves their EFFECTIVE permissions, not only the ones attached directly
-// to them: most of what a user can do comes from their role, and a screen that
-// showed only the direct ones would tell an administrator they have nothing.
 func (s *SQLiteStore) GetUserPermissions(userID string) (*UserPermissions, error) {
 	var roles []string
 	if user, err := s.GetUserByID(userID); err == nil {
@@ -162,10 +150,6 @@ func (s *SQLiteStore) GetUserPermissions(userID string) (*UserPermissions, error
 }
 
 // SetUserPermissions replaces a user's selection with the one given.
-//
-// It rewrites every policy this screen owns and leaves the rest alone, so a
-// policy attached by the IAM API or shared from a role is not silently dropped
-// by someone saving an unrelated change in the console.
 func (s *SQLiteStore) SetUserPermissions(userID string, permissions *UserPermissions) error {
 	if permissions == nil {
 		return fmt.Errorf("%w: no permissions given", ErrIAMInvalidInput)
@@ -187,15 +171,6 @@ func (s *SQLiteStore) SetUserPermissions(userID string, permissions *UserPermiss
 		}
 	}
 
-	// Only what this user does NOT already inherit is stored.
-	//
-	// The screen shows EFFECTIVE permissions — role, tenant, group and owner
-	// policies included — because a screen showing only the direct ones would
-	// tell an administrator that an admin has nothing. But it saves what it
-	// shows, so pressing Save on an unchanged screen turned every inherited
-	// permission into a permanent direct grant that outlived the role it came
-	// from. Subtracting what is inherited makes saving an unchanged screen the
-	// no-op it looks like.
 	inherited, err := s.inheritedActions(userID)
 	if err != nil {
 		return err
@@ -316,9 +291,6 @@ func subtractInherited(permissions *UserPermissions, inherited map[string]map[st
 }
 
 // expandWildcardActions turns a wildcard into the permissions it covers, so a
-// screen of checkboxes can show what "everything" means. An administrator holds
-// a single "*" statement; without this the boxes would all be empty next to a
-// user who can do anything at all.
 func expandWildcardActions(actions []string) []string {
 	var out []string
 	for _, action := range actions {
@@ -367,12 +339,6 @@ func sortedKeys(set map[string]bool) []string {
 	return out
 }
 
-// --- manager pass-throughs ---
-//
-// The console reaches these through the Manager it already holds. Without them
-// the store's methods are invisible to it and every call fails as "not
-// available", which is exactly what an interface assertion against the wrong
-// type looks like from the outside.
 
 // ListPermissionCatalog returns every assignable permission, grouped.
 func (am *authManager) ListPermissionCatalog() ([]PermissionGroup, error) {
@@ -400,9 +366,6 @@ func (am *authManager) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRe
 }
 
 // HasPermission reports whether a user's policies allow an action anywhere.
-//
-// For the administration permissions, which name no bucket, "anywhere" is the
-// only question there is.
 func (am *authManager) HasPermission(userID string, roles []string, action string) bool {
 	return am.HasPermissionInTenant(userID, roles, "", action)
 }
@@ -451,10 +414,6 @@ func (am *authManager) HasExactPermissionInTenant(userID string, roles []string,
 }
 
 // CountDirectPolicies returns how many policies are attached to each of the
-// given users, in one query per kind rather than two per user.
-//
-// The console lists every user at once; asking per user turned a single screen
-// into two queries per row.
 func (s *SQLiteStore) CountDirectPolicies(userIDs []string) (map[string]int, error) {
 	counts := make(map[string]int, len(userIDs))
 	if len(userIDs) == 0 {

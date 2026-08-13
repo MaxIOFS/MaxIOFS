@@ -418,10 +418,6 @@ func TestObjectManagerObjectLock(t *testing.T) {
 	})
 
 	t.Run("DeleteObjectWithLegalHold", func(t *testing.T) {
-		// Object Lock requires versioning; DeleteObject without versionId creates a
-		// delete marker (allowed by S3 spec — legal hold protects specific versions
-		// from permanent deletion, not from delete marker creation). To test legal
-		// hold protection, we must attempt to permanently delete the specific version.
 		versions, err := om.GetObjectVersions(ctx, bucketName, objectKey)
 		if err != nil || len(versions) == 0 {
 			t.Fatalf("Failed to get object versions: %v", err)
@@ -694,9 +690,6 @@ func TestObjectManagerPersistence(t *testing.T) {
 			Logger: logrus.StandardLogger()})
 
 		bm := bucket.NewManager(storageBackend, metadataStore)
-		// A persistent key is required across "restarts": encryption is always
-		// on, and an ephemeral KEK would make the second session unable to
-		// decrypt (mirrors a real deployment, where the KEK persists in the DB).
 		cfg := config.StorageConfig{Backend: "filesystem", Root: tempDir,
 			EncryptionKey: persistenceTestKEK}
 		om := NewManager(storageBackend, metadataStore, cfg)

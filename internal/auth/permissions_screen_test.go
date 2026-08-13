@@ -1,13 +1,5 @@
 package auth
 
-// Saving the permissions screen.
-//
-// The screen shows EFFECTIVE permissions, because one showing only the direct
-// ones would tell an administrator that an administrator has nothing. But it
-// saved what it showed — so opening any user's screen and pressing Save turned
-// every permission they merely INHERITED into a permanent direct grant, which
-// then outlived the role it came from.
-
 import (
 	"testing"
 

@@ -9,10 +9,6 @@ import (
 )
 
 // ConsoleHeaders adds security headers to all console (web UI) responses.
-// Surrogate-Control: no-store tells nginx/Varnish proxy caches not to store
-// the response. Cache-Control: no-store is the browser-side equivalent for
-// the HTML entry point and API responses; individual asset handlers override
-// this for content-hashed immutable files.
 func ConsoleHeaders() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

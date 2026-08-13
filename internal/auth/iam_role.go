@@ -1,19 +1,5 @@
 package auth
 
-// IAM roles and real AssumeRole. See docs/SECURITY.md, "IAM".
-//
-// Assuming a role does NOT project the caller's own permissions the way
-// GetSessionToken does. The session acts as the role: the role's policies grant
-// what it may do, an optional session policy narrows that further, and the
-// caller's own access is not consulted. That is AWS behaviour, and it is what
-// makes a role useful — an application gets exactly the role's permissions,
-// no more and no less, regardless of who started it.
-//
-// The control that makes this safe is the trust policy. It is required at
-// creation, it names who may assume the role, and creating or editing a role
-// needs the same authority as any other IAM change. Without a matching trust
-// statement, AssumeRole is refused.
-
 import (
 	"context"
 	"encoding/json"
@@ -88,9 +74,6 @@ func EvaluateTrustPolicy(policy *Policy, principals []string) bool {
 }
 
 // trustPrincipalMatches compares a statement's Principal block against the
-// caller's identifiers. AWS writes principals as {"AWS": "arn"} or
-// {"AWS": ["arn", …]}; the key is accepted in any case and any of its values
-// may match.
 func trustPrincipalMatches(principal map[string]interface{}, callerPrincipals []string) bool {
 	for _, raw := range principal {
 		for _, pattern := range policyStringValues(raw) {
@@ -136,10 +119,6 @@ func callerPrincipals(user *User) []string {
 }
 
 // AssumeIAMRole issues a temporary credential that acts as a role.
-//
-// The RoleArn is resolved against the role table: an unknown one is an error,
-// not something to shrug off. That is the difference between a role request
-// being honoured and being quietly answered with something else.
 func (am *authManager) AssumeIAMRole(ctx context.Context, user *User, roleARN, roleSessionName string, durationSeconds int, sessionPolicy string) (*STSSession, error) {
 	if user == nil {
 		return nil, ErrAccessDenied
@@ -156,9 +135,6 @@ func (am *authManager) AssumeIAMRole(ctx context.Context, user *User, roleARN, r
 		return nil, err
 	}
 
-	// A tenant-scoped role is assumable only from inside that tenant. Crossing
-	// the boundary here would hand one tenant a credential for another's data,
-	// which no trust policy is meant to be able to express.
 	if role.TenantID != "" && role.TenantID != user.TenantID {
 		return nil, ErrIAMTrustDenied
 	}
@@ -272,10 +248,7 @@ func (am *authManager) AssumeIAMRole(ctx context.Context, user *User, roleARN, r
 	}, nil
 }
 
-// resolveRole finds the role an AssumeRole call named. The ARN is matched
-// exactly first; falling back to the name lets a caller that built the ARN with
-// a different account field still reach the role it meant, which is the common
-// case when a config was copied from an AWS example.
+// resolveRole finds the role an AssumeRole call named.
 func (am *authManager) resolveRole(roleARN string) (*IAMRole, error) {
 	roleARN = strings.TrimSpace(roleARN)
 	if roleARN == "" {
@@ -310,12 +283,6 @@ func validateRoleSessionName(name string) error {
 }
 
 // authorizeRoleSession applies a role session's permissions to a request: the
-// role's own policies decide, and the caller's personal access is irrelevant.
-//
-// The role's documents are read live rather than frozen into the session at
-// AssumeRole time, so editing or deleting a role takes effect on sessions
-// already issued from it. A role whose permissions were just revoked would
-// otherwise keep working until every outstanding session expired.
 func (am *authManager) rolePolicySetForSession(sess *STSSession) (*PolicySet, error) {
 	_, roleName, err := ParseIAMARN(sess.RoleARN)
 	if err != nil {
@@ -360,9 +327,6 @@ func (am *authManager) enforceSTSSession(sess *STSSession, r *http.Request) erro
 }
 
 // roleSessionUser returns the identity to put in the request context for a role
-// session. The user is unchanged: a role session's permissions are the role's
-// policies, and they reach the request through the same policy set every other
-// permission does — resolved in authorizeRoleSession, above.
 func roleSessionUser(user *User, sess *STSSession) *User {
 	return user
 }

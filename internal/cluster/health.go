@@ -60,9 +60,6 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	// Perform health check
 	result := m.performHealthCheck(node.Endpoint)
 
-	// Determine health status. Storage-pressure is evaluated only for reachable
-	// nodes with acceptable latency — a node that is unavailable or degraded must
-	// not be hidden behind the storage-pressure flag.
 	status := HealthStatusHealthy
 	usagePct := 0.0
 	if result.CapacityTotal > 0 {
@@ -85,10 +82,6 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		}
 	}
 
-	// Once a node has been marked dead, the dead-node reconciler owns its
-	// lifecycle. Health checks must not silently flip it back to healthy/
-	// unavailable — that would re-arm it for redistribution loops or worse,
-	// hide that the operator must explicitly re-add the node. Skip the update.
 	if node.HealthStatus == HealthStatusDead {
 		// Still record the probe in history for visibility.
 		_, _ = m.db.ExecContext(ctx, `
@@ -102,12 +95,6 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		}, nil
 	}
 
-	// Update node health in database.
-	// last_seen is only updated when the node is reachable, so it tracks
-	// "last time alive" rather than "last time we tried".
-	// unavailable_since tracks the start of an outage so the dead-node
-	// reconciler can measure continuous unavailability — set it on the
-	// healthy→unavailable transition, clear it on the inverse.
 	now := time.Now()
 	if result.Healthy {
 		if result.CapacityTotal > 0 {
@@ -140,9 +127,6 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		return nil, fmt.Errorf("failed to update node health: %w", err)
 	}
 
-	// Emit storage-pressure transitions (cross the storage_pressure boundary
-	// in either direction). The emitter is best-effort and must not block the
-	// health check goroutine, so the callback runs in a separate goroutine.
 	if m.storagePressureFn != nil {
 		threshold, _ := m.loadStoragePressureThresholds(ctx)
 		var event *StoragePressureEvent
@@ -233,10 +217,6 @@ func (m *Manager) healthClient() *http.Client {
 func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 	start := time.Now()
 
-	// A fresh transport was built for every probe of every node and never
-	// closed, so each 30-second tick leaked a connection pool. It is built once
-	// per TLS configuration and reused; the total timeout is right here, since
-	// a health check carries no data and must answer quickly or not at all.
 	client := m.healthClient()
 
 	// Perform GET request to /health endpoint

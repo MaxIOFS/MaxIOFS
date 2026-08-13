@@ -1,11 +1,5 @@
 package transfer
 
-// The distinction these tests exist for: slow is not the same as stalled.
-//
-// Everything here uses a short stall window so the suite stays fast; the window
-// is a parameter precisely so the behaviour can be checked without waiting a
-// real minute.
-
 import (
 	"context"
 	"io"
@@ -20,11 +14,6 @@ import (
 )
 
 // TestDo_SlowButProgressingIsNotCut is the case a total timeout got wrong: a
-// transfer that takes far longer than the window but never stops moving.
-//
-// The server trickles for well over the stall window, in steps shorter than it.
-// A total deadline of the same length would have killed this; progress must
-// not.
 func TestDo_SlowButProgressingIsNotCut(t *testing.T) {
 	const (
 		stall = 200 * time.Millisecond

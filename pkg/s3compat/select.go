@@ -1,18 +1,5 @@
 package s3compat
 
-// SelectObjectContent — POST /{bucket}/{object}?select&select-type=2
-//
-// Strategy: load the object data (CSV or JSON Lines) into an in-memory SQLite
-// database, execute the SQL expression, and stream the results back using the
-// Amazon Event Stream binary protocol. This gives us a real SQL engine for
-// free (WHERE, GROUP BY, ORDER BY, aggregate functions) without any custom
-// parser.
-//
-// Limitations (acceptable for MVP):
-//   - Only CSV and JSON Lines input formats are supported (no Parquet).
-//   - Compressed input (GZIP, BZIP2) is not supported.
-//   - Object must fit in memory; very large objects (>500 MB) may be slow.
-
 import (
 	"bytes"
 	"database/sql"
@@ -86,16 +73,6 @@ type selectJSONOut struct {
 }
 
 // ============================================================================
-// Amazon Event Stream binary encoder
-// ============================================================================
-//
-// Message layout (all integers big-endian, CRC is CRC-32/IEEE):
-//
-//   [4B total_len][4B headers_len][4B prelude_crc][headers...][payload...][4B msg_crc]
-//
-// Header layout:
-//
-//   [1B name_len][name bytes][1B value_type=7 (string)][2B value_len][value bytes]
 
 func putUint32BE(b *bytes.Buffer, v uint32) {
 	var buf [4]byte
@@ -238,9 +215,6 @@ func bulkInsert(db *sql.DB, cols []string, rows [][]string) error {
 	return tx.Commit()
 }
 
-// ============================================================================
-// Data loaders
-// ============================================================================
 
 // countingReader wraps an io.Reader and counts total bytes read.
 type countingReader struct {
@@ -378,9 +352,6 @@ func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err e
 	return cols, scanned, nil
 }
 
-// ============================================================================
-// Result streaming
-// ============================================================================
 
 // streamSelectResults executes the SQL expression, writes Records events to w,
 // and returns the total bytes returned.
@@ -492,20 +463,8 @@ func streamSelectResults(w io.Writer, db *sql.DB, expr string, out selectOutputS
 	return totalReturned, flush()
 }
 
-// ============================================================================
-// Handler
-// ============================================================================
 
 // SelectObjectContent handles POST /{bucket}/{object}?select&select-type=2.
-//
-// The handler:
-//  1. Parses the SelectObjectContentRequest XML (Expression, InputSerialization,
-//     OutputSerialization).
-//  2. Reads the full object and loads it into an in-memory SQLite database.
-//  3. Executes the SQL expression (S3Object is replaced with the internal table
-//     name s3object).
-//  4. Streams the results back as an Amazon Event Stream (Records events,
-//     followed by a Stats event and an End event).
 func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -513,11 +472,6 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 
 	addS3CompatHeaders(w)
 
-	// Running a query over an object is reading it. This handler authorized
-	// nothing at all, and because the bucket is resolved by bare name across the
-	// whole store it had no tenant boundary either — every authenticated
-	// credential could read every CSV/JSON object in the deployment through a
-	// SELECT while the same credential was refused on GetObject.
 	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject) {
 		return
 	}

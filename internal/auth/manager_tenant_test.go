@@ -598,10 +598,6 @@ func TestCheckTenantStorageQuota(t *testing.T) {
 }
 
 // ========================================
-// Tests for Setter Functions
-// ========================================
-// Note: Bucket permission tests (GrantBucketAccess, RevokeBucketAccess, etc.)
-// are in permissions_test.go
 
 func TestSetAuditManager(t *testing.T) {
 	manager, tmpDir := setupTestAuthManager(t)
@@ -687,9 +683,6 @@ func TestLockAccount(t *testing.T) {
 		t.Errorf("LockAccount() unexpected error: %v", err)
 	}
 
-	// Note: GetUserByID doesn't currently retrieve the locked_until field from the database,
-	// so we can't verify it was set by reading the user back. This test just verifies
-	// that LockAccount doesn't error.
 }
 
 func TestRecordSuccessfulLogin(t *testing.T) {

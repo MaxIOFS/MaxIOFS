@@ -52,11 +52,6 @@ func NewGroupMappingSyncManager(db *sql.DB, clusterManager *Manager) *GroupMappi
 
 // Start begins the group mapping synchronization loop
 func (m *GroupMappingSyncManager) Start(ctx context.Context) {
-	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "group_mapping_sync_interval_seconds")
@@ -406,7 +401,7 @@ func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappin
 // TriggerSync immediately runs a full group mapping sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *GroupMappingSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllMappings(ctx)
+	runDetached(ctx, m.syncAllMappings)
 }
 
 func (m *GroupMappingSyncManager) Stop() {

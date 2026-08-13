@@ -19,12 +19,6 @@ import (
 )
 
 // validateReplicationEndpoint ensures the destination endpoint is a valid http/https
-// URL that does not point to loopback, private, link-local, or AWS/GCP metadata addresses.
-// This prevents an admin with replication-rule write access from using the replication
-// worker as an SSRF proxy to reach internal services.
-// An empty endpoint is allowed (the rule will simply fail at connection time without
-// causing any unintended outbound request).
-// When allowInternal is true, private/internal IP validation is skipped (for K8s/LAN replication).
 func validateReplicationEndpoint(rawURL string, allowInternal bool) error {
 	if rawURL == "" {
 		return nil
@@ -112,10 +106,6 @@ type S3RemoteClient struct {
 }
 
 // NewS3RemoteClient creates a new S3 client configured for a remote endpoint.
-// The HTTP transport uses an SSRF-blocking dialer that prevents the replication
-// worker from being used as a proxy to reach internal/private addresses.
-// When allowInternal is true, the SSRF-blocking dialer is not used, allowing
-// connections to private/internal IP ranges (for K8s/LAN replication).
 func NewS3RemoteClient(endpoint, region, accessKey, secretKey string, allowInternal ...bool) *S3RemoteClient {
 	skipSSRF := len(allowInternal) > 0 && allowInternal[0]
 
@@ -131,17 +121,6 @@ func NewS3RemoteClient(endpoint, region, accessKey, secretKey string, allowInter
 		transport.DialContext = ssrfBlockingReplicationDialer()
 	}
 
-	// No overall Timeout: this client uploads and downloads object data, and
-	// http.Client.Timeout covers the body, so any value it holds is a maximum
-	// object size. The 120 seconds it used to carry made every object larger
-	// than two minutes of bandwidth permanently unreplicable — and since a
-	// replication target is usually remote, that ceiling is low and the failure
-	// is silent, repeating identically on every retry because the object does
-	// not get smaller.
-	//
-	// A target that stops responding is still cut, by progress instead: the
-	// transfer is cancelled once it has moved nothing for the stall window,
-	// whatever its size or how long it has been running.
 	httpClient := &http.Client{
 		Transport: &transfer.Transport{Base: transport, Stall: transfer.DefaultStallTimeout},
 		// Block redirects to prevent redirect-based SSRF bypass.

@@ -35,9 +35,6 @@ func NewManager(logger *logrus.Logger) *Manager {
 		logger:        logger,
 	}
 
-	// Create and register a single dispatch hook that routes to all active outputs.
-	// The hook uses an atomic snapshot, so Fire() never acquires the manager mutex.
-	// This prevents deadlocks when Reconfigure() holds the write lock and logs via logrus.
 	m.dispatchHook = NewDispatchHook()
 	logger.AddHook(m.dispatchHook)
 

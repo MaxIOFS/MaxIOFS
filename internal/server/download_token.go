@@ -1,17 +1,5 @@
 package server
 
-// Downloading a large object from the console.
-//
-// A browser only streams a response to disk when it NAVIGATES to it. Anything
-// fetched from JavaScript is assembled in memory first, which for a multi-
-// gigabyte object means the tab holds the whole file before the user gets a
-// single byte of it — and no request timeout, however generous, fixes that.
-//
-// Navigation cannot carry an Authorization header, so the credential has to be
-// in the URL. That is the whole reason this exists, and the reason it is scoped
-// as tightly as it is: a token names one object, lasts two minutes, and is
-// refused by ValidateJWT everywhere else.
-
 import (
 	"net/http"
 	"strings"
@@ -25,14 +13,6 @@ import (
 const downloadTokenParam = "downloadToken"
 
 // The two routes a download token may authorise, named so they can be matched
-// by identity rather than by shape.
-//
-// The previous test asked whether the path ENDED WITH the object key, which a
-// sibling route satisfies whenever the key is exactly that segment: a token for
-// an object literally named "acl" also redeemed on .../objects/acl/acl, the
-// ACL route. Bounded — same bucket, same key, GET only, and those handlers run
-// their own permission checks — but wider than it was written to be, and the
-// kind of thing that stops being bounded when a route is added.
 const (
 	routeObjectDownload = "console.object.download"
 	routeFolderDownload = "console.folder.download"
@@ -47,14 +27,6 @@ func matchedRouteName(r *http.Request) string {
 }
 
 // downloadResource is the identity a token is bound to: the tenant, the bucket,
-// the key and the version. It is what the mint request signs and what the
-// redeeming request is checked against, so a token for one object opens no
-// other.
-//
-// The tenant is part of it because a bucket name alone does not identify a
-// bucket — two tenants may each hold one of the same name. The separator is a
-// NUL so no combination of values can be made to spell another: without it
-// bucket "a/b" with key "c" and bucket "a" with key "b/c" are the same string.
 func downloadResource(tenantID, bucketName, objectKey, versionID string) string {
 	return strings.Join([]string{"object", tenantID, bucketName, objectKey, versionID}, "\x00")
 }
@@ -67,12 +39,6 @@ func downloadZipResource(tenantID, bucketName, prefix string) string {
 }
 
 // downloadRequestTarget reports the object a request is for, and whether the
-// request is the object-download route at all.
-//
-// Only GET on that exact route may be authorised by a token. Matching on the
-// route rather than on a path prefix is deliberate: "/objects/{key}" also
-// prefixes "/objects/{key}/acl", and a token good for reading a file must not
-// become one for writing its permissions.
 func (s *Server) downloadRequestTarget(r *http.Request) (tenantID, bucketName, objectKey, versionID string, ok bool) {
 	if r.Method != http.MethodGet {
 		return "", "", "", "", false
@@ -96,13 +62,6 @@ func (s *Server) downloadRequestTarget(r *http.Request) (tenantID, bucketName, o
 }
 
 // userFromDownloadToken resolves the caller when the request carries a download
-// token instead of a session.
-//
-// Returns (nil, false) when there is no token, which is every ordinary request:
-// the caller then authenticates normally. Returns (nil, true) when a token was
-// offered and refused — the response is already written, and no fallback to the
-// Authorization header is allowed, so a bad token cannot be probed against a
-// session that happens to be present.
 func (s *Server) userFromDownloadToken(w http.ResponseWriter, r *http.Request) (*auth.User, bool) {
 	token := r.URL.Query().Get(downloadTokenParam)
 	if token == "" {
@@ -127,11 +86,6 @@ func (s *Server) userFromDownloadToken(w http.ResponseWriter, r *http.Request) (
 }
 
 // downloadTokenResource names what a request is asking for, and reports whether
-// a download token may authorise it at all.
-//
-// Two routes qualify: the object download, and the folder archive. Both are
-// GET, both stream, and both are things a browser must navigate to rather than
-// fetch. Everything else is refused.
 func (s *Server) downloadTokenResource(r *http.Request) (string, bool) {
 	if r.Method != http.MethodGet {
 		return "", false
@@ -191,10 +145,6 @@ func (s *Server) handleCreateDownloadZipToken(w http.ResponseWriter, r *http.Req
 }
 
 // handleCreateDownloadToken mints the token for one object.
-//
-// It is an ordinary authenticated request, so the caller's session and
-// permissions are checked here in the normal way. What it hands back is worth
-// strictly less than the session that asked for it.
 func (s *Server) handleCreateDownloadToken(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -231,9 +181,6 @@ func (s *Server) handleCreateDownloadToken(w http.ResponseWriter, r *http.Reques
 		bucketPath = bucketName
 	}
 
-	// The object has to exist and be readable by this caller BEFORE a token is
-	// issued for it. Minting first and discovering later would turn the token
-	// into a way of asking which keys exist.
 	if versionID != "" {
 		_, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
 		if reader != nil {
@@ -248,9 +195,6 @@ func (s *Server) handleCreateDownloadToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// The token carries the tenant exactly as the download URL will send it,
-	// which is the query parameter, not the resolved one — otherwise a global
-	// admin's token would never match the request it was minted for.
 	token, err := s.authManager.GenerateDownloadToken(r.Context(), user,
 		downloadResource(queryTenantID, bucketName, objectKey, versionID))
 	if err != nil {

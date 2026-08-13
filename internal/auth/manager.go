@@ -35,22 +35,9 @@ type Manager interface {
 	ValidateConsoleCredentials(ctx context.Context, username, password string) (*User, error)
 	ValidateJWT(ctx context.Context, token string) (*User, error)
 	GenerateJWT(ctx context.Context, user *User) (string, error)
-	// GenerateTokenPair issues a short-lived access token and a longer-lived
-	// refresh token. TTLs are read from the settings:
-	//   security.access_token_lifetime  → access  token (default 900 s = 15 min)
-	//   security.session_timeout        → refresh token  (default 86400 s = 24 h)
-	// Sliding window: each POST /auth/refresh call issues a brand-new pair,
-	// so the session stays alive as long as the user is active.
 	GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error)
-	// GenerateDownloadToken mints a short-lived token that fetches exactly one
-	// object, so a browser can navigate to the download and stream it to disk
-	// instead of buffering it in memory. ValidateDownloadToken redeems it, and
-	// ValidateJWT refuses it.
 	GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error)
 	ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error)
-	// ValidateRefreshToken parses a refresh token (token_type == "refresh") and
-	// returns the associated user. Returns ErrInvalidToken for access tokens or
-	// any malformed input, and ErrTokenExpired when the token is past its TTL.
 	ValidateRefreshToken(ctx context.Context, token string) (*User, error)
 
 	// S3 Signature validation
@@ -198,9 +185,6 @@ type Tenant struct {
 	CurrentAccessKeys   int64  `json:"current_access_keys"` // Calculated in real-time
 	MaxStorageBytes     int64  `json:"max_storage_bytes"`
 	CurrentStorageBytes int64  `json:"current_storage_bytes"` // Calculated in real-time
-	// MaxBandwidthBytesPerSec caps the tenant's aggregate transfer bandwidth
-	// (upload + download combined) in bytes/second. 0 = unlimited. Enforced by
-	// throttling (slowing), never rejecting. Set by global admins.
 	MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
 	MaxBuckets              int64             `json:"max_buckets"`
 	CurrentBuckets          int64             `json:"current_buckets"` // Incremented/decremented on create/delete
@@ -327,9 +311,6 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 }
 
 // resolveJWTSecret resolves the JWT secret using priority:
-// 1. Explicit config (non-auto-generated) — always wins
-// 2. Persisted value in system_settings DB — survives restarts
-// 3. Auto-generated random — stored in DB for next time
 func (am *authManager) resolveJWTSecret() {
 	dbSecret, err := am.loadJWTSecretFromDB()
 	if err != nil {
@@ -467,9 +448,6 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		return nil, ErrInvalidCredentials
 	}
 
-	// Check user status BEFORE password verification to prevent account enumeration (SEC-02).
-	// Always return ErrInvalidCredentials regardless of the reason so that callers cannot
-	// distinguish between "wrong password" and "account disabled".
 	if user.Status != UserStatusActive {
 		return nil, ErrInvalidCredentials
 	}
@@ -546,9 +524,6 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, ErrInvalidToken
 	}
 
-	// Reject refresh tokens — they must only be used at POST /auth/refresh —
-	// and download tokens, which travel in a URL and must buy nothing beyond
-	// the single object they name.
 	if claims.TokenType == "refresh" || claims.TokenType == TokenTypeDownload {
 		return nil, ErrInvalidToken
 	}
@@ -601,11 +576,6 @@ func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds in
 }
 
 // GenerateDownloadToken mints a token that fetches exactly one object.
-//
-// resource is the opaque identifier of that object, and the redeeming request
-// has to present the same one; a token minted for one key is refused for every
-// other. It is not accepted by ValidateJWT, so it cannot be replayed against
-// any other endpoint.
 func (am *authManager) GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error) {
 	if user == nil {
 		return "", ErrUserNotFound
@@ -646,11 +616,6 @@ func (am *authManager) GenerateDownloadToken(ctx context.Context, user *User, re
 }
 
 // ValidateDownloadToken resolves the user a download token was minted for,
-// provided the token is one and names this exact resource.
-//
-// Every rejection is the same error: a caller probing which objects exist
-// learns nothing from the difference between "not a download token" and "a
-// download token for something else".
 func (am *authManager) ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error) {
 	if token == "" || resource == "" {
 		return nil, ErrInvalidToken
@@ -705,14 +670,6 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 }
 
 // GenerateTokenPair issues a short-lived access token and a sliding-window
-// refresh token. TTLs come from:
-//
-//	security.access_token_lifetime  — access  token default 900 s (15 min)
-//	security.session_timeout        — refresh token default 86400 s (24 h)
-//
-// Each POST /auth/refresh call re-issues a full new pair, so the session
-// stays alive as long as the user is active. Idle users whose access token
-// expires and whose refresh token has also expired must re-authenticate.
 func (am *authManager) GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error) {
 	accessTTL := 900 // 15 min default
 	if am.settingsManager != nil {
@@ -1129,12 +1086,6 @@ func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 
-	// NOTE: Filtering is handled by the HTTP handler (console_api.go)
-	// This method returns all users from the database
-	// The handler will filter based on:
-	// - Global admin (admin role + no tenantID): sees all users
-	// - Tenant admin (admin role + tenantID): sees users from their tenant
-	// - Regular user: sees only themselves
 
 	// Convert []*User to []User
 	users := make([]User, len(usersPtrs))
@@ -1280,10 +1231,6 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 						"auth":   r.Header.Get("Authorization"),
 					}).Warn("Authentication failed")
 
-					// Return S3-compatible XML error for 4xx errors. Temporary
-					// credentials have two outcomes an SDK is expected to tell
-					// apart: an expired session (refresh and retry) and a
-					// denial by the session policy (do not retry).
 					switch {
 					case errors.Is(err, ErrSTSSessionExpired):
 						writeS3Error(w, r, "ExpiredToken", "The provided token has expired.", http.StatusForbidden)
@@ -1304,9 +1251,6 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			// Resolve the user's permissions once for this request. Every check
-			// downstream reads this same set, so a capability question and a
-			// bucket question can never be answered from different data.
 			ctx := context.WithValue(r.Context(), "user", user)
 			if set, ok := PolicySetFromContext(ctx); !ok || set.UserID != user.ID {
 				if set, err := am.ResolvePolicySet(ctx, user); err == nil {
@@ -1357,9 +1301,6 @@ func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 			maxAttempts = 5
 		}
 
-		// Window is always 60 seconds (1 minute) to match the setting name.
-		// Stop the previously-constructed limiter first so its cleanup goroutine
-		// does not leak when we replace it (BUG-01).
 		if am.rateLimiter != nil {
 			am.rateLimiter.Stop()
 		}
@@ -1538,10 +1479,6 @@ func (am *authManager) RevokeBucketAccessScoped(ctx context.Context, bucketName,
 }
 
 // CheckBucketAccess answers whether a user may use a bucket, by asking their
-// resolved permission set. The level it returns is derived from what the set
-// allows rather than read from a table, so a permission granted by a policy and
-// one granted by a bucket permission row are indistinguishable here — which is
-// the point of there being one model.
 func (am *authManager) CheckBucketAccess(ctx context.Context, bucketName, userID string) (bool, string, error) {
 	set, err := am.resolvePolicySet(ctx, userID, nil)
 	if err != nil {
@@ -1557,9 +1494,6 @@ func (am *authManager) CheckBucketAccessScoped(ctx context.Context, bucketName, 
 }
 
 // bucketAccessFromSet reports whether a set grants anything on a bucket, and at
-// which of the legacy levels. The levels survive because callers and the
-// console still speak in them; they are now a description of what the policies
-// allow, not a stored fact.
 func bucketAccessFromSet(set *PolicySet, bucketName string) (bool, string, error) {
 	bucketARN := "arn:aws:s3:::" + bucketName
 	objectARN := bucketARN + "/*"
@@ -1839,10 +1773,6 @@ func uriEncode(path string) string {
 	}
 
 	// AWS SigV4 requires double encoding for some scenarios, but for the canonical URI
-	// we use single encoding with specific rules:
-	// - Encode all characters except: A-Z a-z 0-9 - _ . ~ /
-	// - Space should be encoded as %20 (not +)
-	// - Forward slashes / are NOT encoded
 
 	var encoded strings.Builder
 	for i := 0; i < len(path); i++ {
@@ -1871,19 +1801,9 @@ func awsQueryEscape(s string) string {
 
 // createCanonicalRequest creates canonical request for SigV4
 func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders string) string {
-	// AWS SigV4 Canonical Request format:
-	// HTTPMethod + "\n" +
-	// CanonicalURI + "\n" +
-	// CanonicalQueryString + "\n" +
-	// CanonicalHeaders + "\n" +
-	// SignedHeaders + "\n" +
-	// HashedPayload
 
 	method := r.Method
 
-	// Use the path the client signed with. For virtual-hosted-style requests,
-	// the path is rewritten to path-style (e.g. / → /bucket/) before reaching
-	// us; we must verify against the original path (e.g. /) that the client used.
 	pathForSigning := r.URL.Path
 	if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
 		pathForSigning = origPath
@@ -1963,14 +1883,6 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 }
 
 // createStringToSignV2 creates string to sign for SigV2.
-// Format (per AWS docs):
-//
-//	HTTP-Verb     + "\n"
-//	Content-MD5   + "\n"
-//	Content-Type  + "\n"
-//	Date          + "\n"   (empty when x-amz-date header is present)
-//	CanonicalizedAmzHeaders          (sorted x-amz-* lines, each ending in "\n")
-//	CanonicalizedResource
 func (am *authManager) createStringToSignV2(r *http.Request) string {
 	method := r.Method
 	contentMD5 := r.Header.Get("Content-MD5")
@@ -2325,10 +2237,6 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 		"ip":      ip,
 	}).Debug("RecordFailedLogin called")
 
-	// Record in rate limiter
-	// CheckAndRecord (called via CheckRateLimit) already pre-incremented the
-	// counter atomically at the start of the request (RACE-05 fix).
-	// Calling RecordFailedAttempt here would double-count the attempt.
 
 	// Increment failed attempts in database
 	err := am.store.IncrementFailedLoginAttempts(userID)
@@ -2465,9 +2373,6 @@ func containsRole(roles []string, role string) bool {
 	return false
 }
 
-// =============================================================================
-// Two-Factor Authentication (2FA) Methods
-// =============================================================================
 
 // Setup2FA initiates 2FA setup for a user
 // Returns the TOTP secret, QR code, and URL for the user to scan
@@ -2662,9 +2567,6 @@ func (m *authManager) Get2FAStatus(ctx context.Context, userID string) (bool, in
 // --- Capability management (authManager wrappers) ---
 
 // HasCapability answers whether a user may perform a kind of operation at all,
-// by asking their resolved permission set. A capability is not a separate
-// mechanism any more — it names a group of actions, and the answer is whether
-// the set allows them somewhere.
 func (m *authManager) HasCapability(ctx context.Context, userID string, roles []string, capability string) (bool, error) {
 	set, err := m.resolvePolicySet(ctx, userID, roles)
 	if err != nil {
@@ -2674,17 +2576,6 @@ func (m *authManager) HasCapability(ctx context.Context, userID string, roles []
 }
 
 // setGrantsCapability reports whether a permission set allows any of the
-// actions the capability names.
-//
-// Any, not all. A capability was a coarse yes/no over a group of operations,
-// and a role that had it had all of them; a policy is granular and may allow
-// exactly one — a policy granting only s3:GetObject has to satisfy "may this
-// user download". Requiring all of them would make every granular policy fail a
-// check its author plainly intended to pass.
-//
-// This is not a loosening: the capability only ever answered "is this kind of
-// operation possible at all". Whether it is possible on THIS bucket is the
-// separate question CheckBucketAccess asks, of the same set.
 func setGrantsCapability(set *PolicySet, capability string) bool {
 	for _, name := range PoliciesForCapability(capability) {
 		entry, ok := CatalogEntry(name)

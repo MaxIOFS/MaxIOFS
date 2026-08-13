@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // setupSyncManager creates a Manager backed by an in-memory SQLite DB with a
 // configurable BucketLister so individual tests can control ListObjects output.

@@ -209,9 +209,6 @@ func IsCertExpiringSoon(certPEM []byte, days int) (bool, error) {
 }
 
 // BuildServerTLSConfig returns a *tls.Config for the cluster server listener using
-// the node certificate already stored in the atomic pointer (populated by
-// BuildClusterTLSConfig after cluster initialization or join).
-// Returns an error if no certificate is available yet.
 func BuildServerTLSConfig(currentCert *atomic.Pointer[tls.Certificate]) (*tls.Config, error) {
 	if currentCert.Load() == nil {
 		return nil, fmt.Errorf("cluster certificates not initialized yet")

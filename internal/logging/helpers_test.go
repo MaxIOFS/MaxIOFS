@@ -6,9 +6,6 @@ import (
 )
 
 // newHTTPOutputForTesting creates an HTTPOutput with a plain http.Client that
-// does NOT apply the SSRF-blocking dialer. This is safe because test servers
-// intentionally bind to loopback (127.0.0.1) via httptest.NewServer.
-// Never use this outside of test code.
 func newHTTPOutputForTesting(rawURL, authToken string, batchSize int, flushInterval time.Duration) *HTTPOutput {
 	output := &HTTPOutput{
 		url:           rawURL,

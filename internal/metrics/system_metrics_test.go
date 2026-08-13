@@ -267,9 +267,6 @@ func TestRecordRequest_ConcurrentSafety(t *testing.T) {
 	expectedErrors := expectedRequests / 2
 	assert.Equal(t, expectedErrors, sm.errorCount.Load())
 
-	// Total latency should be sum of all latencies
-	// Each goroutine records latencies 1, 2, 3, ..., 100
-	// Sum of 1 to 100 = 100 * 101 / 2 = 5050
 	expectedLatencyPerGoroutine := uint64(5050)
 	expectedTotalLatency := uint64(numGoroutines) * expectedLatencyPerGoroutine
 	assert.Equal(t, expectedTotalLatency, sm.totalLatencyMs.Load())
@@ -351,9 +348,6 @@ func TestCPUStats_ConsistentData(t *testing.T) {
 	assert.Equal(t, stats1.LogicalCores, stats2.LogicalCores)
 	assert.Equal(t, stats1.ModelName, stats2.ModelName)
 
-	// Frequency should be consistent (allowing for some variance)
-	// Note: In CI/virtualized environments, CPU frequency can vary more due to
-	// dynamic scaling, throttling, and hypervisor behavior
 	if stats1.FrequencyMHz > 0 && stats2.FrequencyMHz > 0 {
 		// Allow 50% variance in frequency (CI/virtualized environments have aggressive
 		// dynamic scaling, turbo boost, and hypervisor-level frequency changes)

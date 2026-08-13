@@ -1,11 +1,5 @@
 package auth
 
-// What the console screens read. These cover the two failures the product
-// showed after the model changed: a user whose boxes were all empty because the
-// screen only looked at policies attached directly to them, and an empty role
-// list because the role entities were never created on a database an earlier
-// build had already converted.
-
 import (
 	"testing"
 

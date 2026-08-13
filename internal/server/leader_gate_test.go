@@ -1,11 +1,5 @@
 package server
 
-// The coordinator gate.
-//
-// What it blocks matters less than what it must never block. A gate that stops
-// people signing in, or stops the cluster healing itself, turns a coordinator
-// election into an outage — so those cases are the ones tested hardest.
-
 import (
 	"net/http"
 	"net/http/httptest"

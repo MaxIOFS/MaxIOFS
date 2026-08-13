@@ -1,10 +1,5 @@
 package auth
 
-// A managed policy whose default version row is missing.
-//
-// It served an empty document, which the console showed as a policy granting
-// nothing — and saving from that screen would have written the emptiness back.
-
 import (
 	"context"
 	"testing"

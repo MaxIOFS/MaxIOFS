@@ -307,9 +307,6 @@ func TestCobraCommand_VersionOutput(t *testing.T) {
 	assert.Contains(t, buf.String(), "v1.0.0")
 }
 
-// ============================================================================
-// runServer Tests
-// ============================================================================
 
 // newTestCommand creates a cobra.Command with all required flags for runServer tests.
 // Flags are explicitly Set() so viper's BindPFlag recognizes them as "changed"
@@ -333,9 +330,6 @@ func newTestCommand(dataDir, listen, consoleListen string) *cobra.Command {
 }
 
 // serverStartTimeout returns the wait window used by tests that boot a real server.
-// Local dev machines initialize the server in well under 200ms, but slow CI runners
-// (notably GitHub Actions Ubuntu) need significantly more headroom — without it the
-// test process is torn down mid-startup and reported as FAIL with no per-test output.
 func serverStartTimeout() time.Duration {
 	if os.Getenv("CI") != "" {
 		return 3 * time.Second

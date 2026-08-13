@@ -56,9 +56,6 @@ type CapacityInfo struct {
 }
 
 // isVeeamSOSAPIObject checks if the object path is a VEEAM SOSAPI special file
-// Supports paths like:
-// - .system-d26a9498-cb7c-4a87-a44a-8ae204f5ba6c/system.xml (root)
-// - salva/.system-d26a9498-cb7c-4a87-a44a-8ae204f5ba6c/system.xml (in folder)
 func isVeeamSOSAPIObject(objectKey string) bool {
 	return strings.HasSuffix(objectKey, systemXMLObject) ||
 		strings.HasSuffix(objectKey, capacityXMLObject) ||
@@ -73,12 +70,6 @@ func isVeeamClient(userAgent string) bool {
 }
 
 // generateSystemXML generates the SOSAPI system.xml content.
-//
-// iamSTSEndpoint is the URL to advertise for IAM and STS, or "" to advertise
-// neither. The capability names the two as a pair — APIEndpoints carries an
-// IAMEndpoint alongside the STSEndpoint — so it is only claimed when both are
-// really served. They are the same URL here: MaxIOFS dispatches both query
-// protocols on POST / of the S3 endpoint.
 func generateSystemXML(iamSTSEndpoint string) ([]byte, error) {
 	sysInfo := SystemInfo{
 		ProtocolVersion: `"1.0"`,
@@ -164,9 +155,6 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 		totalCapacity := int64(1024 * 1024 * 1024 * 1024)    // Default: 1TB
 		availableCapacity := int64(900 * 1024 * 1024 * 1024) // Default: 900GB
 
-		// Precedence for the capacity VEEAM sees: per-bucket quota → tenant quota
-		// → physical disk. A bucket quota, when set, is the most specific limit and
-		// applies to global buckets too, so VEEAM sees the real target-bucket cap.
 		reported := false
 
 		// 1) Per-bucket quota.

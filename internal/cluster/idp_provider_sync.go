@@ -51,11 +51,6 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 
 // Start begins the IDP provider synchronization loop
 func (m *IDPProviderSyncManager) Start(ctx context.Context) {
-	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "idp_provider_sync_interval_seconds")
@@ -400,7 +395,7 @@ func (m *IDPProviderSyncManager) sendDeletionToNode(ctx context.Context, provide
 // TriggerSync immediately runs a full IDP provider sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *IDPProviderSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllProviders(ctx)
+	runDetached(ctx, m.syncAllProviders)
 }
 
 func (m *IDPProviderSyncManager) Stop() {

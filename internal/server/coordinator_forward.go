@@ -1,19 +1,5 @@
 package server
 
-// Forwarding configuration writes to the coordinator.
-//
-// One node writes configuration, so two nodes cannot edit the same entity at
-// once. That constraint belongs to the cluster, not to the person using it: a
-// user who opens the console on any node saves their change and it works. The
-// node they reached forwards the request to the coordinator and returns its
-// answer.
-//
-// The forward travels over the inter-node channel, which is already
-// HMAC-authenticated. The user's own credential goes with it and the
-// coordinator validates that itself — the forwarding node vouches for nothing,
-// it only carries. A node that lied about who the user is would gain nothing,
-// because the token still has to verify against the shared secret.
-
 import (
 	"bytes"
 	"context"
@@ -94,9 +80,6 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		return true
 	}
 
-	// The user's own credential and content type travel with the request; the
-	// coordinator authenticates and authorizes it exactly as if the user had
-	// reached that node directly.
 	if authorization := r.Header.Get("Authorization"); authorization != "" {
 		req.Header.Set("X-MaxIOFS-Forwarded-Authorization", authorization)
 	}
@@ -131,9 +114,6 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 }
 
 // handleCoordinatorWrite executes a configuration write forwarded by another
-// node. Reached over the inter-node channel, so the HMAC middleware has already
-// established that a cluster member sent it.
-// POST|PUT|DELETE /api/internal/cluster/console-write/{original path}
 func (s *Server) handleCoordinatorWrite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -142,9 +122,6 @@ func (s *Server) handleCoordinatorWrite(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Only the coordinator applies these. A node that is not coordinator
-	// refuses rather than forwarding again, which is what stops a request
-	// bouncing around a cluster that momentarily disagrees.
 	if s.leaderMgr == nil || !s.leaderMgr.IsLeader() {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "This node is no longer the coordinator", http.StatusServiceUnavailable)

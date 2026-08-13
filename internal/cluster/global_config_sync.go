@@ -28,9 +28,6 @@ type KEKProvider interface {
 }
 
 // GlobalConfigSyncManager synchronizes cluster_global_config and cluster_nodes
-// across all cluster members. When a KEK provider is set it also reconciles
-// the cluster-shared encryption keys (covers nodes that were offline during a
-// KEK rotation).
 type GlobalConfigSyncManager struct {
 	db             *sql.DB
 	clusterManager *Manager
@@ -144,9 +141,6 @@ func (m *GlobalConfigSyncManager) syncAll(ctx context.Context) {
 		}
 	}
 
-	// --- Phase 3: Reconcile cluster-shared encryption KEKs ---
-	// Covers nodes that were offline during a rotation: adoption is
-	// idempotent on the receiver, so re-sending the full set is cheap.
 	m.SyncKEKs(ctx)
 }
 

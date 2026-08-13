@@ -18,9 +18,6 @@ import (
 )
 
 // GroupData represents a group plus its membership for synchronization.
-// Members are carried in the same payload so that the receiver can apply the
-// authoritative membership set in a single transaction (preventing partial states
-// where the group exists but its members are missing).
 type GroupData struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -54,10 +51,6 @@ func NewGroupSyncManager(db *sql.DB, clusterManager *Manager) *GroupSyncManager 
 
 // Start begins the group synchronization loop.
 func (m *GroupSyncManager) Start(ctx context.Context) {
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "group_sync_interval_seconds")
 	if err != nil {
@@ -398,7 +391,7 @@ func (m *GroupSyncManager) Stop() {
 
 // TriggerSync runs a full group sync immediately in a goroutine.
 func (m *GroupSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllGroups(ctx)
+	runDetached(ctx, m.syncAllGroups)
 }
 
 // SyncToNode immediately pushes all local groups to the given node.

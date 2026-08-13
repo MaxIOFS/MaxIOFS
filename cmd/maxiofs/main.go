@@ -73,12 +73,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 		"date":    date,
 	}).Info("Starting MaxIOFS")
 
-	// TLS resolution. config.Load (viper) has already merged cert_file/key_file
-	// with the correct precedence (CLI flag > env > config file). The --tls-cert/
-	// --tls-key flags additionally act as an explicit switch that *enables* TLS.
-	// When the flags are absent we must NOT force TLS off — that would override an
-	// `enable_tls: true` set in the config file (GitHub issue #6). Instead we
-	// respect cfg.EnableTLS as loaded, so config-file-driven TLS works.
 	if tlsCert != "" && tlsKey != "" {
 		cfg.EnableTLS = true
 		cfg.CertFile = tlsCert

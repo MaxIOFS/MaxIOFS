@@ -9,11 +9,6 @@ import (
 )
 
 // startUncleanShutdownReconcile launches a background metadata↔disk
-// reconciliation when the Pebble store was not closed cleanly (hard kill,
-// OOM, power loss). Hot-path Pebble commits are NoSync with a ~1s WAL sync
-// loop, so a crash can lose the last moments of metadata while the object
-// files and sidecars survived; the reconciler restores those entries without
-// pruning metadata or sidecars based on missing paths. No-op on clean boots.
 func (s *Server) startUncleanShutdownReconcile(ctx context.Context) {
 	ps, ok := s.metadataStore.(*metadata.PebbleStore)
 	if !ok || ps.WasCleanShutdown() {

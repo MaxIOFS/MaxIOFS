@@ -1,17 +1,5 @@
 package server
 
-// The AWS STS XML surface. See docs/API.md, "AWS STS protocol".
-//
-// The console JSON API issues credentials in a shape every client has to be
-// taught about. This endpoint speaks the protocol AWS SDKs already
-// know: a form-encoded POST to the S3 API root with an Action parameter, and an
-// XML response. Point AWS_STS_ENDPOINT (or the SDK's STS endpoint override) at
-// the S3 API and `sts:GetSessionToken` works out of the box — the same place
-// MinIO serves it, which is what tooling in this ecosystem expects.
-//
-// Nothing here is a new way to get credentials: every action lands on the exact
-// issuance path its JSON counterpart uses.
-
 import (
 	"bytes"
 	"crypto/sha256"
@@ -110,12 +98,6 @@ type stsErrorResponse struct {
 // --- Handler ---
 
 // handleAWSQueryRequest serves the AWS STS and IAM query protocols on POST / of
-// the S3 API. Both use the same transport, so the Action name is what routes a
-// request — clients do not reliably send the Version parameter that would
-// otherwise distinguish them.
-//
-// Serving both from one URL is deliberate: it makes IAMEndpoint, STSEndpoint
-// and the S3 endpoint the same address, which is what SOSAPI advertises.
 func (s *Server) handleAWSQueryRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, stsMaxFormBody)
 	if err := r.ParseForm(); err != nil {
@@ -146,14 +128,7 @@ func (s *Server) handleAWSQueryRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// stsAssumeRole serves AssumeRole. The RoleArn is resolved against the role
-// table: the credentials it returns carry the ROLE's permissions, and a role
-// that does not exist is an error rather than something to work around.
-//
-// A caller that omits RoleArn is served GetSessionToken instead. That is not a
-// loophole — the result is the caller's own permissions, which is strictly less
-// than any role could grant — and it keeps working for the tools that reach for
-// AssumeRole as a synonym of "give me temporary credentials".
+// stsAssumeRole serves AssumeRole.
 func (s *Server) stsAssumeRole(w http.ResponseWriter, r *http.Request) {
 	roleARN := strings.TrimSpace(r.PostForm.Get("RoleArn"))
 	if roleARN == "" {
@@ -223,9 +198,6 @@ func (s *Server) writeAssumeRoleError(w http.ResponseWriter, r *http.Request, us
 }
 
 // stsGetSessionToken serves GetSessionToken, and AssumeRole when no RoleArn was
-// given. Both require the request to be signed with the caller's PERMANENT
-// credentials; the session is issued for the user those credentials belong to
-// and projects exactly that user's permissions.
 func (s *Server) stsGetSessionToken(w http.ResponseWriter, r *http.Request, asAssumeRole bool) {
 	user, ok := auth.GetUserFromContext(r.Context())
 	if !ok || user == nil {
@@ -288,10 +260,6 @@ func (s *Server) stsAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// The AWS protocol has no field naming the identity provider, so a single
-	// configured provider is used implicitly. With several, the caller must say
-	// which one via ProviderId — presenting a token to the wrong provider would
-	// hand that provider a credential meant for someone else.
 	providerID, err := s.stsResolveOAuthProviderID(r)
 	if err != nil {
 		writeSTSError(w, http.StatusBadRequest, "InvalidParameterValue", err.Error())
@@ -616,17 +584,6 @@ func writeSTSError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // stsPayloadHashMiddleware supplies the payload hash for AWS STS requests.
-//
-// SigV4 covers a hash of the request body. S3 clients send that hash in
-// X-Amz-Content-Sha256, which is what the signature verifier reads — but
-// X-Amz-Content-Sha256 is an S3 extension: an AWS STS client signs the real
-// body hash and sends no such header, so verification would compare against
-// UNSIGNED-PAYLOAD and reject every correctly signed STS request.
-//
-// Rather than change the fallback for every S3 request, this middleware computes
-// the hash for exactly the shape an STS call has — POST / with a form body and
-// no hash header — and sets the header the verifier already understands. The
-// body is restored so the handler can still parse the form.
 func stsPayloadHashMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/" ||

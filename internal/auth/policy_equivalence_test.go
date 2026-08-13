@@ -1,19 +1,5 @@
 package auth
 
-// Equivalence between the stored permission model and its policy translation.
-//
-// This is the safety net for the one-time conversion. The comparison is made
-// against BOTH old mechanisms combined, over a matrix of user × bucket ×
-// action, because each one alone was only half a decision: a capability said
-// which operations were possible and a bucket permission said where, and a
-// request was served only when both agreed.
-//
-// The sequence in every test is: create the legacy rows, run the conversion,
-// then ask the IAM tables. Nothing translates at request time.
-//
-// A failure here is not a test to adjust. It means the translation would change
-// what some existing user is allowed to do.
-
 import (
 	"context"
 	"testing"
@@ -159,10 +145,6 @@ func TestEffectiveActions_UsesCallerTenantWhenUserRowIsAbsent(t *testing.T) {
 }
 
 // TestHasPermission_UsesCallerTenantWhenUserRowIsAbsent covers the same flaw on
-// the other route into the policy set. The console asks these two about a user
-// it already holds in memory, so the tenant has to travel with the question:
-// re-reading it from the users table drops every tenant-attached permission for
-// an identity that has no row, and one of them decides who is an administrator.
 func TestHasPermission_UsesCallerTenantWhenUserRowIsAbsent(t *testing.T) {
 	am, _, cleanup := setupSTSTest(t)
 	defer cleanup()
@@ -401,12 +383,6 @@ func TestPolicyCatalog_CoversEveryCapability(t *testing.T) {
 }
 
 // TestBucketOwner_CannotBeAWholeTenant pins who a bucket may belong to.
-//
-// The owner policy is full access to the bucket. Written on a tenant it would
-// hand that to every member, when a bucket belongs to the person who created
-// it: tenant administrators reach it through their own permissions, and anyone
-// else needs an explicit grant. No caller passed a tenant, so this closes the
-// only door through which one could.
 func TestBucketOwner_CannotBeAWholeTenant(t *testing.T) {
 	am, _, cleanup := setupSTSTest(t)
 	defer cleanup()

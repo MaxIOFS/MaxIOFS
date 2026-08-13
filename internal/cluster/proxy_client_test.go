@@ -1,11 +1,5 @@
 package cluster
 
-// What the S3 proxy client bounds.
-//
-// This client carries object data between nodes, so anything it bounds by total
-// elapsed time is really bounding file size. That distinction is the whole
-// point of these tests.
-
 import (
 	"net/http"
 	"testing"
@@ -15,12 +9,6 @@ import (
 )
 
 // TestBuildHTTPClient_BoundsReachabilityNotTransferSize pins the shape of the
-// client against the mistake it used to make.
-//
-// http.Client.Timeout covers the response body, so the 60 seconds it carried
-// meant an object bigger than a minute of bandwidth could never cross between
-// nodes — roughly 7 GB on a saturated 1 Gbps link — and failed as a timeout,
-// which reads like a network fault rather than a size limit.
 func TestBuildHTTPClient_BoundsReachabilityNotTransferSize(t *testing.T) {
 	client := buildHTTPClient(nil)
 	require.NotNil(t, client)

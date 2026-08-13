@@ -14,9 +14,6 @@ import (
 )
 
 // handleReceiveKEKSync adopts cluster-shared encryption keys pushed by a peer
-// (after a rotation, or by the periodic reconciliation sync). Adoption is
-// idempotent; a version conflict with different key material is rejected.
-// POST /api/internal/cluster/kek-sync  (node-authenticated)
 func (s *Server) handleReceiveKEKSync(w http.ResponseWriter, r *http.Request) {
 	if s.kekStore == nil {
 		http.Error(w, "encryption key store not available", http.StatusServiceUnavailable)
@@ -48,13 +45,6 @@ func (s *Server) handleReceiveKEKSync(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-// Encryption recovery bundle endpoints (global admin only).
-//
-// The KEK lives in the SQLite database; if the database is lost without a
-// backup of the key, every envelope-encrypted object becomes unreadable.
-// These endpoints let the admin export the KEK as a passphrase-encrypted
-// recovery bundle to store OUTSIDE the system, and report whether that has
-// been done (the console shows a banner until it has).
 
 // requireGlobalAdmin resolves the requesting user and enforces global-admin
 // access. Returns nil (after writing the error response) when access is denied.
@@ -101,12 +91,7 @@ func (s *Server) handleEncryptionRecoveryStatus(w http.ResponseWriter, r *http.R
 	s.writeJSON(w, resp)
 }
 
-// handleRotateKEK creates a new current KEK version. Existing objects stay
-// decryptable (old versions are kept); the background worker re-wraps their
-// DEKs to the new version. In a cluster the new key is created cluster-shared
-// and pushed to all healthy peers immediately (the periodic sync covers
-// nodes that are offline right now).
-// POST /api/v1/settings/encryption/rotate-kek  (global admin only)
+// handleRotateKEK creates a new current KEK version.
 func (s *Server) handleRotateKEK(w http.ResponseWriter, r *http.Request) {
 	user := s.requireGlobalAdmin(w, r)
 	if user == nil {
@@ -127,10 +112,6 @@ func (s *Server) handleRotateKEK(w http.ResponseWriter, r *http.Request) {
 	logrus.WithFields(logrus.Fields{"user": user.Username, "kek_version": newVersion}).
 		Info("Encryption KEK rotated by admin")
 
-	// Distribute to cluster peers right away. Deliberately NOT tied to the
-	// request context: if the admin's connection drops mid-response the push
-	// must still complete (the periodic sync would cover it anyway, but a
-	// 60s window with peers wrapping on the old version is avoidable).
 	syncCtx := s.serverCtx
 	if syncCtx == nil {
 		syncCtx = context.Background()

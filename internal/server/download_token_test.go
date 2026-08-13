@@ -1,18 +1,5 @@
 package server
 
-// Where a download token is accepted.
-//
-// The middleware treats it as a credential, so the question these answer is not
-// "does the download work" but "what else does this open". Only two routes may
-// be authorised by one — the object download and the folder archive — and both
-// are matched by ROUTE IDENTITY rather than by the shape of the path.
-//
-// Shape was not enough: the previous test asked whether the path ended with the
-// object key, which every sibling route satisfies when the key is exactly that
-// segment, so a token for an object named "acl" also redeemed on the ACL route.
-// These tests dispatch through a real router for that reason — checking the
-// helper with hand-set variables would not have caught it.
-
 import (
 	"net/http"
 	"net/http/httptest"

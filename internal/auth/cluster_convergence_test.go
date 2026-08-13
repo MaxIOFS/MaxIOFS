@@ -1,19 +1,5 @@
 package auth
 
-// Two nodes, and the questions a leaderless cluster has to answer.
-//
-// MaxIOFS has no leader: every node accepts writes and they reconcile with each
-// other. That is only safe if two things hold, and neither had been measured:
-//
-//   - A credential revoked on one node stops working on the others. How long
-//     that takes is the revocation window, and it is a security property, not a
-//     performance one.
-//   - Two nodes writing the same configuration converge on one answer instead
-//     of flapping between two.
-//
-// These build two independent stores — two nodes — move state between them the
-// way the sync managers do, and record what actually happens.
-
 import (
 	"context"
 	"os"

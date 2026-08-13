@@ -1,15 +1,5 @@
 package server
 
-// Console API for IAM policies and roles.
-//
-// The AWS IAM protocol is how integrations manage these entities; this is how a
-// person sees and manages the same ones from the console. Both go through the
-// identical manager methods, so the two views can never disagree.
-//
-// Global admins only: these entities decide what credentials may do across
-// tenants, and a tenant admin editing a role another tenant can assume would
-// cross the boundary the rest of the system maintains.
-
 import (
 	"context"
 	"encoding/json"
@@ -319,10 +309,6 @@ func decodeIAMDocument(raw json.RawMessage) string {
 }
 
 // recordBucketOwnerPolicy writes the policy that gives a bucket's creator
-// access to it, and removes every policy naming the bucket when it is deleted.
-//
-// A bucket belongs to the user who created it. The tenant is a namespace, not a
-// permission by itself; tenant-wide grants must be explicit policies.
 func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, created bool) {
 	store, ok := s.authManager.(interface {
 		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
@@ -339,10 +325,6 @@ func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, c
 				Warn("Failed to remove bucket policies after deletion")
 			return
 		}
-		// One tombstone per policy removed. Without them a peer that still
-		// holds the policy pushes it back, so a bucket recreated under the same
-		// name hands full access to whoever owned the previous one — which is
-		// precisely what removing these was for.
 		for _, ref := range revoked {
 			s.recordIAMDeletion(context.Background(), cluster.EntityTypeIAMInlinePolicy,
 				iamInlineTombstoneID(ref.TargetType, ref.TargetID, ref.Name))
@@ -351,11 +333,6 @@ func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, c
 	}
 
 	if ownerID == "" {
-		// A bucket created with no owner — by a migration, a recovery run, or
-		// an internal path — would otherwise be reachable by nobody at all,
-		// because ownership is the only thing that grants access to a bucket
-		// nobody was explicitly given. Left unowned it is invisible; that is a
-		// worse failure than the one this guard was written for.
 		logrus.WithField("bucket", bucketName).
 			Warn("Bucket created without an owner; no owner policy was written for it")
 		return
@@ -425,9 +402,6 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Administration is not something a tenant's administrator can hand out.
-	// Without this, anyone who administers one tenant could grant themselves or
-	// somebody else authority over every tenant.
 	if grantsAdministration(&permissions) && !s.isGlobalAdmin(s.getAuthUser(r)) {
 		s.writeError(w, "Only a super administrator can grant administration permissions",
 			http.StatusForbidden)
@@ -467,14 +441,6 @@ func grantsAdministration(permissions *auth.UserPermissions) bool {
 }
 
 // permissionStore resolves the store and checks the caller may hand out
-// permissions at all.
-// canAdministerUser reports whether the caller may see or change this user.
-//
-// permissionStore only asked "is the caller an administrator", and neither
-// handler compared the target's tenant to the caller's — so a tenant admin read
-// and rewrote the permissions of another tenant's users, including revoking
-// their console access. handleUpdateUser and handleDeleteUser already scope
-// this way; these two did not.
 func (s *Server) canAdministerUser(w http.ResponseWriter, r *http.Request, targetUserID string) bool {
 	caller := s.getAuthUser(r)
 	if caller == nil {

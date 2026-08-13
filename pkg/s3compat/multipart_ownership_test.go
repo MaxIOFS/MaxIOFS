@@ -1,12 +1,5 @@
 package s3compat
 
-// A multipart upload belongs to one bucket and one key.
-//
-// The permission check reads them from the URL; every operation afterwards is
-// carried out by uploadId alone. Nothing tied the two together, so a caller
-// could present a key they hold and an uploadId they do not — authorized
-// against their own object, executed against someone else's.
-
 import (
 	"context"
 	"net/http"
@@ -95,9 +88,6 @@ func TestMultipartOwnership_ForeignUploadIsRefused(t *testing.T) {
 }
 
 // TestMultipartOwnership_CompleteKeepsItsContract: CompleteMultipartUpload
-// answers 200 immediately so a long completion cannot time out a client, and
-// reports failures as XML in the body. A refusal has to keep that shape, or
-// clients that only parse the body on 200 would see a success.
 func TestMultipartOwnership_CompleteKeepsItsContract(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

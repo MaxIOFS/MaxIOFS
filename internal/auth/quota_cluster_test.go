@@ -107,11 +107,6 @@ func TestCheckTenantStorageQuota_ClusterMode(t *testing.T) {
 	t.Run("Prevents quota bypass attack in cluster mode", func(t *testing.T) {
 		mgr.SetClusterManager(&mockClusterManager{enabled: true})
 
-		// ATTACK SCENARIO:
-		// - Tenant has 1GB quota
-		// - Each of 3 nodes shows 900MB local storage
-		// - Total cluster storage = 2700MB (2.7GB)
-		// - Should REJECT any additional uploads
 
 		mgr.SetQuotaAggregator(&mockQuotaAggregator{
 			totalStorage: 2700 * 1024 * 1024, // 2.7GB across cluster (exceeds quota)

@@ -34,10 +34,6 @@ func (s *clusterNodeAlertStates) set(nodeID string, level alertLevel) {
 }
 
 // startClusterNodeAlertMonitor starts a background goroutine that checks
-// cluster node storage every 5 minutes and sends SSE + email alerts when
-// nodes cross the configured warning/critical thresholds.
-// Reuses the same system.disk_warning_threshold / system.disk_critical_threshold
-// settings as the local disk alert monitor.
 func (s *Server) startClusterNodeAlertMonitor(ctx context.Context) {
 	states := newClusterNodeAlertStates()
 	go func() {

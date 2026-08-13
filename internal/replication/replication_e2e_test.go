@@ -733,9 +733,6 @@ func TestReplicationRetries(t *testing.T) {
 	err = manager.QueueObject(ctx, tenantID, sourceBucket, "retry-test.txt", "PUT")
 	require.NoError(t, err)
 
-	// Wait for retries and eventual success
-	// Queue loader runs every 10 seconds, and we need 3 attempts with retries
-	// Under heavy CI/CD load, the queue loader may be delayed, so we poll instead of sleep
 	require.Eventually(t, func() bool {
 		attemptMu.Lock()
 		defer attemptMu.Unlock()

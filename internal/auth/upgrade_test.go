@@ -1,17 +1,5 @@
 package auth
 
-// Upgrading a real installation.
-//
-// Every other test in this package starts from an empty database and applies
-// every migration at once, which is not what an upgrade looks like. A running
-// deployment sits at the previous schema with real users, roles, bucket
-// permissions and overrides, and the question that matters is whether those
-// people can still do exactly what they could do before.
-//
-// This opens a database at the pre-IAM schema, fills it the way a live
-// installation is filled, and then opens the auth store the way the server
-// does — migration, catalogue, roles, conversion — and compares.
-
 import (
 	"database/sql"
 	"encoding/json"

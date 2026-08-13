@@ -24,10 +24,6 @@ import (
 )
 
 // newIsolatedEncryptionServer builds a minimal dedicated Server (own SQLite
-// KEK store, Pebble, storage backend and worker slot). Rotation/worker tests
-// on the shared server are racy: another test's asynchronous pass can hold
-// the single-flight guard for minutes under suite CPU (load-aware backoff),
-// so a pass kicked here would silently no-op or never reach this bucket.
 func newIsolatedEncryptionServer(t *testing.T) *Server {
 	t.Helper()
 	tempDir := t.TempDir()

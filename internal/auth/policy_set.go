@@ -1,30 +1,11 @@
 package auth
 
-// The resolved permission set of a user, and the single place a decision is
-// made from it.
-//
-// Everything a user may do lives in one list of policy documents, produced by
-// EffectivePolicyDocuments from what the database already holds: their roles,
-// their bucket permissions, their overrides and any policy attached to them.
-// The capability check and the bucket-access check are two questions asked of
-// that one list — not two mechanisms that have to agree.
-//
-// The set is resolved once per request and carried on the context. Without
-// that, replacing two indexed lookups with a translation of the whole
-// permission model would mean re-reading five tables on every check.
-
 import (
 	"context"
 	"strings"
 )
 
 // PolicySet is a user's complete permissions, resolved once.
-//
-// Documents are the scoped grants — what may be done and where. Actions are the
-// same permissions seen along their other dimension: what kinds of operation
-// the user may perform at all, regardless of target. Both come from the same
-// resolution pass over the same rows; they are two views of one set, not two
-// sets that have to agree.
 type PolicySet struct {
 	UserID    string
 	Documents []string
@@ -40,13 +21,6 @@ func (p *PolicySet) Allows(action, resource string) bool {
 }
 
 // AllowsAnywhere reports whether the set permits an action on any resource at
-// all. This is the question a capability used to answer: not "may they upload
-// here" but "may they upload".
-//
-// Each candidate resource is judged against the WHOLE set, never against the
-// document it came from. Evaluating documents one at a time would let an Allow
-// in one satisfy the question while a Deny in another — which must win — is
-// never consulted.
 func (p *PolicySet) AllowsAnywhere(action string) bool {
 	if p == nil {
 		return false
@@ -58,9 +32,6 @@ func (p *PolicySet) AllowsAnywhere(action string) bool {
 		}
 	}
 
-	// A policy attached directly to the user can permit an action their roles
-	// never mentioned. Those are scoped documents, so the resources they name
-	// are probed against the whole set — a Deny anywhere still wins.
 	seen := make(map[string]bool)
 	for _, doc := range p.Documents {
 		for _, resource := range allowedResourcesFor(doc, action) {
@@ -142,12 +113,7 @@ func (am *authManager) resolvePolicySet(ctx context.Context, userID string, role
 	return am.buildPolicySet(userID, roles)
 }
 
-// ResolvePolicySet resolves a user's complete permissions. Exported so the
-// request middleware can resolve once and put the result on the context.
-//
-// The tenant comes from the resolved user rather than from the users table: a
-// role session, and any identity assembled for a request, carries its tenant
-// without necessarily having a row to read it back from.
+// ResolvePolicySet resolves a user's complete permissions.
 func (am *authManager) ResolvePolicySet(ctx context.Context, user *User) (*PolicySet, error) {
 	if user == nil {
 		return nil, ErrUserNotFound

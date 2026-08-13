@@ -79,9 +79,6 @@ func (rl *APIRateLimiter) cleanupLoop() {
 }
 
 // APIRateLimitMiddleware returns a Gorilla Mux middleware that enforces per-user
-// S3 API rate limiting based on the security.ratelimit_api_per_second setting.
-// The limit is read from settings on every request for hot-reload support.
-// It identifies users by the Authorization header access key, or falls back to remote IP.
 func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -21,15 +21,8 @@ type badgerBucketManager struct {
 	aclManager    acl.Manager
 	auditManager  *audit.Manager
 
-	// quotaAlertCb, when set, is invoked after a bucket's cached size changes so
-	// the server can fire SSE/email alerts as usage approaches the per-bucket
-	// quota. It receives the bucket's updated total size and its size cap.
 	quotaAlertCb func(tenantID, bucketName string, currentBytes, maxBytes int64)
 
-	// ownerPolicyCb, when set, records or removes the policy that grants a
-	// bucket's creator access to it. Ownership used to be an implicit fact the
-	// handlers checked; as a policy it lives in the same place as every other
-	// permission and is the only thing the request path reads.
 	ownerPolicyCb func(bucketName, tenantID, ownerID string, created bool)
 }
 
@@ -46,9 +39,6 @@ func (bm *badgerBucketManager) SetBucketQuotaAlertCallback(cb func(tenantID, buc
 }
 
 // fireBucketQuotaAlert reads the bucket's current metadata and, if a size quota
-// is configured, invokes the alert callback with the updated usage. Runs the
-// read+callback asynchronously so it never blocks the upload path (same approach
-// as IncrementTenantStorage).
 func (bm *badgerBucketManager) fireBucketQuotaAlert(tenantID, name string) {
 	if bm.quotaAlertCb == nil {
 		return
@@ -614,9 +604,6 @@ func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name
 }
 
 // SetQuota sets (or clears, when quota is nil) the per-bucket storage quota.
-// Reads the current metadata and rewrites only the Quota field, preserving the
-// cached metrics and every other config, following the same pattern as the other
-// Set* config operations.
 func (bm *badgerBucketManager) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {

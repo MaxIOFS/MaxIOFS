@@ -427,9 +427,6 @@ func (s *AntiEntropyScrubber) processBatch(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Divergence classification + action
-// ---------------------------------------------------------------------------
 
 // ChecksumEntry is the per-key payload returned by /api/internal/cluster/ha/checksum-batch.
 type ChecksumEntry struct {
@@ -493,9 +490,6 @@ func lwwClassify(local *object.Object, peer *ChecksumEntry) (divergenceKind, rec
 	if localTS < peer.LastModified {
 		return divPeerNewer, actPullFromPeer
 	}
-	// Same modification timestamp: break the tie deterministically by ETag
-	// lexicographic order so both replicas converge to the same version.
-	// The node with the smaller ETag defers to its peer (pulls the peer's copy).
 	if local.ETag < peer.ETag {
 		return divTieDifferentETag, actPullFromPeer
 	}
@@ -564,9 +558,6 @@ func (s *AntiEntropyScrubber) applyAction(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Peer I/O
-// ---------------------------------------------------------------------------
 
 // fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the peer.
 func (s *AntiEntropyScrubber) fetchPeerChecksums(
@@ -687,9 +678,6 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		// Object was deleted on the peer between the checksum batch and this pull.
-		// Log the event so operators can see it; the next scrub cycle will
-		// classify the object as divPeerMissing and push our copy back.
 		logrus.WithFields(logrus.Fields{
 			"peer": peer.ID, "bucket": bucketPath, "key": key,
 		}).Info("AntiEntropyScrubber: object absent on peer during pull — divergence resolved remotely")

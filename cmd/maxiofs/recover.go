@@ -11,9 +11,6 @@ import (
 )
 
 // newRecoverCmd builds the offline disaster-recovery subcommand: it rebuilds
-// the Pebble metadata store from the filesystem object tree (data files +
-// .metadata sidecars) and restores the encryption keys from a recovery
-// bundle. Run it with the server STOPPED.
 func newRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",

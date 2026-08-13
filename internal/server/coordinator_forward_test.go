@@ -1,11 +1,5 @@
 package server
 
-// Forwarding configuration writes to the coordinator.
-//
-// The property that matters is that a request never bounces between nodes: a
-// cluster that briefly disagrees about who coordinates must not turn one save
-// into a loop.
-
 import (
 	"net/http"
 	"net/http/httptest"
@@ -65,9 +59,6 @@ func TestForward_CoordinatorWriteRequiresClusterAuth(t *testing.T) {
 // the user's own token is carried under its own header and validated by the
 // coordinator, so the forwarding node asserts nothing about who is calling.
 func TestForward_UserCredentialTravelsSeparately(t *testing.T) {
-	// The headers used for the hop are distinct from the ones the console
-	// router reads, so a forwarded request cannot be confused with a direct one
-	// that happens to carry them.
 	assert.NotEqual(t, "Authorization", "X-MaxIOFS-Forwarded-Authorization")
 	assert.Equal(t, "X-MaxIOFS-Coordinator-Forward", forwardedHeader)
 }

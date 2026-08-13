@@ -1,13 +1,5 @@
 package s3compat
 
-// Addressing a specific version is its own permission.
-//
-// Every object subresource — attributes, tagging, retention, legal hold, ACL —
-// checked only the current-object action, while the handler behind it happily
-// read `?versionId`. So a grant of s3:GetObject alone reached the tags,
-// attributes and retention of any historical version, and s3:GetObjectVersion
-// was catalogued while being bypassed by every one of them.
-
 import (
 	"context"
 	"net/http"

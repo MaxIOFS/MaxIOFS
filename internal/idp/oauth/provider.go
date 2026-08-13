@@ -108,12 +108,6 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.External
 }
 
 // AuthenticateWithToken resolves the user an access token belongs to by calling
-// the provider's userinfo endpoint with it (idp.TokenAuthenticator).
-//
-// The userinfo call IS the validation: the provider rejects a token that is
-// expired, revoked or forged, so no local signature verification or JWKS
-// handling is needed and there is only one trust path per provider — the same
-// one the browser login flow uses after exchanging its code.
 func (p *Provider) AuthenticateWithToken(ctx context.Context, accessToken string) (*idp.ExternalUser, error) {
 	if accessToken == "" {
 		return nil, fmt.Errorf("access token is required")

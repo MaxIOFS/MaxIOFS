@@ -55,9 +55,6 @@ func TestBucketAggregator_queryBucketsFromNode_Success(t *testing.T) {
 		HealthStatus: "healthy",
 	}
 
-	// Test queryBucketsFromNode by creating a custom context
-	// We'll need to mock the credential methods
-	// For now, let's test that the HTTP call works correctly
 
 	// Create a test that doesn't rely on cluster manager
 	ctx := context.Background()

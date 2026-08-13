@@ -29,9 +29,6 @@ func (s *SQLiteStore) CreateTenant(tenant *Tenant) error {
 	// Serialize metadata
 	metadataJSON, _ := json.Marshal(tenant.Metadata)
 
-	// Set default quota values if not specified
-	// NOTE: MaxStorageBytes = 0 means UNLIMITED (no quota checking)
-	//       If you want a specific quota, set it explicitly (e.g., 107374182400 for 100GB)
 	if tenant.MaxAccessKeys == 0 {
 		tenant.MaxAccessKeys = 10
 	}
@@ -227,11 +224,6 @@ func (s *SQLiteStore) UpdateTenant(tenant *Tenant) error {
 	}
 	defer tx.Rollback()
 
-	// The usage counters are deliberately absent from this statement. They are
-	// maintained atomically by IncrementTenantStorage and IncrementTenantBucketCount,
-	// and a caller editing a tenant carries whatever they happened to be when it
-	// read the record — writing those back rolled usage backwards whenever a PUT
-	// landed while an administrator had the form open.
 	_, err = tx.Exec(`
 		UPDATE tenants
 		SET display_name = ?, description = ?, status = ?, max_access_keys = ?, max_storage_bytes = ?, max_bandwidth_bytes_per_sec = ?, max_buckets = ?, metadata = ?, updated_at = ?
@@ -284,9 +276,6 @@ func (s *SQLiteStore) DeleteTenant(tenantID string) error {
 		return fmt.Errorf("failed to delete tenant users: %w", err)
 	}
 
-	// The policies of every user in the tenant go with them, and so do the
-	// tenant's own. A tenant-wide policy left behind would apply to a future
-	// tenant that reused the identifier.
 	for _, userID := range userIDs {
 		if _, err = tx.Exec(
 			`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
@@ -393,10 +382,6 @@ func (s *SQLiteStore) IncrementTenantBucketCount(tenantID string) error {
 	}
 	defer tx.Rollback()
 
-	// Atomic, with the quota enforced in the same statement — the same shape
-	// IncrementTenantStorage already used. The caller checked the count and
-	// then created the bucket, so two concurrent creates both read a count
-	// below the limit and both passed it.
 	res, err := tx.Exec(`
 		UPDATE tenants
 		SET current_buckets = current_buckets + 1, updated_at = ?
@@ -447,9 +432,6 @@ func (s *SQLiteStore) DecrementTenantBucketCount(tenantID string) error {
 }
 
 // IncrementTenantStorage atomically increments the current storage usage for a tenant.
-// RACE-01: The UPDATE enforces the quota in a single statement so concurrent calls
-// cannot both pass the check before either one commits the increment.
-// If the increment would exceed max_storage_bytes, ErrStorageQuotaExceeded is returned.
 func (s *SQLiteStore) IncrementTenantStorage(tenantID string, bytes int64) error {
 	if bytes <= 0 {
 		return nil

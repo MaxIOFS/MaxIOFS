@@ -1,13 +1,5 @@
 package s3compat
 
-// Overriding governance-mode retention.
-//
-// This is the strongest thing a caller can ask for on a WORM bucket: it deletes
-// an object that is still under protection. It used to be granted by holding
-// the admin role, which meant the catalogue permission for it granted nothing,
-// and any administrator could override retention on a compliance target whether
-// or not their policies said so.
-
 import (
 	"context"
 	"net/http"
@@ -21,10 +13,6 @@ import (
 )
 
 // TestGovernanceBypass_IsDecidedByPolicy pins what now decides: the permission,
-// asked of the caller's policies against the object.
-//
-// A caller with no policy reaching this bucket is refused, and broad policies
-// are still bounded by the bucket tenant.
 func TestGovernanceBypass_IsDecidedByPolicy(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

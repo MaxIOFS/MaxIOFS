@@ -51,9 +51,6 @@ const (
 	EventTypeSTSSessionIssued  = "sts_session_issued"
 	EventTypeSTSSessionRevoked = "sts_session_revoked"
 
-	// Federation exchanges: credentials or a token from an identity
-	// provider traded for a session. Denials are recorded too — these are the
-	// only STS endpoints reachable without a console session.
 	EventTypeSTSFederationExchange = "sts_federation_exchange"
 	EventTypeSTSFederationDenied   = "sts_federation_denied"
 )

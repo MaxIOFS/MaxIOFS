@@ -28,9 +28,6 @@ const (
 	EntityTypeGroup            = "group"
 	EntityTypeSTSSession       = "sts_session"
 
-	// IAM entities. Attachments and inline policies have no identifier of their
-	// own, so their tombstones use a composite: "policy/targetType/targetID" and
-	// "targetType/targetID/name" respectively.
 	EntityTypeIAMPolicy       = "iam_policy"
 	EntityTypeIAMRole         = "iam_role"
 	EntityTypeIAMInlinePolicy = "iam_inline_policy"
@@ -110,12 +107,6 @@ func HasDeletion(ctx context.Context, db *sql.DB, entityType, entityID string) (
 }
 
 // EntityIsNewerThanTombstone returns true when the locally stored entity was updated
-// strictly AFTER the tombstone's deleted_at timestamp.  When true, the entity wins
-// the LWW contest and the tombstone should be discarded.
-//
-// For entity types that have no updated_at column (AccessKey, BucketPermission) the
-// function always returns false so that the tombstone wins by default.
-// Accepts *sql.DB or *sql.Tx so callers can run it inside a transaction.
 func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
 	switch entityType {
 	case EntityTypeTenant:

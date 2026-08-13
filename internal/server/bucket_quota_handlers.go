@@ -13,10 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// bucketQuotaResponse is the JSON shape returned by the quota endpoints. It
-// reports the configured limits (null when no quota is set) alongside the
-// bucket's current usage so the console can render a usage/limit bar without a
-// second request.
+// bucketQuotaResponse is the JSON shape returned by the quota endpoints.
 type bucketQuotaResponse struct {
 	Quota *bucketQuotaPayload `json:"quota"`
 	Usage bucketQuotaUsage    `json:"usage"`
@@ -89,9 +86,6 @@ func (s *Server) handleGetBucketQuota(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePutBucketQuota sets or updates the per-bucket storage quota.
-// PUT /api/v1/buckets/{bucket}/quota
-// Body: {"maxSizeBytes": <int64>, "maxObjectCount": <int64>}  (0 = unlimited for that field)
-// Setting both fields to 0 clears the quota entirely.
 func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)

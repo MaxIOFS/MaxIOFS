@@ -113,13 +113,6 @@ type ReplicationConfig struct {
 	MaxRetries      int           `json:"max_retries"`
 	CleanupInterval time.Duration `json:"cleanup_interval"`
 	RetentionDays   int           `json:"retention_days"`
-	// CredentialEncryptionKey is used to encrypt destination_secret_key at rest.
-	// When set, secrets are encrypted with AES-256-GCM before being stored in SQLite
-	// and decrypted transparently on read. Legacy plaintext values are read as-is until
-	// the rule is next updated (gradual migration). If empty, no encryption is applied.
 	CredentialEncryptionKey string `json:"-"` // never serialise the key
-	// AllowInternalEndpoints disables SSRF protection for replication endpoints,
-	// allowing connections to private/internal IP ranges (10.x, 172.16.x, 192.168.x).
-	// Enable this when replicating between instances on the same private network or K8s cluster.
 	AllowInternalEndpoints bool `json:"allow_internal_endpoints"`
 }

@@ -76,9 +76,6 @@ func (s *Server) handleReceiveGroupSync(w http.ResponseWriter, r *http.Request) 
 }
 
 // upsertGroupAndMembers writes the group row (LWW on updated_at) and replaces the
-// group's membership set with the incoming MemberIDs.  Members that no longer exist
-// locally as users are silently skipped — they will be picked up once the user sync
-// catches up.
 func (s *Server) upsertGroupAndMembers(ctx context.Context, g *groupSyncPayload) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -115,9 +112,6 @@ func (s *Server) upsertGroupAndMembers(ctx context.Context, g *groupSyncPayload)
 		}
 	}
 
-	// Replace membership set: delete all current members, then re-insert the incoming set.
-	// Members that reference a non-existent user_id are skipped via INSERT OR IGNORE so the
-	// foreign-key constraint doesn't abort the entire transaction.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ?`, g.ID); err != nil {
 		return fmt.Errorf("clear members: %w", err)
 	}

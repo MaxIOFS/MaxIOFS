@@ -50,9 +50,6 @@ func setupManagerWithConfigKey(t *testing.T) (*objectManager, storage.Backend, m
 }
 
 // TestLegacyDirectEncryptedObjectStillDecrypts simulates an object written by
-// a pre-envelope version (encrypted directly with the config master key, no
-// wrapped DEK in the sidecar) and verifies the new multi-format reader
-// decrypts it with KEK version 1.
 func TestLegacyDirectEncryptedObjectStillDecrypts(t *testing.T) {
 	ctx := context.Background()
 	om, backend, metaStore := setupManagerWithConfigKey(t)
@@ -138,9 +135,6 @@ func TestPlaintextObjectStillServed(t *testing.T) {
 }
 
 // TestEnvelopeRoundtripWithConfigKey verifies the full write→read cycle:
-// new objects get a wrapped DEK under KEK v1 (the config key) and decrypt
-// transparently. A second manager built from the same config key (simulated
-// restart) must also decrypt them.
 func TestEnvelopeRoundtripWithConfigKey(t *testing.T) {
 	ctx := context.Background()
 	om, backend, metaStore := setupManagerWithConfigKey(t)

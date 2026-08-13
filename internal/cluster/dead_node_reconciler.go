@@ -52,14 +52,6 @@ type SyncTrigger interface {
 }
 
 // DeadNodeReconciler periodically inspects cluster_nodes for unavailable nodes
-// that have crossed the dead-node threshold, marks them dead, triggers a
-// catch-up sync on the remaining healthy replicas, and emits SSE events when
-// the cluster as a whole can no longer satisfy the configured replication
-// factor.
-//
-// Concurrency: a single goroutine drives the loop. Each tick processes nodes
-// serially under an internal mutex so that a slow Trigger() does not race a
-// drain endpoint.
 type DeadNodeReconciler struct {
 	mgr    *Manager
 	syncer SyncTrigger
@@ -127,9 +119,6 @@ func (r *DeadNodeReconciler) run(ctx context.Context) {
 }
 
 // RunOnce performs a single reconciliation pass: detect nodes past the
-// threshold, mark them dead (subject to the last-survivor rule), trigger
-// catch-up sync, and recompute cluster degraded state. Exported for tests
-// and the drain endpoint.
 func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	if !r.mgr.IsClusterEnabled() {
 		return nil
@@ -240,15 +229,6 @@ func (r *DeadNodeReconciler) findDeadCandidates(ctx context.Context, cutoff time
 }
 
 // markDeadIfSafe marks the node dead unless doing so would reduce the count of
-// healthy nodes below the configured replication factor. UNAVAILABLE and
-// DEGRADED nodes are excluded from the count because they cannot serve writes;
-// using them would allow the last healthy node to be marked dead. When refused,
-// the reconciler emits cluster_degraded with a "last-survivor protection" reason
-// so the admin sees why the node wasn't transitioned.
-//
-// The count check and the UPDATE execute inside a single BEGIN IMMEDIATE
-// transaction so that no concurrent writer can change the healthy count
-// between the check and the write on this node's SQLite database.
 func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, reason string) error {
 	factor, err := r.mgr.GetReplicationFactor(ctx)
 	if err != nil {
@@ -331,10 +311,6 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 		Factor:   factor,
 	})
 
-	// In this symmetric replication model every healthy node holds every
-	// bucket. Triggering the HA sync worker ensures any healthy node that
-	// hasn't completed initial sync yet starts catching up so the cluster
-	// can rebuild factor across the surviving healthy set.
 	if r.syncer != nil {
 		go r.syncer.Trigger(ctx)
 	}

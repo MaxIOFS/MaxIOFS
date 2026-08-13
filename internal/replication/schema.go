@@ -141,9 +141,6 @@ func migrateFromOldSchema(db *sql.DB) error {
 	}
 
 	if count > 0 {
-		// If there are existing rules, we need to backup and warn
-		// For now, we'll drop and recreate (safe since this is beta and likely no production data)
-		// In production, you'd want to preserve data
 		logrus.WithFields(logrus.Fields{
 			"existing_rules": count,
 		}).Warning("Replication: Dropping existing replication rules due to schema change. Please recreate your replication rules with new S3 parameters.")

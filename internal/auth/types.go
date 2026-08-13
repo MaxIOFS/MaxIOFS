@@ -86,24 +86,11 @@ type JWTClaims struct {
 	AccessKey   string   `json:"access_key"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
-	// TokenType distinguishes "access" tokens (used in Authorization headers)
-	// from "refresh" tokens (used only in POST /auth/refresh) and "download"
-	// tokens (used only to fetch one named object).
-	// Empty or missing means "access" (backward-compatible with pre-v1.1 tokens).
 	TokenType string `json:"token_type,omitempty"`
-	// Resource names the single thing a token may be used for. Only download
-	// tokens carry it: the token travels in a URL, so it must not be worth more
-	// than the one object it was minted for.
 	Resource string `json:"resource,omitempty"`
 }
 
 // TokenTypeDownload marks a token that may only fetch one named object.
-//
-// A browser cannot set an Authorization header when it navigates, and
-// navigating is the only way it will stream a large file to disk instead of
-// holding it in memory. So the credential has to travel in the URL — which is
-// logged, kept in history and handed to the next page in Referer. That makes
-// the scope the whole design: one object, two minutes, no other endpoint.
 const TokenTypeDownload = "download"
 
 // DownloadTokenTTL is deliberately short. The token is redeemed immediately by
@@ -247,21 +234,9 @@ const (
 	ActionPutBucketTagging      = "s3:PutBucketTagging"
 	ActionDeleteBucketTagging   = "s3:DeleteBucketTagging"
 
-	// The bucket's Object Lock configuration. Separate from the per-object
-	// retention actions: this one sets the DEFAULT retention every new upload
-	// inherits, so writing it locks data that does not exist yet.
 	ActionGetBucketObjectLockConfiguration = "s3:GetBucketObjectLockConfiguration"
 	ActionPutBucketObjectLockConfiguration = "s3:PutBucketObjectLockConfiguration"
 
-	// Bucket subresources that had no action of their own and were therefore
-	// guarded by an unrelated one — encryption by the CORS permission, logging
-	// and website by lifecycle, notification by bucket-policy, and so on. A
-	// single grant then silently conferred several unrelated configurations,
-	// and the borrowed name gave no way to grant one without the other.
-	//
-	// Replication deserves its own for a second reason: a replication rule
-	// names where a bucket's contents are copied TO, so writing one is the
-	// power to send the data somewhere else.
 	ActionGetBucketReplication  = "s3:GetBucketReplication"
 	ActionPutBucketReplication  = "s3:PutBucketReplication"
 	ActionGetBucketEncryption   = "s3:GetEncryptionConfiguration"

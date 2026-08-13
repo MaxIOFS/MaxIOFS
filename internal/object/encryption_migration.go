@@ -16,26 +16,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Plaintext → envelope conversion used by the background encryption worker.
-//
-// Safety model (this rewrites production object data, so every step protects
-// the original):
-//   - The plaintext is staged to a temp file first; the original is only
-//     replaced by storage.Put's atomic temp+rename, so a failure at any point
-//     leaves the original untouched.
-//   - The per-key shard lock is held for the whole conversion, serialising
-//     against the metadata section of concurrent PutObject calls, and the
-//     sidecar is re-checked under the lock.
-//   - After the rewrite the object is read back, decrypted and its MD5
-//     compared with the staged plaintext. On mismatch: if the sidecar carries
-//     a different wrapped DEK than the one we wrote, a concurrent client
-//     overwrite won the rename race and the object is left alone; otherwise
-//     the staged plaintext is restored.
 
 // EncryptExistingObject converts a stored plaintext object (and all its
-// stored versions) to envelope encryption. Objects already encrypted, folder
-// markers and delete markers are skipped. Returns how many stored files were
-// converted and how many were skipped.
 func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key string) (converted, skipped int, err error) {
 	// Folder markers carry no data and are intentionally stored unencrypted.
 	if strings.HasSuffix(key, "/") {
@@ -123,9 +105,6 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	// rewrite below.
 	isLegacyEncrypted := meta["encrypted"] == "true"
 
-	// Stage the PLAINTEXT to a temp file, hashing as we copy (decrypting on
-	// the fly for legacy direct-encrypted objects). For legacy objects the
-	// original ciphertext is staged too, as the restore source.
 	reader, _, err := om.storage.Get(ctx, path)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
@@ -142,10 +121,6 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 
-	// restorePath is what gets written back if verification fails: the
-	// plaintext staging for plaintext objects, or the raw ciphertext copy for
-	// legacy ones (restoring plaintext under an encrypted sidecar would
-	// corrupt the object).
 	restorePath := tempPath
 	hasher := md5.New()
 	var stagedSize int64
@@ -271,9 +246,6 @@ func (om *objectManager) migrationActionFor(meta map[string]string) migrationAct
 }
 
 // rewrapPathDEK re-wraps an envelope object's DEK with the current KEK.
-// Object data is never rewritten — only the sidecar changes, atomically
-// (temp+rename), and either sidecar state decrypts correctly.
-// Caller holds the per-key lock and passes the sidecar read under it.
 func (om *objectManager) rewrapPathDEK(ctx context.Context, bucket, key, path string, meta map[string]string) (bool, error) {
 	dek, err := om.decryptionKeyFor(meta)
 	if err != nil {

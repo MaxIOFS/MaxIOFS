@@ -1,11 +1,5 @@
 package auth
 
-// Deleting an identity must delete its permissions.
-//
-// A policy left behind after its owner is gone is a grant nobody can see. It
-// stays invisible until an identifier is reused — group and tenant identifiers
-// can be — and then applies to whoever inherits it.
-
 import (
 	"testing"
 

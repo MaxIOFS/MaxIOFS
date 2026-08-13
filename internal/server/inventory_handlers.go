@@ -73,9 +73,6 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// The destination bucket is only required/validated when inventory is enabled.
-	// Disabling inventory (enabled=false) just persists the off state, so a save
-	// with the toggle unchecked must not fail for a missing destination.
 	if req.Enabled {
 		if req.DestinationBucket == "" {
 			s.writeError(w, "Destination bucket is required", http.StatusBadRequest)

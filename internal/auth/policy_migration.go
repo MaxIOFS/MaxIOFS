@@ -1,16 +1,5 @@
 package auth
 
-// One-time conversion of the pre-IAM permission model into IAM entities.
-//
-// This runs once, on upgrade. It reads the role capabilities, per-user
-// overrides and bucket permissions an installation already has, and writes them
-// as real policies attached to real targets. After it has run, nothing in the
-// authorization path reads those tables again — the IAM tables are the model.
-//
-// It is deliberately not a runtime translation. A translation on every request
-// would keep both schemas alive forever and leave two descriptions of the same
-// permission that could drift apart.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -19,13 +8,6 @@ import (
 )
 
 // NeedsLegacyConversion reports whether the permission model has been converted
-// yet, by looking at the result rather than at a version number or a marker.
-//
-// Deciding from the schema version was wrong: a database that reached the IAM
-// version without being converted — because an earlier build tracked the
-// conversion differently — would be left with no policies at all, and since the
-// request path reads nothing else, every user including the administrator would
-// be locked out. Asking the data cannot get out of step with the data.
 func (s *SQLiteStore) NeedsLegacyConversion() (bool, error) {
 	var attachments int
 	if err := s.db.QueryRow(
@@ -37,13 +19,6 @@ func (s *SQLiteStore) NeedsLegacyConversion() (bool, error) {
 }
 
 // ConvertLegacyPermissions converts the stored permission model into IAM
-// entities. Idempotent: policies are upserted and attachments ignore conflicts,
-// so running it again converges instead of duplicating.
-//
-// It works per USER rather than per role, because a legacy role carried no
-// resources: it said which operations were possible, and a bucket permission
-// said where. A policy has to say both. Attaching a role's actions on every
-// resource would hand each user every bucket, which is not what they had.
 func (s *SQLiteStore) ConvertLegacyPermissions() error {
 	if err := s.convertRoleGlobalActions(); err != nil {
 		return fmt.Errorf("failed to convert role capabilities: %w", err)
@@ -62,11 +37,6 @@ func (s *SQLiteStore) ConvertLegacyPermissions() error {
 }
 
 // convertRoleGlobalActions attaches to each role the permissions that name no
-// resource — signing in, managing one's own keys, administering IAM. Those are
-// safe to hold on the role because there is no bucket to scope them to.
-//
-// The admin role is the exception: it was unconditional, everything everywhere,
-// so it converts to full access.
 func (s *SQLiteStore) convertRoleGlobalActions() error {
 	rows, err := s.db.Query(`SELECT role, capability FROM role_capabilities`)
 	if err != nil {
@@ -101,10 +71,6 @@ func (s *SQLiteStore) convertRoleGlobalActions() error {
 
 	byRole[RoleAdmin] = map[string]bool{PolicyFullAccess: true}
 
-	// Every role becomes an IAM role. There is one kind of role in the system:
-	// a named set of permissions. Whether it can also be assumed with
-	// AssumeRole is decided by whether it has a trust policy, and these — the
-	// roles people are assigned — have none.
 	for role := range byRole {
 		if err := s.ensureAssignableRole(role); err != nil {
 			return err
@@ -227,9 +193,6 @@ func (s *SQLiteStore) convertUserDenies(user *User) error {
 }
 
 // EnsureAssignableRoles makes sure every role users can hold exists as a role
-// entity. It runs on every boot, not only during the conversion: a database
-// converted by an earlier build has the attachments but not the rows, and
-// without the rows nothing can list the roles a user may be given.
 func (s *SQLiteStore) EnsureAssignableRoles() error {
 	rows, err := s.db.Query(`SELECT DISTINCT role FROM role_capabilities`)
 	if err != nil {
@@ -324,18 +287,6 @@ func (s *SQLiteStore) ensureCataloguePolicy(name string) error {
 }
 
 // GrantBucketOwnerPolicy records a bucket's owner as a policy on that owner.
-//
-// Ownership used to be an implicit fact checked in the handlers, which meant it
-// was permission the model could not see. Writing it as a policy is what lets
-// the owner's rights come from the same place as everyone else's.
-//
-// An owner is always a user. A tenant is a namespace, not a principal: writing
-// this policy on one would hand full access to the bucket to every member of
-// that tenant, when it is meant for the person who created it. Tenant
-// administrators reach it through their own permissions, and anyone else needs
-// an explicit grant. ownerType is kept for the callers that read it off a
-// bucket record, and anything that is not a user is refused rather than
-// silently widened.
 func (s *SQLiteStore) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error {
 	if ownerType != "" && ownerType != "user" {
 		return fmt.Errorf("bucket owner must be a user, got %q", ownerType)
@@ -355,11 +306,6 @@ func (s *SQLiteStore) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID stri
 func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef, error) {
 	names := []string{"owner-" + bucketName, "bucket-" + bucketName}
 
-	// Read them first: the caller has to record a tombstone for each, and once
-	// the rows are gone there is nothing left to say who held them. Without
-	// that, a peer still holding the policy pushes it back and the grant
-	// returns — which is exactly what deleting them was meant to prevent, since
-	// a bucket recreated under the same name would inherit the old owner.
 	rows, err := s.db.Query(
 		`SELECT target_type, target_id, name FROM iam_inline_policies WHERE name IN (?, ?)`,
 		names[0], names[1])

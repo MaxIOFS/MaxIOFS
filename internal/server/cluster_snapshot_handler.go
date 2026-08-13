@@ -9,9 +9,6 @@ import (
 )
 
 // handleGetStateSnapshot returns the full local entity state as a snapshot.
-// Consumed by the StaleReconciler when a node reconnects after a partition or
-// stale period.  Authenticated via HMAC (internalClusterRouter).
-// GET /api/internal/cluster/state-snapshot
 func (s *Server) handleGetStateSnapshot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

@@ -1178,12 +1178,6 @@ func (s *Server) isAdmin(user *auth.User) bool {
 }
 
 // isGlobalAdmin reports whether a user administers every tenant.
-//
-// The permission is checked explicitly rather than through a wildcard. The
-// admin role grants "*", and a role is the same role inside a tenant as outside
-// it — so accepting a wildcard here would promote every tenant's administrator
-// to administering all of them. Being scoped to a tenant is precisely what
-// makes an administrator a tenant's rather than the system's.
 func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	if user == nil {
 		return false

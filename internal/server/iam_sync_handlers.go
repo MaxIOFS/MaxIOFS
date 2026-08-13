@@ -14,12 +14,6 @@ import (
 )
 
 // handleReceiveIAMSync applies a batch of IAM entities pushed by a peer.
-// POST /api/internal/cluster/iam-sync
-//
-// Entities are upserted, never replaced wholesale, and an incoming row only
-// wins when it is at least as new as the local one. Deletions are applied last
-// and recorded locally, so a peer that has not yet heard about a delete cannot
-// bring the entity back on its next push.
 func (s *Server) handleReceiveIAMSync(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -74,9 +68,6 @@ func (s *Server) applyIAMPolicies(ctx context.Context, policies []*cluster.IAMPo
 			continue
 		}
 
-		// The versions of a policy only ever change through that policy's own
-		// actions, so the sending node's set is authoritative for the row it
-		// just won with.
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM iam_policy_versions WHERE policy_name = ?`, p.Name); err != nil {
 			logrus.WithError(err).Warn("Failed to clear IAM policy versions before sync")
 			continue
@@ -223,9 +214,6 @@ func (s *Server) deleteIAMEntityLocally(ctx context.Context, entityType, id stri
 }
 
 // iamIncomingIsNewer reports whether a synchronized row should overwrite the
-// local one. A row that does not exist locally is always accepted; otherwise
-// the newer updated_at wins, and a tie is accepted so two nodes that wrote the
-// same value in the same second still converge.
 func (s *Server) iamIncomingIsNewer(ctx context.Context, query, key string, incomingUpdatedAt int64) bool {
 	var localUpdated int64
 	if err := s.db.QueryRowContext(ctx, query, key).Scan(&localUpdated); err != nil {
@@ -256,9 +244,6 @@ func (s *Server) recordIAMDeletion(ctx context.Context, entityType, entityID str
 }
 
 // afterIAMWrite runs the side effects every IAM mutation shares: mark the local
-// write for the cluster's staleness tracking, and push the new state out so a
-// client that lands on a different node behind a load balancer does not find an
-// identity that has no permissions yet.
 func (s *Server) afterIAMWrite(ctx context.Context) {
 	s.touchLocalWriteAt(ctx)
 	s.triggerIAMSync(ctx)
@@ -273,9 +258,6 @@ func (s *Server) triggerIAMSync(ctx context.Context) {
 }
 
 // iamInlinePolicyNames and iamAttachedPolicyNames read what is about to be
-// deleted alongside its owner. They are called BEFORE the delete, because
-// afterwards there is nothing left to enumerate and the tombstones would be
-// missing — leaving a peer free to push the dead entity's policies back.
 func (s *Server) iamInlinePolicyNames(ctx context.Context, im auth.IAMManager, targetType, targetID string) []string {
 	if targetID == "" {
 		return nil

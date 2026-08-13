@@ -254,9 +254,6 @@ func formatJSONLog(entry LogEntry) string {
 // Helper functions
 
 func readRequestBody(r *http.Request, maxSize int64) string {
-	// This is a simplified implementation
-	// In production, you'd want to handle this more carefully
-	// to avoid consuming the body that the handler needs
 	return "" // TODO: Implement safe body reading
 }
 

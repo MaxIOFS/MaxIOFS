@@ -18,9 +18,6 @@ import (
 )
 
 // notifSSRFBlockingClient returns an HTTP client that refuses connections to
-// loopback, link-local, and private (RFC-1918/RFC-4193) addresses.
-// This prevents SSRF attacks where a user-controlled webhook endpoint targets
-// internal services (cloud metadata, private network, localhost).
 func notifSSRFBlockingClient() *http.Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport := &http.Transport{

@@ -1,11 +1,5 @@
 package auth
 
-// Helpers for tests that need to take a permission away from somebody.
-//
-// Revoking used to be a capability override. It is a Deny statement now, and
-// this writes one the same way the console does, so a test states the intent
-// ("this user may not upload") rather than the storage.
-
 import "fmt"
 
 // DenyPermission attaches a Deny for every action the capability names, which

@@ -146,9 +146,6 @@ func determineOperation(r *http.Request) string {
 
 // isS3Request checks if the request is to the S3 API
 func isS3Request(r *http.Request) bool {
-	// S3 API typically uses the main port and has specific headers
-	// or path patterns (e.g., /bucket/key)
-	// This is a simplified check - adjust based on your routing
 
 	// Check for AWS signature headers
 	if r.Header.Get("Authorization") != "" &&

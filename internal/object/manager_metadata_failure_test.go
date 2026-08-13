@@ -34,9 +34,6 @@ func (f *failingPutStore) PutObjectVersion(ctx context.Context, obj *metadata.Ob
 }
 
 // A metadata save failure must fail the PUT (no silent 200 for a write that
-// would be invisible in listings). The stored data file is kept on disk: on a
-// non-versioned overwrite it is the only copy, and sidecar-only files are what
-// `maxiofs recover` reindexes.
 func TestPutObjectFailsWhenMetadataSaveFails(t *testing.T) {
 	ctx := context.Background()
 	om, backend, metaStore := setupManagerWithConfigKey(t)

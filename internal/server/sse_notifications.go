@@ -134,11 +134,6 @@ func (h *NotificationHub) SendNotification(notif *Notification) {
 }
 
 // syncAlertStateToClient sends disk_resolved / quota_resolved events to a newly
-// connected SSE client so that any stale condition notifications persisted in
-// the browser's localStorage are cleared immediately on connect.
-// This is necessary because diskAlertState is in-memory and resets on server
-// restart, so the transition-based resolved events in checkDiskAlerts /
-// checkQuotaAlert are never fired when the server has no prior alert state.
 func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher) {
 	send := func(n *Notification) {
 		data, err := json.Marshal(n)
@@ -168,9 +163,6 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 		}
 	}
 
-	// --- Quota: send quota_resolved for any tenant that de-escalated this session ---
-	// Only tenants that were ever alerting appear in the map (entries with level==None
-	// mean they previously escalated and have since recovered).
 	if s.quotaAlerts != nil {
 		s.quotaAlerts.levels.Range(func(key, value interface{}) bool {
 			tenantID, ok := key.(string)

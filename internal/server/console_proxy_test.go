@@ -1,12 +1,5 @@
 package server
 
-// How the console proxies a request to the node that owns a bucket.
-//
-// The thing being guarded here is a distinction that is easy to lose: a console
-// request may be a short API call OR a file transfer of arbitrary size, and the
-// proxy carries both. Every bound written as though it were only the former
-// turns into a cap on file size.
-
 import (
 	"net/http"
 	"testing"
@@ -16,16 +9,6 @@ import (
 )
 
 // TestConsoleProxyClient_BoundsReachabilityNotTransferSize pins the reason the
-// client is shaped the way it is.
-//
-// http.Client.Timeout covers the whole exchange including the response body, so
-// setting it at all makes large transfers fail on healthy nodes: at the 30
-// seconds this used to carry, downloading a multi-gigabyte object from its
-// owning node failed every time, while nothing was wrong with either node.
-//
-// What still has to be bounded is a node that does not answer. That belongs on
-// the transport, where it applies to reaching the node rather than to how long
-// the file takes.
 func TestConsoleProxyClient_BoundsReachabilityNotTransferSize(t *testing.T) {
 	assert.Zero(t, consoleProxyClient.Timeout,
 		"an overall timeout is a limit on file size wearing the clothes of a limit on time")

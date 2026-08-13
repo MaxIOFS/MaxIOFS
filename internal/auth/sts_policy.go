@@ -1,21 +1,5 @@
 package auth
 
-// STS session policies. See docs/SECURITY.md, "Temporary Credentials".
-//
-// A session policy is an OPTIONAL restriction attached to a temporary
-// credential at issuance time. It can only REMOVE permissions: a request is
-// served when the existing pipeline (roles → capabilities → bucket_permissions
-// → bucket policies → ACLs) allows it AND the session policy allows it. There
-// is no path by which a session policy grants anything the base user does not
-// already have, so an attacker who steals a temporary credential can never
-// widen it by crafting a policy — issuance itself requires the user's console
-// session.
-//
-// The evaluator is deliberately minimal: Effect / Action / Resource with AWS
-// wildcards. Principal and Condition are REJECTED at issuance rather than
-// ignored, because silently dropping a Condition would turn a policy the caller
-// believed to be narrow into a broader one.
-
 import (
 	"encoding/json"
 	"errors"
@@ -38,13 +22,6 @@ const (
 var ErrSTSInvalidPolicy = errors.New("invalid sts session policy")
 
 // ParseSessionPolicy validates a session policy document and returns the parsed
-// form. An empty or whitespace-only document means "no restriction" and yields
-// (nil, nil).
-//
-// Validation is strict on purpose. This document is the caller's statement of
-// intent about how narrow the credential is; anything we cannot enforce exactly
-// as written is rejected at issuance, where the caller can still fix it, rather
-// than at request time, where they would only see unexplained denials.
 func ParseSessionPolicy(raw string) (*Policy, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -60,9 +37,6 @@ func ParseSessionPolicy(raw string) (*Policy, error) {
 	}
 
 	if len(policy.Statement) == 0 {
-		// A statement-less policy would deny every request. That is almost
-		// certainly not what the caller meant, so refuse it instead of issuing
-		// a credential that cannot do anything.
 		return nil, fmt.Errorf("%w: policy has no statements", ErrSTSInvalidPolicy)
 	}
 	if len(policy.Statement) > stsMaxSessionPolicyStatements {
@@ -74,9 +48,6 @@ func ParseSessionPolicy(raw string) (*Policy, error) {
 			return nil, fmt.Errorf("%w: statement %d has Effect %q (must be Allow or Deny)", ErrSTSInvalidPolicy, i, st.Effect)
 		}
 		if len(st.Principal) > 0 {
-			// A session policy applies to exactly one principal — the user the
-			// session projects. Accepting a Principal field would suggest it
-			// selects who the policy applies to, which it does not.
 			return nil, fmt.Errorf("%w: statement %d must not set Principal", ErrSTSInvalidPolicy, i)
 		}
 		if len(st.Condition) > 0 {
@@ -122,12 +93,6 @@ func EvaluateSessionPolicy(policy *Policy, action, resource string) bool {
 }
 
 // enforceSessionPolicy checks an authenticated request against the policy
-// stored on its session. Returns nil when the session carries no policy.
-//
-// A stored policy that no longer parses denies the request: the only ways to
-// get one are a corrupted row or a downgrade to a build that cannot understand
-// a construct a newer build accepted, and in both cases serving the request
-// unrestricted would silently widen a credential the caller narrowed.
 func enforceSessionPolicy(sess *STSSession, r *http.Request) error {
 	if sess == nil || strings.TrimSpace(sess.SessionPolicy) == "" {
 		return nil
@@ -171,9 +136,6 @@ func policyStringValues(v interface{}) []string {
 }
 
 // stsActionMatches reports whether any action pattern in the statement matches
-// the request action. Matching is case-insensitive because AWS action names are
-// conventionally written in mixed case and a case slip should not silently
-// widen or narrow a policy.
 func stsActionMatches(patterns interface{}, action string) bool {
 	for _, p := range policyStringValues(patterns) {
 		if stsWildcardMatch(strings.ToLower(p), strings.ToLower(action)) {

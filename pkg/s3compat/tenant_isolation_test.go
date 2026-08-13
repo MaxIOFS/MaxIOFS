@@ -1,14 +1,5 @@
 package s3compat
 
-// Sharing a tenant with a bucket is not a permission.
-//
-// Several read paths used to grant access automatically when the caller's
-// tenant matched the bucket's, without consulting anything else. A credential
-// whose policy named one bucket could therefore read, head and delete objects
-// in every other bucket of the same tenant — the policy was never asked.
-//
-// These pin the corrected behaviour on the paths that were affected.
-
 import (
 	"context"
 	"net/http"
@@ -47,10 +38,6 @@ func TestTenantIsNotAPermission_GetObject(t *testing.T) {
 }
 
 // TestTenantIsNotAPermission_AnotherTenantIsRefused is the boundary that must
-// hold absolutely.
-//
-// Inside a tenant the boundary still matters: membership in the same tenant is
-// not the same thing as ownership or an IAM grant.
 func TestTenantIsNotAPermission_AnotherTenantIsRefused(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

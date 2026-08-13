@@ -11,12 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ==================== Multipart Upload Operations ====================
-//
-// Pebble does not support per-key TTL natively. Expiry of stale uploads is
-// handled by runMultipartCleanup, a goroutine that scans the multipart index
-// hourly and removes entries older than 7 days — matching the behaviour
-// Older metadata engines provided this at the entry level.
 
 // CreateMultipartUpload initiates a new multipart upload.
 func (s *PebbleStore) CreateMultipartUpload(ctx context.Context, upload *MultipartUploadMetadata) error {
@@ -252,9 +246,6 @@ func (s *PebbleStore) CompleteMultipartUpload(ctx context.Context, uploadID stri
 		return fmt.Errorf("failed to delete multipart upload in batch: %w", err)
 	}
 
-	// Synced: completing an upload is the durability point the client paid
-	// for — the assembled object must survive a hard kill, and the upload
-	// tombstones must not resurrect a finished upload.
 	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit complete: %w", err)
 	}
@@ -395,16 +386,6 @@ func (s *PebbleStore) cleanupStaleMultipartUploads() {
 	var staleUploadIDs []string
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := string(iter.Key())
-		// multipart_idx:{bucket}:{uploadID}
-		// We need the uploadID part — everything after the second colon after "multipart_idx:"
-		// Format: multipart_idx:{bucket}:{uploadID}
-		// Split on ":" with max 3 parts: ["multipart_idx", "{bucket}", "{uploadID}"]
-		// But bucket itself shouldn't contain ":", so 3-part split is fine.
-		// Actually: multipart_idx:{bucket}:{uploadID} — bucket has no colon so:
-		//   parts[0] = "multipart_idx"
-		//   parts[1] = bucket
-		//   parts[2] = uploadID
-		// But we need SplitN(k, ":", 3) to be safe if bucket has slashes.
 		keySuffix := k[len("multipart_idx:"):]
 		// keySuffix = "{bucket}:{uploadID}"
 		colonIdx := -1

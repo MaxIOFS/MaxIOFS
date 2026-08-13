@@ -44,10 +44,6 @@ type QuotaAggregator struct {
 
 // NewQuotaAggregator creates a new quota aggregator
 func NewQuotaAggregator(clusterManager ClusterManagerInterface) *QuotaAggregator {
-	// Circuit breaker config:
-	// - Open after 3 consecutive failures
-	// - Require 2 successes to close from half-open
-	// - 30 seconds timeout before retry
 	circuitBreakers := NewCircuitBreakerManager(3, 2, 30*time.Second)
 
 	return &QuotaAggregator{

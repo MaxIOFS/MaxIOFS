@@ -1,20 +1,5 @@
 package object
 
-// An object whose metadata sidecar is gone.
-//
-// The sidecar carries the wrapped DEK and the `encrypted` flag. Without it the
-// storage layer derives what it can from the bytes on disk, and that derived
-// map has no `encrypted` key — so decryption was skipped and the raw ciphertext
-// was streamed to the client with a nil error, under the plaintext
-// Content-Length that the metadata store still reported. Nothing anywhere said
-// anything was wrong; a backup tool would have written those bytes to disk as
-// the restored file.
-//
-// The condition is reachable: `repairStagedCommit`'s roll-forward rename can
-// fail persistently (a sharing violation on Windows, EACCES), and its own log
-// line says the object "stays unreadable until repair succeeds" — but it was
-// not unreadable, it was readable as garbage.
-
 import (
 	"bytes"
 	"context"
@@ -78,9 +63,6 @@ func TestSidecarLoss_CiphertextIsNotServedAsTheObject(t *testing.T) {
 }
 
 // TestSidecarLoss_PlaintextLegacyObjectsStillRead is the other half: objects
-// written before encryption existed have no sidecar either, and refusing those
-// would take away data that is perfectly intact. What separates the two cases
-// is whether the bytes on disk still match what the metadata store recorded.
 func TestSidecarLoss_PlaintextLegacyObjectsStillRead(t *testing.T) {
 	manager, store, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()

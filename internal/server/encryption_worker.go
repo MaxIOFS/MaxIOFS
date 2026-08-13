@@ -11,22 +11,6 @@ import (
 )
 
 // Background encryption worker: converts pre-existing plaintext objects
-// (written by deployments that ran without an encryption key) to envelope
-// encryption. New writes are always encrypted, so the worker only ever has
-// to catch up on old data.
-//
-// It is the same component that will re-wrap DEKs on KEK rotation later —
-// it walks every bucket/object and acts on each object's state (today:
-// plaintext → convert; encrypted → skip).
-//
-// Behaviour:
-//   - Load-aware: before each page it checks CPU/RAM via systemMetrics and
-//     backs off while the node is busy.
-//   - Checkpointed: progress (bucket + marker + counters) is persisted in
-//     Pebble after every page, so a restart resumes where it left off.
-//   - Single-flight: only one pass runs at a time.
-//   - Paced: a small sleep between objects (plus the batch checkpoint)
-//     keeps IO impact low, mirroring the integrity scrubber.
 
 const (
 	encWorkerStateKey = "encryption_worker:state"
@@ -127,9 +111,6 @@ func (s *Server) runEncryptionPass(ctx context.Context) {
 	state.BucketsTotal = len(allBuckets)
 	s.saveEncryptionWorkerState(ctx, state)
 
-	// A checkpoint pointing at a bucket that no longer exists (deleted between
-	// runs) must not be honoured: skipUntilResume would never flip off and the
-	// whole pass would silently skip every bucket. Fall back to a full scan.
 	if resumeBucket != "" {
 		found := false
 		for _, bkt := range allBuckets {

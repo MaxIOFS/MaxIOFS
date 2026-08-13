@@ -24,9 +24,6 @@ type StateSnapshot struct {
 	// Unix timestamp (seconds) at which the snapshot was taken.
 	SnapshotAt int64 `json:"snapshot_at"`
 
-	// Per-entity-type lists.  All UpdatedAt values are Unix seconds.
-	// AccessKeys uses created_at (no updated_at column exists).
-	// BucketPermissions uses granted_at (no updated_at column exists).
 	Tenants           []EntityStamp `json:"tenants"`
 	Users             []EntityStamp `json:"users"`
 	AccessKeys        []EntityStamp `json:"access_keys"`

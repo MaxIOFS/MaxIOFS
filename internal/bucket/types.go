@@ -158,9 +158,6 @@ type Tag struct {
 }
 
 // NotificationConfig represents bucket notification configuration.
-// TopicConfigurations, QueueConfigurations, and LambdaConfigurations map to the three
-// S3 target types. In MaxIOFS, the Endpoint field holds the webhook URL that receives
-// the S3-compatible event payload (SNS/SQS/Lambda ARNs are treated as HTTP endpoints).
 type NotificationConfig struct {
 	TopicConfigurations  []NotificationTarget `json:"TopicConfigurations,omitempty"`
 	QueueConfigurations  []NotificationTarget `json:"QueueConfigurations,omitempty"`

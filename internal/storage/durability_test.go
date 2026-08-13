@@ -1,16 +1,5 @@
 package storage
 
-// Durability of an object write.
-//
-// The two-phase sidecar commit reasons about which of two renames survived a
-// crash. That question only has an answer if the writes are actually durable,
-// and nothing in this package called fsync — not on the data, not on the
-// sidecar carrying the wrapped DEK, not on the directory holding the names.
-//
-// The asymmetry is what made it dangerous: the metadata store fsyncs its WAL
-// every second, so after a power cut it confidently reported objects whose
-// bytes were still only in the page cache.
-
 import (
 	"bytes"
 	"context"
@@ -81,9 +70,6 @@ func TestPut_SurvivesAndReadsBack(t *testing.T) {
 }
 
 // TestGeneratedMetadata_IsMarked: the map derived from the bytes on disk has to
-// say so, because it cannot tell a plaintext legacy object from an encrypted
-// one whose sidecar was lost — and the object layer refuses the second only if
-// it knows which kind of map it is holding.
 func TestGeneratedMetadata_IsMarked(t *testing.T) {
 	root, err := os.MkdirTemp("", "maxiofs-generated-*")
 	require.NoError(t, err)

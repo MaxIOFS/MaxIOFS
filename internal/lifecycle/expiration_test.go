@@ -31,9 +31,6 @@ func (m *mockObjectMgrWithMultipart) AbortMultipartUpload(ctx context.Context, u
 	return nil
 }
 
-// ============================================================
-// processObjectExpiration tests
-// ============================================================
 
 // TestProcessObjectExpiration_DeletesExpiredByDays verifies that objects older than
 // the configured Days are deleted.
@@ -196,9 +193,6 @@ func TestProcessObjectExpiration_ListError(t *testing.T) {
 	assert.Equal(t, 0, objMgr.deleteCount, "No deletions when listing fails")
 }
 
-// ============================================================
-// processAbortIncompleteMultipartUploads tests
-// ============================================================
 
 // TestAbortIncompleteMultipart_AbortsOldUploads verifies stale uploads are aborted.
 func TestAbortIncompleteMultipart_AbortsOldUploads(t *testing.T) {
@@ -281,9 +275,6 @@ func TestAbortIncompleteMultipart_AllFresh(t *testing.T) {
 	assert.Empty(t, objMgr.abortedIDs, "Fresh uploads should not be aborted")
 }
 
-// ============================================================
-// processLifecycleRule integration: all sub-rules in one rule
-// ============================================================
 
 // TestProcessLifecycleRule_ExpirationAndAbort tests that a rule with both
 // expiration and abort incomplete multipart triggers both handlers.

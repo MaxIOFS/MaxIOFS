@@ -42,12 +42,6 @@ func migration13_v140_Capabilities() Migration {
 				return err
 			}
 
-			// Seed default role capabilities.
-			// admin:    all capabilities.
-			// user:     everything except bucket:manage_policy.
-			// read:     download + console + own API keys.
-			// readonly: download + console only.
-			// guest:    download only, no console.
 			defaults := []struct{ role, cap string }{
 				{"admin", "bucket:create"},
 				{"admin", "bucket:delete"},

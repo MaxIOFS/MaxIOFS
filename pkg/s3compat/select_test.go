@@ -16,9 +16,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ============================================================================
-// Event stream helpers
-// ============================================================================
 
 // parseEventMessages reads all event-stream messages from data and returns them
 // as a slice of (eventType, payload) pairs for easy assertions.

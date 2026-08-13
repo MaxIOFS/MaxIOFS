@@ -1,15 +1,5 @@
 package s3compat
 
-// The tenant boundary.
-//
-// A policy names a bucket by its bare name, so "arn:aws:s3:::backups" matches
-// every bucket called that, in every tenant. What keeps one tenant's grant from
-// reaching another's bucket is not the document — it is this boundary, the way
-// an AWS account bounds what a policy saying "*" can reach.
-//
-// Because nothing in the policies expresses it, only these tests hold it in
-// place.
-
 import (
 	"bytes"
 	"context"
@@ -26,9 +16,6 @@ import (
 )
 
 // TestTenantBoundary_TenantlessUserCannotReachATenantBucket is the direction
-// that was open: the check only refused a caller who HAD a tenant, so a
-// tenant-less credential passed into every tenant. Combined with bare-name
-// ARNs, a grant on the global "backups" reached each tenant's "backups" too.
 func TestTenantBoundary_TenantlessUserCannotReachATenantBucket(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
@@ -217,4 +204,36 @@ func TestSubresourceAuthorization_BatchDeleteIsCheckedPerObject(t *testing.T) {
 
 	_, err = env.objectManager.GetObjectMetadata(ctx, bucketPath, objectKey)
 	assert.NoError(t, err, "batch delete must not delete unauthorized objects")
+}
+
+// TestTenantBoundary_SuperAdminWritesInTheGlobalNamespace is the other side of
+func TestTenantBoundary_SuperAdminWritesInTheGlobalNamespace(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, "", "global-space", env.userID))
+
+	writer, ok := env.authManager.(interface {
+		PutIAMInlinePolicy(ctx context.Context, targetType, targetID, name, document string) error
+	})
+	require.True(t, ok)
+	require.NoError(t, writer.PutIAMInlinePolicy(ctx, auth.IAMTargetUser, env.userID, "super",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["*"],"Resource":["*"]}]}`))
+
+	super := &auth.User{ID: env.userID, TenantID: "", Roles: []string{auth.RoleAdmin}}
+
+	assert.True(t,
+		env.handler.userCanPerformS3ActionInTenant(ctx, super, "",
+			auth.ActionPutObject, objectARN("global-space", "backup.bin")),
+		"an administrator must be able to write in their own namespace")
+	assert.True(t,
+		env.handler.userCanPerformS3ActionInTenant(ctx, super, "",
+			auth.ActionDeleteObject, objectARN("global-space", "backup.bin")))
+
+	// And crossing into a tenant is still read-only.
+	assert.False(t,
+		env.handler.userCanPerformS3ActionInTenant(ctx, super, "someone-elses-tenant",
+			auth.ActionPutObject, objectARN("their-bucket", "x")),
+		"crossing into a tenant stays read-only")
 }

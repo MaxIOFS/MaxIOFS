@@ -1,14 +1,5 @@
 package metadata
 
-// Deleting one version of an object.
-//
-// PutObjectVersion mirrors the latest version's document into the main
-// `obj:{bucket}:{key}` entry. Deleting only the version key therefore left the
-// main entry describing data that no longer existed: listings advertised the
-// object, every GET on it failed, and a non-destructive reconcile has no way to
-// notice — it only adds entries for files it finds, never questions one that is
-// already there.
-
 import (
 	"context"
 	"os"

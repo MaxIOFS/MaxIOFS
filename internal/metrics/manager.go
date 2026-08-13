@@ -1018,9 +1018,6 @@ func (m *metricsManager) IsHealthy() bool {
 }
 
 func (m *metricsManager) Reset() error {
-	// Reset would clear all metrics
-	// For Prometheus, we'd need to recreate the metrics
-	// For MVP, just return nil
 	return nil
 }
 

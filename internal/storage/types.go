@@ -6,12 +6,6 @@ import "github.com/maxiofs/maxiofs/internal/config"
 type Config = config.StorageConfig
 
 // MetadataGeneratedKey marks a metadata map that was derived from the bytes on
-// disk because the object had no sidecar.
-//
-// Such a map carries no `encrypted` flag, so an encrypted object that lost its
-// sidecar reads as plaintext and its ciphertext is served verbatim. The marker
-// lets the object layer tell that case apart from a genuinely plaintext legacy
-// object and refuse rather than guess.
 const MetadataGeneratedKey = "maxiofs-metadata-generated"
 
 // Common storage errors

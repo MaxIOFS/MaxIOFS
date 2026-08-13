@@ -1098,9 +1098,6 @@ func addUserToContext(r *http.Request, user *auth.User) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// ============================================================================
-// SECURITY TESTS - Health Endpoints
-// ============================================================================
 
 // TestHealthEndpoint_NoAuthenticationRequired tests that health endpoint doesn't require auth
 func TestHealthEndpoint_NoAuthenticationRequired(t *testing.T) {
@@ -1158,9 +1155,6 @@ func TestReadyEndpoint_ChecksAuthReadiness(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "not ready")
 }
 
-// ============================================================================
-// SECURITY TESTS - Missing Authentication
-// ============================================================================
 
 // TestS3Operation_MissingAuthentication tests that S3 operations require authentication
 func TestS3Operation_MissingAuthentication(t *testing.T) {
@@ -1206,9 +1200,6 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 				).Once()
 			}
 
-			// Create request WITHOUT authentication (no user in context)
-			// Add x-amz-content-sha256 so isS3Client() recognises it as an S3 request
-			// and doesn't redirect to the console URL before the auth check runs.
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			req.Header.Set("x-amz-content-sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 			rr := httptest.NewRecorder()
@@ -1226,9 +1217,6 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// SECURITY TESTS - Invalid Signature
-// ============================================================================
 
 // TestS3Operation_InvalidSignature tests detection of invalid AWS signature
 func TestS3Operation_InvalidSignature(t *testing.T) {
@@ -1258,9 +1246,6 @@ func TestS3Operation_InvalidSignature(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "AccessDenied")
 }
 
-// ============================================================================
-// SECURITY TESTS - Expired Credentials
-// ============================================================================
 
 // TestS3Operation_ExpiredCredentials tests rejection of expired credentials
 func TestS3Operation_ExpiredCredentials(t *testing.T) {
@@ -1292,9 +1277,6 @@ func TestS3Operation_ExpiredCredentials(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "AccessDenied")
 }
 
-// ============================================================================
-// SECURITY TESTS - Input Validation
-// ============================================================================
 
 // TestBucketName_PathTraversal tests prevention of path traversal attacks in bucket names
 func TestBucketName_PathTraversal(t *testing.T) {
@@ -1332,9 +1314,6 @@ func TestBucketName_PathTraversal(t *testing.T) {
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, req)
 
-			// Should not allow path traversal - bucket won't be found or will be blocked
-			// 301 (redirect), 404 (not found), 403 (forbidden), or 400 (bad request) are all acceptable
-			// 301 redirect is a security measure by the router to prevent path traversal
 			assert.True(t, rr.Code == 301 || rr.Code >= 400,
 				"Path traversal should be blocked, got status %d for bucket %s", rr.Code, bucketName)
 		})
@@ -1477,9 +1456,6 @@ func TestObjectKey_SQLInjectionAttempt(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// SECURITY TESTS - Oversized Inputs
-// ============================================================================
 
 // TestPutObject_OversizedHeaders tests handling of oversized HTTP headers
 func TestPutObject_OversizedHeaders(t *testing.T) {
@@ -1550,15 +1526,9 @@ func TestPutObject_OversizedHeaders(t *testing.T) {
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	// Should handle oversized headers gracefully
-	// HTTP server may reject before reaching handler, or handler should reject
-	// Note: httptest doesn't enforce header size limits, so we just verify it doesn't crash
 	assert.NotEqual(t, http.StatusInternalServerError, rr.Code, "Should not crash with oversized headers")
 }
 
-// ============================================================================
-// SECURITY TESTS - Concurrent Requests
-// ============================================================================
 
 // TestConcurrentRequests_RateLimiting simulates concurrent requests
 func TestConcurrentRequests_RateLimiting(t *testing.T) {

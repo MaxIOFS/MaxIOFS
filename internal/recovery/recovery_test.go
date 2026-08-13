@@ -165,9 +165,6 @@ func TestRecovery_FullRebuild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(len("global object content")), obj.Size)
 
-	// The rebuilt entry must keep the ORIGINAL modification time from the
-	// sidecar — not the recovery run's time (lifecycle timers and cluster LWW
-	// decisions depend on it).
 	sidecar, err := readSidecar(filepath.Join(dataDir, "objects", "global-bucket", "hello.txt"))
 	require.NoError(t, err)
 	sidecarLM, err := strconv.ParseInt(sidecar["last_modified"], 10, 64)

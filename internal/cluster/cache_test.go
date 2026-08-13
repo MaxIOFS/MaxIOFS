@@ -174,9 +174,6 @@ func TestBucketLocationCache_CleanupExpired(t *testing.T) {
 		t.Errorf("Expected size 2, got %d", cache.Size())
 	}
 
-	// Wait for cleanup to run (cleanup runs every 1 minute, but entries expire after 100ms)
-	// We can't easily test the automatic cleanup without waiting 1 minute,
-	// but we can verify that expired entries return empty string
 	time.Sleep(150 * time.Millisecond)
 
 	// Expired entries should return empty string
@@ -187,9 +184,6 @@ func TestBucketLocationCache_CleanupExpired(t *testing.T) {
 		t.Error("Expected empty string for expired bucket-2")
 	}
 
-	// Size still shows 2 because cleanup hasn't run yet (runs every 1 minute)
-	// This is expected behavior - entries are lazy-deleted on Get(),
-	// and the background cleanup runs periodically
 	if cache.Size() != 2 {
 		t.Logf("Note: Size is %d because background cleanup hasn't run yet (expected)", cache.Size())
 	}

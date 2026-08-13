@@ -35,9 +35,6 @@ type SyncJobStatus struct {
 }
 
 // HASyncWorker copies all existing objects to new replica nodes whenever the
-// replication factor increases or a new node joins the cluster.
-// One goroutine per target node runs concurrently; progress is checkpointed in
-// the cluster SQLite DB so that a crash resumes from the last saved position.
 type HASyncWorker struct {
 	objMgr    object.Manager
 	bucketMgr bucket.Manager
@@ -128,10 +125,6 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 		}
 		replicas++
 
-		// Atomically check whether a sync is running or already done, and claim
-		// the slot before releasing the lock. Without holding the lock through
-		// the DB check, two concurrent Trigger calls could both see no running
-		// job and start parallel syncs for the same node.
 		w.mu.Lock()
 		_, alreadyRunning := w.running[n.ID]
 		skipBecauseDone := false

@@ -154,9 +154,6 @@ func (s *Sender) deliver(client *smtp.Client, to []string, msg []byte) error {
 }
 
 func buildMessage(from string, to []string, subject, body string) []byte {
-	// Sanitize header fields to prevent SMTP header injection.
-	// CR and LF characters in any header value would allow an attacker to
-	// inject arbitrary headers (e.g. Bcc:) or split the message body.
 	safeFrom := sanitizeHeader(from)
 	safeTo := make([]string, len(to))
 	for i, r := range to {

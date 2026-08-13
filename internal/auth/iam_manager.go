@@ -1,12 +1,5 @@
 package auth
 
-// Manager-level IAM operations. See docs/SECURITY.md, "IAM".
-//
-// These sit behind their own interface rather than being bolted onto Manager:
-// the IAM surface is optional, only the query-protocol handler needs it, and
-// every mock of Manager in the codebase would otherwise have to grow two dozen
-// methods it never calls.
-
 import (
 	"context"
 	"crypto/rand"
@@ -114,10 +107,6 @@ func (am *authManager) CreateIAMUser(ctx context.Context, username, path, tenant
 }
 
 // DeleteIAMUser removes a user along with its credentials and policies.
-//
-// A user holding a role is refused: an integration deleting its own service
-// identities must not be able to remove the administrator who configured it,
-// and a role is what distinguishes a person's account from a credential holder.
 func (am *authManager) DeleteIAMUser(ctx context.Context, username string) error {
 	user, err := am.store.GetUserByUsername(username)
 	if err != nil {

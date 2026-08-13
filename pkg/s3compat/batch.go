@@ -159,9 +159,6 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		} else {
-			// Success - add to deleted list if not quiet mode.
-			// When a delete marker was created (versioned bucket, no VersionId specified),
-			// include DeleteMarker and DeleteMarkerVersionId per S3 spec.
 			if !deleteRequest.Quiet {
 				deleted := DeletedObject{
 					Key:       obj.Key,

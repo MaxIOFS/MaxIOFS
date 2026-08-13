@@ -28,9 +28,6 @@ const (
 )
 
 // ProxyClient handles proxying S3 requests to remote nodes.
-// It holds a getTLS getter that is called at each request so the TLS config is
-// always current — even when a node transitions from standalone to cluster mode
-// after the ProxyClient was created.
 type ProxyClient struct {
 	getTLS     func() *tls.Config // called at request time; nil getter = no TLS
 	mu         sync.Mutex
@@ -70,20 +67,6 @@ func NewDynamicProxyClient(getTLS func() *tls.Config) *ProxyClient {
 }
 
 // buildHTTPClient builds the client that carries S3 requests to the node that
-// owns a bucket — which means it carries object data, of any size.
-//
-// It has no overall Timeout, for the same reason the body is streamed rather
-// than buffered a few lines below: this client moves files. http.Client.Timeout
-// bounds the whole exchange including the body, so it is a cap on file size
-// written as a cap on time. The 60 seconds it used to carry meant an object
-// larger than a minute's worth of bandwidth could never cross between nodes —
-// about 7 GB on a saturated 1 Gbps link, less on anything slower or busier.
-//
-// A node that has stopped answering still has to fail quickly, and that is what
-// the transport bounds: reaching it, negotiating TLS, and receiving the response
-// headers. Once the headers arrive the transfer is bounded by PROGRESS instead
-// — see internal/transfer — so an object that keeps moving is never cut however
-// long it needs, while one that has gone silent does not hold the request open.
 func buildHTTPClient(tlsCfg *tls.Config) *http.Client {
 	transport := &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -113,9 +96,6 @@ func (p *ProxyClient) getHTTPClient() *http.Client {
 }
 
 // internalClusterHeaders is the set of X-MaxIOFS-* headers that are meaningful
-// only between cluster peers. External clients must never be allowed to inject
-// them. Call StripInternalClusterHeaders on any incoming external request before
-// using it in cluster routing logic. (SEC-05)
 var internalClusterHeaders = []string{
 	"X-MaxIOFS-Proxied",
 	"X-MaxIOFS-Proxy-Node",
@@ -131,10 +111,6 @@ var internalClusterHeaders = []string{
 }
 
 // StripInternalClusterHeaders removes all X-MaxIOFS-* cluster-internal headers
-// from an incoming HTTP request. Call this for every request that arrives from
-// an external client before any cluster routing logic examines the headers.
-// This prevents external clients from spoofing loop-prevention or identity
-// headers (SEC-05).
 func StripInternalClusterHeaders(r *http.Request) {
 	for _, h := range internalClusterHeaders {
 		r.Header.Del(h)
@@ -184,9 +160,6 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
 	proxyReq.Header.Set("X-MaxIOFS-Proxy-Node", node.ID)
 
-	// Execute request. Bounded by progress rather than by elapsed time: a large
-	// object may legitimately take hours, but a peer that has gone silent
-	// mid-transfer must not hold the request open indefinitely.
 	startTime := time.Now()
 	resp, err := transfer.Do(p.getHTTPClient(), proxyReq, transfer.DefaultStallTimeout)
 	duration := time.Since(startTime)
@@ -366,11 +339,6 @@ func shouldUseUnsignedClusterPayload(body io.Reader) bool {
 
 // DoAuthenticatedRequest executes an authenticated cluster request and returns the response
 func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response, error) {
-	// Bounded by progress, like the other two entry points. This one carries
-	// object bodies too — HA sync, anti-entropy, migration and reconciliation
-	// all go through it, on contexts that carry no deadline of their own, so
-	// without a bound a peer that answers and then falls silent wedges the
-	// calling goroutine permanently.
 	startTime := time.Now()
 	resp, err := transfer.Do(p.getHTTPClient(), req, transfer.DefaultStallTimeout)
 	duration := time.Since(startTime)
@@ -396,14 +364,6 @@ func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response,
 }
 
 // AddClusterProxyHeaders adds inter-node proxy authentication headers to an outgoing S3 request.
-// It replaces the original Authorization header (which was SigV4-signed for the client's host)
-// with cluster HMAC auth so the target node can validate the request without re-verifying SigV4.
-//
-// Parameters:
-//   - req: the outgoing request to be modified
-//   - nodeID: local node's ID
-//   - clusterToken: local node's cluster token (used as HMAC key)
-//   - userID, tenantID, roles: forwarded user context
 func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, tenantID, roles string) {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -425,12 +385,6 @@ func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, ten
 }
 
 // ValidateClusterProxyAuth validates inter-node proxy authentication headers.
-// Returns the forwarded user context if valid, or ok=false if validation fails.
-//
-// Validation checks:
-//   - X-MaxIOFS-Proxied: true header present
-//   - HMAC-SHA256(clusterToken, "proxy:{nodeID}:{timestamp}") matches X-MaxIOFS-Node-Hmac
-//   - Timestamp within ±5 minutes of current time
 func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, tenantID, roles string, ok bool) {
 	if req.Header.Get("X-MaxIOFS-Proxied") != "true" {
 		return "", "", "", false
@@ -474,10 +428,6 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 }
 
 // buildInternalS3URL derives the inter-node S3 API URL from node.Endpoint.
-// node.Endpoint is always https://<internal-ip>:<clusterPort> (IP validated at cluster init).
-// We extract the IP and build http://<ip>:<s3Port> to avoid using node.APIURL's public
-// hostname, which may carry a certificate not signed by the cluster CA.
-// s3Port is taken from node.APIURL's explicit port if set (and not a default port), otherwise 8080.
 func buildInternalS3URL(node *Node) string {
 	if node.Endpoint == "" {
 		return ""
@@ -501,13 +451,7 @@ func buildInternalS3URL(node *Node) string {
 }
 
 // ProxyToNodeAPIURL proxies an S3 request to a remote node's S3 API URL.
-// It adds cluster auth headers, derives the internal target URL from node.Endpoint
-// (always an internal IP), and executes the request.
-// Returns the raw HTTP response (caller must close Body).
 func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, originalReq *http.Request, nodeID, clusterToken, userID, tenantID, roles string) (*http.Response, error) {
-	// Always derive the internal S3 URL from node.Endpoint (guaranteed internal IP).
-	// node.APIURL is the public-facing URL and may use a public cert not trusted by the
-	// cluster CA — using it for inter-node proxying causes x509 certificate errors.
 	baseURL := buildInternalS3URL(node)
 	if baseURL == "" {
 		// Fallback for standalone/test scenarios without Endpoint.

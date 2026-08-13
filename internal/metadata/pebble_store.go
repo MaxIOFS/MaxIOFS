@@ -17,14 +17,6 @@ import (
 )
 
 // PebbleStore implements the Store interface using Pebble (CockroachDB's LSM engine).
-// Pebble's WAL is used for crash-safe metadata persistence.
-//
-// Durability model: hot-path writes (object puts, parts, metrics) commit with
-// NoSync and a background loop fsyncs the WAL once per WALSyncInterval, so a
-// hard kill loses at most that window. Low-frequency destructive operations
-// (object/bucket deletes, multipart complete/abort) commit with Sync — losing
-// a delete tombstone would leave a ghost listing entry pointing at a removed
-// file, which no fallback can serve.
 type PebbleStore struct {
 	db               *pebble.DB
 	ready            atomic.Bool
@@ -45,9 +37,6 @@ type PebbleOptions struct {
 	DataDir     string
 	Logger      *logrus.Logger
 	CacheSizeMB int // Block cache size in MB (default 256)
-	// WALSyncInterval is how often the background loop fsyncs the WAL,
-	// bounding metadata loss on a hard kill. 0 uses the 1s default; a
-	// negative value disables the loop (tests).
 	WALSyncInterval time.Duration
 }
 
@@ -55,10 +44,7 @@ type PebbleOptions struct {
 // at most one fsync per second — the "everysec" model.
 const defaultWALSyncInterval = time.Second
 
-// cleanShutdownSentinelFile marks that the store was closed cleanly. It is
-// written by Close after the DB closes and consumed (removed) on open; if a
-// pre-existing store opens without it, the previous process died hard and the
-// server should reconcile metadata against the on-disk object tree.
+// cleanShutdownSentinelFile marks that the store was closed cleanly.
 const cleanShutdownSentinelFile = "CLEAN_SHUTDOWN"
 
 // NewPebbleStore creates a new Pebble-backed metadata store
@@ -101,13 +87,6 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 		Logger: &pebbleLogger{logger: opts.Logger},
 	}
 
-	// Clean-shutdown detection, decided BEFORE opening: a store existed here
-	// (our v2 format sentinel is written on every open, so it reliably marks
-	// a pre-existing store — Pebble itself has no CURRENT file) but the
-	// sentinel its Close should have written is missing → the previous
-	// process died hard. A fresh directory counts as clean (nothing to
-	// reconcile). The sentinel is consumed so a future crash cannot read a
-	// stale one.
 	_, formatErr := os.Stat(filepath.Join(dbPath, PebbleV2SentinelFile))
 	storeExisted := formatErr == nil
 	shutdownSentinel := filepath.Join(dbPath, cleanShutdownSentinelFile)
@@ -190,10 +169,6 @@ func (s *PebbleStore) runWALSyncLoop(interval time.Duration) {
 }
 
 // setNoSync / commitNoSync are the hot-path write helpers:
-// they commit without fsync and flag the WAL dirty so the periodic sync loop
-// makes the write durable within one interval. The dirty flag is set AFTER
-// the write lands in the WAL — a concurrent tick between the two at worst
-// syncs once more than needed, never misses the write.
 func (s *PebbleStore) setNoSync(key, value []byte) error {
 	err := s.db.Set(key, value, pebble.NoSync)
 	if err == nil {
@@ -342,12 +317,6 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 
 	key := bucketKey(bucket.TenantID, bucket.Name)
 
-	// The same mutex UpdateBucketMetrics takes, and for the same reason: both
-	// write this one key. Without it, and without the merge below, the two lost
-	// each other's work — a configuration write built from a snapshot taken
-	// before a concurrent PUT reverted that PUT's counters, and a counter
-	// increment landing between a caller's read and its write reverted the
-	// setting they were saving (a quota, versioning, Object Lock).
 	mu := s.getBucketMetricsMutex(key)
 	mu.Lock()
 	defer mu.Unlock()
@@ -360,9 +329,6 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 	}
 
 	// The counters belong to UpdateBucketMetrics, which owns them under this
-	// same lock. A configuration write carries whatever they happened to be
-	// when its caller read the bucket, which is not an opinion about their
-	// value — so the stored ones win.
 	var current BucketMetadata
 	if err := json.Unmarshal(stored, &current); err == nil {
 		bucket.ObjectCount = current.ObjectCount

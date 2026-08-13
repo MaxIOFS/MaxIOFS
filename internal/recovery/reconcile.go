@@ -1,31 +1,5 @@
 package recovery
 
-// Online reconciliation after an unclean shutdown.
-//
-// Hot-path Pebble commits are NoSync (fsynced within ~1s by the store's WAL
-// sync loop), so a hard kill can lose the last moments of metadata writes
-// while the object files and their sidecars survived on disk. Reconcile walks
-// the object tree against a LIVE store and repairs only in the non-destructive
-// direction:
-//
-//   - data file + sidecar present, Pebble entry missing → the entry is
-//     rebuilt from the sidecar (a PUT whose metadata commit was lost).
-//
-// It deliberately never removes Pebble metadata or sidecars merely because a
-// data path is absent. A missing path can mean a storage mount, layout, or
-// transient filesystem problem; treating that as deletion authority risks data
-// loss, especially for versioned/Object Lock buckets.
-//
-// It runs in the background on a serving node: GETs already work through the
-// sidecar fallback while entries are missing, and listings converge as the
-// walk progresses. Same recovery bias as the offline rebuild: when a file
-// exists on disk it is indexed — a delete that fsynced its tombstone and
-// died before unlinking the file (sub-millisecond window) comes back visible
-// rather than risking the loss of a just-written object.
-//
-// Staged sidecars (*.metadata-staging) are never touched here: the storage
-// backend's two-phase-commit repair owns them.
-
 import (
 	"context"
 	"fmt"
@@ -86,9 +60,6 @@ func Reconcile(ctx context.Context, dataDir string, store metadata.Store, logger
 			return report, err
 		}
 		if _, err := store.GetBucket(ctx, bkt.tenantID, bkt.name); err != nil {
-			// A bucket dir without a Pebble bucket entry is beyond the crash
-			// window (bucket creation commits are Sync'd) — full-recover
-			// territory, not something to silently half-repair here.
 			report.Failures = append(report.Failures,
 				fmt.Sprintf("bucket %s: not in metadata store — skipped (use `maxiofs recover` if this bucket should exist)", bkt.bucketPath))
 			continue

@@ -19,9 +19,6 @@ import (
 )
 
 // metadataStagingSuffix is appended to a sidecar path to form the STAGED
-// sidecar written by Put before the data commit. Its presence on disk means a
-// Put crashed between its data and metadata commits; repairStagedCommit
-// resolves it (roll forward or roll back) on the next access to the path.
 const metadataStagingSuffix = "-staging" // full staged name: <object>.metadata-staging
 
 // pathLockShards is the number of striped mutexes serialising per-path
@@ -37,9 +34,6 @@ type FilesystemBackend struct {
 
 // NewFilesystemBackend creates a new filesystem storage backend
 func NewFilesystemBackend(config Config) (*FilesystemBackend, error) {
-	// Ensure root path exists
-	// NEW-04: use 0750 so only the process owner/group can read object data,
-	// preventing other local OS users from bypassing S3 access controls.
 	if err := os.MkdirAll(config.Root, 0750); err != nil {
 		return nil, NewErrorWithCause("CreateRootDir", "Failed to create root directory", err)
 	}
@@ -125,9 +119,6 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
 
-	// IMPORTANT: Create .maxiofs-folder markers in all intermediate directories
-	// This ensures that folders are properly detected even when created implicitly
-	// by S3 clients that upload files directly to nested paths
 	fs.ensureFolderMarkersInPath(dir)
 
 	// Create temporary file
@@ -147,14 +138,6 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		return NewErrorWithCause("WriteData", "Failed to write data", err)
 	}
 
-	// Force the bytes to the platter before the rename that publishes them.
-	//
-	// Nothing here used to sync anything, so the metadata store — which fsyncs
-	// its WAL every second — could confidently report an object whose bytes were
-	// still only in the page cache. After a power cut that leaves a record
-	// pointing at a file that is short, empty, or missing its sidecar, which is
-	// the "sidecar lost" case at the scale of every object written since the
-	// last flush.
 	if err := tempFile.Sync(); err != nil {
 		return NewErrorWithCause("SyncData", "Failed to flush data to disk", err)
 	}
@@ -173,20 +156,6 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	metadata["etag"] = hex.EncodeToString(hasher.Sum(nil))
 	metadata["last_modified"] = fmt.Sprintf("%d", time.Now().Unix())
 
-	// Two-phase commit via a STAGED sidecar. The old order (sidecar rename,
-	// then data rename) corrupted overwrites: a crash between the two renames
-	// left the NEW sidecar (new DEK) over the OLD bytes — undecryptable — and
-	// a failed data rename deleted the previous object's sidecar entirely.
-	//
-	//   1. stage the new sidecar at <object>.metadata-staging (atomic)
-	//   2. rename data into place            ← data commit
-	//   3. rename staged sidecar over final  ← metadata commit
-	//
-	// A crash before 2 leaves the old pair untouched (the stage is discarded
-	// by repairStagedCommit on the next access). A crash between 2 and 3 is
-	// rolled FORWARD by the repair: the staged etag matches the stored data,
-	// so the metadata commit is completed. The path lock keeps concurrent
-	// readers from repairing (and discarding) an in-flight stage.
 	unlock := fs.lockPath(path)
 	defer unlock()
 	fs.repairStagedCommit(path)
@@ -213,14 +182,6 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 		return NewErrorWithCause("AtomicMetadataMove", "Failed to move metadata file to final location", err)
 	}
 
-	// Make the two renames themselves durable. Syncing the files puts their
-	// bytes on the platter; syncing the directory is what puts the NAMES that
-	// reach them there — and the whole two-phase scheme reasons about which of
-	// the two renames survived a crash, which is only a meaningful question if
-	// they are durable in the order they were made.
-	//
-	// Reported rather than ignored: the object is on disk either way, but the
-	// caller is entitled to know the write is not yet guaranteed to survive.
 	if err := syncDir(dir); err != nil {
 		return NewErrorWithCause("SyncDirectory", "Failed to flush the directory entry to disk", err)
 	}
@@ -285,10 +246,6 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 		}
 	} else {
 		// On Windows a just-written file may be briefly held by an external
-		// scanner (antivirus, search indexer) without FILE_SHARE_DELETE,
-		// making the first remove fail with a sharing violation and orphaning
-		// the object. Retry shortly before giving up; on POSIX a real error
-		// simply fails the same way a few milliseconds later.
 		var rmErr error
 		for attempt := 0; attempt < 5; attempt++ {
 			if rmErr = os.Remove(fullPath); rmErr == nil {
@@ -361,14 +318,6 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			// A path that is not there is not a failure: listing a prefix that
-			// does not exist returns nothing, and a file removed by another
-			// caller mid-walk is ordinary.
-			//
-			// Anything else — a permission denied, an I/O error — is recorded
-			// rather than swallowed. It used to produce a SHORT listing with
-			// nothing to say part of the tree had been skipped, and the only
-			// consumer of this listing deletes what it is handed.
 			if !os.IsNotExist(err) {
 				walkErr = err
 			}
@@ -385,10 +334,6 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 			return nil
 		}
 
-		// Skip work in progress and the debris a crash leaves behind. The
-		// recovery walk already skips all of these; this one never learned to,
-		// so an in-flight upload appeared in the listing as an object — and the
-		// only consumer of this listing deletes what it is handed.
 		if isTransientArtifact(filepath.Base(path)) {
 			return nil
 		}
@@ -577,9 +522,6 @@ func (fs *FilesystemBackend) validatePath(path string) error {
 		return ErrInvalidPath
 	}
 
-	// Defense-in-depth: canonicalize the resolved full path and verify it
-	// remains inside rootPath. This catches OS-specific edge cases (e.g.
-	// Windows drive-relative paths) that the above string checks may miss.
 	fullPath := filepath.Clean(filepath.Join(fs.rootPath, filepath.FromSlash(path)))
 	cleanRoot := filepath.Clean(fs.rootPath) + string(filepath.Separator)
 	if !strings.HasPrefix(fullPath, cleanRoot) {
@@ -636,15 +578,6 @@ func (fs *FilesystemBackend) maybeRepair(path string) {
 }
 
 // repairStagedCommit resolves a staged sidecar left behind by a Put that
-// crashed between its data commit and its metadata commit. The staged sidecar
-// records the etag (and size) of the data it belongs to, so the decision is
-// unambiguous:
-//   - stored data matches the staged etag → the data commit happened; finish
-//     the metadata commit (roll FORWARD).
-//   - anything else → the data commit never happened; the old pair on disk is
-//     intact and the stage is discarded (roll BACK).
-//
-// Caller must hold the path lock.
 func (fs *FilesystemBackend) repairStagedCommit(path string) {
 	stagingPath := fs.getStagingMetadataPath(path)
 	data, err := os.ReadFile(stagingPath)
@@ -773,10 +706,6 @@ func (fs *FilesystemBackend) generateBasicMetadata(path string) (map[string]stri
 	metadata["size"] = fmt.Sprintf("%d", stat.Size())
 	metadata["last_modified"] = fmt.Sprintf("%d", stat.ModTime().Unix())
 
-	// Says where these values came from: the bytes on disk, because there was
-	// no sidecar to read. That distinction matters upstream — this map cannot
-	// tell a legacy plaintext object from an encrypted one whose sidecar was
-	// lost, and the second must not be served as though it were the first.
 	metadata[MetadataGeneratedKey] = "true"
 
 	// Try to calculate ETag by reading file

@@ -13,9 +13,6 @@ import (
 const shareEncryptionPrefix = "enc1:"
 
 // encryptShareCredential encrypts a plaintext share credential string using AES-256-GCM.
-// The result is a base64-encoded blob prefixed with "enc1:" so it can be identified as an
-// encrypted value when reading from the database.
-// Returns the original plaintext unchanged if encryptionKey is empty (no-op mode).
 func encryptShareCredential(plaintext, encryptionKey string) (string, error) {
 	if encryptionKey == "" || plaintext == "" {
 		return plaintext, nil
@@ -46,9 +43,6 @@ func encryptShareCredential(plaintext, encryptionKey string) (string, error) {
 }
 
 // decryptShareCredential decrypts a credential encrypted by encryptShareCredential.
-// If the value does not carry the "enc1:" prefix (legacy plaintext), it is returned as-is,
-// which allows gradual migration — existing shares remain readable until they are next updated.
-// Returns the original value unchanged if encryptionKey is empty (no-op mode).
 func decryptShareCredential(stored, encryptionKey string) (string, error) {
 	if encryptionKey == "" || stored == "" {
 		return stored, nil

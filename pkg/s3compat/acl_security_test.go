@@ -104,9 +104,6 @@ func setupACLTestEnvironment(t *testing.T) *aclTestEnv {
 	// Create managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
 
-	// Buckets get their owner's policy written on creation, exactly as the real
-	// server wires it — without this the creator has no permission on their own
-	// bucket, because ownership only exists as a policy now.
 	if bom, ok := bucketManager.(interface {
 		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
 	}); ok {
@@ -330,10 +327,6 @@ func TestCheckBucketACLPermission_ACLManagerNotAvailable(t *testing.T) {
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "test-bucket", env.userID)
 	require.NoError(t, err)
 
-	// NOTE: In this test environment, ACL manager IS available and initialized
-	// Testing the "ACL manager not available" path would require mocking
-	// For now, verify that with a properly initialized ACL manager,
-	// the owner has access
 	hasPermission := env.handler.checkBucketACLPermission(ctx, env.tenantID, "test-bucket", env.userID, acl.PermissionRead)
 
 	assert.True(t, hasPermission, "Owner should have access when ACL manager is available")

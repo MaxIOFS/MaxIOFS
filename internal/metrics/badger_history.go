@@ -40,9 +40,6 @@ func NewBadgerHistoryStore(store interface{}, retentionDays int) (*BadgerHistory
 }
 
 // Key formats:
-//   - Snapshots:  "metrics:snapshot:{type}:{unix_timestamp}"
-//   - Aggregates: "metrics:aggregate:{type}:{hour_unix_timestamp}"
-//   - Latest:     "metrics:latest:{type}"
 
 func (b *BadgerHistoryStore) snapshotKey(metricType string, timestamp time.Time) string {
 	return fmt.Sprintf("metrics:snapshot:%s:%d", metricType, timestamp.Unix())

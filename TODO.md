@@ -296,6 +296,52 @@ Unrelated to IAM/STS, recorded here so they are not lost.
   SQLITE_BUSY instead of waiting. Fixed everywhere, pinned by
   `internal/db/dsn_test.go`, and three consecutive full-suite runs are clean.
 
+### Found only by running a real two-node cluster (August 12, 2026)
+
+Both were invisible to the whole test suite, which exercises the election with
+in-process fakes and never with two nodes holding two databases.
+
+- [x] **A two-node cluster could never elect a coordinator, so every
+  configuration change failed permanently.** `campaign` recorded its vote for
+  itself in `cluster_leader` — the lease table — *before* knowing whether it had
+  won. That speculative row is indistinguishable from a real lease, so each node
+  refused the other ("lease still held" / "term already granted"), neither ever
+  reached a majority, and the term climbed without bound: observed at 99 after
+  ten minutes, with `POST /users/{u}/access-keys` answering "This node is no
+  longer the coordinator" the whole time. Two further defects fed the same
+  livelock: a freshly joined node knows nothing about the current leader, so it
+  campaigned blindly and fenced out a healthy one, and every node retried on the
+  same fixed five-second tick, so they all stood up in the same instant for ever.
+  Fixed by separating the vote from the lease (new `cluster_vote` table; the
+  lease is written only after a majority answers), adding a **pre-vote** round
+  that asks without persisting anything, and randomising the campaign delay.
+  Verified: one term, one election, stable for the whole session.
+- [x] **Every immediate cross-node push after a configuration change was
+  cancelled by its own HTTP response.** `TriggerSync` received `r.Context()` and
+  handed it to a goroutine that outlives the request, so the push died the
+  moment the handler answered — "failed to query access keys: context canceled"
+  in the logs, and convergence left to the periodic ticker up to a minute later.
+  Seven of the nine sync managers were affected (IAM and STS already detached).
+  All nine now go through `runDetached` in `internal/cluster/sync_trigger.go`,
+  which keeps the request's values, drops its cancellation and bounds the work.
+- [x] **Undocumented constraint, not a defect**: the remote cluster port is
+  derived from the *local* node's configuration, so every node must use the same
+  `cluster_listen` port. Documented in `docs/CLUSTER.md` (Configuration), along
+  with the symptom it produces — a node registered at a port nothing listens on,
+  which reads as an unexplained unhealthy node.
+- [x] **A cluster that loses a node now re-elects among the living.** The
+  majority was counted over every node ever known, so a two-node cluster whose
+  master died left the survivor unable to elect anybody and unable to change any
+  configuration — permanently, since removing the dead node needs a coordinator
+  too. The majority is counted over the nodes that answer the round instead: an
+  absent node gets no vote on whether the cluster may continue. Verified on the
+  lab cluster — master killed, survivor took over in one lease and served access
+  key, user and IAM policy writes; master restarted, rejoined as a member and
+  synchronised everything it had missed. Pinned by `TestQuorum_*` in
+  `internal/cluster/leader_test.go`. The partition trade (both halves lead what
+  they can see; reconciled by `updated_at` on heal) is deliberate and documented
+  in `docs/CLUSTER.md`.
+
 ### CI
 
 - [x] The test step runs `go test $PKGS -v` with **no `-timeout`**, so the
@@ -326,7 +372,7 @@ their policies as a grant. Nothing that already worked changes behaviour.
 - [ ] Manual check of the AWS STS surface with a real SDK (`aws sts get-session-token --endpoint-url <s3-endpoint>`, then `aws sts assume-role --role-arn ...`) — this is what the payload-hash middleware exists for, and only a real signer exercises it
 - [ ] Manual check of the AWS IAM surface with `aws iam --endpoint-url <s3-endpoint>`: create-user, create-access-key, put-user-policy, attach-user-policy, create-policy-version — then verify the created credential can do exactly what its policy says and nothing else
 - [ ] Veeam interop: confirm it discovers the endpoints from `system.xml` (`IAMSTS=true`) and completes its create-user → put-user-policy → create-access-key flow
-- [ ] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back
+- [x] Multi-node check: issue on node A, use on node B; revoke on A, confirm B rejects; create a policy on A and confirm it applies on B; delete it on A and confirm it does not come back — **done on a real two-node cluster (August 12, 2026)**; all four pass, and it uncovered two defects that no test in the repository could see, described below
 - [ ] Federation against a real directory / identity provider: the LDAP bind and the OAuth userinfo call are the two paths automated tests cannot reach
 
 ### The tenant boundary is structural, not written in the policies

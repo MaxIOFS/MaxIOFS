@@ -42,10 +42,6 @@ type BucketAggregator struct {
 
 // NewBucketAggregator creates a new bucket aggregator
 func NewBucketAggregator(clusterManager ClusterManagerInterface, bucketManager bucket.Manager) *BucketAggregator {
-	// Circuit breaker config:
-	// - Open after 3 consecutive failures
-	// - Require 2 successes to close from half-open
-	// - 30 seconds timeout before retry
 	circuitBreakers := NewCircuitBreakerManager(3, 2, 30*time.Second)
 
 	return &BucketAggregator{
@@ -97,11 +93,6 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 		"tenant_id":     tenantID,
 	}).Debug("Listed local buckets")
 
-	// Each node is authoritative for its own buckets only.
-	// factor > 1 (HA): every node holds a full copy — local listing is complete.
-	// factor <= 1 (independent): each node owns its own buckets — local only.
-	// Cross-node aggregation is not done here: showing remote buckets via the local
-	// S3 API causes empty-bucket confusion because objects live on the remote node.
 	ba.log.WithFields(logrus.Fields{
 		"local_buckets": len(allBuckets),
 		"duration_ms":   time.Since(startTime).Milliseconds(),
@@ -110,9 +101,6 @@ func (ba *BucketAggregator) ListAllBuckets(ctx context.Context, tenantID string)
 }
 
 // ListAllBucketsFromAllNodes queries local buckets plus all healthy peer nodes and
-// returns a merged list tagged with NodeID/NodeName. This is intended for the
-// management console UI only — the S3 API must NOT use this method because
-// objects on remote nodes are inaccessible via the local S3 endpoint.
 func (ba *BucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]BucketWithLocation, error) {
 	startTime := time.Now()
 

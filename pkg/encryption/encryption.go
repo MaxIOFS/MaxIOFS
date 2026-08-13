@@ -154,15 +154,6 @@ func (e *aesGCMEncryptor) Decrypt(encryptedData *EncryptedData, key []byte) ([]b
 const gcmStreamChunkSize = 64 * 1024
 
 // EncryptStream encrypts a data stream using AES-256-GCM in a chunked fashion.
-//
-// Stream format written to dst:
-//   - 12 bytes : base nonce (randomly generated)
-//   - For every 64 KB chunk of plaintext:
-//     4 bytes (big-endian uint32) : length of the following ciphertext+tag
-//     N+16 bytes                  : GCM-sealed ciphertext including authentication tag
-//
-// Each chunk uses a derived nonce: baseNonce XOR (chunkIndex in last 4 bytes),
-// preventing chunk reordering or substitution attacks.
 func (e *aesGCMEncryptor) EncryptStream(src io.Reader, dst io.Writer, key []byte) (*EncryptionMetadata, error) {
 	if len(key) != 32 {
 		key = e.DeriveKey(key, []byte("maxiofs-salt"))
@@ -236,10 +227,6 @@ func (e *aesGCMEncryptor) EncryptStream(src io.Reader, dst io.Writer, key []byte
 }
 
 // DecryptStream decrypts a stream previously encrypted by EncryptStream.
-//
-// If metadata.Algorithm is "AES-256-CTR" (or empty) the legacy AES-CTR path is
-// used for backward compatibility with objects encrypted before this fix.
-// All other values (including "AES-256-GCM-STREAM") use the chunked GCM path.
 func (e *aesGCMEncryptor) DecryptStream(src io.Reader, dst io.Writer, key []byte, metadata *EncryptionMetadata) error {
 	if len(key) != 32 {
 		key = e.DeriveKey(key, []byte("maxiofs-salt"))

@@ -331,9 +331,6 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 }
 
 // canonicalQueryStringV4 builds an AWS SigV4 canonical query string for url.Values.
-// - Sorts by key, then by value.
-// - Uses RFC3986 encoding (spaces as %20, not '+').
-// - If excludeSignature is true, removes X-Amz-Signature.
 func canonicalQueryStringV4(values url.Values, excludeSignature bool) string {
 	type pair struct{ k, v string }
 	pairs := make([]pair, 0, len(values))
@@ -483,13 +480,6 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 		return &presignedValidationError{"InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."}
 	}
 
-	// Reconstruct the StringToSign for AWS SigV2 presigned URLs:
-	//   METHOD\n
-	//   Content-MD5\n        (empty for presigned URLs — no body at signing time)
-	//   Content-Type\n       (empty for presigned URLs)
-	//   Expires\n
-	//   CanonicalizedAmzHeaders  (empty — presigned V2 URLs carry no x-amz-* headers)
-	//   CanonicalizedResource    (path + recognized sub-resources, sorted)
 	canonResource := canonicalizedResourceV2(s3URLEncode(r.URL.Path), query)
 	stringToSign := fmt.Sprintf("%s\n\n\n%s\n%s", r.Method, expires, canonResource)
 
@@ -509,9 +499,6 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 
 // HandlePresignedRequest handles presigned URL requests
 func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request) {
-	// Validate the presigned URL and map structured errors to the correct
-	// AWS S3 error codes (SignatureDoesNotMatch → 403, RequestExpired → 403,
-	// InvalidAccessKeyId → 403, anything else → 400 InvalidRequest).
 	if err := h.ValidatePresignedURL(w, r); err != nil {
 		if pe, ok := err.(*presignedValidationError); ok {
 			h.writeError(w, pe.code, pe.message, r.URL.Path, r)
@@ -521,9 +508,6 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Resolve the user associated with the presigned URL access key and inject into context.
-	// This ensures PutObject/DeleteObject permission checks see an authenticated user,
-	// since those handlers rely on auth.GetUserFromContext() for access control.
 	query := r.URL.Query()
 	accessKeyID := ""
 	if cred := query.Get("X-Amz-Credential"); cred != "" {
@@ -538,9 +522,6 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 
 	if accessKeyID != "" && h.authManager != nil {
 		if auth.IsSTSAccessKey(accessKeyID) {
-			// Temporary credential: the session, not the access_keys table,
-			// holds the user — and this is where its session policy is
-			// enforced, now that the signature has been verified.
 			user, err := h.authManager.AuthorizeSTSRequest(
 				r.Context(), accessKeyID, query.Get("X-Amz-Security-Token"), r)
 			if err != nil {
@@ -870,13 +851,6 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The signature proves who signed the policy, not that they may write here.
-	// This check never existed: the user was resolved into the context "for
-	// permission checks" and none followed, so any holder of any valid access
-	// key could sign their own policy and upload into any bucket.
-	//
-	// Read back from the context rather than reused from above, because the
-	// context is what the resolution above actually populated.
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists || user == nil {
 		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)

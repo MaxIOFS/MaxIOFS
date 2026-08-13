@@ -18,11 +18,6 @@ import (
 // ── Rename ────────────────────────────────────────────────────────────────────
 
 // handleRenameObject implements POST /buckets/{bucket}/objects/{object:.*}/rename
-// Body: { "newKey": "path/to/new-name.txt" }
-//
-// Rename is implemented as: copy the object data + metadata to the new key,
-// then delete the original.  Tags are also copied (best-effort).
-// Renaming is blocked for objects under COMPLIANCE retention or active Legal Hold.
 func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -358,10 +353,6 @@ func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request
 }
 
 // handleRestoreObjectVersion implements POST /buckets/{bucket}/objects/{object:.*}/restore
-// Body: { "versionId": "...", "isDeleteMarker": false }
-//
-// For delete markers: removes the marker so the previous real version becomes current.
-// For content versions: copies the specified version to a new PUT, making it the latest.
 func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]

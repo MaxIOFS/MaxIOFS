@@ -1,10 +1,4 @@
 // Package bandwidth provides per-tenant aggregate transfer throttling.
-//
-// A tenant's configured cap (bytes/second, combined upload + download) is
-// enforced by a single shared token-bucket rate limiter per tenant, so all of
-// that tenant's concurrent transfers draw from one budget. Throttling slows
-// transfers (io.Reader.Read blocks until tokens are available); it never rejects
-// a request, so legitimate bursts are smoothed rather than failed.
 package bandwidth
 
 import (
@@ -45,10 +39,6 @@ func burstFor(bytesPerSec int64) int {
 }
 
 // Limiter returns the shared limiter for a tenant given its current cap in
-// bytes/sec. Returns nil when there is no throttling to apply (no tenant or
-// unlimited), so callers skip wrapping. When the cap changes, the existing
-// limiter's rate is updated in place (hot update) so new transfers — and any
-// in-flight transfer that shares this limiter — pick up the new rate.
 func (m *Manager) Limiter(tenantID string, bytesPerSec int64) *rate.Limiter {
 	if tenantID == "" || bytesPerSec <= 0 {
 		return nil

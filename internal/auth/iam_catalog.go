@@ -1,13 +1,5 @@
 package auth
 
-// The catalogue table and its contents.
-//
-// It lives here rather than in a migration because a database that already
-// applied the IAM migration never sees anything added to that migration
-// afterwards. Creating and seeding at store open is idempotent and heals an
-// installation that upgraded before this existed, which amending an
-// already-applied migration cannot do.
-
 import "fmt"
 
 // EnsurePermissionCatalog creates the catalogue table if it is missing and adds
@@ -49,13 +41,6 @@ func (s *SQLiteStore) EnsurePermissionCatalog() error {
 }
 
 // permissionCatalog is everything that can be granted, in display order.
-//
-// Grouped so an operator can grant a whole area in one click, and listed action
-// by action so they can grant exactly one thing. Both views are these same rows.
-//
-// ResourceScoped marks the actions that name a bucket or an object. The ones
-// that do not are granted outright, because no request against them carries a
-// bucket to scope them to.
 var permissionCatalog = []CatalogPermission{
 	{Action: "maxiofs:SuperAdmin", Group: "administration", Label: "Super administrator",
 		Description: "Every permission on every tenant and every bucket, including granting them to others"},
@@ -96,9 +81,6 @@ var permissionCatalog = []CatalogPermission{
 	{Action: "s3:GetBucketVersioning", Group: "versioning", Label: "Read versioning setting", ResourceScoped: true},
 	{Action: "s3:PutBucketVersioning", Group: "versioning", Label: "Change versioning setting", ResourceScoped: true},
 
-	// Object Lock is separate from write on purpose: storing an object into an
-	// immutable bucket, deciding how long it stays immutable, and overriding
-	// that protection are three different decisions.
 	{Action: "s3:GetObjectRetention", Group: "object-lock", Label: "Read retention", ResourceScoped: true},
 	{Action: "s3:PutObjectRetention", Group: "object-lock", Label: "Set retention",
 		Description: "Decide how long an object stays immutable", ResourceScoped: true},

@@ -230,10 +230,6 @@ func (pc *PerformanceCollector) GetAllLatencyStats() map[OperationType]*LatencyS
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 
-	// One consistent snapshot, under one lock. Releasing and retaking it
-	// between iterations bought nothing and let the map grow or rehash mid-walk,
-	// so a Prometheus scrape could return a picture that missed or duplicated
-	// operation types.
 	stats := make(map[OperationType]*LatencyStats, len(pc.latencies))
 	for op := range pc.latencies {
 		stats[op] = pc.latencyStatsLocked(op)

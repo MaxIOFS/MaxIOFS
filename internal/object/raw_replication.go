@@ -10,15 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Raw (ciphertext) transfer for HA replication.
-//
-// When an object is envelope-encrypted with a cluster-shared KEK version,
-// every node in the cluster can unwrap its DEK — so replication can move the
-// stored ciphertext as-is instead of decrypting on the source and
-// re-encrypting on the destination. GetObjectRaw reads the stored bytes +
-// sidecar without decrypting; PutObjectRaw stores them on the replica without
-// encrypting, performing the same replica-side bookkeeping as a regular
-// replicated PutObject (Pebble entry, metrics, implicit folders).
 
 // RawObjectAccessor is implemented by objectManager and consumed by the HA
 // fanout in internal/cluster (promoted through the HAObjectManager embedding).
@@ -34,9 +25,6 @@ type RawObjectAccessor interface {
 }
 
 // CanReplicateRaw: the object must be envelope-encrypted and its wrapping KEK
-// version must be cluster-shared. Plaintext and legacy/local-KEK objects fall
-// back to the decrypt/re-encrypt replication path (they converge to envelope
-// via the rotation worker).
 func (om *objectManager) CanReplicateRaw(sidecar map[string]string) bool {
 	if sidecar["encrypted"] != "true" || sidecar["wrapped-dek"] == "" {
 		return false
@@ -84,11 +72,7 @@ func (om *objectManager) GetObjectRaw(ctx context.Context, bucket, key, versionI
 	return reader, sidecar, metaObj, nil
 }
 
-// PutObjectRaw is the replica-side write of a raw ciphertext transfer. It
-// mirrors the bookkeeping of a replicated PutObject (which always bypasses
-// quota enforcement and only updates local counters), but stores the received
-// bytes and sidecar verbatim — no encryption, no ETag recomputation of the
-// plaintext.
+// PutObjectRaw is the replica-side write of a raw ciphertext transfer.
 func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, data io.Reader, sidecar map[string]string, metaObj *metadata.ObjectMetadata) error {
 	if err := om.validateObjectName(key); err != nil {
 		return err
@@ -105,9 +89,6 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 		objectPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
 	}
 
-	// Store the raw bytes with a copy of the source sidecar. storage.Put
-	// recomputes size/etag over the received (ciphertext) bytes — identical to
-	// the source values — and refreshes last_modified.
 	sidecarCopy := make(map[string]string, len(sidecar))
 	for k, v := range sidecar {
 		sidecarCopy[k] = v
@@ -125,9 +106,6 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	metaObj.Bucket = bucket
 	metaObj.Key = key
 
-	// A metadata failure fails the replica write so the primary counts this
-	// node as unconfirmed and the sync worker/anti-entropy retries later —
-	// silently acknowledging would leave the replica invisible in listings.
 	if versioned {
 		version := &metadata.ObjectVersion{
 			VersionID:    metaObj.VersionID,

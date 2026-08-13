@@ -47,9 +47,6 @@ func NewManager(store metadata.RawKVStore) *Manager {
 	dialer := &net.Dialer{Timeout: webhookTimeout}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// addr is "host:port" after DNS resolution within the dialer.
-			// We resolve the name ourselves first so we can inspect the IP
-			// before a connection is established (prevents DNS-rebinding).
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, fmt.Errorf("webhook SSRF guard: invalid address %q: %w", addr, err)
@@ -440,9 +437,6 @@ func (m *Manager) validateConfiguration(config *NotificationConfiguration) error
 }
 
 // validateWebhookURL performs a static SSRF check on the given webhook URL.
-// It parses the hostname and, if it is a literal IP, verifies it is not a
-// blocked (private/loopback/link-local) address.  DNS-based checks are
-// performed at delivery time by the custom HTTP transport in NewManager.
 func validateWebhookURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

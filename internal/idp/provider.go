@@ -13,9 +13,6 @@ type Provider interface {
 	// TestConnection validates the provider configuration
 	TestConnection(ctx context.Context) error
 
-	// AuthenticateUser validates credentials against the external provider
-	// For LDAP: binds with username/password
-	// For OAuth: not used (OAuth uses redirect flow)
 	AuthenticateUser(ctx context.Context, username, password string) (*ExternalUser, error)
 
 	// SearchUsers searches for users in the external directory
@@ -36,15 +33,7 @@ type Provider interface {
 }
 
 // TokenAuthenticator is implemented by providers that can identify a user from
-// a token the client already holds, without a browser redirect. It is the basis
-// of the STS web-identity exchange: a headless client presents
-// its OAuth access token and receives temporary S3 credentials.
-//
-// Optional — LDAP does not implement it.
 type TokenAuthenticator interface {
-	// AuthenticateWithToken resolves the user an access token belongs to.
-	// Validation is delegated to the provider: the token is only accepted if the
-	// provider itself accepts it, so revoked and expired tokens fail here.
 	AuthenticateWithToken(ctx context.Context, accessToken string) (*ExternalUser, error)
 }
 

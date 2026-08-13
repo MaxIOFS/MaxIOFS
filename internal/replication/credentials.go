@@ -20,9 +20,6 @@ var ErrDecryptionFailed = errors.New("credential decryption failed")
 const credentialEncryptionPrefix = "enc1:"
 
 // encryptCredential encrypts a plaintext credential string using AES-256-GCM.
-// The result is a base64-encoded blob prefixed with "enc1:" so it can be identified
-// as an encrypted value when reading from the database.
-// Returns the original plaintext unchanged if encryptionKey is empty.
 func encryptCredential(plaintext, encryptionKey string) (string, error) {
 	if encryptionKey == "" || plaintext == "" {
 		return plaintext, nil
@@ -53,9 +50,6 @@ func encryptCredential(plaintext, encryptionKey string) (string, error) {
 }
 
 // decryptCredential decrypts a credential encrypted by encryptCredential.
-// If the value does not carry the "enc1:" prefix (legacy plaintext), it is returned as-is,
-// which allows gradual migration — existing rules remain readable until they are next updated.
-// Returns the original value unchanged if encryptionKey is empty.
 func decryptCredential(stored, encryptionKey string) (string, error) {
 	if encryptionKey == "" || stored == "" {
 		return stored, nil
@@ -99,13 +93,6 @@ func decryptCredential(stored, encryptionKey string) (string, error) {
 }
 
 // decryptAndValidateCredential wraps decryptCredential with post-decryption sanity checks.
-// It logs at Error level and returns ErrDecryptionFailed when:
-//   - Decryption of an encrypted (enc1:-prefixed) credential fails (wrong key, corrupt data).
-//   - An encrypted credential decrypts to an implausibly short result (<8 chars), which
-//     could indicate a partial write or key-rotation issue.
-//
-// Legacy plaintext credentials (no enc1: prefix) are returned as-is without a length check,
-// since they may be short in test or development environments.
 func decryptAndValidateCredential(stored, encryptionKey string) (string, error) {
 	isEncrypted := len(stored) >= len(credentialEncryptionPrefix) && stored[:len(credentialEncryptionPrefix)] == credentialEncryptionPrefix
 
@@ -114,10 +101,6 @@ func decryptAndValidateCredential(stored, encryptionKey string) (string, error) 
 		logrus.WithError(err).Error("Replication credential decryption failed — encryption key may have changed or data is corrupt")
 		return "", ErrDecryptionFailed
 	}
-	// Apply the minimum-length check only to actively-decrypted credentials.
-	// AES-GCM cannot produce garbage on authentication failure (it returns an error),
-	// but a partial plaintext write during encryption could produce a valid ciphertext
-	// that decrypts to an abnormally short string.
 	if isEncrypted && len(result) < 8 {
 		logrus.WithFields(logrus.Fields{
 			"result_length": len(result),

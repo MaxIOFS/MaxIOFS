@@ -1,11 +1,5 @@
 package server
 
-// Tests for the STS federation endpoints.
-//
-// The LDAP bind and the OAuth userinfo call need a real directory / identity
-// provider, so what is covered here is everything that guards those calls: the
-// opt-in setting, the public routing, request validation and provider lookup.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -19,10 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// federationClientIPs hands each test its own source IP. The endpoints share
-// the console login rate limiter (5 attempts per minute per IP), so tests that
-// all appeared to come from one client would exhaust the budget and start
-// answering 429 — see TestSTSFederation_RateLimited, which asserts exactly that.
+// federationClientIPs hands each test its own source IP.
 var federationClientIPs atomic.Uint32
 
 // postFederation posts a body to a federation endpoint with NO Authorization

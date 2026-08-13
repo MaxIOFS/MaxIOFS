@@ -123,19 +123,12 @@ func TestReconcileRestoresLostEntry(t *testing.T) {
 }
 
 // TestReconcileNeverDeletesVersionedEntries reproduces the production incident:
-// a versioned (Object Lock) bucket stores object data under .versions/, so the
-// plain path bucket/key never exists as a file. Reconcile must NOT treat those
-// latest-version entries as ghosts. Regression for the reconcile that deleted
-// ~50k Veeam metadata entries.
 func TestReconcileNeverDeletesVersionedEntries(t *testing.T) {
 	dataDir, store, cleanup := setupReconcileTest(t)
 	defer cleanup()
 	ctx := context.Background()
 
 	const versionID = "1775486761442908795.439e1cad"
-	// Versioned object: data + sidecar live ONLY under .versions/, and the
-	// store holds both the version entry and the "latest" pointer — exactly
-	// the on-disk shape a Veeam/immutable bucket produces. No plain-path file.
 	writeObjectPair(t, dataDir, ".versions/Veeam/Backup/blk-0001/"+versionID, "veeam-block-bytes", 1775486761)
 	obj := &metadata.ObjectMetadata{Bucket: "bkt", Key: "Veeam/Backup/blk-0001", VersionID: versionID, Size: 17, ETag: "test-etag", IsLatest: true}
 	version := &metadata.ObjectVersion{VersionID: versionID, IsLatest: true, Key: "Veeam/Backup/blk-0001", Size: 17, ETag: "test-etag"}
@@ -158,9 +151,6 @@ func TestReconcileNeverDeletesVersionedEntries(t *testing.T) {
 }
 
 // TestReconcileDoesNotPruneMissingDataEntry: a metadata entry whose plain data
-// file is not visible must be reported by external tooling, not deleted by
-// online reconcile. Missing paths can be caused by mount/layout/transient
-// filesystem problems; pruning here caused production data loss.
 func TestReconcileDoesNotPruneMissingDataEntry(t *testing.T) {
 	dataDir, store, cleanup := setupReconcileTest(t)
 	defer cleanup()

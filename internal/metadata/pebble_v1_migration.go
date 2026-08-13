@@ -17,29 +17,11 @@ import (
 const PebbleV2SentinelFile = "PEBBLE_FORMAT_V2"
 
 // MigrateFromPebbleV1IfNeeded checks whether the metadata directory contains a
-// Pebble v1 database (identified by the absence of PebbleV2SentinelFile) and,
-// if so, migrates every key-value pair to a new Pebble v2 database.
-//
-// Migration flow:
-//  1. If metadata/ does not exist  → fresh install, nothing to do.
-//  2. If metadata/PEBBLE_FORMAT_V2 exists → already v2, nothing to do.
-//  3. Otherwise metadata/ is assumed to be v1 format:
-//     a. Open v1 DB (read-only).
-//     b. Write all k/v pairs into metadata_pebblev2/ (v2 format).
-//     c. Rename metadata/ → metadata_pebblev1_backup_{ts}/
-//     d. Rename metadata_pebblev2/ → metadata/
-//     e. Write PEBBLE_FORMAT_V2 sentinel.
-//
-// Recovery: if a previous run renamed metadata/ but crashed before renaming
-// metadata_pebblev2/, the orphaned tmp directory is promoted on the next start.
 func MigrateFromPebbleV1IfNeeded(dataDir string, logger *logrus.Logger) error {
 	metaDir := filepath.Join(dataDir, "metadata")
 	sentinelPath := filepath.Join(metaDir, PebbleV2SentinelFile)
 	v2TmpDir := filepath.Join(dataDir, "metadata_pebblev2")
 
-	// ── Recovery path ─────────────────────────────────────────────────────────
-	// A previous run may have renamed metadata/ → backup but then crashed before
-	// renaming metadata_pebblev2/ → metadata/.
 	if _, err := os.Stat(v2TmpDir); err == nil {
 		if _, err := os.Stat(metaDir); os.IsNotExist(err) {
 			logger.Info("Recovering incomplete Pebble v1→v2 migration: promoting tmp directory…")

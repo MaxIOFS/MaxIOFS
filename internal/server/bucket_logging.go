@@ -175,9 +175,6 @@ func (l *BucketAccessLogger) flushEntries(entries []AccessLogEntry) {
 	}
 }
 
-// ============================================================================
-// S3 Access Logging Middleware
-// ============================================================================
 
 // captureResponseWriter wraps http.ResponseWriter to capture status code and
 // bytes written so the access logger can record them without interfering with

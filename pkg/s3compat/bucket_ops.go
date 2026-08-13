@@ -308,9 +308,6 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i, rule := range xmlConfig.Rules {
-		// Resolve prefix from either the legacy top-level <Prefix> element (old-style)
-		// or from the modern <Filter><Prefix> element (sent by aws-cli, Terraform, SDKv2).
-		// Both represent the same concept; prefer the Filter field when it is present.
 		prefix := rule.Prefix
 		if prefix == "" && rule.Filter != nil {
 			prefix = rule.Filter.Prefix
@@ -809,10 +806,6 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Bucket sub-resource stubs — these sub-resources are not implemented by
-// MaxIOFS but must return well-formed AWS-compatible responses so that tools
-// like aws-cli, Terraform, and SDK probes do not fall through to ListObjects.
-// ---------------------------------------------------------------------------
 
 type notifXMLFilter struct {
 	Rules []notifXMLFilterRule `xml:"S3Key>FilterRule"`
@@ -983,9 +976,6 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 }
 
 // DeleteBucketNotification clears all notification configurations from a bucket.
-// AWS S3 does not expose this as a separate API operation (clearing is done via
-// PUT with an empty NotificationConfiguration), but Terraform and some SDKs send
-// DELETE /?notification, so we support it for compatibility.
 func (h *Handler) DeleteBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1574,9 +1564,6 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ============================================================================
-// OwnershipControls handlers
-// ============================================================================
 
 // ownershipControlsXML is the AWS XML envelope for GetOwnershipControls / PutOwnershipControls.
 type ownershipControlsXML struct {

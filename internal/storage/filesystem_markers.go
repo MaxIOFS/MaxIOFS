@@ -9,9 +9,6 @@ import (
 )
 
 // ensureFolderMarkersInPath creates .maxiofs-folder markers in all subdirectories
-// of the given path that are within the dataDir. This is called when files are
-// uploaded to nested paths, ensuring that intermediate directories are properly
-// marked as folders (even if they weren't explicitly created with a trailing /)
 func (fs *FilesystemBackend) ensureFolderMarkersInPath(dir string) {
 	// Only process directories within our rootPath
 	if !strings.HasPrefix(dir, fs.rootPath) {

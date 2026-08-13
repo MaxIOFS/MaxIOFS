@@ -83,10 +83,6 @@ func (s *SQLiteStore) GetIAMPolicy(name string) (*IAMPolicy, error) {
 		return &p, nil
 	}
 
-	// The default version is missing. Rather than hand back an empty document —
-	// which reads as "this policy grants nothing" and overwrites the real one if
-	// the caller saves — fall back to the newest version that does exist, and
-	// repoint the policy at it.
 	if err := s.repairDefaultVersion(&p); err != nil {
 		return nil, fmt.Errorf("policy %q has no usable version: %w", name, err)
 	}
@@ -155,10 +151,6 @@ func (s *SQLiteStore) ListIAMPolicies() ([]*IAMPolicy, error) {
 		return nil, err
 	}
 
-	// A policy pointing at a version that no longer exists would be listed with
-	// an empty document, which reads as granting nothing. Repairing is done
-	// after the rows are closed: SQLite will not take a write while a read is
-	// still open on the same connection.
 	for _, p := range out {
 		if p.Document == "" {
 			_ = s.repairDefaultVersion(p)
@@ -168,9 +160,6 @@ func (s *SQLiteStore) ListIAMPolicies() ([]*IAMPolicy, error) {
 }
 
 // DeleteIAMPolicy removes a managed policy, its versions and its attachments.
-// A policy that is still attached is refused: AWS behaves the same way, and
-// silently detaching would change what identities can do as a side effect of a
-// delete.
 func (s *SQLiteStore) DeleteIAMPolicy(name string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -210,9 +199,6 @@ func (s *SQLiteStore) DeleteIAMPolicy(name string) error {
 // --- policy versions ---
 
 // CreateIAMPolicyVersion adds a version and optionally makes it the default.
-// AWS caps a policy at five versions and returns LimitExceeded rather than
-// evicting the oldest, because an implicit eviction can silently discard the
-// version an operator meant to roll back to.
 func (s *SQLiteStore) CreateIAMPolicyVersion(policyName, document string, setDefault bool) (*IAMPolicyVersion, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -638,10 +624,7 @@ func (s *SQLiteStore) UpdateIAMRole(role *IAMRole) error {
 	return nil
 }
 
-// DeleteIAMRole removes a role along with its policies. Sessions already issued
-// from it keep working until they expire: their permissions were resolved at
-// AssumeRole time and stored on the session, so deleting the role does not
-// silently widen them. Revoke the sessions to cut access immediately.
+// DeleteIAMRole removes a role along with its policies.
 func (s *SQLiteStore) DeleteIAMRole(name string) error {
 	tx, err := s.db.Begin()
 	if err != nil {

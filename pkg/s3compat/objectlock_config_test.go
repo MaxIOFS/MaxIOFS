@@ -1,16 +1,5 @@
 package s3compat
 
-// Who may change a bucket's Object Lock configuration.
-//
-// Object Lock itself can only be turned on when the bucket is created, and that
-// still holds. What this guards is the DEFAULT RETENTION rule: every new upload
-// inherits it (object.applyDefaultRetention), so a compliance-mode default
-// locks data that does not exist yet, and compliance mode cannot be overridden
-// by anyone afterwards.
-//
-// It used to be guarded by a comparison of the caller's tenant against itself,
-// which is never true, so any signed-in caller could write it.
-
 import (
 	"context"
 	"net/http"

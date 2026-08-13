@@ -60,10 +60,6 @@ func newNodeManager(t *testing.T, provider kek.Provider) (*objectManager, metada
 }
 
 // TestRawReplicationRoundtrip simulates the full Phase-3 flow at manager
-// level: node A (initiator) creates the cluster KEK, node B adopts it; a new
-// object written on A is transferred RAW (ciphertext + sidecar + metadata) to
-// B, and B serves the decrypted content without A ever decrypting for the
-// transfer.
 func TestRawReplicationRoundtrip(t *testing.T) {
 	ctx := context.Background()
 

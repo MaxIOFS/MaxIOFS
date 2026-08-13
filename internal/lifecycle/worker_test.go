@@ -410,9 +410,6 @@ func TestProcessExpiredDeleteMarkers_KeepNonDeleteMarker(t *testing.T) {
 }
 
 // TestProcessExpiredDeleteMarkers_DeletesWithVersionID verifies that expired delete markers
-// are permanently deleted by passing their specific versionID to DeleteObject.
-// An unversioned delete on a versioned bucket would create ANOTHER delete marker,
-// causing an infinite cleanup loop — this test guards against that regression.
 func TestProcessExpiredDeleteMarkers_DeletesWithVersionID(t *testing.T) {
 	bucketMgr := &mockBucketMgr{}
 	objMgr := &mockObjectMgr{}

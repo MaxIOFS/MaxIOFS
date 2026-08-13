@@ -24,15 +24,9 @@ const HAObjectVersionHeader = "X-HA-Version-ID"
 const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 
 // HALastModifiedHeader carries the primary's LastModified (unix seconds) on
-// legacy (decrypt/re-encrypt) transfers so replicas store the same timestamp
-// instead of their receive time. Raw transfers carry it inside the Pebble
-// metadata payload and do not need this header.
 const HALastModifiedHeader = "X-HA-Last-Modified"
 
-// Raw (ciphertext) replication headers. When HARawHeader is "true" the body
-// is the stored ciphertext as-is; the sidecar and Pebble metadata travel
-// base64(JSON)-encoded so the replica stores an identical copy without
-// decrypting/re-encrypting.
+// Raw (ciphertext) replication headers.
 const HARawHeader = "X-HA-Raw"
 const HARawSidecarHeader = "X-HA-Raw-Sidecar"
 const HARawObjectMetaHeader = "X-HA-Raw-Object-Meta"
@@ -46,10 +40,6 @@ func setHALastModified(h http.Header, obj *object.Object) {
 }
 
 // setHAChecksum forwards the object's client checksum (x-amz-checksum-*) on a
-// legacy replica transfer so the replica's Pebble entry keeps the same
-// ChecksumAlgorithm/ChecksumValue as the primary (GetObjectAttributes parity).
-// The receiver recomputes the checksum over the plaintext body and validates
-// it against this value, so a corrupted transfer is also caught.
 func setHAChecksum(h http.Header, obj *object.Object) {
 	if obj == nil || obj.ChecksumAlgorithm == "" || obj.ChecksumValue == "" {
 		return
@@ -76,11 +66,6 @@ func HALastModifiedFromHeader(h http.Header) (time.Time, bool) {
 type haReplicaKey struct{}
 
 // WithHAReplicaContext returns a child context marked as a replica write.
-// It also sets the object-layer quota-enforcement bypass so that the
-// underlying PutObject updates the local quota counter without re-enforcing
-// the limit (the primary already validated the quota for this write).
-// HTTP handlers on replica nodes set this before calling any write operation
-// so that HAObjectManager skips re-fanout and avoids infinite loops.
 func WithHAReplicaContext(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, haReplicaKey{}, true)
 	ctx = object.WithBypassQuotaEnforcement(ctx)
@@ -114,9 +99,6 @@ type fanoutResult struct {
 }
 
 // HAObjectManager wraps object.Manager and adds HA write fanout.
-// Read and metadata-only operations are delegated unchanged to the underlying
-// manager. PutObject, DeleteObject and CompleteMultipartUpload fan out to
-// replica nodes after a successful local write.
 type HAObjectManager struct {
 	object.Manager
 	mgr *Manager
@@ -152,9 +134,6 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 }
 
 // DeleteObject deletes locally then synchronously fans the deletion out.
-// On quorum failure the local delete is NOT rolled back (delete is a tombstone
-// that anti-entropy will reconcile); ErrClusterDegraded is returned so the
-// client can retry.
 func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	if !isHAReplica(ctx) && !isHARollback(ctx) {
 		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
@@ -202,13 +181,6 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 }
 
 // ---------------------------------------------------------------------------
-// RawObjectAccessor delegation
-// ---------------------------------------------------------------------------
-// HAObjectManager embeds the object.Manager INTERFACE, so methods outside that
-// interface are not promoted. Replica nodes hold the wrapper as their
-// objectManager, and the raw-replication receive path type-asserts
-// object.RawObjectAccessor — these delegating methods make the wrapper
-// satisfy it against the underlying manager.
 
 func (h *HAObjectManager) GetObjectRaw(ctx context.Context, bucket, key, versionID string) (io.ReadCloser, map[string]string, *metadata.ObjectMetadata, error) {
 	raw, ok := h.Manager.(object.RawObjectAccessor)
@@ -235,10 +207,6 @@ func (h *HAObjectManager) CanReplicateRaw(sidecar map[string]string) bool {
 }
 
 // rollbackLocalPut deletes the just-written local copy after a quorum failure.
-// Uses WithHARollbackContext to suppress fanout of the rollback delete.
-// Failures are logged but not surfaced — the original ErrClusterDegraded already
-// tells the client to retry, and any leftover local copy will be reconciled by
-// anti-entropy.
 func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, op string) {
 	rbCtx := WithHARollbackContext(ctx)
 	if _, err := h.Manager.DeleteObject(rbCtx, bucket, key, true); err != nil {
@@ -248,25 +216,8 @@ func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, op 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Internal fanout helpers
-// ---------------------------------------------------------------------------
 
 // replicaTargets returns up to factor-1 healthy non-local nodes and the number
-// of peer confirmations needed to satisfy quorum: neededReplicas = ceil(factor/2) - 1.
-// Returns (nil, 0, false) when replication is inactive.
-//
-// Quorum table (total writes = 1 local + neededReplicas):
-//
-//	factor=2 → neededReplicas=0  (best-effort: local write succeeds even when peer is down)
-//	factor=3 → neededReplicas=1  (2-of-3: tolerates 1 failure)
-//	factor=4 → neededReplicas=1  (2-of-4: tolerates 2 failures)
-//	factor=5 → neededReplicas=2  (3-of-5: tolerates 2 failures)
-//
-// factor=2 deliberately uses neededReplicas=0. Requiring 1 peer confirmation
-// with only 2 cluster nodes would block ALL writes whenever the single peer is
-// unreachable, which is worse than best-effort. The stale-object reconciler
-// catches divergence once the peer recovers.
 func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, bool) {
 	if !h.mgr.IsClusterEnabled() {
 		return nil, 0, false
@@ -301,13 +252,6 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 }
 
 // fanoutPut synchronously replicates the just-written object to replica nodes.
-// versionID must be the ID of the version that was just written locally so the
-// re-read is pinned to that exact version — avoiding RACE-04 where a concurrent
-// PutObject between the local write and the re-read causes the wrong (newer)
-// version to be replicated.
-// Returns ErrClusterDegraded when fewer than `needed` replicas confirm.
-// Returns nil when replication is inactive (factor=1, cluster disabled, or
-// factor=2 which needs zero replica confirmations).
 func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID string) error {
 	targets, needed, ok := h.replicaTargets(ctx)
 	if !ok {
@@ -322,9 +266,6 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 
 	for _, node := range targets {
 		go func(n *Node) {
-			// Prefer the raw ciphertext path: objects envelope-encrypted with a
-			// cluster-shared KEK replicate as stored bytes + sidecar, with no
-			// decrypt on this node and no re-encrypt on the replica.
 			if rawAccessor != nil {
 				sent, rawErr := h.sendRawReplica(ctx, client, rawAccessor, n, localID, bucket, key, versionID)
 				if sent {
@@ -404,10 +345,6 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 }
 
 // sendRawReplica attempts the ciphertext transfer of the pinned version to
-// one replica. Returns sent=false (nil error) when the object is not eligible
-// for raw replication or the replica declined it (HTTP 412) — the caller then
-// falls back to the legacy decrypt/re-encrypt path. sent=true means the raw
-// attempt is authoritative: err (nil or not) is the node's fanout result.
 func (h *HAObjectManager) sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string) (sent bool, err error) {
 	reader, sidecar, metaObj, readErr := raw.GetObjectRaw(ctx, bucket, key, versionID)
 	if readErr != nil {
@@ -535,13 +472,6 @@ func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan f
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Metadata-only fanout (Item D)
-// Covers: UpdateObjectMetadata, SetObjectTagging, DeleteObjectTagging,
-//         SetObjectACL, SetObjectRetention, SetObjectLegalHold, SetRestoreStatus
-// These operations touch only Pebble metadata — no physical file transfer.
-// Fanout is best-effort: failures are logged but do NOT fail the original op.
-// ---------------------------------------------------------------------------
 
 // HAMetadataOp describes a metadata-only operation to replay on replica nodes.
 type HAMetadataOp struct {

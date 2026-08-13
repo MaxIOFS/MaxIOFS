@@ -77,9 +77,6 @@ type Manager interface {
 	VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error)
 	VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error)
 
-	// Object Lock compliance check
-	// HasActiveComplianceRetention returns true if any object or version in the bucket
-	// has COMPLIANCE-mode retention that has not yet expired, or has a legal hold applied.
 	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
 
 	// Health check
@@ -137,9 +134,6 @@ type objectManager struct {
 	config        config.StorageConfig
 	metadataStore metadata.Store
 	aclManager    acl.Manager
-	// encryptor performs the raw AES-256-GCM stream/block operations.
-	// Key selection is envelope-based: each object has its own DEK wrapped
-	// by a KEK obtained from kekProvider.
 	encryptor     encryption.Encryptor
 	kekProvider   kek.Provider
 	bucketManager interface {
@@ -153,9 +147,6 @@ type objectManager struct {
 		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
 
-	// RACE-02: 256-shard per-key write mutex. Each shard protects all keys that
-	// hash to that shard, serialising the read-existingObj / write-metadata /
-	// update-metrics sequence for concurrent writers to the same key.
 	muShards [256]sync.Mutex
 
 	// Deduplication for concurrent CompleteMultipartUpload calls with the same uploadID
@@ -186,13 +177,6 @@ func WithKEKProvider(p kek.Provider) Option {
 }
 
 // NewManager creates a new object manager.
-//
-// Encryption is always on: every new object is envelope-encrypted with a
-// per-object DEK wrapped by the current KEK. When no KEK provider is
-// supplied via WithKEKProvider, an in-process fallback is used: the
-// config.yaml encryption_key if present, otherwise a randomly generated
-// ephemeral key (tests / embedded use only — data written with an
-// ephemeral key is not decryptable after restart).
 func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig, opts ...Option) Manager {
 	var aclMgr acl.Manager
 	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
@@ -215,9 +199,6 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 
 	if om.kekProvider == nil {
 		if config.EncryptionKey != "" {
-			// Legacy path (no DB-backed KEK store wired): use the config key
-			// as KEK version 1, exactly as it was used before envelope
-			// encryption, so existing objects keep decrypting.
 			if len(config.EncryptionKey) != 64 {
 				logrus.Fatalf("Invalid encryption_key length: got %d characters, expected 64 (32 bytes in hex). "+
 					"Generate a secure key with: openssl rand -hex 32", len(config.EncryptionKey))
@@ -233,9 +214,6 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 			}
 			om.kekProvider = provider
 		} else {
-			// No KEK at all: self-provision an ephemeral one so encryption
-			// still works. Only acceptable for tests/embedded use — the
-			// server always wires the persistent DB-backed store.
 			provider, err := kek.Ephemeral()
 			if err != nil {
 				logrus.WithError(err).Fatal("Failed to generate ephemeral KEK")
@@ -353,10 +331,6 @@ func validateReplicatedVersionID(versionID string) error {
 type replicatedLastModifiedKey struct{}
 
 // WithReplicatedLastModified pins the next write's LastModified to the
-// primary's timestamp, received through trusted internal replication paths.
-// Without it every replica stamps its own receive time, which diverges from
-// the primary and makes the anti-entropy LWW comparison flag (and endlessly
-// re-transfer) objects whose data is identical.
 func WithReplicatedLastModified(ctx context.Context, lastModified time.Time) context.Context {
 	return context.WithValue(ctx, replicatedLastModifiedKey{}, lastModified)
 }
@@ -466,21 +440,6 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
-	// The object had no sidecar, so everything known about its bytes was derived
-	// from the bytes themselves — including the absence of an `encrypted` flag.
-	//
-	// That absence is not evidence of plaintext. An encrypted object whose
-	// sidecar was lost (a staged-commit roll-forward that never succeeded, a
-	// half-written directory) looks exactly the same, and decryption is then
-	// skipped: the ciphertext was streamed to the client with a nil error, under
-	// the plaintext Content-Length, and a backup tool wrote it to disk as the
-	// restored file.
-	//
-	// The metadata store still holds what the plaintext was, so the two can be
-	// compared. A legacy plaintext object matches; ciphertext does not, because
-	// AES-GCM adds a nonce and a tag. Refusing is the only safe answer — the
-	// bytes cannot be identified, and serving unidentified bytes as an object is
-	// worse than an error.
 	if storageMetadata[storage.MetadataGeneratedKey] == "true" && metaObj != nil {
 		onDiskSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 		onDiskETag := storageMetadata["etag"]
@@ -515,10 +474,6 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	}
 
 	if isEncrypted {
-		// Object is encrypted - decrypt stream.
-		// Resolve the decryption key first: envelope objects carry a wrapped
-		// DEK in the sidecar metadata; legacy objects were encrypted directly
-		// with KEK version 1 (the former config.yaml master key).
 		decryptKey, keyErr := om.decryptionKeyFor(storageMetadata)
 		if keyErr != nil {
 			encryptedReader.Close()
@@ -527,9 +482,6 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 
 		pipeReader, pipeWriter := io.Pipe()
 
-		// Create encryption metadata for decryption.
-		// Read the algorithm stored at write time so that legacy AES-CTR objects
-		// (encrypted before Bug #21 fix) are still decrypted correctly.
 		sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
 		if sseAlgorithm == "" {
 			sseAlgorithm = "AES-256-CTR" // assume legacy CTR for unmarked objects
@@ -605,10 +557,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		objectPath = om.getObjectPath(bucket, key)
 	}
 
-	// Step 1: Stream data to temporary file while calculating hash and size
-	// This avoids loading entire file into memory.
-	// Use Root as temp location to guarantee same filesystem as the object store,
-	// preventing cross-device rename failures when /tmp is on a separate mount (BUG-05).
 	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
@@ -666,14 +614,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
-	// Enforce storage quotas BEFORE touching the final object path. A rejected
-	// write must leave the existing object untouched — checking after the store
-	// (as done previously) meant a quota rejection on a non-versioned overwrite
-	// deleted the object it had just replaced, destroying the original.
-	// Skipped for HA replica writes: the primary already validated; replicas
-	// store unconditionally and only update their local counters. The tenant
-	// quota applies to tenant buckets; the per-bucket quota applies to global
-	// buckets too (its whole purpose).
 	if !isBypassQuotaEnforcement(ctx) {
 		var sizeIncrement int64
 		var isNewObject bool
@@ -706,11 +646,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		}
 	}
 
-	// Store object data. Encryption is always on: every object is envelope-
-	// encrypted with its own DEK wrapped by the current KEK. Folder markers
-	// (keys ending in "/") carry no data — the filesystem backend never reads
-	// the data stream for them, so encrypting would leave the encryption pipe
-	// blocked forever; they are stored as plain directory markers instead.
 	isFolderMarker := strings.HasSuffix(key, "/")
 	if isFolderMarker {
 		if err := om.storeUnencryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
@@ -764,10 +699,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
-	// RACE-02: hold the per-key shard lock for the entire read-existing /
-	// write-metadata / update-metrics sequence. Two concurrent writers to the
-	// same key would otherwise both read the same existingObjBeforeSave, then
-	// both apply the same size delta, permanently corrupting bucket metrics.
 	defer om.lockKey(bucket, key)()
 
 	// CRITICAL: Get existing object BEFORE overwriting in metadata store
@@ -788,12 +719,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			StorageClass: object.StorageClass,
 		}
 
-		// Store version (this also updates the main object if IsLatest=true).
-		// A metadata failure must surface to the client: acknowledging a write
-		// that is invisible in listings breaks S3 semantics (backup clients
-		// verify by listing). The stored file is deliberately NOT deleted —
-		// on a non-versioned overwrite it is the only copy of the data, and
-		// sidecar-only files are exactly what `maxiofs recover` reindexes.
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
@@ -914,9 +839,6 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		return "", fmt.Errorf("failed to create delete marker: %w", err)
 	}
 
-	// Decrement object count only when a visible object was hidden by this
-	// marker. Repeated DELETE requests over an existing delete marker should
-	// create another marker but must not decrement visible object count again.
 	if om.bucketManager != nil && wasVisible {
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
@@ -1002,9 +924,6 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	// Delete physical file (if not a delete marker). Track success so bucket
 	// size is only decremented when the bytes are actually freed from disk.
 	physicalDeleteOK := true
-	// A delete marker has no file to remove. The test used to be Size > 0, which
-	// also skipped legitimately empty objects and orphaned their data file and
-	// sidecar for good; what identifies a delete marker is being one.
 	if !isMetadataDeleteMarker(metaObj) {
 		objectPath := om.getVersionedObjectPath(bucket, key, versionID)
 		if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
@@ -1013,19 +932,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-	// Promoting the next version into the main entry, or removing that entry when
-	// none is left, is done by DeleteObjectVersion in the same atomic batch as the
-	// delete itself. It used to be repeated here afterwards, non-atomically and
-	// best-effort: all three of its failure paths logged and returned nil, so the
-	// client was told the delete succeeded while the main entry still described
-	// data that no longer existed.
 
-	// Adjust object count based on what we deleted and the new latest version.
-	// ObjectCount tracks only visible (non-delete-marker) objects, mirroring S3:
-	//   • Deleted a delete marker (latest) + real object resurfaces  → IncrementObjectCount
-	//   • Deleted a real object (latest)   + delete marker takes over → DecrementObjectCount
-	//   • Deleted the last remaining version (real object)            → DecrementObjectCount
-	//   • Deleted non-latest, or dm→dm, or real→real transitions      → no change
 	if om.bucketManager != nil && deletingLatest {
 		deletedIsDeleteMarker := isMetadataDeleteMarker(metaObj)
 
@@ -1044,10 +951,6 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		hasNextVersion := nextLatestForMetrics != nil
 		nextIsDeleteMarker := isVersionDeleteMarker(nextLatestForMetrics)
 
-		// Only credit freed bytes to the bucket when the file was actually
-		// removed from disk. If physicalDeleteOK is false the file is an orphan
-		// (cleaned up by the integrity scrubber); the bucket's size counter must
-		// not be decremented until then.
 		freedBytes := objMetadata.Size
 		if !physicalDeleteOK {
 			freedBytes = 0
@@ -1055,12 +958,6 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 
 		tenantID, bucketName := om.parseBucketPath(bucket)
 
-		// Return the bytes to the tenant's quota. Every new version ADDS its
-		// full size on write, and this was the only delete path that never gave
-		// any back — so a tenant using versioning accumulated usage forever and
-		// was eventually locked out at 100% with a fraction of that on disk.
-		// Bucket metrics clamp at zero; tenant storage does not, and it drifts
-		// in the direction that denies service.
 		if om.authManager != nil && tenantID != "" && freedBytes > 0 {
 			if err := om.authManager.DecrementTenantStorage(ctx, tenantID, freedBytes); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
@@ -1099,13 +996,6 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 
 // deletePermanently permanently deletes an object (legacy behavior without versioning)
 func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string, bypassGovernance bool) error {
-	// The same shard lock PutObject takes (RACE-02). It was written for
-	// writer-vs-writer only, so DELETE ran unserialised against both: two
-	// concurrent deletes each read the size and each debited it, and a delete
-	// racing an overwrite debited the size it read while different bytes were
-	// removed. Bucket metrics clamp at zero so that drifts downward and weakens
-	// quota enforcement; tenant storage has no clamp and drifts upward, eating
-	// quota the tenant is not using.
 	defer om.lockKey(bucket, key)()
 
 	objectPath := om.getObjectPath(bucket, key)
@@ -1161,22 +1051,12 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 		}
 	}
 
-	// Delete object: metadata first, then physical file.
-	// This order is intentional: once metadata is gone the object is logically
-	// deleted (S3 returns 404). If the physical delete then fails the file
-	// becomes an orphan that will be cleaned up by the next bucket scrub —
-	// a safe inconsistency. The reverse order (physical first) is dangerous:
-	// if metadata deletion fails, the integrity scanner would flag the object
-	// as corrupt even though its data is already gone.
 
 	// Step 1: Delete metadata
 	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
 		if err != metadata.ErrObjectNotFound {
 			return fmt.Errorf("failed to delete metadata: %w", err)
 		}
-		// Someone else removed it first. Falling through to the accounting
-		// below would debit this object's size a second time for a removal
-		// that happened once.
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucket,
 			"key":    key,
@@ -1368,12 +1248,6 @@ func (om *objectManager) listObjectsDelimited(ctx context.Context, bucket, prefi
 }
 
 // advancePastPrefix returns a pagination marker that is lexicographically greater
-// than every key that starts with prefix (which must end with delimiter).
-// Used to skip a common prefix entirely when building the NextMarker/NextContinuationToken
-// so that the same folder never appears twice across pages.
-//
-// Example: advancePastPrefix("folder_1000/", "/") → "folder_1001"
-// All keys starting with "folder_1000/" are < "folder_1001" in byte order.
 func advancePastPrefix(prefix, delimiter string) string {
 	if len(prefix) == 0 || len(delimiter) == 0 {
 		return prefix
@@ -1407,10 +1281,6 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 	}
 
 	// BUG-04: the old code set scanLimit=100000 when delimiter!="" to find all
-	// common prefixes, but loading 100k metadata records into RAM is an OOM risk
-	// for large buckets. Cap at 10x the requested maxKeys (min 10000) so the
-	// typical case (listing directories with a few thousand entries) still works
-	// while avoiding unbounded heap growth.
 	const maxScanLimit = 10000
 	scanLimit := maxKeys
 	if delimiter != "" {
@@ -1436,9 +1306,6 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 			continue
 		}
 
-		// Implicit folder markers: same logic as in ListObjects above.
-		// Without delimiter or when key == prefix, skip. Otherwise fall through
-		// so the common-prefix extraction makes empty folders visible.
 		if metaObj.Metadata != nil {
 			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
 				if delimiter == "" || key == prefix {
@@ -1588,9 +1455,6 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return err
 	}
 
-	// BUG-06: determine the correct physical path by reading metadata first.
-	// Versioned objects have no file at the plain path — using getObjectPath
-	// always returned ErrObjectNotFound for any object in a versioning-enabled bucket.
 	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
 
 	objectPath := om.getObjectPath(bucket, key)
@@ -1607,11 +1471,6 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return ErrObjectNotFound
 	}
 
-	// Update storage metadata by MERGING into the existing sidecar.
-	// storage.SetMetadata replaces the sidecar wholesale — writing only the
-	// caller's keys would destroy the system entries (encrypted, original-size,
-	// wrapped-dek, kek-version, ...) and make an encrypted object permanently
-	// undecryptable. System keys can never be overridden by the caller.
 	existingMeta, err := om.storage.GetMetadata(ctx, objectPath)
 	if err != nil {
 		return fmt.Errorf("failed to read existing storage metadata: %w", err)
@@ -2403,11 +2262,6 @@ func (om *objectManager) validateObjectName(key string) error {
 		return ErrInvalidObjectName
 	}
 
-	// The filesystem backend stores each object's sidecar at "<key>.metadata"
-	// (and stages commits at "<key>.metadata-staging"). A user key with one of
-	// those suffixes would collide with another object's sidecar files — reads
-	// would parse object data as metadata and the staged-commit repair could
-	// delete the user's object. Reject them outright.
 	if strings.HasSuffix(key, ".metadata") || strings.HasSuffix(key, ".metadata-staging") {
 		return ErrInvalidObjectName
 	}
@@ -2590,12 +2444,6 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 }
 
 // ensureImplicitFolders creates folder objects in the metadata store for all parent directories.
-// of the given key. This is necessary because S3 clients often upload files to nested
-// paths without explicitly creating parent folders first.
-// For example, uploading "folder1/folder2/file.txt" should create:
-// - "folder1/" (folder object in metadata)
-// - "folder1/folder2/" (folder object in metadata)
-// - "folder1/folder2/file.txt" (actual file object)
 func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key string) {
 	// Skip if key ends with / (it's already a folder)
 	if strings.HasSuffix(key, "/") {
@@ -2788,11 +2636,6 @@ func filterStorageMetadataKeys(m map[string]string) map[string]string {
 }
 
 // newEnvelope generates a fresh per-object DEK and returns it together with
-// the sidecar metadata entries that make the object decryptable later:
-// the DEK wrapped (AES-256-GCM) with the current KEK, the wrap IV, and the
-// KEK version. These entries live in the on-disk .metadata sidecar so the
-// object is recoverable from the filesystem alone (given a KEK backup),
-// even if the metadata database is lost.
 func (om *objectManager) newEnvelope() ([]byte, map[string]string, error) {
 	kekKey, kekVersion := om.kekProvider.CurrentKEK()
 	if len(kekKey) == 0 {
@@ -2817,10 +2660,6 @@ func (om *objectManager) newEnvelope() ([]byte, map[string]string, error) {
 }
 
 // decryptionKeyFor resolves the key that decrypts an encrypted object from
-// its sidecar metadata. Two encrypted formats coexist:
-//   - envelope (wrapped-dek present): unwrap the DEK with the recorded KEK version
-//   - legacy direct (no wrapped-dek): the object bytes were encrypted directly
-//     with KEK version 1 (the former config.yaml master key)
 func (om *objectManager) decryptionKeyFor(storageMetadata map[string]string) ([]byte, error) {
 	wrappedHex := storageMetadata["wrapped-dek"]
 	if wrappedHex == "" {
@@ -2898,12 +2737,6 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 	// Create a pipe for streaming encryption
 	pipeReader, pipeWriter := io.Pipe()
 
-	// Closing the read end is what unblocks the encryptor if the consumer below
-	// gives up. FilesystemBackend.Put returns the moment its io.Copy fails
-	// without draining or closing what it was handed, so on any write error —
-	// a full disk, an I/O fault — the goroutine stayed blocked in
-	// pipeWriter.Write forever, holding the pipe and the DEK. One leak per
-	// failed upload, during exactly the episode that has no headroom to spare.
 	defer pipeReader.Close()
 
 	// Encrypt in background goroutine
@@ -2951,9 +2784,6 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 		return
 	}
 
-	// Check if this is a new object (not an overwrite)
-	// For non-versioned buckets: check if object existed before
-	// For versioned buckets: only count the first version
 	if !versioningEnabled {
 		// Use the existing object we captured BEFORE saving
 		isNewObject := existingObjBeforeSave == nil
@@ -2985,11 +2815,6 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 			}
 		}
 	} else {
-		// Versioned bucket: every new real version adds physical bytes. The
-		// visible object count changes only when there was no visible latest
-		// object before this PUT (new key, or a delete marker was latest).
-		// existingObjBeforeSave must always be captured before the save to avoid
-		// a TOCTOU race (see A8 audit fix).
 		wasVisible := existingObjBeforeSave != nil && !isMetadataDeleteMarker(existingObjBeforeSave)
 		if !wasVisible {
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
@@ -3095,10 +2920,6 @@ func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uplo
 }
 
 // computeMultipartETag computes the S3-spec ETag for a completed multipart upload.
-// Format: hex(MD5(MD5(part1) || MD5(part2) || ... || MD5(partN)))-N
-// where each MD5(partX) is the raw 16-byte binary digest of the part data.
-// Returns an error if any part ETag is not a valid 32-character hex-encoded MD5 digest,
-// since silently hashing invalid ETags would produce incorrect results and mask corruption.
 func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID string, parts []Part) (string, error) {
 	var combined []byte
 	for _, part := range parts {
@@ -3165,14 +2986,7 @@ func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, 
 	return nil
 }
 
-// checkBucketStorageQuota enforces the optional per-bucket quota. Unlike the
-// tenant quota it also applies to global buckets (TenantID == ""), which is the
-// whole point of bucket-level limits (e.g. a dedicated Veeam target bucket). It
-// compares the bucket's cached usage against the configured caps and rejects the
-// write when it would exceed them. A nil quota (or a zero cap) is a no-op.
-// sizeIncrement is the net bytes being added (overwrite deltas already applied);
-// newObject reports whether this write adds a new visible object key and gates
-// the object-count cap.
+// checkBucketStorageQuota enforces the optional per-bucket quota.
 func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket string, sizeIncrement int64, newObject bool) error {
 	tenantID, bucketName := om.parseBucketPath(bucket)
 	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
@@ -3227,12 +3041,6 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 	// Create a pipe for streaming encryption
 	pipeReader, pipeWriter := io.Pipe()
 
-	// Closing the read end is what unblocks the encryptor if the consumer below
-	// gives up. FilesystemBackend.Put returns the moment its io.Copy fails
-	// without draining or closing what it was handed, so on any write error —
-	// a full disk, an I/O fault — the goroutine stayed blocked in
-	// pipeWriter.Write forever, holding the pipe and the DEK. One leak per
-	// failed upload, during exactly the episode that has no headroom to spare.
 	defer pipeReader.Close()
 
 	// Encrypt in background goroutine

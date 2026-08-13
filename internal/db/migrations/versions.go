@@ -30,26 +30,6 @@ func getAllMigrations() []Migration {
 }
 
 // migration18_v160_IAMSTS holds the ENTIRE schema for the IAM/STS feature.
-//
-// STS: a session is a projection of an existing user (temp ASIA key + secret +
-// session token, server-enforced expiry). session_policy holds an optional
-// restriction; role_arn/role_session_name are set when the session came from
-// AssumeRole, and policy_mode says whether the stored policy restricts what the
-// base user may do or is the authority for the session (role sessions).
-//
-// IAM: managed policies with versions, inline policies, attachments to
-// users/groups/roles, and roles with a trust policy. users.iam_managed marks
-// identities created through the IAM API, for which the attached policies are
-// authoritative instead of merely restricting.
-//
-// See docs/SECURITY.md, "Temporary Credentials" and "IAM".
-//
-// Any further IAM/STS work MUST extend this function rather than add migration
-// 19, 20, … — one migration per feature instead of one per increment. This is
-// safe only while v1.6.0 is unreleased: no installation has run it yet, so
-// amending it changes nothing anyone has applied. Once v1.6.0 ships, this
-// function becomes frozen like every migration above it and further changes
-// need a new one.
 func migration18_v160_IAMSTS() Migration {
 	return Migration{
 		Version:     18,
@@ -71,9 +51,6 @@ func migration18_v160_IAMSTS() Migration {
 				`CREATE INDEX IF NOT EXISTS idx_sts_sessions_user ON sts_sessions(user_id)`,
 				`CREATE INDEX IF NOT EXISTS idx_sts_sessions_expires ON sts_sessions(expires_at)`,
 
-				// Managed policies. The document of the default version is what
-				// evaluation uses; older versions are kept so the AWS
-				// *PolicyVersion actions have something to operate on.
 				`CREATE TABLE IF NOT EXISTS iam_policies (
 					name TEXT PRIMARY KEY,
 					arn TEXT NOT NULL UNIQUE,
@@ -145,10 +122,6 @@ func migration18_v160_IAMSTS() Migration {
 }
 
 // migration17_v150_ClusterSharedKEK marks KEK versions that are shared across
-// cluster nodes. Corresponds to MaxIOFS v1.5.0 - Ciphertext HA replication:
-// a cluster-shared KEK (created at first join, distributed in the join
-// package) lets replicas store ciphertext as-is; per-node local keys stay
-// cluster_shared=0 and their objects use the legacy replication path.
 func migration17_v150_ClusterSharedKEK() Migration {
 	return Migration{
 		Version:     17,
@@ -166,9 +139,6 @@ func migration17_v150_ClusterSharedKEK() Migration {
 }
 
 // migration16_v150_EncryptionKeys creates the KEK (Key Encryption Key) storage table.
-// Corresponds to MaxIOFS v1.5.0 - Envelope encryption: the KEK moves from
-// config.yaml to the database. Multiple versions support KEK rotation; exactly
-// one row has is_current=1 (new objects wrap their DEK with that version).
 func migration16_v150_EncryptionKeys() Migration {
 	return Migration{
 		Version:     16,
@@ -1105,9 +1075,6 @@ func migration8_v062_CurrentSchema() Migration {
 		Version:     8,
 		Description: "v0.6.2 - Current schema validation and completion",
 		Up: func(tx *sql.Tx) error {
-			// This migration ensures all tables from previous migrations exist
-			// It's essentially a no-op if all previous migrations ran successfully
-			// But it serves as a checkpoint for the current schema version
 			return nil
 		},
 		Down: func(tx *sql.Tx) error {

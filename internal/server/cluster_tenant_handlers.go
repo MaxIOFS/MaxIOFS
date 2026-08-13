@@ -186,11 +186,6 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.UpdatedAt,
 		)
 		if err != nil {
-			// Handle tenant name uniqueness conflict: incoming tenant has same name but
-			// different ID than an existing local tenant (e.g. standalone node created a
-			// default tenant before joining the cluster).
-			// Strategy: re-key the local tenant to the canonical ID from the primary node,
-			// then update all users that reference the old tenant ID.
 			if strings.Contains(err.Error(), "UNIQUE constraint failed: tenants.name") {
 				var conflictID string
 				if qErr := s.db.QueryRowContext(ctx,
@@ -431,11 +426,6 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.UpdatedAt,
 		)
 		if err != nil {
-			// Handle username uniqueness conflict: incoming user has same username but
-			// different ID than an existing local user.  This happens when a node was set
-			// up standalone (creating its own admin user) before joining the cluster.
-			// Strategy: re-key the local user so that its ID matches the incoming canonical
-			// ID, and update all access_keys that reference the old ID.
 			if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {
 				var conflictID string
 				if qErr := s.db.QueryRowContext(ctx,
@@ -473,11 +463,6 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		logrus.WithField("user_id", user.ID).Debug("Inserted new user")
 	}
 
-	// The capability overrides that used to be replicated here authorize
-	// nothing: the request path reads IAM policies, and those tables are
-	// consulted only by the one-time conversion. Writing them made an
-	// operator find rows in the database that looked like permissions and
-	// were not.
 
 	return nil
 }

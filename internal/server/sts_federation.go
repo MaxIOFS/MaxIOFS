@@ -1,19 +1,5 @@
 package server
 
-// STS federation. See docs/SECURITY.md, "Temporary Credentials".
-//
-// The console endpoint issues temporary credentials to a caller holding a JWT, and
-// the console API additionally requires the console:access capability. That
-// covers humans. It does not cover a headless client — a backup job, a script,
-// a container — that holds LDAP credentials or an OAuth access token: today
-// somebody has to mint permanent keys for it, which is exactly what STS exists
-// to avoid.
-//
-// These two endpoints close that gap. They are public because they authenticate
-// against the identity provider itself, not against a MaxIOFS session, and they
-// resolve identity through the SAME paths the console login flow uses — there
-// are no federation-specific identity rules.
-
 import (
 	"context"
 	"encoding/json"
@@ -94,12 +80,6 @@ func federationDenialReason(err error) string {
 }
 
 // resolveLDAPIdentity authenticates username/password against an LDAP provider
-// and returns the local user the identity maps to.
-//
-// Resolution mirrors console LDAP login exactly: the local user must already
-// exist and belong to this provider. The console flow does not just-in-time
-// provision LDAP users either — inventing provisioning here would be new policy,
-// not federation.
 func (s *Server) resolveLDAPIdentity(ctx context.Context, providerID, username, password string) (*auth.User, error) {
 	user, err := s.authManager.GetUser(ctx, username)
 	if err != nil || user == nil || user.AuthProvider != "ldap:"+providerID {
@@ -136,9 +116,6 @@ func (s *Server) resolveWebIdentity(ctx context.Context, r *http.Request, provid
 		return nil, &federationDenied{"provider returned no email claim"}
 	}
 
-	// Same resolution as the browser callback, including auto-provisioning via
-	// group mappings, so an identity behaves identically whether it arrives
-	// through a browser or through a token.
 	user, _ := s.findOAuthUser(ctx, externalUser.Email)
 	if user == nil {
 		var errCode string
@@ -314,9 +291,6 @@ func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error
 		return &federationDenied{"account is locked"}
 	}
 
-	// The same capability that governs a user obtaining S3 credentials for
-	// themselves through the console. Deliberately NOT console:access — these credentials
-	// grant S3 access and no console access, which is the point.
 	if !s.isAdmin(user) {
 		allowed, err := s.authManager.HasCapability(ctx, user.ID, user.Roles, auth.CapKeysManageOwn)
 		if err != nil || !allowed {
@@ -327,13 +301,6 @@ func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error
 }
 
 // denySTSFederation audits a rejected exchange and answers with a single opaque
-// message, so the endpoint cannot be used to probe which usernames exist, which
-// are linked to a provider, or which lack a capability.
-//
-// Failures deliberately do NOT feed the console lockout counter: a looping
-// script with a stale password would otherwise lock a human out of the console.
-// Directories enforce their own lockout, and every attempt here is rate-limited
-// by IP and recorded below.
 func (s *Server) denySTSFederation(w http.ResponseWriter, r *http.Request, method, providerID, subject, reason string) {
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		Username:     subject,

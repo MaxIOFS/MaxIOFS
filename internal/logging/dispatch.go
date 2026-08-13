@@ -7,13 +7,6 @@ import (
 )
 
 // DispatchHook is a single logrus hook that dispatches log entries
-// to all active outputs managed by the Manager. This replaces the
-// old pattern of adding a new hook per output (which leaked hooks
-// since logrus has no RemoveHook).
-//
-// The outputs snapshot is stored atomically, so Fire() never acquires
-// any mutex — this prevents deadlocks when Reconfigure() holds the
-// write lock and logs internally via logrus.
 type DispatchHook struct {
 	snapshot atomic.Pointer[[]outputWithFilter]
 }

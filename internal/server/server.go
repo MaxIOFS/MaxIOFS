@@ -334,9 +334,6 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize cluster schema: %w", err)
 	}
 
-	// Initialize cluster replication/sync schema (sync tracking tables + cluster_global_config).
-	// This MUST run on every startup so the default config values (auto_*_sync_enabled = true)
-	// are present before sync managers query them.
 	if err := cluster.InitReplicationSchema(db); err != nil {
 		return nil, fmt.Errorf("failed to initialize cluster replication schema: %w", err)
 	}
@@ -542,9 +539,6 @@ func New(cfg *config.Config) (*Server, error) {
 		},
 	)
 
-	// Wire the storage-pressure emitter onto the cluster Manager. Triggered
-	// inline by the existing health-check loop on healthy↔storage_pressure
-	// transitions; the bridge dispatches an SSE notification to admin clients.
 	clusterManager.SetStoragePressureEmitter(func(ev cluster.StoragePressureEvent) {
 		server.broadcastStoragePressureEvent(ev)
 	})
@@ -577,9 +571,6 @@ func New(cfg *config.Config) (*Server, error) {
 		server.checkQuotaAlert(tenantID, currentBytes, maxBytes)
 	})
 
-	// Connect per-bucket quota alert callback (SSE + email as a bucket nears its
-	// quota). The concrete bucket manager exposes the setter without widening the
-	// bucket.Manager interface, so we reach it via a narrow type assertion.
 	if bqm, ok := bucketManager.(interface {
 		SetBucketQuotaAlertCallback(cb func(tenantID, bucketName string, currentBytes, maxBytes int64))
 	}); ok {
@@ -588,9 +579,6 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	}
 
-	// A bucket's creator gets a policy on it. Ownership was an implicit fact the
-	// handlers checked, which made it permission the model could not see; as a
-	// policy it comes from the same place as everything else.
 	if bom, ok := bucketManager.(interface {
 		SetBucketOwnerPolicyCallback(cb func(bucketName, tenantID, ownerID string, created bool))
 	}); ok {
@@ -626,9 +614,6 @@ func (s *Server) Start(ctx context.Context) error {
 	// this they pile up in the console and have to be removed by hand.
 	go s.startSTSSessionSweep(ctx, time.Hour)
 
-	// Buckets that existed before ownership became a policy have none. Writing
-	// them before serving anything is what keeps the policy check below from
-	// taking access away from every bucket already on disk.
 	s.backfillBucketOwnerPolicies(ctx)
 
 	// Enable runtime profiling
@@ -675,10 +660,6 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.startSTSSessionSweep(ctx, 1*time.Hour)
 	logrus.Info("STS session sweep started")
 
-	// After an unclean shutdown, hot-path metadata commits from the last
-	// ~1s may be lost while the object files survived — reconcile the store
-	// against the on-disk tree in the background (reads keep working via
-	// the sidecar fallback meanwhile).
 	s.startUncleanShutdownReconcile(ctx)
 
 	// Start replication manager
@@ -687,9 +668,6 @@ func (s *Server) Start(ctx context.Context) error {
 		logrus.Info("Replication manager started")
 	}
 
-	// Start cluster background services if cluster is already enabled at boot.
-	// If the node initializes or joins a cluster at runtime, handleInitializeCluster /
-	// handleJoinCluster will call startClusterBackgroundServices via the same Once.
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		s.startClusterBackgroundServices(ctx)
 	}
@@ -708,9 +686,6 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start cluster inter-node server only if cluster is already initialized.
-	// In standalone mode this port is never opened. The enableClusterTLS()
-	// method opens it (with TLS) after a successful init or join.
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		go func() {
 			if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
@@ -805,9 +780,6 @@ func (s *Server) startClusterServer() error {
 }
 
 // startClusterBackgroundServices starts all cluster-mode background goroutines exactly once.
-// It is safe to call from multiple goroutines; the sync.Once guarantees a single execution.
-// Called from Start() when cluster is already enabled at boot, and from handleInitializeCluster /
-// handleJoinCluster when a node enters cluster mode at runtime.
 func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 	s.clusterBgOnce.Do(func() {
 		go s.clusterManager.StartHealthChecker(ctx)
@@ -920,11 +892,6 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 }
 
 // enableClusterTLS shuts down the current cluster listener and restarts it with TLS.
-// It binds the TCP port synchronously before returning so callers can rely on the
-// cluster port being reachable as soon as this call returns nil.
-// During cluster initialization it is called from a goroutine (fire-and-forget).
-// During a cluster join it is called synchronously so Node B only responds to Node A
-// after the TLS port is actually bound and ready.
 func (s *Server) enableClusterTLS() error {
 	tlsCfg, err := s.clusterManager.GetServerTLSConfig()
 	if err != nil {
@@ -1066,9 +1033,6 @@ type clusterBucketManagerAdapter struct {
 }
 
 func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
-	// We don't know the tenant up-front (cluster lookups only have the bucket name),
-	// so scan all buckets across tenants. Direct GetBucket("", bucket) only matches
-	// global (untenanted) buckets and would miss tenant-scoped buckets entirely.
 	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
 	if err != nil {
 		return "", err
@@ -1201,9 +1165,6 @@ func (s *Server) setupRoutes() error {
 		s.clusterManager,
 		s.bucketAggregator,
 	)
-	// SOSAPI advertises IAM and STS to Veeam only while the IAM surface is
-	// actually being served. Both protocols share POST / on the S3 endpoint,
-	// so there is a single URL to hand over.
 	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)
 
 	if s.inventoryManager != nil {
@@ -1229,9 +1190,6 @@ func (s *Server) setupRoutes() error {
 	s3Router.Use(middleware.CORS())
 	s3Router.Use(middleware.Logging())
 	s3Router.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
-	// Browser → console redirect must run BEFORE S3 JWT/SigV4 auth: otherwise the same
-	// host may send Authorization: Bearer from the web UI and auth rejects with 401
-	// before the redirect to public_console_url (e.g. /ui/) is ever sent.
 	s3Router.Use(apiHandler.BucketCORSMiddleware)
 	s3Router.Use(apiHandler.S3ClientMiddleware)
 	// Must run BEFORE SigV4 validation: it supplies the payload hash that AWS
@@ -1310,12 +1268,6 @@ func (s *Server) setupRoutes() error {
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
 
-	// Setup CORS and other middleware.
-	// Middleware chain (outermost first):
-	//   logS3APIRequests → RecoveryHandler → websiteServingMiddleware → virtualHostedStyleMiddleware → apiRouter
-	// logS3APIRequests: every request that hits this server (S3 API port) is logged so "capabilities" probe is visible.
-	// The website middleware intercepts requests for "{bucket}.{website_hostname}" before
-	// virtual-hosted-style rewriting or S3 auth, serving them as plain HTML.
 	s.httpServer.Handler = logS3APIRequests(handlers.RecoveryHandler()(
 		websiteServingMiddleware(s,
 			virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
@@ -1328,13 +1280,6 @@ func (s *Server) setupRoutes() error {
 	s.consoleRouter = consoleRouter
 
 	// Wrap the console router with a basePath-stripping handler.
-	// This allows the console to work correctly both:
-	//   - Behind a reverse proxy that does NOT strip the prefix
-	//     (e.g. nginx: /ui/ → http://backend:8081/ui/)
-	//   - Behind a reverse proxy that DOES strip the prefix
-	//     (e.g. nginx: /ui/ → http://backend:8081/)
-	//   - Direct IP:port access (http://192.168.1.1:8081/)
-	// In all cases the mux always sees paths rooted at "/".
 	var consoleHandler http.Handler = consoleRouter
 	if bp := extractBasePath(s.config.PublicConsoleURL); bp != "/" && bp != "" {
 		bpNoSlash := strings.TrimSuffix(bp, "/")
@@ -1429,10 +1374,6 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 		return
 	}
 
-	// All routes are registered at root. The reverse proxy is responsible for
-	// stripping the subpath prefix (e.g. /ui/) before forwarding to this port.
-	// The SPA handler serves assets correctly whether or not the prefix has been
-	// stripped, so both proxy-with-strip and direct IP:port access work.
 	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
@@ -1461,10 +1402,6 @@ func logS3APIRequests(next http.Handler) http.Handler {
 }
 
 // virtualHostedStyleMiddleware rewrites virtual-hosted-style S3 requests to path-style
-// before they reach the Gorilla Mux router, so existing path-based routes handle them.
-//
-// Virtual-hosted-style: GET http://mybucket.s3.example.com/?prefix=foo
-// Rewrites to path-style: GET http://s3.example.com/mybucket/?prefix=foo
 func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.Handler {
 	// Extract the S3 API hostname (without port) from the configured public URL.
 	s3Host := ""
@@ -1504,9 +1441,6 @@ func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.H
 		// can match the existing "/{bucket}/..." routes.
 		oldPath := r.URL.Path
 		newPath := "/" + bucketName + oldPath
-		// Store the original path in context for SigV4 verification: the client
-		// signed with path "/" (or "/key"), not "/bucket/" - we must verify against
-		// the path the client actually used.
 		ctx := auth.WithOriginalSigV4Path(r.Context(), oldPath)
 		r2 := r.Clone(ctx)
 		r2.URL.Path = newPath
@@ -1603,10 +1537,6 @@ func (s *Server) writeWebsiteAccessDenied(w http.ResponseWriter, r *http.Request
 }
 
 // handleWebsiteRequest serves a static website request for the given bucket.
-// It respects the bucket's WebsiteConfiguration (IndexDocument, ErrorDocument,
-// RoutingRules) and does not require S3 authentication.
-// If the bucket does not exist or has no website config, returns 403 AccessDenied (S3-style)
-// instead of 404, so the endpoint does not reveal that the bucket exists or that website is off.
 func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bucketName string) {
 	ctx := r.Context()
 

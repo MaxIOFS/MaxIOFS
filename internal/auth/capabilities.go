@@ -1,12 +1,5 @@
 package auth
 
-// What remains of the capability model: the reads the one-time conversion needs
-// to turn an existing installation's permissions into IAM policies.
-//
-// Nothing here is consulted to authorize a request. Permissions are policies —
-// see policy_set.go for how a decision is made, and policy_migration.go for how
-// these rows become policies on the boot that upgrades an installation.
-
 import (
 	"database/sql"
 	"fmt"
@@ -31,11 +24,6 @@ const (
 	CapConsoleAccess = "console:access"
 	CapKeysManageOwn = "keys:manage_own"
 
-	// CapIAMManage gates the AWS IAM protocol surface: creating identities,
-	// their credentials, policies and roles. It is the authority to hand out
-	// access, so it is not granted by any role default — an administrator has
-	// it through the admin safety net, and anyone else needs an explicit
-	// override.
 	CapIAMManage = "iam:manage"
 )
 
@@ -66,16 +54,6 @@ type CapabilityOverride struct {
 }
 
 // HasCapability answers the question the pre-IAM model answered, and exists so
-// the equivalence tests can compare it against what the policy evaluator
-// decides. Nothing in production calls it: a request is authorized by
-// authManager.HasCapability, which reads the user's policies.
-//
-// Resolution order (the old one, reproduced faithfully):
-//  1. Explicit admin deny  → false (deny always wins)
-//  2. Explicit admin grant → true
-//  3. Role default         → true if the role includes this capability
-//  4. role == "admin"      → true (safety net: admin always has everything)
-//  5. → false
 func (s *SQLiteStore) HasCapability(userID string, roles []string, capability string) (bool, error) {
 	// Check user-level overrides first.
 	var granted sql.NullBool

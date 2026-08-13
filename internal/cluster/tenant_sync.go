@@ -56,11 +56,6 @@ func NewTenantSyncManager(db *sql.DB, clusterManager *Manager) *TenantSyncManage
 
 // Start begins the tenant synchronization loop
 func (m *TenantSyncManager) Start(ctx context.Context) {
-	// Refresh proxy client so it picks up TLS certs loaded after cluster init/join.
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	// Get sync interval from config
 	intervalStr, err := GetGlobalConfig(ctx, m.db, "tenant_sync_interval_seconds")
@@ -439,7 +434,7 @@ func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID str
 // TriggerSync immediately runs a full tenant sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *TenantSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllTenants(ctx)
+	runDetached(ctx, m.syncAllTenants)
 }
 
 func (m *TenantSyncManager) Stop() {

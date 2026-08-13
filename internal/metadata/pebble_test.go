@@ -12,9 +12,6 @@ import (
 )
 
 // setupPebbleTestStore creates a temporary PebbleStore for unit tests.
-// Uses os.MkdirTemp instead of t.TempDir() because Pebble may hold OS-level
-// file handles briefly after Close() on Windows, causing TempDir's automatic
-// cleanup to fail with "directory not empty".
 func setupPebbleTestStore(t *testing.T) (*PebbleStore, func()) {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "pebble-test-*")

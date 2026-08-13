@@ -1,17 +1,5 @@
 package auth
 
-// Translation from the stored permission model to policy documents.
-//
-// This is the bridge that makes one system out of what used to be two. Nothing
-// in an existing installation has to be reconfigured: the role capabilities,
-// per-user overrides and bucket permissions already in the database are read as
-// policies, and the evaluator decides from those alone.
-//
-// Faithfulness is the whole requirement. policy_equivalence_test.go compares
-// the decisions this produces against the decisions the capability system makes
-// for every role, capability and bucket permission level; a drift here fails
-// those tests rather than reaching a deployment.
-
 import (
 	"database/sql"
 	"fmt"
@@ -78,17 +66,6 @@ func levelActions(level string) []string {
 }
 
 // bucketGrantDocument renders one bucket permission as a single statement over
-// that bucket and the keys inside it.
-//
-// actions is already the intersection of what the level allows and what the
-// user's roles permit. That intersection happens BEFORE the document is
-// written, not as a second evaluation afterwards — a policy is one list of
-// (action, resource) pairs, and the moment two lists have to be consulted and
-// combined at request time there are two permission models again.
-//
-// Both ARNs are needed: bucket-level actions target the bucket, object-level
-// actions target keys inside it, and naming only one silently drops half the
-// operations the grant is meant to allow.
 func bucketGrantDocument(bucketName string, actions []string) string {
 	if len(actions) == 0 {
 		return ""
@@ -105,11 +82,6 @@ func bucketGrantDocument(bucketName string, actions []string) string {
 }
 
 // isResourceScopedAction reports whether an action names a bucket or an object.
-//
-// The ones that do not — signing in, managing one's own keys, administering
-// IAM — are not about any bucket, so they are granted globally by the role
-// rather than per resource. Scoping them to a bucket ARN would make them
-// unreachable, since no request against them carries one.
 func isResourceScopedAction(action string) bool {
 	return strings.HasPrefix(action, "s3:") || action == "*"
 }
@@ -182,21 +154,11 @@ func allowDocument(actions []string) string {
 // --- request path: IAM only ---
 
 // EffectivePolicyDocuments returns a user's permissions: the policies attached
-// to them, to their groups, to their tenant and to their roles.
-//
-// Only IAM tables are read. The pre-IAM model was converted into these same
-// entities once, on upgrade (policy_migration.go); it is not consulted here and
-// there is no translation happening per request.
 func (s *SQLiteStore) EffectivePolicyDocuments(userID string, roles []string) ([]string, error) {
 	return s.EffectivePolicyDocumentsInTenant(userID, roles, "")
 }
 
 // EffectivePolicyDocumentsInTenant is the same, with the tenant supplied by the
-// caller. An empty tenantID is looked up from the user's row.
-//
-// Taking it as a parameter matters for identities that exist for the duration
-// of a request — a role session, or a user resolved by a federated login —
-// which carry a tenant without a row to read it back from.
 func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []string, tenantID string) ([]string, error) {
 	documents, err := s.IAMEffectiveDocumentsForUser(userID)
 	if err != nil {
@@ -217,14 +179,6 @@ func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []st
 		}
 
 		if tenantID != "" && (role == RoleAdmin || role == RoleTenantAdmin) {
-			// An administrator inside a tenant administers that tenant, so the
-			// role's unscoped full access is replaced by a bounded document.
-			//
-			// It used to REPLACE every document the role carried, which meant
-			// anything an operator attached to or revoked from a role had no
-			// effect whatsoever on any user with a tenant — role editing was
-			// silently a no-op for them. Only the unscoped grant is dropped
-			// now; everything else the role carries still applies.
 			documents = append(documents, tenantAdminDocument())
 			documents = append(documents, withoutUnscopedFullAccess(roleDocs)...)
 			continue
@@ -244,9 +198,6 @@ func (s *SQLiteStore) EffectivePolicyDocumentsInTenant(userID string, roles []st
 }
 
 // withoutUnscopedFullAccess drops any document that allows everything
-// everywhere, which is the one thing an administrator scoped to a tenant must
-// not hold — it would reach every other tenant's buckets. Everything else the
-// role carries is kept.
 func withoutUnscopedFullAccess(documents []string) []string {
 	kept := make([]string, 0, len(documents))
 	for _, raw := range documents {
@@ -316,9 +267,6 @@ func tenantAdminDocument() string {
 		ActionPutObjectRetention,
 		ActionGetObjectLegalHold,
 		ActionPutObjectLegalHold,
-		// Immutability is a tenant's own compliance decision, and the list left
-		// both of these out — so a tenant administrator could not even read
-		// whether a bucket was locked, let alone set its default retention.
 		ActionGetBucketObjectLockConfiguration,
 		ActionPutBucketObjectLockConfiguration,
 		ActionRestoreObject,
@@ -329,11 +277,6 @@ func tenantAdminDocument() string {
 }
 
 // EffectiveActionsInTenant returns every action a user's policies permit,
-// ignoring the resources they are scoped to.
-//
-// This answers "may they delete buckets at all", which is a different question
-// from "may they delete THIS bucket" and is asked first by the handlers. The
-// tenant is resolved as in EffectivePolicyDocumentsInTenant.
 func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, tenantID string) ([]string, error) {
 	documents, err := s.EffectivePolicyDocumentsInTenant(userID, roles, tenantID)
 	if err != nil {

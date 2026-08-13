@@ -47,9 +47,6 @@ func setupPaginationStore(t *testing.T) (*PebbleStore, []string, func()) {
 }
 
 // TestListObjectsPaginationLossless drives a full marker loop at several page
-// sizes and asserts the union is exactly the seeded key set — no key lost at
-// any page boundary, no duplicates. Regression for the NextMarker off-by-one
-// that dropped one object per page.
 func TestListObjectsPaginationLossless(t *testing.T) {
 	store, keys, cleanup := setupPaginationStore(t)
 	defer cleanup()
@@ -85,9 +82,6 @@ func TestListObjectsPaginationLossless(t *testing.T) {
 }
 
 // TestListObjectsDelimitedPaginationLossless does the same for the delimited
-// listing: the union of objects + common prefixes across a marker loop must
-// be exactly {5 folders} + {11 root objects}, at page sizes that force
-// boundaries to land both on prefixes and on objects.
 func TestListObjectsDelimitedPaginationLossless(t *testing.T) {
 	store, _, cleanup := setupPaginationStore(t)
 	defer cleanup()

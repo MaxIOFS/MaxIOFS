@@ -1,14 +1,5 @@
 package cluster
 
-// Cluster synchronization for STS temporary credentials.
-//
-// Sessions are immutable and short-lived, so the protocol is deliberately
-// simpler than the access-key one: each cycle sends ONE batch per node with
-// every non-expired local session plus the outstanding deletion tombstones.
-// The receiver upserts the sessions and deletes the tombstoned ones, which
-// makes the operation idempotent and removes the need for per-entity checksum
-// or delivery tracking.
-
 import (
 	"bytes"
 	"context"
@@ -33,10 +24,6 @@ type STSSessionData struct {
 	UserID          string `json:"user_id"`
 	SessionPolicy   string `json:"session_policy,omitempty"`
 
-	// Role identity travels with the session. Without it a session issued by
-	// AssumeRole would land on the peer as a plain one, and a plain session
-	// projects the base user's own permissions — so a credential deliberately
-	// narrowed to a role would come back WIDER on every other node.
 	RoleARN         string `json:"role_arn,omitempty"`
 	RoleSessionName string `json:"role_session_name,omitempty"`
 	PolicyMode      string `json:"policy_mode,omitempty"`
@@ -75,10 +62,6 @@ func NewSTSSessionSyncManager(db *sql.DB, clusterManager *Manager) *STSSessionSy
 // sync interval and enable flag: temporary credentials are access keys with a
 // shorter life, and splitting the knobs would only invite them to drift apart.
 func (m *STSSessionSyncManager) Start(ctx context.Context) {
-	// The proxy client is installed by the constructor with the same dynamic
-	// getter, so re-creating it here bought nothing — and it was a plain
-	// pointer write performed from the initialize/join HTTP handlers while
-	// both servers were already serving and other goroutines were reading it.
 
 	interval := 30
 	if intervalStr, err := GetGlobalConfig(ctx, m.db, "access_key_sync_interval_seconds"); err == nil {
@@ -106,7 +89,7 @@ func (m *STSSessionSyncManager) Stop() {
 // after issuing or revoking a session so a client using the credential through
 // a load balancer doesn't have to wait for the next tick.
 func (m *STSSessionSyncManager) TriggerSync(ctx context.Context) {
-	go m.syncAllSessions(context.WithoutCancel(ctx))
+	runDetached(ctx, m.syncAllSessions)
 }
 
 func (m *STSSessionSyncManager) syncLoop(ctx context.Context, interval time.Duration) {

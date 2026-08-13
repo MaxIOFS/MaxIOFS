@@ -1,13 +1,5 @@
 package auth
 
-// STS temporary credentials. See docs/SECURITY.md, "Temporary Credentials".
-//
-// A session is a projection of an existing user: the validation branch in
-// ValidateS3SignatureV4 resolves the session and puts the base *User in the
-// request context, so the authorization pipeline (roles, capabilities,
-// bucket_permissions, bucket policies, ACLs) evaluates exactly as it does for
-// permanent keys.
-
 import (
 	"context"
 	"crypto/rand"
@@ -24,9 +16,6 @@ import (
 )
 
 const (
-	// STSKeyPrefix marks temporary access key IDs (AWS uses ASIA for
-	// temporary credentials, AKIA for permanent ones). The prefix is the
-	// discriminator in signature validation.
 	STSKeyPrefix = "ASIA"
 
 	// STSMinSessionDuration is the minimum session lifetime in seconds.
@@ -53,10 +42,6 @@ var (
 )
 
 // STSSession represents a temporary credential set bound to an existing user.
-// SecretAccessKey is encrypted at rest (same SEC-04 treatment as permanent
-// access keys); it is plaintext only in the issuance response.
-// SessionPolicy is the optional restriction document — see sts_policy.go;
-// empty means the session is as wide as the base user.
 type STSSession struct {
 	TempAccessKeyID string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key,omitempty"`
@@ -64,12 +49,6 @@ type STSSession struct {
 	UserID          string `json:"user_id"`
 	SessionPolicy   string `json:"session_policy,omitempty"`
 
-	// RoleARN and RoleSessionName are set when the session came from
-	// AssumeRole. PolicyMode says how the session is authorized:
-	// STSPolicyModeRestrict (the default) means the base user's own
-	// permissions apply and SessionPolicy can only narrow them;
-	// STSPolicyModeRole means the role's policies are the permissions, and the
-	// base user's own access is not consulted at all.
 	RoleARN         string `json:"role_arn,omitempty"`
 	RoleSessionName string `json:"role_session_name,omitempty"`
 	PolicyMode      string `json:"policy_mode,omitempty"`
@@ -208,9 +187,6 @@ func (s *SQLiteStore) DeleteSTSSession(tempAccessKeyID string) error {
 }
 
 // DeleteExpiredSTSSessions removes sessions whose expiry is older than the
-// cutoff. The sweep passes now-1h so a just-expired session stays visible in
-// the console for a while; correctness never depends on the sweep because
-// validation checks expiry itself.
 func (s *SQLiteStore) DeleteExpiredSTSSessions(cutoff int64) (int64, error) {
 	res, err := s.db.Exec(`DELETE FROM sts_sessions WHERE expires_at < ?`, cutoff)
 	if err != nil {
@@ -270,13 +246,6 @@ func (am *authManager) stsMaxSessionDuration() int {
 }
 
 // IssueSTSSession creates a temporary credential set for userID.
-// durationSeconds == 0 means the default (3600). Durations outside
-// [STSMinSessionDuration, configured max] are rejected, not clamped, so the
-// caller learns its request was invalid.
-//
-// sessionPolicy is optional. When set it is validated here and stored
-// verbatim; at request time it can only REMOVE permissions from what the base
-// user already has, never add any.
 func (am *authManager) IssueSTSSession(ctx context.Context, userID string, durationSeconds int, sessionPolicy string) (*STSSession, error) {
 	user, err := am.store.GetUserByID(userID)
 	if err != nil {
@@ -415,25 +384,12 @@ func (am *authManager) SweepExpiredSTSSessions(ctx context.Context) (int64, erro
 }
 
 // ResolveSTSSessionSecret authenticates a temporary credential and returns the
-// base user plus the decrypted session secret. Used by the presigned-URL paths,
-// where the session token travels in the query string (and is therefore already
-// covered by the canonical query string the signature is computed over).
-//
-// It does NOT apply the session policy: the caller has not verified the
-// signature yet at that point. Presigned callers must follow up with
-// AuthorizeSTSRequest once the signature checks out.
 func (am *authManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*User, string, error) {
 	user, secret, _, err := am.resolveSTSSession(tempAccessKeyID, sessionToken)
 	return user, secret, err
 }
 
 // AuthorizeSTSRequest re-checks a temporary credential after its signature has
-// been verified and enforces the session policy against the request, returning
-// the base user to put in the request context.
-//
-// Returns (nil, nil) when tempAccessKeyID is not a temporary credential, so
-// callers can invoke it unconditionally. Used by the presigned-URL path, where
-// signature verification happens in pkg/s3compat rather than here.
 func (am *authManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*User, error) {
 	if !IsSTSAccessKey(tempAccessKeyID) {
 		return nil, nil
@@ -473,11 +429,6 @@ func (am *authManager) validateSTSSignatureV4(r *http.Request, sig *S3SignatureV
 		return nil, ErrInvalidSignature
 	}
 
-	// What the credential may do is settled here, AFTER the signature check so
-	// an unauthenticated caller learns nothing about the policy. For a plain
-	// session this can only deny, and everything it allows still has to pass
-	// the normal pipeline downstream; for a role session the role's policies
-	// are the permissions and the pipeline defers to them.
 	if err := am.enforceSTSSession(sess, r); err != nil {
 		return nil, err
 	}
@@ -509,10 +460,6 @@ func signedHeadersInclude(signedHeaders, name string) bool {
 }
 
 // resolveSTSSession authenticates a temporary credential during signature
-// validation: session must exist and be unexpired, the presented token must
-// match (constant-time), and the base user must exist and be active.
-// Returns the base user, the DECRYPTED session secret for HMAC verification,
-// and the session row itself (needed to enforce its policy).
 func (am *authManager) resolveSTSSession(tempAccessKeyID, presentedToken string) (*User, string, *STSSession, error) {
 	sess, err := am.store.GetSTSSession(tempAccessKeyID)
 	if err != nil {

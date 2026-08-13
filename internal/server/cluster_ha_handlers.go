@@ -145,14 +145,6 @@ func (s *Server) handleGetHAScrubStatus(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleDrainClusterNode immediately marks a node dead and triggers
-// redistribution of its replicas to remaining healthy nodes.
-// POST /cluster/nodes/{nodeId}/drain
-//
-// Body (optional): { "reason": "scheduled hardware decommission" }
-//
-// The local node cannot be drained via this endpoint — admins must run drain
-// from a different node, otherwise the very server processing the request
-// would be flipped to dead mid-call.
 func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
@@ -221,9 +213,6 @@ func (s *Server) handleGetClusterDegradedState(w http.ResponseWriter, r *http.Re
 }
 
 // handleSetClusterHA changes the cluster-wide replication factor.
-// PUT /cluster/ha
-//
-// Body: { "factor": 2 }
 func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)

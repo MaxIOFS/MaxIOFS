@@ -94,9 +94,6 @@ type UserResponse struct {
 	ExternalID          string   `json:"externalId,omitempty"`
 	CreatedAt           int64    `json:"createdAt"`
 
-	// PolicyCount is how many policies are attached to this user directly.
-	// A user whose permissions come from policies rather than a role would
-	// otherwise show an empty Role column and read as having nothing.
 	PolicyCount int `json:"policyCount"`
 }
 
@@ -218,24 +215,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 
-			// Skip authentication for public endpoints.
-			//
-			// Security note: r.URL.Path contains the FULL request path, e.g.
-			// "/api/v1/auth/login" or "/ui/api/v1/health" when a basePath is
-			// configured. We must NOT use HasSuffix on the raw path because it
-			// would create auth-bypass vectors — for instance
-			// "/api/v1/cluster/nodes/node-1/health" ends with "/health" and
-			// "/api/v1/buckets/version" ends with "/version".
-			//
-			// Instead we extract the relative segment that comes after the
-			// literal "/api/v1" token and compare that segment exactly.
-			//   - Prefix pattern (trailing "/"): HasPrefix on the relative segment.
-			//   - Exact endpoint: direct equality on the relative segment.
-			// "/sts/ldap-identity" and "/sts/web-identity" are public because
-			// they authenticate the caller against an identity provider instead
-			// of a console session. They carry their own
-			// gates: an opt-in setting, the login rate limiter, provider status,
-			// account state and the keys:manage_own capability.
 			publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
 				"/sts/ldap-identity", "/sts/web-identity"}
 			const apiV1Segment = "/api/v1"
@@ -265,12 +244,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				}
 			}
 
-			// A download token in the query string, for the one request a
-			// browser makes by navigating rather than by fetching. It is only
-			// ever consulted for the object-download route, and only for the
-			// object it names, so it cannot stand in for a session anywhere
-			// else. Everything after this point is identical to a normal
-			// request: the same user, the same resolved permissions.
 			user, handled := s.userFromDownloadToken(w, r)
 			if handled {
 				return
@@ -301,9 +274,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 
-			// Add user to context, with their permissions resolved once. Every
-			// permission check on this request reads that one set; without it
-			// each check re-reads the whole policy model from the database.
 			ctx := context.WithValue(r.Context(), "user", user)
 			if resolver, ok := s.authManager.(interface {
 				ResolvePolicySet(ctx context.Context, user *auth.User) (*auth.PolicySet, error)
@@ -316,9 +286,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 		})
 	})
 
-	// Coordinator gate — configuration is written on one node so two nodes
-	// cannot edit the same entity at once. Runs after auth so a refusal is
-	// distinguishable from a rejected credential.
 	router.Use(s.coordinatorMiddleware)
 
 	// Maintenance mode middleware — blocks write operations when enabled.
@@ -330,19 +297,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Paths that must work even in maintenance mode:
-			//   /auth/*        — login, logout, 2FA, OAuth
-			//   /health        — health checks
-			//   /settings      — so the admin can turn maintenance mode off
-			//   /api/internal/ — cluster sync must not be blocked
-			//   /notifications — SSE stream must stay open
-			// Exempt paths from maintenance mode.
-			//
-			// Security note: use the same relPath extraction as the auth
-			// middleware to avoid substring collisions (e.g. a bucket named
-			// "health" would match /health via strings.Contains on the full
-			// path). Paths under /api/internal/ are not under /api/v1, so we
-			// match those against the full URL path separately.
 			{
 				const v1seg = "/api/v1"
 				mmURLPath := r.URL.Path
@@ -468,9 +422,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/users/{user}/access-keys", s.handleCreateAccessKey).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{user}/access-keys/{accessKey}", s.handleDeleteAccessKey).Methods("DELETE", "OPTIONS")
 
-	// STS temporary credentials — see docs/API.md
-	// The two federation endpoints are in publicPaths above: they authenticate
-	// against an identity provider, not against a console session.
 	router.HandleFunc("/sts/ldap-identity", s.handleSTSLDAPIdentity).Methods("POST", "OPTIONS")
 	router.HandleFunc("/sts/web-identity", s.handleSTSWebIdentity).Methods("POST", "OPTIONS")
 	router.HandleFunc("/sts/session-token", s.handleIssueSTSSession).Methods("POST", "OPTIONS")
@@ -1095,9 +1046,6 @@ func sanitizeFilename(name string) string {
 }
 
 // getClientIP extracts the real client IP address from the request.
-// It only trusts X-Forwarded-For / X-Real-IP headers when the direct
-// connection (RemoteAddr) comes from a private/loopback network or from
-// an address in trustedProxies, preventing IP spoofing by external clients.
 func getClientIP(r *http.Request, trustedProxies []string) string {
 	// Parse the direct upstream IP from RemoteAddr
 	remoteHost := r.RemoteAddr
@@ -1213,9 +1161,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	var bucketNodeMap map[string]nodeInfo // bucket name -> node info
 
 	if isClusterEnabled && s.bucketAggregator != nil {
-		// Use full cross-node aggregation so the console shows all buckets from all
-		// cluster nodes, tagged with their owning node. The S3 API keeps its local-only
-		// listing (objects on remote nodes are not accessible via this endpoint).
 		aggregated, err := s.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -1242,14 +1187,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// STEP 3: Apply permission filtering
-	//
-	// A bucket is listed when the caller may list it, asked of the same policy
-	// set every other console check reads. It used to be decided by the role
-	// name, by ownership, and by CheckBucketAccess — which reads the legacy
-	// bucket_permissions table that is no longer consulted when authorizing. So
-	// a bucket granted purely through IAM was invisible here while every object
-	// in it was perfectly accessible, and a grant revoked in IAM kept the bucket
-	// on screen.
 	var filteredBuckets []bucket.Bucket
 	for _, b := range allBuckets {
 		bucketTenantID := s.resolveConsoleBucketTenantID(r, b.Name, user)
@@ -1323,23 +1260,6 @@ func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
 }
 
 // proxyConsoleRequest checks if a bucket lives on a remote cluster node and, if so,
-// forwards the console API request to that node using the client's JWT token.
-// JWT secrets are synced across nodes, so the remote node can validate the JWT normally.
-// Returns true if the request was proxied (caller should not handle the request further).
-// consoleProxyClient forwards console requests to the node that owns a bucket.
-//
-// It has no overall Timeout on purpose. http.Client.Timeout bounds the whole
-// exchange including the body, so any value at all is a cap on file size
-// disguised as a cap on time: at 30 seconds an object took as long as it took,
-// and every transfer longer than that failed however healthy both nodes were.
-//
-// What must stay bounded is waiting for a node that is not answering, and that
-// is what these cover — reaching it, negotiating TLS, and receiving the
-// response headers. Once the headers arrive the transfer proceeds at whatever
-// pace it needs; the request context still cancels it if the client goes away.
-//
-// One client, not one per request: each carries its own connection pool, so
-// building them per call reopens a connection every time.
 var consoleProxyClient = &http.Client{
 	Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -1366,31 +1286,17 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 		return false
 	}
 
-	// Determine target console URL: use node.APIURL as a hint for the host,
-	// but swap to the console port (8081 by default). If node.APIURL is empty,
-	// derive the console URL from node.Endpoint (cluster port 8082) → port 8081.
 	baseURL := node.APIURL
 	if baseURL == "" {
 		// Fallback: use Endpoint (cluster port) host and try console port 8081
 		baseURL = node.Endpoint
 	}
-	// Build target URL: replace the port in baseURL with the console port if needed.
-	// For simplicity, use node.Endpoint (cluster port), which has the same host.
-	// The console API and cluster API are on the same host — just different ports.
-	// We derive the console base URL by replacing the cluster port with 8081.
 	targetBase := deriveConsoleURL(node)
 	if targetBase == "" {
 		return false
 	}
 	targetURL := strings.TrimRight(targetBase, "/") + r.URL.RequestURI()
 
-	// The body is streamed, not buffered. An object upload routed to its owning
-	// node used to be read into this node's memory in full before a single byte
-	// was forwarded, so proxying a large file cost as much RAM as the file.
-	//
-	// ContentLength has to be carried across explicitly: given a reader that is
-	// not a *bytes.Reader, net/http cannot know the size and would fall back to
-	// chunked encoding, hiding the length from the handler that stores it.
 	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
 		logrus.WithError(err).Warn("proxyConsoleRequest: failed to create request")
@@ -1422,10 +1328,6 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 			"url":    targetURL,
 			"error":  err.Error(),
 		}).Error("proxyConsoleRequest: failed to forward request")
-		// Reporting the failure rather than returning false is deliberate: the
-		// request body has been consumed by the attempt, so handling it locally
-		// now would act on an empty one — storing an empty object in place of
-		// the upload that was meant to be forwarded.
 		s.writeError(w, "The node that owns this bucket could not be reached",
 			http.StatusBadGateway)
 		return true
@@ -1444,10 +1346,6 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 }
 
 // deriveConsoleURL builds the console API base URL for a remote node.
-// It always uses the internal IP from node.Endpoint (guaranteed to be an IP, not a
-// public hostname) with the console port 8081 over plain HTTP.
-// node.APIURL may point to a public hostname with a certificate not trusted by the
-// cluster CA; using it would cause TLS errors when the proxy client has no custom CA.
 func deriveConsoleURL(node *cluster.Node) string {
 	// Prefer Endpoint (always has internal IP), fall back to APIURL.
 	src := node.Endpoint
@@ -1595,9 +1493,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// If mode is specified, days or years must also be provided (and vice-versa).
-		// Both are optional — a bucket can have Object Lock enabled with no default
-		// retention rule. Clients like Veeam B&R manage retention per-object themselves.
 		if req.ObjectLock.Mode != "" && req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
 			s.writeError(w, "Object Lock retention period (days or years) is required when a mode is specified", http.StatusBadRequest)
 			return
@@ -1689,9 +1584,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		bucketInfo.ObjectLock = objLock
 	}
 
-	// Aplicar encriptación. Server-side encryption is always on (envelope,
-	// AES-256-GCM), so every bucket reflects it in its metadata; an explicit
-	// request config (e.g. aws:kms type) takes precedence.
 	if req.Encryption != nil {
 		bucketInfo.Encryption = req.Encryption
 	} else {
@@ -2453,11 +2345,6 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 }
 
 // s3EncodePath percent-encodes an S3 object key / bucket path for safe
-// inclusion in an HTTP(S) URL, matching AWS S3 and the S3 API's own decoding:
-// RFC 3986 unreserved chars (A-Z a-z 0-9 - . _ ~) and the '/' path separator
-// stay literal; every other byte becomes %XX. So space→%20, #→%23, and
-// multibyte UTF-8 (é, ❌, 💸) is encoded byte-by-byte. Without this, keys with
-// spaces or '#' produce broken share/download URLs (the '#' truncates the key).
 func s3EncodePath(s string) string {
 	const keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
 	var b strings.Builder
@@ -2485,19 +2372,11 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A share makes the object anonymously readable over the S3 endpoint, so
-	// creating one is at least as much as reading it. This handler asked for no
-	// permission at all.
 	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
 		"You do not have permission to share this object") {
 		return
 	}
 
-	// The tenant used to be taken from the query string with no check, unlike
-	// its two sibling handlers, which gate that override on being a global
-	// administrator. Any console user could therefore name another tenant and
-	// publish an object out of it — permanently, since a share is a standing
-	// public link.
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
 	if queryTenantID != "" && s.isGlobalAdmin(user) {
@@ -2922,10 +2801,6 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		createRequest.Roles = []string{"read"}
 	}
 
-	// Roles were accepted verbatim, so a tenant administrator could mint an
-	// "admin" inside their own tenant — and administration is not scoped by the
-	// role name, only by the checks that read it. Handing out administration is
-	// a global administrator's decision.
 	if !isGlobalAdmin && containsAdminRole(createRequest.Roles) {
 		s.writeError(w, "Only a global administrator can grant the administrator role",
 			http.StatusForbidden)
@@ -3086,10 +2961,6 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Last-admin guard ---
-	// If the update would strip global-admin status from `user` (removing the
-	// "admin" role OR moving the account to a tenant) and `user` is currently a
-	// global admin, ensure at least one OTHER global admin exists.
 	if s.isGlobalAdmin(user) {
 		rolesChangingAwayFromAdmin := updateRequest.Roles != nil && !func() bool {
 			for _, r := range updateRequest.Roles {
@@ -3118,9 +2989,6 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		user.Email = *updateRequest.Email
 	}
 	if updateRequest.Roles != nil {
-		// Same rule as creation: promoting someone to administrator is a global
-		// administrator's decision, or a tenant admin could promote a user in
-		// their own tenant and reach everything through them.
 		if !s.isGlobalAdmin(currentUser) && containsAdminRole(updateRequest.Roles) &&
 			!containsAdminRole(user.Roles) {
 			s.writeError(w, "Only a global administrator can grant the administrator role",
@@ -4078,11 +3946,6 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Whether the caller administers anyone but themselves. This used to be a
-	// bare scan for the "admin" role, which is the same string inside a tenant
-	// as outside it — so a tenant administrator passed it and could reset the
-	// GLOBAL administrator's password, without even supplying the current one.
-	// The tenant is compared below, once the target is known.
 	isAdmin := s.isAdmin(currentUser)
 
 	// Check if user is changing their own password
@@ -4124,10 +3987,6 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A tenant administrator administers their own tenant, nobody else's. Read
-	// after the target is loaded, because the scope depends on who it is: a
-	// tenant admin must not reach a global administrator, and this is the same
-	// guard handleUpdateUser and handleDeleteUser already apply.
 	if !isChangingSelf && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
@@ -4969,11 +4828,6 @@ func (s *Server) grantScopedGroupBucketAccess(r *http.Request, bucketName, bucke
 func (s *Server) revokeScopedBucketAccess(r *http.Request, bucketName, bucketTenantID, userID, tenantID string) error {
 	err := s.revokeScopedBucketAccessRow(r, bucketName, bucketTenantID, userID, tenantID)
 	if err == nil {
-		// A revocation deletes the user's inline `bucket-<name>` policy, and a
-		// deletion with no tombstone is undone by the next sync: the receiver
-		// upserts whatever a peer reports, and its freshness guard cannot fire
-		// on a row that is gone. So access came back cluster-wide within the
-		// sync interval, and stayed.
 		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
 			iamInlineTombstoneID(auth.IAMTargetUser, userID, "bucket-"+bucketName))
 	}
@@ -5179,9 +5033,6 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Reassigning a bucket decides who holds it, so it is guarded by the
-	// permission that governs who may change access to it. This handler used to
-	// require only a session, which made it a bucket-takeover primitive.
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl,
 		"You do not have permission to change this bucket's owner") {
 		return
@@ -5236,13 +5087,6 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Ownership is a policy, so moving the owner field alone changed nothing:
-	// the new owner got no access and the previous one kept all of it. The
-	// policy has to move with it.
-	//
-	// Only the previous owner's own `owner-<bucket>` policy is removed, never
-	// every policy naming the bucket — the grants other users hold on it are
-	// not the owner's to revoke.
 	if mover, ok := s.authManager.(interface {
 		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
 		DeleteIAMInlinePolicy(ctx context.Context, targetType, targetID, name string) error
@@ -5256,9 +5100,6 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		if err := mover.GrantBucketOwnerPolicy(bucketName, req.OwnerType, req.OwnerID); err != nil {
-			// The bucket now records an owner who cannot reach it. Reported
-			// rather than logged: a silent success here is how the console came
-			// to show an owner with no access.
 			logrus.WithError(err).WithField("bucket", bucketName).
 				Error("Failed to grant the new owner's policy")
 			s.writeError(w, "The owner was changed but the new owner could not be granted access",
@@ -5434,9 +5275,6 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 		"object": objectKey,
 	}).Info("Generate presigned URL request")
 
-	// A presigned URL hands out access to this object, so producing one needs
-	// permission to read it. This handler asked for none: it confirmed the
-	// object's existence to any authenticated caller and signed a URL for it.
 	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
 		"You do not have permission to share this object") {
 		return
@@ -5481,10 +5319,6 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 	// Determine tenant ID for bucket path
 	tenantID := user.TenantID
 	queryTenantID := r.URL.Query().Get("tenantId")
-	// Only a global administrator may sign for another tenant's bucket. This
-	// tested for a role named "system_admin", which exists nowhere else in the
-	// repository — so the override could never fire, and the check read as a
-	// safeguard while doing nothing at all.
 	if queryTenantID != "" && s.isGlobalAdmin(user) {
 		tenantID = queryTenantID
 	}
@@ -6928,9 +6762,6 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-// ============================================================================
-// 2FA Handlers
-// ============================================================================
 
 // handleSetup2FA generates a new TOTP secret and QR code for the user
 func (s *Server) handleSetup2FA(w http.ResponseWriter, r *http.Request) {
@@ -7773,9 +7604,6 @@ You received this email because you requested a test from the System Settings pa
 	})
 }
 
-// ============================================================================
-// Bucket Notification Handlers
-// ============================================================================
 
 // handleGetBucketNotification retrieves the notification configuration for a bucket
 func (s *Server) handleGetBucketNotification(w http.ResponseWriter, r *http.Request) {
@@ -7935,14 +7763,8 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 	})
 }
 
-// ============================================================================
-// Bucket Encryption Handlers
-// ============================================================================
 
 // handleGetBucketEncryption returns the SSE configuration of a bucket.
-// The response also includes whether server-level encryption is active so the
-// frontend can display appropriate warnings when the master key is not
-// configured (objects would not actually be encrypted at rest).
 func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -7981,16 +7803,10 @@ func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Reques
 }
 
 // handlePutBucketEncryption sets the SSE configuration for a bucket.
-// It requires server-level encryption to be active; otherwise setting a
-// bucket-level policy would be misleading — the objects would not actually
-// be encrypted because the master key is absent.
 func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// No server-level guard needed: encryption is always on (envelope, KEK
-	// bootstrapped in the DB at startup), so a bucket SSE config is always
-	// backed by a real key.
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
@@ -8109,9 +7925,6 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ============================================================================
-// Bucket Object Lock — GET (the PUT already exists)
-// ============================================================================
 
 // handleGetObjectLockConfiguration returns the current Object Lock configuration
 // for a bucket (enabled flag + default retention rule).
@@ -8153,9 +7966,6 @@ func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http
 	s.writeJSON(w, bucketInfo.ObjectLock)
 }
 
-// ============================================================================
-// Bucket Public-Access-Block Handlers
-// ============================================================================
 
 // handleGetPublicAccessBlock returns the public-access-block configuration.
 func (s *Server) handleGetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {

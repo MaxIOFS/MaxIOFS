@@ -1344,9 +1344,6 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 		"access_key_id":  deleteData.ID,
 	}).Info("Receiving access key deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	// For access keys (no updated_at column) this always returns false, so the tombstone always wins.
-	// The check is here for consistency and future-proofing if updated_at is added later.
 	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, deleteData.DeletedAt) {
 		logrus.WithFields(logrus.Fields{
 			"source_node_id": sourceNodeID,
@@ -1367,11 +1364,6 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 
 	rowsAffected, _ := result.RowsAffected()
 
-	// Record tombstone only if the key actually existed here (rows_affected > 0)
-	// OR if we don't already have this tombstone. This prevents ping-pong: when a
-	// deletion arrives for a key that never existed on this node and we already have
-	// the tombstone, recording it again would cause this node to start re-broadcasting
-	// the same tombstone back to the sender on its next sync cycle.
 	alreadyHasTombstone, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID)
 	if rowsAffected > 0 || !alreadyHasTombstone {
 		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, sourceNodeID); err != nil {
@@ -1426,9 +1418,6 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 		"permission_id":  deleteData.ID,
 	}).Info("Receiving bucket permission deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	// For bucket permissions (no updated_at column) this always returns false, so the tombstone always wins.
-	// The check is here for consistency and future-proofing if updated_at is added later.
 	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, deleteData.DeletedAt) {
 		logrus.WithFields(logrus.Fields{
 			"source_node_id": sourceNodeID,
@@ -1494,9 +1483,6 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 
 	recorded := 0
 	for _, entry := range entries {
-		// Phase 4: Tombstone vs entity LWW.
-		// If the local entity was updated after this tombstone's deleted_at, the entity wins
-		// and we must NOT record the tombstone (it would otherwise block future upserts).
 		if cluster.EntityIsNewerThanTombstone(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedAt) {
 			logrus.WithFields(logrus.Fields{
 				"entity_type": entry.EntityType,
@@ -1755,9 +1741,6 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 	}
 }
 
-// ---------------------------------------------------------------------------
-// HA pull endpoints (used by stale-node catch-up)
-// ---------------------------------------------------------------------------
 
 // handleHAGetObject serves an object to a rejoining stale replica.
 // GET /api/internal/ha/objects/{key:.*}
@@ -1823,9 +1806,6 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHAChecksumBatch returns (etag, size, last_modified) for each requested
-// object key.  Used by the anti-entropy scrubber on a peer to compare with its
-// own local view.  Missing keys are returned with found=false.
-// POST /api/internal/ha/checksum-batch
 func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Bucket string   `json:"bucket"`

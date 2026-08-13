@@ -262,9 +262,6 @@ func TestSTSSessionPolicy_UnparsablePolicyDeniesEverything(t *testing.T) {
 	sess, err := am.IssueSTSSession(context.Background(), user.ID, 0, readOnlyOneBucketPolicy)
 	require.NoError(t, err)
 
-	// Simulate a corrupted row (or one written by a build that understood a
-	// construct this one does not): the credential must stop working rather
-	// than silently widen to the base user's full permissions.
 	_, err = am.store.db.Exec(
 		`UPDATE sts_sessions SET session_policy = ? WHERE temp_access_key_id = ?`,
 		`{"Statement": [ truncated`, sess.TempAccessKeyID)

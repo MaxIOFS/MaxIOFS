@@ -127,12 +127,6 @@ func TestEncryptionWorkerStatusEndpoint(t *testing.T) {
 }
 
 // A checkpoint pointing at a bucket that no longer exists (deleted between
-// runs) must fall back to a full pass instead of skipping every bucket.
-//
-// Runs against a DEDICATED minimal Server (own Pebble + storage + worker
-// slot): on the shared server another test's asynchronous pass can hold the
-// single-flight guard for minutes (load-aware backoff under suite CPU),
-// turning this synchronous run into a silent no-op.
 func TestEncryptionWorkerResumeWithDeletedBucket(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
