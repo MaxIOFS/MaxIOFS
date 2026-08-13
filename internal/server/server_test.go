@@ -382,7 +382,8 @@ func createAuthenticatedRequest(method, url string, body io.Reader, tenantID, us
 
 	ctx := context.WithValue(req.Context(), "user", user)
 	ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
-		UserID: userID,
+		UserID:   userID,
+		TenantID: tenantID,
 		Documents: []string{
 			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`,
 		},
@@ -4091,7 +4092,8 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 
 		ctx := context.WithValue(req.Context(), "user", adminUser)
 		ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
-			UserID: adminUser.ID,
+			UserID:   adminUser.ID,
+			TenantID: adminUser.TenantID,
 			Documents: []string{
 				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObjectLegalHold","Resource":"arn:aws:s3:::test-bucket-legalhold-put/test.txt"}]}`,
 			},
@@ -4113,7 +4115,8 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 
 		ctx := context.WithValue(req.Context(), "user", adminUser)
 		ctx = auth.WithPolicySet(ctx, &auth.PolicySet{
-			UserID: adminUser.ID,
+			UserID:   adminUser.ID,
+			TenantID: adminUser.TenantID,
 			Documents: []string{
 				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObjectLegalHold","Resource":"arn:aws:s3:::test-bucket-legalhold-put/test.txt"}]}`,
 			},

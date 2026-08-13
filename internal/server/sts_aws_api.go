@@ -563,7 +563,10 @@ func writeSTSXML(w http.ResponseWriter, doc interface{}) {
 }
 
 func writeSTSError(w http.ResponseWriter, status int, code, message string) {
-	resp := &stsErrorResponse{Xmlns: stsXMLNamespace}
+	// The request id is already on the response by the time an error is
+	// written, so it is read back rather than threaded through all the callers.
+	// It was going out as an empty element, which tells a client nothing.
+	resp := &stsErrorResponse{Xmlns: stsXMLNamespace, RequestID: w.Header().Get("X-Amz-Request-Id")}
 	resp.Error.Type = "Sender"
 	if status >= 500 {
 		resp.Error.Type = "Receiver"

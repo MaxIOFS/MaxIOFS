@@ -59,8 +59,8 @@ func TestSetUserPermissions_StillStoresRealGrants(t *testing.T) {
 	set, err := am.buildPolicySetFor(user.ID, user.Roles, "")
 	require.NoError(t, err)
 
-	assert.True(t, set.Allows(ActionPutObject, "arn:aws:s3:::reports/q1.csv"),
+	assert.True(t, set.AllowsOwnAccount(ActionPutObject, "arn:aws:s3:::reports/q1.csv"),
 		"a grant the user did not already hold must be stored")
-	assert.False(t, set.Allows(ActionPutObject, "arn:aws:s3:::other/q1.csv"),
+	assert.False(t, set.AllowsOwnAccount(ActionPutObject, "arn:aws:s3:::other/q1.csv"),
 		"and only where it was given")
 }

@@ -209,8 +209,8 @@ func TestRoleSession_AttachesRolePolicySetToRequest(t *testing.T) {
 	set, ok := PolicySetFromContext(r.Context())
 	require.True(t, ok)
 	assert.Equal(t, user.ID, set.UserID)
-	assert.True(t, set.Allows(ActionGetObject, "arn:aws:s3:::backups/f.txt"))
-	assert.False(t, set.Allows(ActionPutObject, "arn:aws:s3:::backups/f.txt"))
+	assert.True(t, set.AllowsOwnAccount(ActionGetObject, "arn:aws:s3:::backups/f.txt"))
+	assert.False(t, set.AllowsOwnAccount(ActionPutObject, "arn:aws:s3:::backups/f.txt"))
 }
 
 func TestRoleSession_WithoutRolePoliciesCanDoNothing(t *testing.T) {

@@ -1335,7 +1335,8 @@ func TestHandleDeleteBucket(t *testing.T) {
 	deleteReq := httptest.NewRequest("DELETE", "/api/v1/buckets/delete-test-bucket", nil)
 	ctxWithUser := context.WithValue(deleteReq.Context(), "user", user)
 	ctxWithUser = auth.WithPolicySet(ctxWithUser, &auth.PolicySet{
-		UserID: user.ID,
+		UserID:   user.ID,
+		TenantID: user.TenantID,
 		Documents: []string{
 			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:DeleteBucket","Resource":"arn:aws:s3:::delete-test-bucket"}]}`,
 		},

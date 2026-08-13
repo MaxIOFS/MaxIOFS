@@ -380,15 +380,23 @@ bucket called that, in every tenant. What keeps one tenant's grant from reaching
 another's bucket is `userCanPerformS3ActionInTenant`, the way an AWS account
 bounds what a policy saying `*` can reach — not the documents themselves.
 
-This is a deliberate shape, but it means nothing in a policy expresses it, so
-only `pkg/s3compat/tenant_boundary_test.go` holds it in place. Two consequences
-worth keeping in mind before extending the model:
+This is a deliberate shape, and it is the same one AWS has: an account boundary
+is not written in a policy document, it is applied when the resource is
+resolved. What follows from that:
 
-- [ ] Every new path that consults a `PolicySet` against a bucket has to go
-  through the boundary check. A direct `set.Allows(...)` is unbounded. The rule
-  to follow is the standard one, not the convenient one: AWS resolves the
-  account boundary structurally, at resource resolution, and never inside the
-  policy document. That is the shape to keep.
+- [x] **The boundary moved into the evaluation engine**, which is where AWS puts
+  it. It was a rule the call sites had to remember, and remembering is not a
+  mechanism: `PolicySet.Allows` now takes an `AccessRequest` carrying the
+  resource's owning tenant, so there is no way to ask the question without
+  saying whose resource it is. The old two-argument call no longer compiles, so
+  every path — present and future — is forced through the boundary. The owner is
+  a type, not a string: global buckets legitimately carry an empty tenant, so as
+  a string an omitted field and the shared namespace were indistinguishable and
+  forgetting it opened the boundary. Its zero value means "nobody resolved this"
+  and is refused. A principal that belongs to an account never leaves it
+  whatever its own policies say; crossing is only for a tenant-less super
+  administrator, and only to read. Pinned by `TestAccountBoundary_*` in
+  `internal/auth/policy_set_test.go`.
 - [x] **Decided: no tenant-qualified ARNs.** `arn:aws:s3:::<tenant>/<bucket>`
   would move the boundary into the documents, but it is not an ARN any AWS SDK
   or tool understands — S3 ARNs carry no account precisely because the bucket

@@ -32,7 +32,7 @@ func TestTenantAdmin_RolePoliciesStillApply(t *testing.T) {
 
 	assert.True(t, set.AllowsAnywhere(ActionBypassGovernanceRetention),
 		"a policy attached to the role must reach a tenant administrator")
-	assert.False(t, set.Allows(ActionDeleteObject, "arn:aws:s3:::any/key"),
+	assert.False(t, set.AllowsOwnAccount(ActionDeleteObject, "arn:aws:s3:::any/key"),
 		"and a revocation on the role must reach them too")
 }
 
@@ -49,8 +49,8 @@ func TestTenantAdmin_ManagesImmutabilityForTheirTenant(t *testing.T) {
 		ID: "ta-admin2", TenantID: "ta2", Roles: []string{RoleAdmin}})
 	require.NoError(t, err)
 
-	assert.True(t, set.Allows(ActionGetBucketObjectLockConfiguration, "arn:aws:s3:::b"))
-	assert.True(t, set.Allows(ActionPutBucketObjectLockConfiguration, "arn:aws:s3:::b"))
+	assert.True(t, set.AllowsOwnAccount(ActionGetBucketObjectLockConfiguration, "arn:aws:s3:::b"))
+	assert.True(t, set.AllowsOwnAccount(ActionPutBucketObjectLockConfiguration, "arn:aws:s3:::b"))
 }
 
 // TestTenantAdmin_HoldsNoUnscopedFullAccess keeps the scoping that the

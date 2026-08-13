@@ -1237,7 +1237,11 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 					case errors.Is(err, ErrAccessDenied):
 						writeS3Error(w, r, "AccessDenied", "Access Denied.", http.StatusForbidden)
 					default:
-						writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusUnauthorized)
+						// 403, as AWS answers for a credential it does not
+						// know. 401 makes SDKs treat it as a challenge and
+						// retry, and disagreed with the handler's own error
+						// path, which already answered 403 for this code.
+						writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusForbidden)
 					}
 					return
 				}
@@ -1484,26 +1488,34 @@ func (am *authManager) CheckBucketAccess(ctx context.Context, bucketName, userID
 	if err != nil {
 		return false, "", err
 	}
-	return bucketAccessFromSet(set, bucketName)
+	// Without a scope the question is about a bucket in the caller's own
+	// account, which is the only one a bare name can safely mean.
+	return bucketAccessFromSet(set, bucketName, set.TenantID)
 }
 
 func (am *authManager) CheckBucketAccessScoped(ctx context.Context, bucketName, bucketTenantID, userID string) (bool, string, error) {
-	// The tenant scope selects which bucket the name refers to; the permission
-	// question is the same one.
-	return am.CheckBucketAccess(ctx, bucketName, userID)
+	set, err := am.resolvePolicySet(ctx, userID, nil)
+	if err != nil {
+		return false, "", err
+	}
+	return bucketAccessFromSet(set, bucketName, bucketTenantID)
 }
 
 // bucketAccessFromSet reports whether a set grants anything on a bucket, and at
-func bucketAccessFromSet(set *PolicySet, bucketName string) (bool, string, error) {
+func bucketAccessFromSet(set *PolicySet, bucketName, bucketTenantID string) (bool, string, error) {
 	bucketARN := "arn:aws:s3:::" + bucketName
 	objectARN := bucketARN + "/*"
 
+	on := func(action, resource string) bool {
+		return set.Allows(AccessRequest{Action: action, Resource: resource, Owner: OwnedBy(bucketTenantID)})
+	}
+
 	switch {
-	case set.Allows(ActionPutBucketPolicy, bucketARN):
+	case on(ActionPutBucketPolicy, bucketARN):
 		return true, PermissionLevelAdmin, nil
-	case set.Allows(ActionPutObject, objectARN):
+	case on(ActionPutObject, objectARN):
 		return true, PermissionLevelWrite, nil
-	case set.Allows(ActionGetObject, objectARN), set.Allows(ActionListBucket, bucketARN):
+	case on(ActionGetObject, objectARN), on(ActionListBucket, bucketARN):
 		return true, PermissionLevelRead, nil
 	}
 	return false, "", nil
@@ -2050,15 +2062,23 @@ func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, 
 	w.Header().Set("Content-Type", "application/xml")
 	requestID := generateS3RequestID()
 	w.Header().Set("X-Amz-Request-Id", requestID)
-	w.Header().Set("X-Amz-Id-2", generateS3AmzId2())
+	hostID := generateS3AmzId2()
+	w.Header().Set("X-Amz-Id-2", hostID)
 	w.WriteHeader(statusCode)
 
+	// HEAD carries no body, as everywhere else in S3.
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
+
 	type S3Error struct {
-		XMLName   xml.Name `xml:"Error"`
-		Code      string   `xml:"Code"`
-		Message   string   `xml:"Message"`
-		Resource  string   `xml:"Resource,omitempty"`
-		RequestId string   `xml:"RequestId,omitempty"`
+		XMLName        xml.Name `xml:"Error"`
+		Code           string   `xml:"Code"`
+		Message        string   `xml:"Message"`
+		Resource       string   `xml:"Resource,omitempty"`
+		AWSAccessKeyId string   `xml:"AWSAccessKeyId,omitempty"`
+		RequestId      string   `xml:"RequestId,omitempty"`
+		HostId         string   `xml:"HostId,omitempty"`
 	}
 
 	errorResponse := S3Error{
@@ -2066,9 +2086,43 @@ func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, 
 		Message:   message,
 		Resource:  r.URL.Path,
 		RequestId: requestID,
+		HostId:    hostID,
 	}
 
-	xml.NewEncoder(w).Encode(errorResponse)
+	// AWS names the key back for credential errors, so a client can tell which
+	// of several it signed with.
+	if code == "InvalidAccessKeyId" || code == "SignatureDoesNotMatch" {
+		errorResponse.AWSAccessKeyId = accessKeyFromRequest(r)
+	}
+
+	_, _ = w.Write([]byte(xml.Header))
+	_ = xml.NewEncoder(w).Encode(errorResponse)
+}
+
+// accessKeyFromRequest pulls the key out of a SigV4 header or a presigned URL,
+// without validating anything: it is only echoed back on an error.
+func accessKeyFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if key := r.URL.Query().Get("AWSAccessKeyId"); key != "" {
+		return key
+	}
+	if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+		return strings.SplitN(cred, "/", 2)[0]
+	}
+
+	const marker = "Credential="
+	auth := r.Header.Get("Authorization")
+	idx := strings.Index(auth, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := auth[idx+len(marker):]
+	if cut := strings.IndexAny(rest, "/,"); cut >= 0 {
+		rest = rest[:cut]
+	}
+	return strings.TrimSpace(rest)
 }
 
 // generateS3RequestID generates a 16-char uppercase hex request ID (matches S3 format).

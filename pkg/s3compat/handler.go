@@ -3951,24 +3951,35 @@ func splitBucketPath(bucketPath string) (tenantID, bucketName string) {
 	return "", bucketPath
 }
 
-func (h *Handler) userCanPerformS3Action(ctx context.Context, user *auth.User, action, resource string) bool {
+// policySetFor returns the permissions resolved for this request, or resolves
+// them if the request never carried a set.
+func (h *Handler) policySetFor(ctx context.Context, user *auth.User) *auth.PolicySet {
 	if h.authManager == nil || user == nil {
-		return false
+		return nil
 	}
 
 	if set, ok := auth.PolicySetFromContext(ctx); ok && set.UserID == user.ID {
-		return set.Allows(action, resource)
+		return set
 	}
 
 	resolver, ok := h.authManager.(interface {
 		ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
 	})
 	if !ok {
-		return false
+		return nil
 	}
 
 	set, err := resolver.ResolvePolicySet(ctx, user)
-	return err == nil && set.Allows(action, resource)
+	if err != nil {
+		return nil
+	}
+	return set
+}
+
+// userCanPerformS3Action answers for a resource that belongs to no tenant: the
+// shared namespace, or a permission that names no bucket.
+func (h *Handler) userCanPerformS3Action(ctx context.Context, user *auth.User, action, resource string) bool {
+	return h.policySetFor(ctx, user).AllowsOwnAccount(action, resource)
 }
 
 // userCanPerformS3ActionInTenant answers the same question inside the tenant
@@ -4002,43 +4013,13 @@ func (h *Handler) userCanPerformS3ActionAnywhere(ctx context.Context, user *auth
 }
 
 func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth.User, bucketTenantID, action, resource string) bool {
-	if user == nil {
-		return false
-	}
-	if bucketTenantID != "" && user.TenantID != bucketTenantID {
-		if !s3ReadOnlyAuditAction(action) ||
-			!h.userCanPerformS3Action(ctx, user, auth.ActionSuperAdmin, "*") {
-			return false
-		}
-		return h.userCanPerformS3Action(ctx, user, action, resource)
-	}
-	return h.userCanPerformS3Action(ctx, user, action, resource)
+	return h.policySetFor(ctx, user).Allows(auth.AccessRequest{
+		Action:   action,
+		Resource: resource,
+		Owner:    auth.OwnedBy(bucketTenantID),
+	})
 }
 
-func s3ReadOnlyAuditAction(action string) bool {
-	switch action {
-	case auth.ActionListAllMyBuckets,
-		auth.ActionListBucket,
-		auth.ActionListBucketVersions,
-		auth.ActionListBucketMultipartUploads,
-		auth.ActionListMultipartUploadParts,
-		auth.ActionGetBucketLocation,
-		auth.ActionGetBucketVersioning,
-		auth.ActionGetBucketPolicy,
-		auth.ActionGetBucketLifecycle,
-		auth.ActionGetBucketCORS,
-		auth.ActionGetBucketTagging,
-		auth.ActionGetBucketAcl,
-		auth.ActionGetObject,
-		auth.ActionGetObjectVersion,
-		auth.ActionGetObjectAcl,
-		auth.ActionGetObjectTagging,
-		auth.ActionGetObjectRetention,
-		auth.ActionGetObjectLegalHold:
-		return true
-	}
-	return false
-}
 
 func (h *Handler) canResolveIAMPolicy(ctx context.Context, user *auth.User) bool {
 	if h.authManager == nil || user == nil {

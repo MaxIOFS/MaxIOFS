@@ -89,7 +89,7 @@ func (s *Server) userCanPerformConsoleS3Action(r *http.Request, user *auth.User,
 			return false
 		}
 	}
-	return set.Allows(action, resource)
+	return set.Allows(auth.AccessRequest{Action: action, Resource: resource, Owner: auth.OwnedBy(bucketTenantID)})
 }
 
 func (s *Server) requireConsoleBucketS3Action(w http.ResponseWriter, r *http.Request, bucketName, action, message string) bool {

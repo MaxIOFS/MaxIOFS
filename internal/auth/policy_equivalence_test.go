@@ -139,9 +139,9 @@ func TestEffectiveActions_UsesCallerTenantWhenUserRowIsAbsent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.True(t, set.Allows(ActionGetObject, "arn:aws:s3:::backups/file.txt"))
+	assert.True(t, set.AllowsOwnAccount(ActionGetObject, "arn:aws:s3:::backups/file.txt"))
 	assert.True(t, set.AllowsAnywhere(ActionGetObject))
-	assert.False(t, set.Allows(ActionPutObject, "arn:aws:s3:::backups/file.txt"))
+	assert.False(t, set.AllowsOwnAccount(ActionPutObject, "arn:aws:s3:::backups/file.txt"))
 }
 
 // TestHasPermission_UsesCallerTenantWhenUserRowIsAbsent covers the same flaw on

@@ -299,7 +299,14 @@ func (am *authManager) rolePolicySetForSession(sess *STSSession) (*PolicySet, er
 		return nil, ErrAccessDenied
 	}
 
-	return &PolicySet{UserID: sess.UserID, Documents: documents}, nil
+	// The set carries the principal's account, so a role session is judged
+	// against the same boundary as any other credential.
+	tenantID := ""
+	if user, err := am.store.GetUserByID(sess.UserID); err == nil && user != nil {
+		tenantID = user.TenantID
+	}
+
+	return &PolicySet{UserID: sess.UserID, TenantID: tenantID, Documents: documents}, nil
 }
 
 func (am *authManager) authorizeRoleSession(sess *STSSession, r *http.Request) error {
@@ -308,7 +315,7 @@ func (am *authManager) authorizeRoleSession(sess *STSSession, r *http.Request) e
 		return err
 	}
 
-	if !set.Allows(S3ActionForRequest(r), ResourceARNForRequest(r)) {
+	if !set.AllowsOwnAccount(S3ActionForRequest(r), ResourceARNForRequest(r)) {
 		return ErrAccessDenied
 	}
 	return nil

@@ -17,7 +17,7 @@ func TestIAMReadPolicyDoesNotAuthorizeWriteOrDelete(t *testing.T) {
 			{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::photos/*"]}
 		]
 	}`
-	set := &auth.PolicySet{UserID: user.ID, Documents: []string{policy}}
+	set := &auth.PolicySet{UserID: user.ID, TenantID: user.TenantID, Documents: []string{policy}}
 	ctx := auth.WithPolicySet(context.Background(), set)
 	handler := &Handler{authManager: &mockAuthManager{}}
 
@@ -53,7 +53,7 @@ func TestIAMVersionActionsAreResourceScoped(t *testing.T) {
 			{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::photos/*"]}
 		]
 	}`
-	set := &auth.PolicySet{UserID: user.ID, Documents: []string{policy}}
+	set := &auth.PolicySet{UserID: user.ID, TenantID: user.TenantID, Documents: []string{policy}}
 	ctx := auth.WithPolicySet(context.Background(), set)
 	handler := &Handler{authManager: &mockAuthManager{}}
 
