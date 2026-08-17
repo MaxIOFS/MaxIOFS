@@ -1654,6 +1654,17 @@ func TestSOSAPICapacityQuota(t *testing.T) {
 		key, err := env.authManager.GenerateAccessKey(ctx, secondUser.ID)
 		require.NoError(t, err, "Should generate access key")
 
+		// SOSAPI objects are authorized like any other object in the bucket, so
+		// the second user needs read access to it — sharing the tenant is not
+		// enough. What this subtest checks is that the quota they then see is
+		// the tenant's, not their own.
+		grantor, ok := env.authManager.(interface {
+			PutIAMInlinePolicy(ctx context.Context, targetType, targetID, name, document string) error
+		})
+		require.True(t, ok, "auth manager should be able to attach an inline policy")
+		require.NoError(t, grantor.PutIAMInlinePolicy(ctx, "user", secondUser.ID, "read-"+bucketName,
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::`+bucketName+`/*"]}]}`))
+
 		// Create test environment with second user's credentials
 		envSecondUser := &s3TestEnv{
 			handler:       env.handler,

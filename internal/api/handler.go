@@ -291,6 +291,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 // S3ClientMiddleware redirects non-S3 client requests to the web console.
 // Applied in server.setupRoutes before S3 auth so Authorization: Bearer (console JWT)
 // on the same host does not yield 401 before the redirect runs.
+//
+// AWS can answer XML at the root because its console is a different host; here
+// both services are one server and usually one DNS name, so the shape of the
+// request is the only way to tell a browser from an SDK.
 func (h *Handler) S3ClientMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path

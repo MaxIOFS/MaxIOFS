@@ -267,8 +267,10 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	region := credParts[2]
 	service := credParts[3]
 
-	// Get the secret key for this access key
-	secretKey, err := h.getSecretKeyForAccessKey(r.Context(), accessKey)
+	// Get the secret key for this access key. STS presigned URLs carry the
+	// session token in the canonical query string; resolving the secret without
+	// it rejects valid temporary credentials before IAM can evaluate them.
+	secretKey, err := h.getSecretKeyForCredential(r.Context(), accessKey, query.Get("X-Amz-Security-Token"))
 	if err != nil {
 		return &presignedValidationError{"InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."}
 	}
@@ -520,24 +522,16 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 		accessKeyID = query.Get("AWSAccessKeyId")
 	}
 
-	if accessKeyID != "" && h.authManager != nil {
-		if auth.IsSTSAccessKey(accessKeyID) {
-			user, err := h.authManager.AuthorizeSTSRequest(
-				r.Context(), accessKeyID, query.Get("X-Amz-Security-Token"), r)
-			if err != nil {
-				h.writeError(w, "AccessDenied", "Access Denied.", r.URL.Path, r)
-				return
-			}
-			if user != nil {
-				r = r.WithContext(context.WithValue(r.Context(), "user", user))
-			}
-		} else if accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID); err == nil {
-			if user, err := h.authManager.GetUser(r.Context(), accessKey.UserID); err == nil {
-				enrichedCtx := context.WithValue(r.Context(), "user", user)
-				r = r.WithContext(enrichedCtx)
-			}
-		}
+	// The signer has to become a principal: the handlers downstream evaluate IAM
+	// against the user in the context, and a request that arrives without one
+	// takes the unauthenticated path, where a valid signature alone would grant
+	// access. Failing to resolve the signer is a denial, not a downgrade.
+	signer, err := h.presignedSigner(r, accessKeyID, query.Get("X-Amz-Security-Token"))
+	if err != nil {
+		h.writeError(w, "AccessDenied", "Access Denied.", r.URL.Path, r)
+		return
 	}
+	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
 
 	// Extract bucket and object from URL
 	vars := mux.Vars(r)
@@ -559,6 +553,38 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 	}
 
 	logrus.Debugf("Presigned request processed: %s %s/%s", r.Method, bucketName, objectKey)
+}
+
+// presignedSigner resolves the credential that signed a presigned URL into the
+// user it belongs to, for permanent keys and STS sessions alike.
+func (h *Handler) presignedSigner(r *http.Request, accessKeyID, sessionToken string) (*auth.User, error) {
+	if accessKeyID == "" || h.authManager == nil {
+		return nil, fmt.Errorf("presigned URL carries no usable credential")
+	}
+
+	if auth.IsSTSAccessKey(accessKeyID) {
+		user, err := h.authManager.AuthorizeSTSRequest(r.Context(), accessKeyID, sessionToken, r)
+		if err != nil {
+			return nil, err
+		}
+		if user == nil {
+			return nil, fmt.Errorf("sts session resolved to no user")
+		}
+		return user, nil
+	}
+
+	accessKey, err := h.authManager.GetAccessKey(r.Context(), accessKeyID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := h.authManager.GetUser(r.Context(), accessKey.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, fmt.Errorf("access key resolved to no user")
+	}
+	return user, nil
 }
 
 // calculateSignatureV4 calculates AWS Signature V4
@@ -706,7 +732,7 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		region := parts[2]
 		service := parts[3]
 
-		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
+		secretKey, err = h.getSecretKeyForCredential(r.Context(), accessKey, field("x-amz-security-token"))
 		if err != nil {
 			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
 			return
@@ -733,13 +759,13 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the user from the access key and inject into context for permission checks.
-	if h.authManager != nil {
-		if ak, err := h.authManager.GetAccessKey(r.Context(), accessKey); err == nil {
-			if user, err := h.authManager.GetUser(r.Context(), ak.UserID); err == nil {
-				r = r.WithContext(context.WithValue(r.Context(), "user", user))
-			}
-		}
+	// Failing to resolve must deny instead of falling through as anonymous.
+	signer, err := h.presignedSigner(r, accessKey, field("x-amz-security-token"))
+	if err != nil {
+		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+		return
 	}
+	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
 
 	// Validate policy conditions against the form fields.
 	objectKey := field("key")

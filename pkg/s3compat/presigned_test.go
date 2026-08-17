@@ -23,6 +23,7 @@ func (m *mockAuthManager) GetAccessKey(ctx context.Context, accessKeyID string) 
 		return &auth.AccessKey{
 			AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 			SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			UserID:          "user-1",
 			Status:          "active",
 		}, nil
 	}
@@ -75,8 +76,11 @@ func (m *mockAuthManager) UpdateUserPreferences(ctx context.Context, userID, the
 func (m *mockAuthManager) DeleteUser(ctx context.Context, userID string) error {
 	return fmt.Errorf("not implemented")
 }
-func (m *mockAuthManager) GetUser(ctx context.Context, accessKey string) (*auth.User, error) {
-	return nil, fmt.Errorf("not implemented")
+func (m *mockAuthManager) GetUser(ctx context.Context, userID string) (*auth.User, error) {
+	if userID == "user-1" || userID == "sts-user" {
+		return &auth.User{ID: userID, Username: userID, Status: auth.UserStatusActive, TenantID: "tenant-1"}, nil
+	}
+	return nil, fmt.Errorf("user not found")
 }
 func (m *mockAuthManager) ListUsers(ctx context.Context) ([]auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
@@ -94,13 +98,20 @@ func (m *mockAuthManager) IssueSTSSession(ctx context.Context, userID string, du
 	return nil, fmt.Errorf("not implemented")
 }
 func (m *mockAuthManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*auth.User, error) {
-	return nil, nil
+	if tempAccessKeyID == "ASIAIOSFODNN7EXAMPLE" && sessionToken == "sts-token" {
+		return &auth.User{ID: "sts-user", Username: "sts-user", Status: auth.UserStatusActive, TenantID: "tenant-1"}, nil
+	}
+	return nil, fmt.Errorf("sts session not usable")
 }
 func (m *mockAuthManager) AuthorizeIAMRequest(ctx context.Context, user *auth.User, r *http.Request) error {
 	return nil
 }
 func (m *mockAuthManager) ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*auth.User, string, error) {
-	return nil, "", fmt.Errorf("not implemented")
+	if tempAccessKeyID == "ASIAIOSFODNN7EXAMPLE" && sessionToken == "sts-token" {
+		return &auth.User{ID: "sts-user", Username: "sts-user", Status: auth.UserStatusActive, TenantID: "tenant-1"},
+			"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", nil
+	}
+	return nil, "", fmt.Errorf("sts session not usable")
 }
 func (m *mockAuthManager) RevokeSTSSession(ctx context.Context, tempAccessKeyID, requestingUserID string, isAdmin bool) error {
 	return fmt.Errorf("not implemented")
@@ -413,6 +424,63 @@ func TestValidatePresignedURLV4_ValidSignature(t *testing.T) {
 	// Validate the presigned URL
 	err = handler.ValidatePresignedURL(nil, req)
 	assert.NoError(t, err, "Valid presigned URL should pass validation")
+}
+
+func TestValidatePresignedURLV4_STSSessionTokenResolvesSigningSecret(t *testing.T) {
+	handler := &Handler{
+		publicAPIURL: "http://localhost:8080",
+		authManager:  &mockAuthManager{},
+	}
+
+	const (
+		accessKey    = "ASIAIOSFODNN7EXAMPLE"
+		secretKey    = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+		sessionToken = "sts-token"
+		method       = http.MethodGet
+		path         = "/test-bucket/test-object.txt"
+		region       = "us-east-1"
+		service      = "s3"
+	)
+
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
+	host := "localhost:8080"
+
+	query := url.Values{}
+	query.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+	query.Set("X-Amz-Credential", fmt.Sprintf("%s/%s/%s/%s/aws4_request", accessKey, dateStamp, region, service))
+	query.Set("X-Amz-Date", amzDate)
+	query.Set("X-Amz-Expires", "900")
+	query.Set("X-Amz-Security-Token", sessionToken)
+	query.Set("X-Amz-SignedHeaders", "host")
+
+	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
+		method,
+		s3URLEncode(path),
+		canonicalQueryStringV4(query, true),
+		canonicalHeadersForPresignV4(host, nil, "host"),
+		"host",
+		"UNSIGNED-PAYLOAD",
+	)
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s/%s/%s/aws4_request\n%s",
+		amzDate,
+		dateStamp,
+		region,
+		service,
+		sha256Hash(canonicalRequest),
+	)
+	query.Set("X-Amz-Signature", handler.calculateSignatureV4(stringToSign, secretKey, dateStamp, region, service))
+
+	req, err := http.NewRequest(method, "http://"+host+path+"?"+canonicalQueryStringV4(query, false), nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.ValidatePresignedURL(nil, req))
+
+	query.Set("X-Amz-Security-Token", "wrong-token")
+	badReq, err := http.NewRequest(method, "http://"+host+path+"?"+canonicalQueryStringV4(query, false), nil)
+	require.NoError(t, err)
+	require.Error(t, handler.ValidatePresignedURL(nil, badReq))
 }
 
 func TestValidatePresignedURLV4_SignedHeadersAreEnforced(t *testing.T) {

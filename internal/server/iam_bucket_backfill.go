@@ -33,11 +33,14 @@ func (s *Server) backfillBucketOwnerPolicies(ctx context.Context) {
 		if ownerType == "" {
 			ownerType = "user"
 		}
-		if ownerID == "" || ownerType == "tenant" {
-			logrus.WithFields(logrus.Fields{
-				"bucket":     bucket.Name,
-				"owner_type": ownerType,
-			}).Warn("Skipped owner policy backfill for bucket without a user owner")
+		// A tenant-owned bucket has no owner policy by design: its tenant's
+		// administrators already reach it through the tenant document.
+		if ownerType == "tenant" {
+			continue
+		}
+		if ownerID == "" {
+			logrus.WithField("bucket", bucket.Name).
+				Warn("Skipped owner policy backfill for bucket without an owner")
 			continue
 		}
 
