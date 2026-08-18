@@ -70,7 +70,10 @@ func (s *Server) userCanPerformConsoleS3Action(r *http.Request, user *auth.User,
 	}
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if isGlobalAdmin {
-		return true
+		if bucketTenantID == "" {
+			return true
+		}
+		return auth.ReadOnlyAuditAction(action)
 	}
 	if user.TenantID != bucketTenantID {
 		return false

@@ -289,5 +289,10 @@
   "managePermissions": "Gestisci permessi",
   "permissionsTitle": "Permessi",
   "permissionsNoRole": "nessun ruolo",
-  "permissionsRoleHint": "Un ruolo è un insieme di permessi con nome. Ciò che concede si modifica in IAM → Ruoli."
+  "permissionsRoleHint": "Un ruolo è un insieme di permessi con nome. Ciò che concede si modifica in IAM → Ruoli.",
+  "forcePasswordChange": "Richiedi una nuova password al prossimo accesso",
+  "forcePasswordChangeHint": "L'account non è utilizzabile finché l'utente non sostituisce questa password, così non conoscerai mai quella definitiva.",
+  "passwordChangeRequiredTitle": "Imposta una nuova password",
+  "passwordChangeRequiredBody": "Un amministratore ti ha dato una password temporanea. Scegline una tua prima di continuare: il resto della console resta chiuso finché non lo fai.",
+  "passwordChangeFailed": "Non è stato possibile cambiare la password."
 }

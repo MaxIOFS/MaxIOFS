@@ -361,5 +361,6 @@
   "loadingVersions": "Versionen werden geladen…",
   "noVersionsFound": "Keine Versionen gefunden",
   "noVersionsDesc": "Dieser Bucket hat keine versionierten Objekte oder die Versionierung ist nicht aktiviert.",
-  "restoring": "Wird wiederhergestellt…"
+  "restoring": "Wird wiederhergestellt…",
+  "globalAdminReadOnlyBanner": "Sie sehen einen Bucket, der zu einem Mandanten gehört. Globale Administratoren können ihn und seine Konfiguration lesen, aber jede ändernde Operation ist deaktiviert."
 }

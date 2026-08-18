@@ -26,6 +26,26 @@ func getAllMigrations() []Migration {
 		migration16_v150_EncryptionKeys(),
 		migration17_v150_ClusterSharedKEK(),
 		migration18_v160_IAMSTS(),
+		migration19_v160_ForcedPasswordChange(),
+	}
+}
+
+// migration19_v160_ForcedPasswordChange lets an administrator hand out a
+// password the user must replace on their next login, so the administrator
+// never ends up knowing the password the account settles on.
+func migration19_v160_ForcedPasswordChange() Migration {
+	return Migration{
+		Version:     19,
+		Description: "v1.6.0 - Add must_change_password to users",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

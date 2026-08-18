@@ -361,5 +361,6 @@
   "loadingVersions": "Cargando versiones…",
   "noVersionsFound": "No se encontraron versiones",
   "noVersionsDesc": "Este bucket no tiene objetos versionados o el versionado no está activado.",
-  "restoring": "Restaurando…"
+  "restoring": "Restaurando…",
+  "globalAdminReadOnlyBanner": "Estás viendo un bucket que pertenece a un tenant. Los administradores globales pueden leerlo y ver su configuración, pero toda operación que suponga un cambio está deshabilitada."
 }

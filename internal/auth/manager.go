@@ -52,6 +52,7 @@ type Manager interface {
 	UpdateUser(ctx context.Context, user *User) error
 	FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*User, error)
 	UpdateUserPreferences(ctx context.Context, userID, themePreference, languagePreference string) error
+	SetMustChangePassword(ctx context.Context, userID string, must bool) error
 	DeleteUser(ctx context.Context, userID string) error
 	GetUser(ctx context.Context, accessKey string) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
@@ -159,6 +160,10 @@ type User struct {
 	TwoFactorSetupAt int64    `json:"two_factor_setup_at,omitempty"`
 	BackupCodes      []string `json:"-"` // NEVER return in JSON - hashed in DB
 	BackupCodesUsed  []string `json:"-"` // Track used backup codes
+
+	// Set by an administrator who handed out a password; cleared as soon as the
+	// user replaces it. While it is set the console is read-only for that user.
+	MustChangePassword bool `json:"must_change_password,omitempty"`
 
 	// Account lockout fields
 	FailedLoginAttempts int   `json:"failed_login_attempts,omitempty"`
@@ -1012,6 +1017,10 @@ func (am *authManager) UpdateUserPreferences(ctx context.Context, userID, themeP
 	})
 
 	return nil
+}
+
+func (am *authManager) SetMustChangePassword(ctx context.Context, userID string, must bool) error {
+	return am.store.SetMustChangePassword(userID, must)
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {

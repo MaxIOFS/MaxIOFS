@@ -200,7 +200,6 @@ func TestServerSetVersion(t *testing.T) {
 
 // TestServerConcurrentRequests removed - requires HTTP server binding which is flaky on Windows in this test setup.
 
-
 // TestServerWithBackgroundWorkers tests that all background workers start and stop correctly
 func TestServerWithBackgroundWorkers(t *testing.T) {
 	server := getSharedServer()
@@ -361,7 +360,6 @@ func TestServerBucketOperations(t *testing.T) {
 		assert.Empty(t, buckets, "All buckets should be deleted")
 	})
 }
-
 
 // Helper function to create authenticated request with user context
 func createAuthenticatedRequest(method, url string, body io.Reader, tenantID, userID string, isAdmin bool) *http.Request {
@@ -1742,7 +1740,6 @@ func TestHandlePutBucketACL(t *testing.T) {
 	})
 }
 
-
 // TestHandleLogout tests the logout handler
 func TestHandleLogout(t *testing.T) {
 	server := getSharedServer()
@@ -1831,7 +1828,6 @@ func TestHandleUnlockAccount(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 }
-
 
 // TestHandleEnable2FA tests the 2FA enable handler
 func TestHandleEnable2FA(t *testing.T) {
@@ -2012,7 +2008,6 @@ func TestHandleRegenerateBackupCodes(t *testing.T) {
 		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
 	})
 }
-
 
 // TestHandleListBucketPermissions tests listing bucket permissions
 func TestHandleListBucketPermissions(t *testing.T) {
@@ -2243,7 +2238,6 @@ func TestHandleUpdateBucketOwner(t *testing.T) {
 	})
 }
 
-
 // TestHandleGetObjectACL tests getting object ACL
 func TestHandleGetObjectACL(t *testing.T) {
 	server := getSharedServer()
@@ -2361,7 +2355,6 @@ func TestHandlePutObjectACL(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 }
-
 
 // TestHandleListBucketShares tests listing bucket shares
 func TestHandleListBucketShares(t *testing.T) {
@@ -2530,7 +2523,6 @@ func TestHandleGeneratePresignedURL(t *testing.T) {
 	})
 }
 
-
 // TestHandleListCategories tests listing setting categories
 func TestHandleListCategories(t *testing.T) {
 	server := getSharedServer()
@@ -2678,7 +2670,6 @@ func TestHandleUpdateSetting(t *testing.T) {
 	})
 }
 
-
 // TestHandleGetAuditLog tests getting a specific audit log
 func TestHandleGetAuditLog(t *testing.T) {
 	server := getSharedServer()
@@ -2741,7 +2732,6 @@ func TestHandleGetAuditLog(t *testing.T) {
 	})
 }
 
-
 // TestHandleGetBucketNotification tests getting bucket notification configuration
 func TestHandleGetBucketNotification(t *testing.T) {
 	server := getSharedServer()
@@ -2784,7 +2774,6 @@ func TestHandleGetBucketNotification(t *testing.T) {
 	})
 }
 
-
 // TestHandleListTenantUsers tests listing users for a tenant
 func TestHandleListTenantUsers(t *testing.T) {
 	server := getSharedServer()
@@ -2823,7 +2812,6 @@ func TestHandleListTenantUsers(t *testing.T) {
 	})
 }
 
-
 // TestHandleAPIRoot tests the API root endpoint
 func TestHandleAPIRoot(t *testing.T) {
 	server := getSharedServer()
@@ -2858,7 +2846,6 @@ func TestHandleGetHistoryStats(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 }
-
 
 // TestHandleListAllAccessKeys tests listing all access keys (admin only)
 func TestHandleListAllAccessKeys(t *testing.T) {
@@ -2903,7 +2890,6 @@ func TestHandleListAllAccessKeys(t *testing.T) {
 	})
 }
 
-
 // TestHandleListObjectVersions tests listing object versions
 func TestHandleListObjectVersions(t *testing.T) {
 	server := getSharedServer()
@@ -2946,7 +2932,6 @@ func TestHandleListObjectVersions(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 }
-
 
 // TestHandleInitializeCluster tests cluster initialization
 func TestHandleInitializeCluster(t *testing.T) {
@@ -3266,7 +3251,6 @@ func TestHandleInvalidateCache(t *testing.T) {
 	})
 }
 
-
 // TestHandlePutBucketInventory tests putting bucket inventory configuration
 func TestHandlePutBucketInventory(t *testing.T) {
 	server := getSharedServer()
@@ -3508,7 +3492,6 @@ func TestHandleListBucketInventoryReports(t *testing.T) {
 	})
 }
 
-
 // TestHandleCreateReplicationRule tests creating replication rules
 func TestHandleCreateReplicationRule(t *testing.T) {
 	server := getSharedServer()
@@ -3632,7 +3615,7 @@ func TestHandleListReplicationRules(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 
-	t.Run("should create and list tenant bucket rules for global admin with tenant query", func(t *testing.T) {
+	t.Run("should reject global admin creating tenant bucket replication rules", func(t *testing.T) {
 		body := `{"destination_endpoint":"https://s3.amazonaws.com","destination_bucket":"remote-bucket","destination_access_key":"AKIAIOSFODNN7EXAMPLE","destination_secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","enabled":false,"priority":1,"mode":"realtime","conflict_resolution":"last_write_wins","replicate_deletes":true,"replicate_metadata":true}`
 		createReq := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/replication/rules?tenantId="+tenantID, strings.NewReader(body), "", "admin-1", true)
 		createReq = mux.SetURLVars(createReq, map[string]string{"bucket": bucketName})
@@ -3641,8 +3624,10 @@ func TestHandleListReplicationRules(t *testing.T) {
 		createRR := httptest.NewRecorder()
 		server.handleCreateReplicationRule(createRR, createReq)
 
-		require.Equal(t, http.StatusCreated, createRR.Code)
+		require.Equal(t, http.StatusForbidden, createRR.Code)
+	})
 
+	t.Run("should list tenant bucket rules for global admin with tenant query", func(t *testing.T) {
 		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/replication/rules?tenantId="+tenantID, nil, "", "admin-1", true)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
@@ -3656,10 +3641,7 @@ func TestHandleListReplicationRules(t *testing.T) {
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
-		require.NotEmpty(t, response.Data.Rules)
-		assert.Equal(t, tenantID, response.Data.Rules[0].TenantID)
-		assert.Equal(t, bucketName, response.Data.Rules[0].SourceBucket)
-		assert.False(t, response.Data.Rules[0].Enabled)
+		assert.Empty(t, response.Data.Rules)
 	})
 }
 
@@ -3857,7 +3839,6 @@ func TestHandleTriggerReplicationSync(t *testing.T) {
 		assert.Contains(t, []int{http.StatusNotFound, http.StatusInternalServerError}, rr.Code)
 	})
 }
-
 
 // TestHandlePutObjectLockConfiguration tests putting object lock configuration
 func TestHandlePutObjectLockConfiguration(t *testing.T) {
@@ -4131,7 +4112,6 @@ func TestHandlePutObjectLegalHold(t *testing.T) {
 	})
 }
 
-
 // TestHandleBulkUpdateSettings tests bulk updating settings
 func TestHandleBulkUpdateSettings(t *testing.T) {
 	server := getSharedServer()
@@ -4205,7 +4185,6 @@ func TestHandleBulkUpdateSettings(t *testing.T) {
 		assert.Contains(t, []int{http.StatusOK, http.StatusBadRequest}, rr.Code)
 	})
 }
-
 
 // TestHandlePutBucketNotification tests putting bucket notification configuration
 func TestHandlePutBucketNotification(t *testing.T) {
@@ -4334,7 +4313,6 @@ func TestHandleDeleteBucketNotification(t *testing.T) {
 		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
 	})
 }
-
 
 // TestRequireGlobalAdminMiddleware tests the global admin middleware
 func TestRequireGlobalAdminMiddleware(t *testing.T) {
@@ -4510,7 +4488,6 @@ func TestHandleAllocs(t *testing.T) {
 		assert.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"))
 	})
 }
-
 
 // createClusterAuthenticatedRequest creates a request with cluster node authentication
 func createClusterAuthenticatedRequest(method, url string, body io.Reader, nodeID string) *http.Request {
@@ -4949,8 +4926,6 @@ func TestHandleReceiveAccessKeySync(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 	})
 }
-
-
 
 // TestHandleReceiveBucketInventory tests receiving bucket inventory sync
 func TestHandleReceiveBucketInventory(t *testing.T) {

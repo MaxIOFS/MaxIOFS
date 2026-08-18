@@ -361,5 +361,6 @@
   "loadingVersions": "バージョンを読み込み中…",
   "noVersionsFound": "バージョンが見つかりません",
   "noVersionsDesc": "このバケットにはバージョン管理されたオブジェクトがないか、バージョニングが有効になっていません。",
-  "restoring": "復元中…"
+  "restoring": "復元中…",
+  "globalAdminReadOnlyBanner": "これはテナントに属するバケットです。グローバル管理者は内容と設定を閲覧できますが、変更を伴う操作はすべて無効になっています。"
 }

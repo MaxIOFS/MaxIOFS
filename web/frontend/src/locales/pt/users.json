@@ -289,5 +289,10 @@
   "managePermissions": "Gerir permissões",
   "permissionsTitle": "Permissões",
   "permissionsNoRole": "sem função",
-  "permissionsRoleHint": "Uma função é um conjunto de permissões com nome. O que concede edita-se em IAM → Funções."
+  "permissionsRoleHint": "Uma função é um conjunto de permissões com nome. O que concede edita-se em IAM → Funções.",
+  "forcePasswordChange": "Exigir uma nova senha no próximo início de sessão",
+  "forcePasswordChangeHint": "A conta não pode ser usada até que a pessoa substitua esta senha, por isso nunca ficas a conhecer a definitiva.",
+  "passwordChangeRequiredTitle": "Define uma nova senha",
+  "passwordChangeRequiredBody": "Um administrador deu-te uma senha temporária. Escolhe a tua antes de continuar — o resto da consola fica fechado até lá.",
+  "passwordChangeFailed": "Não foi possível alterar a senha."
 }

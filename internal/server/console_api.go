@@ -92,6 +92,7 @@ type UserResponse struct {
 	LanguagePreference  string   `json:"languagePreference,omitempty"`
 	AuthProvider        string   `json:"authProvider,omitempty"`
 	ExternalID          string   `json:"externalId,omitempty"`
+	MustChangePassword  bool     `json:"mustChangePassword,omitempty"`
 	CreatedAt           int64    `json:"createdAt"`
 
 	PolicyCount int `json:"policyCount"`
@@ -331,6 +332,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	router.Use(s.pendingPasswordChangeMiddleware)
 
 	// Public endpoints (no auth required)
 	router.HandleFunc("/version", s.handleGetVersion).Methods("GET", "OPTIONS")
@@ -912,6 +915,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"expires_in":       pair.ExpiresIn,
 		"token_type":       pair.TokenType,
 		"default_password": defaultPassword,
+		// The console keeps the session but must send the user straight to the
+		// password form; the API refuses everything else until they do.
+		"must_change_password": user.MustChangePassword,
 		"user": UserResponse{
 			ID:                  user.ID,
 			Username:            user.Username,
@@ -925,6 +931,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			FailedLoginAttempts: user.FailedLoginAttempts,
 			LastFailedLogin:     user.LastFailedLogin,
 			AuthProvider:        user.AuthProvider,
+			MustChangePassword:  user.MustChangePassword,
 			CreatedAt:           user.CreatedAt,
 		},
 	})
@@ -1120,6 +1127,7 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 		LastFailedLogin:     user.LastFailedLogin,
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
+		MustChangePassword:  user.MustChangePassword,
 		CreatedAt:           user.CreatedAt,
 	})
 }
@@ -2901,6 +2909,7 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		LastFailedLogin:     user.LastFailedLogin,
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
+		MustChangePassword:  user.MustChangePassword,
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -2919,10 +2928,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updateRequest struct {
-		Email    *string  `json:"email,omitempty"`
-		Roles    []string `json:"roles,omitempty"`
-		Status   string   `json:"status,omitempty"`
-		TenantID *string  `json:"tenantId,omitempty"`
+		Email              *string  `json:"email,omitempty"`
+		Roles              []string `json:"roles,omitempty"`
+		Status             string   `json:"status,omitempty"`
+		TenantID           *string  `json:"tenantId,omitempty"`
+		MustChangePassword *bool    `json:"mustChangePassword,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
@@ -2932,7 +2942,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Non-admins can only update their own email — block privileged fields
 	if !s.isAdmin(currentUser) && isSelf {
-		if updateRequest.Roles != nil || updateRequest.Status != "" || updateRequest.TenantID != nil {
+		if updateRequest.Roles != nil || updateRequest.Status != "" || updateRequest.TenantID != nil ||
+			updateRequest.MustChangePassword != nil {
 			s.writeError(w, "Insufficient permissions to change roles, status, or tenant", http.StatusForbidden)
 			return
 		}
@@ -3003,6 +3014,16 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if updateRequest.TenantID != nil {
 		user.TenantID = *updateRequest.TenantID
 	}
+	if updateRequest.MustChangePassword != nil {
+		// An administrator can impose the obligation on an account, but lifting
+		// it is not theirs to do by hand: only setting a password clears it.
+		if !*updateRequest.MustChangePassword && user.MustChangePassword {
+			s.writeError(w, "The obligation to change the password is lifted by setting a new password, not by clearing the flag",
+				http.StatusBadRequest)
+			return
+		}
+		user.MustChangePassword = *updateRequest.MustChangePassword
+	}
 
 	// Update user
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
@@ -3027,6 +3048,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		LastFailedLogin:     user.LastFailedLogin,
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
+		MustChangePassword:  user.MustChangePassword,
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -3932,6 +3954,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	var changeRequest struct {
 		CurrentPassword string `json:"currentPassword"`
 		NewPassword     string `json:"newPassword"`
+		// Only meaningful when an administrator sets someone else's password:
+		// the account is unusable until its owner replaces it, so the password
+		// travelling through the administrator's hands is never the final one.
+		MustChangePassword bool `json:"mustChangePassword,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&changeRequest); err != nil {
@@ -3955,12 +3981,6 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Admins changing other users' passwords don't need current password
 	if changeRequest.NewPassword == "" {
 		s.writeError(w, "New password is required", http.StatusBadRequest)
-		return
-	}
-
-	// If user is changing their own password, current password is required
-	if isChangingSelf && changeRequest.CurrentPassword == "" {
-		s.writeError(w, "Current password is required", http.StatusBadRequest)
 		return
 	}
 
@@ -3992,8 +4012,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify current password only if user is changing their own password
-	if isChangingSelf {
+	// Changing your own password normally means proving you know the current
+	// one. An account replacing a password an administrator handed over does
+	// not: it proved that at login moments ago, and asking for it back would be
+	// asking the user to repeat a secret that was never theirs.
+	if isChangingSelf && !user.MustChangePassword {
+		if changeRequest.CurrentPassword == "" {
+			s.writeError(w, "Current password is required", http.StatusBadRequest)
+			return
+		}
 		if !auth.VerifyPassword(changeRequest.CurrentPassword, user.Password) {
 			s.writeError(w, "Current password is incorrect", http.StatusUnauthorized)
 			return
@@ -4007,9 +4034,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update password
+	// Update password. Setting your own clears any pending obligation; an
+	// administrator setting someone else's may impose one.
 	user.Password = hashedPassword
 	user.UpdatedAt = time.Now().Unix()
+	if isChangingSelf {
+		user.MustChangePassword = false
+	} else {
+		user.MustChangePassword = changeRequest.MustChangePassword
+	}
 
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -4133,6 +4166,7 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 		LastFailedLogin:     user.LastFailedLogin,
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
+		MustChangePassword:  user.MustChangePassword,
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -6930,12 +6964,13 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":       true,
-		"token":         pair.AccessToken, // kept for backward compat
-		"access_token":  pair.AccessToken,
-		"refresh_token": pair.RefreshToken,
-		"expires_in":    pair.ExpiresIn,
-		"token_type":    pair.TokenType,
+		"success":              true,
+		"token":                pair.AccessToken, // kept for backward compat
+		"access_token":         pair.AccessToken,
+		"refresh_token":        pair.RefreshToken,
+		"expires_in":           pair.ExpiresIn,
+		"token_type":           pair.TokenType,
+		"must_change_password": user.MustChangePassword,
 		"user": UserResponse{
 			ID:                  user.ID,
 			Username:            user.Username,
@@ -6949,6 +6984,7 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 			FailedLoginAttempts: user.FailedLoginAttempts,
 			LastFailedLogin:     user.LastFailedLogin,
 			AuthProvider:        user.AuthProvider,
+			MustChangePassword:  user.MustChangePassword,
 			CreatedAt:           user.CreatedAt,
 		},
 	})

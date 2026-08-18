@@ -518,5 +518,6 @@
     "unlimited": "无限制",
     "saveConfiguration": "保存配置",
     "savedSuccess": "存储桶配额已保存"
-  }
+  },
+  "globalAdminReadOnlyBanner": "你正在查看属于某个租户的存储桶。全局管理员可以读取其内容和配置，但所有会造成更改的操作均已禁用。"
 }

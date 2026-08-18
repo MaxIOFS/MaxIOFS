@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import { isErrorWithResponse } from '@/lib/utils';
+import {
+  PASSWORD_CHANGE_REQUIRED,
+  setPasswordChangePending,
+} from '@/lib/pendingPasswordChange';
 import type {
   APIResponse,
   User,
@@ -411,6 +415,7 @@ let pendingRefreshCallbacks: ((token: string) => void)[] = [];
 
 function doLogout(): void {
   tokenManager.clearTokens();
+  setPasswordChangePending(false);
   if (!isRedirectingToLogin && typeof window !== 'undefined') {
     isRedirectingToLogin = true;
     setTimeout(() => window.location.replace(`${getBasePath()}/login`), 100);
@@ -515,6 +520,12 @@ const handleError = async (error: AxiosError): Promise<unknown> => {
   };
   const message = friendlyMessages[code] ?? (typeof rawMessage === 'string' ? rawMessage : 'An unknown error occurred');
 
+  // The API is telling us the account cannot do anything until its password is
+  // replaced. Record it so the console shows the form rather than this error.
+  if (error.response?.status === 403 && code === PASSWORD_CHANGE_REQUIRED) {
+    setPasswordChangePending(true);
+  }
+
   const apiError: APIError = {
     code: String(code),
     message,
@@ -560,6 +571,7 @@ export class APIClient {
         user_id: response.data.user_id,
         message: response.data.message,
         default_password: response.data.default_password,
+        must_change_password: response.data.must_change_password,
         sso_hint: response.data.sso_hint,
       };
 
@@ -571,6 +583,7 @@ export class APIClient {
         } else {
           localStorage.removeItem('default_password_warning');
         }
+        setPasswordChangePending(Boolean(result.must_change_password));
       }
 
       return result;
@@ -592,6 +605,7 @@ export class APIClient {
       await apiClient.post('/auth/logout');
     } finally {
       tokenManager.clearTokens();
+      setPasswordChangePending(false);
       // Clear auth cookie
       if (typeof document !== 'undefined') {
         document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
@@ -629,14 +643,25 @@ export class APIClient {
     await apiClient.delete(`/users/${userId}`);
   }
 
-  static async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  static async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    mustChangePassword?: boolean,
+  ): Promise<void> {
     await apiClient.put(`/users/${userId}/password`, {
       currentPassword,
       newPassword,
+      ...(mustChangePassword === undefined ? {} : { mustChangePassword }),
     });
     // Clear default password warning after successful password change
     localStorage.removeItem('default_password_warning');
     window.dispatchEvent(new Event('default-password-changed'));
+    // Only the self-service form omits the flag, and only setting your own
+    // password lifts your own obligation.
+    if (mustChangePassword === undefined) {
+      setPasswordChangePending(false);
+    }
   }
 
   static async updateUserPreferences(userId: string, themePreference: string, languagePreference: string): Promise<User> {
@@ -1716,10 +1741,12 @@ export class APIClient {
       refreshToken: response.data.refresh_token,
       user: response.data.user,
       error: response.data.error,
+      must_change_password: response.data.must_change_password,
     };
 
     if (result.success && result.token) {
       tokenManager.setTokens(result.token, result.refreshToken);
+      setPasswordChangePending(Boolean(result.must_change_password));
     }
 
     return result;

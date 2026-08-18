@@ -361,5 +361,6 @@
   "loadingVersions": "Chargement des versions…",
   "noVersionsFound": "Aucune version trouvée",
   "noVersionsDesc": "Ce bucket n'a pas d'objets versionnés ou la gestion des versions n'est pas activée.",
-  "restoring": "Restauration…"
+  "restoring": "Restauration…",
+  "globalAdminReadOnlyBanner": "Vous consultez un bucket qui appartient à un locataire. Les administrateurs globaux peuvent le lire ainsi que sa configuration, mais toute opération de modification est désactivée."
 }

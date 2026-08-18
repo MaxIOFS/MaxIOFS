@@ -518,5 +518,6 @@
     "unlimited": "無制限",
     "saveConfiguration": "設定を保存",
     "savedSuccess": "バケットのクォータを保存しました"
-  }
+  },
+  "globalAdminReadOnlyBanner": "これはテナントに属するバケットです。グローバル管理者は内容と設定を閲覧できますが、変更を伴う操作はすべて無効になっています。"
 }

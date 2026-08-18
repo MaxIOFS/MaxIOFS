@@ -26,6 +26,9 @@ export interface User {
   languagePreference?: string;
   authProvider?: string;
   externalId?: string;
+  // Set by an administrator who handed out a password. The API refuses
+  // everything but the password form until the user replaces it.
+  mustChangePassword?: boolean;
   // How many policies are attached to this user directly. Permissions can come
   // from a role, from policies, or both.
   policyCount?: number;
@@ -137,6 +140,7 @@ export interface LoginResponse {
   user_id?: string;
   message?: string;
   default_password?: boolean;
+  must_change_password?: boolean;
   sso_hint?: boolean;
 }
 

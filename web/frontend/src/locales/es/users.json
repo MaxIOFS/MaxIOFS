@@ -289,5 +289,10 @@
   "managePermissions": "Gestionar permisos",
   "permissionsTitle": "Permisos",
   "permissionsNoRole": "sin rol",
-  "permissionsRoleHint": "Un rol es un conjunto de permisos con nombre. Lo que concede se edita en IAM → Roles."
+  "permissionsRoleHint": "Un rol es un conjunto de permisos con nombre. Lo que concede se edita en IAM → Roles.",
+  "forcePasswordChange": "Obligar a cambiar la contraseña en el próximo inicio de sesión",
+  "forcePasswordChangeHint": "La cuenta no podrá usarse hasta que el usuario sustituya esta contraseña, así nunca conoces la definitiva.",
+  "passwordChangeRequiredTitle": "Establece una contraseña nueva",
+  "passwordChangeRequiredBody": "Un administrador te dio una contraseña temporal. Elige la tuya antes de continuar: el resto de la consola seguirá cerrado hasta que lo hagas.",
+  "passwordChangeFailed": "No se pudo cambiar la contraseña."
 }

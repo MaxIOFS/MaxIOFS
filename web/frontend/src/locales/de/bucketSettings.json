@@ -518,5 +518,6 @@
     "unlimited": "Unbegrenzt",
     "saveConfiguration": "Konfiguration speichern",
     "savedSuccess": "Bucket-Kontingent gespeichert"
-  }
+  },
+  "globalAdminReadOnlyBanner": "Sie sehen einen Bucket, der zu einem Mandanten gehört. Globale Administratoren können ihn und seine Konfiguration lesen, aber jede ändernde Operation ist deaktiviert."
 }

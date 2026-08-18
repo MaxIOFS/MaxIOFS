@@ -145,7 +145,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ...item,
         children: item.children.filter(child => {
           if ((child.name === 'Tenants' || child.name === 'Identity Providers' || child.name === 'Groups') && !isAnyAdmin) return false;
-          if (child.name === 'Role Capabilities' && !isGlobalAdmin) return false;
+          // Policies and roles are global; the API answers 403 to anyone else.
+          if (child.name === 'IAM' && !isGlobalAdmin) return false;
           return true;
         }),
       };

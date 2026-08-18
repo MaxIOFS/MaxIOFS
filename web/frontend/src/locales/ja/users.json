@@ -289,5 +289,10 @@
   "managePermissions": "権限を管理",
   "permissionsTitle": "権限",
   "permissionsNoRole": "ロールなし",
-  "permissionsRoleHint": "ロールは名前のついた権限のまとまりです。付与内容は IAM → ロール で編集します。"
+  "permissionsRoleHint": "ロールは名前のついた権限のまとまりです。付与内容は IAM → ロール で編集します。",
+  "forcePasswordChange": "次回のサインイン時に新しいパスワードを要求する",
+  "forcePasswordChangeHint": "利用者がこのパスワードを変更するまでアカウントは使用できないため、最終的なパスワードを知ることはありません。",
+  "passwordChangeRequiredTitle": "新しいパスワードを設定してください",
+  "passwordChangeRequiredBody": "管理者から一時的なパスワードが渡されています。続行する前にご自身のパスワードを設定してください。それまでコンソールの他の機能は使用できません。",
+  "passwordChangeFailed": "パスワードを変更できませんでした。"
 }

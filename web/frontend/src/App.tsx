@@ -8,6 +8,8 @@ import { getBasePath } from '@/lib/basePath';
 import { useAuth } from '@/hooks/useAuth';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PasswordChangeRequired } from '@/components/PasswordChangeRequired';
+import { usePasswordChangePending } from '@/hooks/usePasswordChangePending';
 
 // Extend Window interface to include BASE_PATH
 declare global {
@@ -103,6 +105,7 @@ class ErrorBoundary extends React.Component<
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const passwordChangePending = usePasswordChangePending();
 
   if (isLoading) {
     return (
@@ -120,6 +123,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Every authenticated page comes through here, so this is the one place that
+  // has to know the account owes a password change.
+  if (passwordChangePending) {
+    return (
+      <ErrorBoundary>
+        <PasswordChangeRequired />
+      </ErrorBoundary>
+    );
   }
 
   return <ErrorBoundary>{children}</ErrorBoundary>;

@@ -289,5 +289,10 @@
   "managePermissions": "Gérer les permissions",
   "permissionsTitle": "Permissions",
   "permissionsNoRole": "aucun rôle",
-  "permissionsRoleHint": "Un rôle est un ensemble nommé de permissions. Ce qu'il accorde se modifie dans IAM → Rôles."
+  "permissionsRoleHint": "Un rôle est un ensemble nommé de permissions. Ce qu'il accorde se modifie dans IAM → Rôles.",
+  "forcePasswordChange": "Exiger un nouveau mot de passe à la prochaine connexion",
+  "forcePasswordChangeHint": "Le compte reste inutilisable tant que l'utilisateur n'a pas remplacé ce mot de passe : vous ne connaîtrez jamais le mot de passe définitif.",
+  "passwordChangeRequiredTitle": "Définissez un nouveau mot de passe",
+  "passwordChangeRequiredBody": "Un administrateur vous a donné un mot de passe temporaire. Choisissez le vôtre avant de continuer : le reste de la console reste fermé jusque-là.",
+  "passwordChangeFailed": "Le mot de passe n'a pas pu être modifié."
 }

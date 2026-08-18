@@ -47,6 +47,7 @@ import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
 import { ObjectDetailsView, ObjectViewCallbacks } from '@/components/ObjectDetailsView';
 import { ObjectFilterPanel } from '@/components/ObjectFilterPanel';
+import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from 'react-i18next';
 
@@ -1199,6 +1200,10 @@ export default function BucketDetailsPage() {
 
   return (
     <div className="space-y-6">
+
+      {isGlobalAdminInTenantBucket && (
+        <ReadOnlyBucketNotice message={t('globalAdminReadOnlyBanner')} />
+      )}
 
       {/* ── Object detail view (AWS-style) — replaces the table ── */}
       {detailsObjectKey && (

@@ -63,6 +63,9 @@ export default function UserDetailsPage() {
   const [_showSecretKeys, _setShowSecretKeys] = useState<Record<string, boolean>>({});
   const [createdKey, setCreatedKey] = useState<AccessKey | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  // Default on: an administrator handing out a password should normally not be
+  // the one who ends up knowing it.
+  const [forceNextChange, setForceNextChange] = useState(true);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -260,8 +263,8 @@ export default function UserDetailsPage() {
 
   // Change password mutation
   const changePasswordMutation = useMutation({
-    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
-      APIClient.changePassword(userId, data.currentPassword, data.newPassword),
+    mutationFn: (data: { currentPassword: string; newPassword: string; mustChangePassword?: boolean }) =>
+      APIClient.changePassword(userId, data.currentPassword, data.newPassword, data.mustChangePassword),
     onSuccess: () => {
       setIsChangePasswordOpen(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -391,6 +394,7 @@ export default function UserDetailsPage() {
     changePasswordMutation.mutate({
       currentPassword: isAdminChangingOtherUser ? '' : passwordForm.currentPassword,
       newPassword: passwordForm.newPassword,
+      ...(isAdminChangingOtherUser ? { mustChangePassword: forceNextChange } : {}),
     });
   };
 
@@ -903,6 +907,20 @@ export default function UserDetailsPage() {
               className="bg-card text-foreground border-border"
             />
           </div>
+          {!isEditingSelf && (
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={forceNextChange}
+                onChange={(e) => setForceNextChange(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-border text-blue-600 focus:ring-blue-500"
+              />
+              <span>
+                <span className="text-sm font-medium text-foreground block">{t('forcePasswordChange')}</span>
+                <span className="text-xs text-muted-foreground">{t('forcePasswordChangeHint')}</span>
+              </span>
+            </label>
+          )}
           <div className="flex gap-2 justify-end mt-6">
             <Button
               variant="outline"

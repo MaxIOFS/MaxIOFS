@@ -289,5 +289,10 @@
   "managePermissions": "Berechtigungen verwalten",
   "permissionsTitle": "Berechtigungen",
   "permissionsNoRole": "keine Rolle",
-  "permissionsRoleHint": "Eine Rolle ist ein benannter Satz von Berechtigungen. Was sie gewährt, wird unter IAM → Rollen bearbeitet."
+  "permissionsRoleHint": "Eine Rolle ist ein benannter Satz von Berechtigungen. Was sie gewährt, wird unter IAM → Rollen bearbeitet.",
+  "forcePasswordChange": "Neues Passwort bei der nächsten Anmeldung verlangen",
+  "forcePasswordChangeHint": "Das Konto ist unbenutzbar, bis die Benutzerin oder der Benutzer dieses Passwort ersetzt — so erfahren Sie das endgültige Passwort nie.",
+  "passwordChangeRequiredTitle": "Neues Passwort festlegen",
+  "passwordChangeRequiredBody": "Eine Administratorin oder ein Administrator hat Ihnen ein vorläufiges Passwort gegeben. Wählen Sie zuerst Ihr eigenes — bis dahin bleibt die restliche Konsole geschlossen.",
+  "passwordChangeFailed": "Das Passwort konnte nicht geändert werden."
 }

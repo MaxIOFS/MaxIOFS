@@ -289,5 +289,10 @@
   "managePermissions": "管理权限",
   "permissionsTitle": "权限",
   "permissionsNoRole": "无角色",
-  "permissionsRoleHint": "角色是一组命名的权限。其授予内容在 IAM → 角色 中编辑。"
+  "permissionsRoleHint": "角色是一组命名的权限。其授予内容在 IAM → 角色 中编辑。",
+  "forcePasswordChange": "要求在下次登录时设置新密码",
+  "forcePasswordChangeHint": "在用户更换此密码之前账户无法使用，因此你永远不会知道最终的密码。",
+  "passwordChangeRequiredTitle": "设置新密码",
+  "passwordChangeRequiredBody": "管理员给了你一个临时密码。请先设置你自己的密码，在此之前控制台的其余部分将保持关闭。",
+  "passwordChangeFailed": "无法更改密码。"
 }

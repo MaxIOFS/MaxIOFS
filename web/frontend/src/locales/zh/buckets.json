@@ -361,5 +361,6 @@
   "loadingVersions": "正在加载版本…",
   "noVersionsFound": "未找到版本",
   "noVersionsDesc": "此存储桶没有版本化对象或未启用版本控制。",
-  "restoring": "恢复中…"
+  "restoring": "恢复中…",
+  "globalAdminReadOnlyBanner": "你正在查看属于某个租户的存储桶。全局管理员可以读取其内容和配置，但所有会造成更改的操作均已禁用。"
 }

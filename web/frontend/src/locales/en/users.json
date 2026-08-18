@@ -289,5 +289,10 @@
   "managePermissions": "Manage permissions",
   "permissionsTitle": "Permissions",
   "permissionsNoRole": "no role",
-  "permissionsRoleHint": "A role is a named set of permissions. What it grants is edited in IAM → Roles."
+  "permissionsRoleHint": "A role is a named set of permissions. What it grants is edited in IAM → Roles.",
+  "forcePasswordChange": "Require a new password at next sign-in",
+  "forcePasswordChangeHint": "The account cannot be used until the user replaces this password, so you never learn the one they settle on.",
+  "passwordChangeRequiredTitle": "Set a new password",
+  "passwordChangeRequiredBody": "An administrator gave you a temporary password. Choose your own before continuing — the rest of the console stays closed until you do.",
+  "passwordChangeFailed": "The password could not be changed."
 }

@@ -98,7 +98,7 @@ func TestUpgrade_FromPreIAMDeployment(t *testing.T) {
 
 	version, err := migrations.NewMigrationManager(store.db, logrus.StandardLogger()).GetCurrentVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 18, version, "the upgrade applies the IAM migration")
+	assert.Equal(t, 19, version, "the upgrade applies every v1.6.0 migration")
 
 	allows := func(userID string, roles []string, action, resource string) bool {
 		documents, err := store.EffectivePolicyDocuments(userID, roles)

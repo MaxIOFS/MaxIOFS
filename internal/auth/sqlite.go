@@ -161,14 +161,14 @@ func (s *SQLiteStore) GetUserByUsername(username string) (*User, error) {
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
-		       theme_preference, language_preference, auth_provider, external_id
+		       theme_preference, language_preference, auth_provider, external_id, must_change_password
 		FROM users
 		WHERE username = ? AND status != 'deleted'
 	`, username).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
-		&themePreference, &languagePreference, &authProvider, &externalID,
+		&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
 	)
 
 	if tenantID.Valid {
@@ -244,14 +244,14 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	err := s.db.QueryRow(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
-		       theme_preference, language_preference, auth_provider, external_id
+		       theme_preference, language_preference, auth_provider, external_id, must_change_password
 		FROM users
 		WHERE id = ? AND status != 'deleted'
 	`, userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
-		&themePreference, &languagePreference, &authProvider, &externalID,
+		&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
 	)
 
 	if tenantID.Valid {
@@ -376,9 +376,9 @@ func (s *SQLiteStore) UpdateUser(user *User) error {
 
 	_, err = tx.Exec(`
 		UPDATE users
-		SET display_name = ?, email = ?, status = ?, tenant_id = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, updated_at = ?
+		SET display_name = ?, email = ?, status = ?, tenant_id = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, must_change_password = ?, updated_at = ?
 		WHERE id = ?
-	`, user.DisplayName, user.Email, user.Status, nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.UpdatedAt, user.ID)
+	`, user.DisplayName, user.Email, user.Status, nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.MustChangePassword, user.UpdatedAt, user.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -395,9 +395,10 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 	}
 	defer tx.Rollback()
 
+	// Setting a password satisfies any pending obligation to change it.
 	_, err = tx.Exec(`
 		UPDATE users
-		SET password_hash = ?, updated_at = ?
+		SET password_hash = ?, must_change_password = 0, updated_at = ?
 		WHERE id = ?
 	`, passwordHash, time.Now().Unix(), userID)
 
@@ -406,6 +407,27 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 	}
 
 	return tx.Commit()
+}
+
+// SetMustChangePassword records (or lifts) the obligation to replace the
+// password before the account can be used again.
+func (s *SQLiteStore) SetMustChangePassword(userID string, must bool) error {
+	res, err := s.db.Exec(`
+		UPDATE users
+		SET must_change_password = ?, updated_at = ?
+		WHERE id = ? AND status != 'deleted'
+	`, must, time.Now().Unix(), userID)
+	if err != nil {
+		return fmt.Errorf("failed to set must_change_password: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 // UpdateUserPreferences updates only the theme and language preferences for a user
@@ -470,7 +492,7 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
-		       theme_preference, language_preference, auth_provider, external_id
+		       theme_preference, language_preference, auth_provider, external_id, must_change_password
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -499,7 +521,7 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 			&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
-			&themePreference, &languagePreference, &authProvider, &externalID,
+			&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
 		)
 		if err != nil {
 			return nil, err

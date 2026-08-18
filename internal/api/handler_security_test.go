@@ -568,6 +568,11 @@ func (m *MockAuthManager) UpdateUserPreferences(ctx context.Context, userID, the
 	return args.Error(0)
 }
 
+func (m *MockAuthManager) SetMustChangePassword(ctx context.Context, userID string, must bool) error {
+	args := m.Called(ctx, userID, must)
+	return args.Error(0)
+}
+
 func (m *MockAuthManager) DeleteUser(ctx context.Context, userID string) error {
 	args := m.Called(ctx, userID)
 	return args.Error(0)

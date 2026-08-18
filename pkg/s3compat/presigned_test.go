@@ -73,6 +73,9 @@ func (m *mockAuthManager) UpdateUser(ctx context.Context, user *auth.User) error
 func (m *mockAuthManager) UpdateUserPreferences(ctx context.Context, userID, themePreference, languagePreference string) error {
 	return fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) SetMustChangePassword(ctx context.Context, userID string, must bool) error {
+	return fmt.Errorf("not implemented")
+}
 func (m *mockAuthManager) DeleteUser(ctx context.Context, userID string) error {
 	return fmt.Errorf("not implemented")
 }

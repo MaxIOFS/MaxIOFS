@@ -32,6 +32,7 @@ import { formatBytes } from '@/lib/utils';
 import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
+import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
 
 // Tab types
@@ -1363,6 +1364,10 @@ export default function BucketSettingsPage() {
 
   return (
     <div className="space-y-6 p-8">
+      {isGlobalAdminInTenantBucket && (
+        <ReadOnlyBucketNotice message={t('globalAdminReadOnlyBanner')} />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

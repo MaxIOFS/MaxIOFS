@@ -198,6 +198,25 @@ describe('AppLayout', () => {
       expect(screen.queryByText('Audit Logs')).not.toBeInTheDocument();
     });
 
+    // Policies and roles are global entities; the API answers 403 to anyone but
+    // a global admin, so offering the entry to a tenant admin only leads there.
+    it('shows IAM to global admins but not to tenant admins', async () => {
+      const { unmount } = renderWithUser(globalAdmin);
+
+      await waitFor(() => expect(screen.getByText('Users')).toBeInTheDocument());
+      screen.getByText('Users').click();
+      await waitFor(() => expect(screen.getByText('IAM')).toBeInTheDocument());
+
+      unmount();
+
+      renderWithUser(tenantAdmin);
+
+      await waitFor(() => expect(screen.getByText('Users')).toBeInTheDocument());
+      screen.getByText('Users').click();
+      await waitFor(() => expect(screen.getByText('Tenants')).toBeInTheDocument());
+      expect(screen.queryByText('IAM')).not.toBeInTheDocument();
+    });
+
     it('always shows Dashboard and Buckets regardless of role', async () => {
       renderWithUser(regularUser);
 

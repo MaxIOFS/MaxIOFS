@@ -518,5 +518,6 @@
     "unlimited": "Unlimited",
     "saveConfiguration": "Save configuration",
     "savedSuccess": "Bucket quota saved"
-  }
+  },
+  "globalAdminReadOnlyBanner": "You are viewing a bucket that belongs to a tenant. Global administrators can read it and its configuration, but every operation that would change something is disabled."
 }

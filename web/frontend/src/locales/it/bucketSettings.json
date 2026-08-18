@@ -518,5 +518,6 @@
     "unlimited": "Illimitato",
     "saveConfiguration": "Salva configurazione",
     "savedSuccess": "Quota del bucket salvata"
-  }
+  },
+  "globalAdminReadOnlyBanner": "Stai visualizzando un bucket che appartiene a un tenant. Gli amministratori globali possono leggerlo e vederne la configurazione, ma ogni operazione di modifica è disabilitata."
 }
