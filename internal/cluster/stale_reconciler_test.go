@@ -901,3 +901,34 @@ func TestReconcile_AppliesRemoteTombstonesLocally(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found, "remote tombstone should have been applied locally")
 }
+
+func TestObjectTombstoneNewer(t *testing.T) {
+	db, _, r, cleanup := setupReconcilerDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	bucket := "tenant-a/bucket-a"
+	key := "deleted/object.txt"
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID(bucket, key), "local-node"))
+
+	assert.True(t, r.objectTombstoneNewer(ctx, bucket, key, time.Now().Add(-time.Minute)))
+	assert.False(t, r.objectTombstoneNewer(ctx, bucket, key, time.Now().Add(time.Minute)))
+	assert.False(t, r.objectTombstoneNewer(ctx, bucket, "other.txt", time.Now().Add(-time.Minute)))
+}
+
+func TestApplyObjectVersionTombstoneDeletesOnlyVersion(t *testing.T) {
+	_, _, r, cleanup := setupReconcilerDB(t)
+	defer cleanup()
+
+	recorder := &rollbackRecorderManager{}
+	r.SetObjectManagers(recorder, nil)
+
+	entry := &DeletionEntry{
+		EntityType: EntityTypeObjectVersion,
+		EntityID:   ObjectVersionTombstoneID("tenant-a/bucket-a", "key.txt", "version-1"),
+		DeletedAt:  time.Now().Unix(),
+	}
+	r.applyObjectTombstone(context.Background(), entry)
+
+	require.Equal(t, []string{"version-1"}, recorder.versionIDs)
+}

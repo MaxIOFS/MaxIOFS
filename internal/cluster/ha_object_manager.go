@@ -127,7 +127,7 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 		return obj, nil
 	}
 	if err := h.fanoutPut(ctx, bucket, key, obj.VersionID); err != nil {
-		h.rollbackLocalPut(ctx, bucket, key, "PutObject")
+		h.rollbackLocalPut(ctx, bucket, key, obj.VersionID, "PutObject")
 		return nil, err
 	}
 	return obj, nil
@@ -144,6 +144,9 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 	if err != nil {
 		return "", err
 	}
+	if !isHARollback(ctx) {
+		h.recordObjectDeletionTombstone(ctx, bucket, key, versionID...)
+	}
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return markerID, nil
 	}
@@ -155,6 +158,28 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 		return markerID, err
 	}
 	return markerID, nil
+}
+
+func (h *HAObjectManager) recordObjectDeletionTombstone(ctx context.Context, bucket, key string, versionID ...string) {
+	nodeID, err := h.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket": bucket, "key": key,
+		}).Warn("HA delete: failed to resolve local node for tombstone")
+		return
+	}
+
+	entityType := EntityTypeObject
+	entityID := ObjectTombstoneID(bucket, key)
+	if len(versionID) > 0 && versionID[0] != "" {
+		entityType = EntityTypeObjectVersion
+		entityID = ObjectVersionTombstoneID(bucket, key, versionID[0])
+	}
+	if err := RecordDeletion(ctx, h.mgr.db, entityType, entityID, nodeID); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"bucket": bucket, "key": key, "entity_type": entityType,
+		}).Warn("HA delete: failed to record object tombstone")
+	}
 }
 
 // CompleteMultipartUpload finalises locally then synchronously replicates the
@@ -174,7 +199,7 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 		return obj, nil
 	}
 	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key, obj.VersionID); err != nil {
-		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, "CompleteMultipartUpload")
+		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, obj.VersionID, "CompleteMultipartUpload")
 		return nil, err
 	}
 	return obj, nil
@@ -207,15 +232,32 @@ func (h *HAObjectManager) CanReplicateRaw(sidecar map[string]string) bool {
 }
 
 // rollbackLocalPut deletes the just-written local copy after a quorum failure.
-func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, op string) {
-	rbCtx := WithHARollbackContext(ctx)
-	if _, err := h.Manager.DeleteObject(rbCtx, bucket, key, true); err != nil {
+// Non-versioned overwrites cannot be safely rolled back here because DeleteObject
+// would delete the current key without restoring the previous bytes.
+func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, versionID, op string) {
+	if versionID == "" {
 		logrus.WithFields(logrus.Fields{
 			"op": op, "bucket": bucket, "key": key,
+		}).Warn("HA quorum rollback skipped for non-versioned write; preserving local object")
+		return
+	}
+	rbCtx := WithHARollbackContext(ctx)
+	if _, err := h.Manager.DeleteObject(rbCtx, bucket, key, true, versionID); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"op": op, "bucket": bucket, "key": key, "version_id": versionID,
 		}).WithError(err).Error("HA quorum rollback: failed to delete local copy")
 	}
 }
 
+// RequiredReplicaAcks is how many peers must confirm a write for a majority of
+// the factor copies to hold it. The local copy is one of them and always
+// succeeds, so a factor of 3 asks for one peer and survives losing the other.
+func RequiredReplicaAcks(factor int) int {
+	if factor <= 1 {
+		return 0
+	}
+	return factor / 2
+}
 
 // replicaTargets returns up to factor-1 healthy non-local nodes and the number
 func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, bool) {
@@ -247,8 +289,7 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 	if len(targets) == 0 {
 		return nil, 0, false
 	}
-	neededReplicas := (factor+1)/2 - 1
-	return targets, neededReplicas, true
+	return targets, RequiredReplicaAcks(factor), true
 }
 
 // fanoutPut synchronously replicates the just-written object to replica nodes.
@@ -471,7 +512,6 @@ func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan f
 	}
 	return nil
 }
-
 
 // HAMetadataOp describes a metadata-only operation to replay on replica nodes.
 type HAMetadataOp struct {

@@ -3,6 +3,7 @@ package s3compat
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+const maxAwsChunkedChunkSize = 64 * 1024 * 1024
+
+var ErrInvalidAwsChunkedSize = errors.New("invalid aws-chunked chunk size")
 
 // AwsChunkedReader decodes AWS chunked encoding format
 // Format: {chunk-size-hex}\r\n{chunk-data}\r\n...0\r\n{trailers}\r\n
@@ -72,7 +77,14 @@ func (r *AwsChunkedReader) readNextChunk() error {
 	chunkSize, err := strconv.ParseInt(sizeLine, 16, 64)
 	if err != nil {
 		logrus.WithError(err).WithField("size_line", sizeLine).Error("Failed to parse chunk size")
-		return fmt.Errorf("invalid chunk size: %s", sizeLine)
+		return fmt.Errorf("%w: %s", ErrInvalidAwsChunkedSize, sizeLine)
+	}
+	if chunkSize < 0 || chunkSize > maxAwsChunkedChunkSize {
+		logrus.WithFields(logrus.Fields{
+			"size_line":      sizeLine,
+			"chunk_size_dec": chunkSize,
+		}).Warn("AWS chunked: rejected unsafe chunk size")
+		return fmt.Errorf("%w: %s", ErrInvalidAwsChunkedSize, sizeLine)
 	}
 
 	logrus.WithFields(logrus.Fields{

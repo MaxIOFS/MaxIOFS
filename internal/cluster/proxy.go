@@ -367,21 +367,15 @@ func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response,
 func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, tenantID, roles string) {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
-	// Compute HMAC-SHA256(clusterToken, "proxy:{nodeID}:{timestamp}")
-	payload := fmt.Sprintf("proxy:%s:%s", nodeID, timestamp)
-	h := hmac.New(sha256.New, []byte(clusterToken))
-	h.Write([]byte(payload))
-	sig := hex.EncodeToString(h.Sum(nil))
-
 	// Remove original Authorization (SigV4 was signed for the client's host — invalid on the target node)
 	req.Header.Del("Authorization")
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
-	req.Header.Set("X-MaxIOFS-Node-Hmac", sig)
 	req.Header.Set("X-MaxIOFS-Forwarded-User", userID)
 	req.Header.Set("X-MaxIOFS-Forwarded-Tenant", tenantID)
 	req.Header.Set("X-MaxIOFS-Forwarded-Roles", roles)
+	req.Header.Set("X-MaxIOFS-Node-Hmac", clusterProxySignature(req, clusterToken, nodeID, timestamp, userID, tenantID, roles))
 }
 
 // ValidateClusterProxyAuth validates inter-node proxy authentication headers.
@@ -411,20 +405,40 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 		return "", "", "", false
 	}
 
-	// Validate HMAC
-	payload := fmt.Sprintf("proxy:%s:%s", nodeID, timestamp)
-	h := hmac.New(sha256.New, []byte(clusterToken))
-	h.Write([]byte(payload))
-	expectedSig := hex.EncodeToString(h.Sum(nil))
+	userID = req.Header.Get("X-MaxIOFS-Forwarded-User")
+	tenantID = req.Header.Get("X-MaxIOFS-Forwarded-Tenant")
+	roles = req.Header.Get("X-MaxIOFS-Forwarded-Roles")
+	if userID == "" {
+		return "", "", "", false
+	}
 
+	expectedSig := clusterProxySignature(req, clusterToken, nodeID, timestamp, userID, tenantID, roles)
 	if !hmac.Equal([]byte(providedSig), []byte(expectedSig)) {
 		return "", "", "", false
 	}
 
-	return req.Header.Get("X-MaxIOFS-Forwarded-User"),
-		req.Header.Get("X-MaxIOFS-Forwarded-Tenant"),
-		req.Header.Get("X-MaxIOFS-Forwarded-Roles"),
-		true
+	return userID, tenantID, roles, true
+}
+
+func clusterProxySignature(req *http.Request, clusterToken, nodeID, timestamp, userID, tenantID, roles string) string {
+	bodyHash := req.Header.Get(clusterBodySHA256Header)
+	if bodyHash == "" {
+		bodyHash = clusterUnsignedPayloadHash
+	}
+	payload := strings.Join([]string{
+		"proxy-v2",
+		nodeID,
+		timestamp,
+		req.Method,
+		req.URL.RequestURI(),
+		bodyHash,
+		userID,
+		tenantID,
+		roles,
+	}, "\n")
+	h := hmac.New(sha256.New, []byte(clusterToken))
+	h.Write([]byte(payload))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // buildInternalS3URL derives the inter-node S3 API URL from node.Endpoint.

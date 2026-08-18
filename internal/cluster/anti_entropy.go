@@ -120,7 +120,19 @@ func (s *AntiEntropyScrubber) CurrentCheckpoint() *ScrubCheckpoint {
 		return nil
 	}
 	cp := *s.currentCP
+	cp.BucketOrder = append([]string(nil), s.currentCP.BucketOrder...)
 	return &cp
+}
+
+func (s *AntiEntropyScrubber) publishCheckpoint(cp *ScrubCheckpoint) {
+	if cp == nil {
+		return
+	}
+	s.mu.Lock()
+	snapshot := *cp
+	snapshot.BucketOrder = append([]string(nil), cp.BucketOrder...)
+	s.currentCP = &snapshot
+	s.mu.Unlock()
 }
 
 // ListRecentRuns returns the last `limit` scrub runs newest first.
@@ -218,9 +230,7 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 		return
 	}
 
-	s.mu.Lock()
-	s.currentCP = cp
-	s.mu.Unlock()
+	s.publishCheckpoint(cp)
 
 	defer func() {
 		s.mu.Lock()
@@ -349,6 +359,7 @@ func (s *AntiEntropyScrubber) executeCycle(ctx context.Context, cp *ScrubCheckpo
 
 			marker = result.NextMarker
 			cp.LastKey = marker
+			s.publishCheckpoint(cp)
 			s.saveCheckpoint(ctx, cp)
 			s.persistRunProgress(ctx, cp)
 
@@ -359,6 +370,7 @@ func (s *AntiEntropyScrubber) executeCycle(ctx context.Context, cp *ScrubCheckpo
 
 		cp.BucketsScanned++
 		cp.LastKey = ""
+		s.publishCheckpoint(cp)
 		s.saveCheckpoint(ctx, cp)
 	}
 	return nil
@@ -415,6 +427,7 @@ func (s *AntiEntropyScrubber) processBatch(
 					cp.DivergencesFixed++
 				}
 			}
+			s.publishCheckpoint(cp)
 
 			if perObjectDelay > 0 {
 				select {
@@ -426,7 +439,6 @@ func (s *AntiEntropyScrubber) processBatch(
 		}
 	}
 }
-
 
 // ChecksumEntry is the per-key payload returned by /api/internal/cluster/ha/checksum-batch.
 type ChecksumEntry struct {
@@ -557,7 +569,6 @@ func (s *AntiEntropyScrubber) applyAction(
 		return false
 	}
 }
-
 
 // fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the peer.
 func (s *AntiEntropyScrubber) fetchPeerChecksums(
@@ -715,12 +726,20 @@ func (s *AntiEntropyScrubber) healthyPeers(ctx context.Context, localID string) 
 	if err != nil {
 		return nil, err
 	}
+	factor, err := s.mgr.GetReplicationFactor(ctx)
+	if err != nil || factor <= 1 {
+		return nil, err
+	}
+	neededReplicas := factor - 1
 	peers := make([]*Node, 0, len(healthy))
 	for _, n := range healthy {
 		if n.ID == localID {
 			continue
 		}
 		peers = append(peers, n)
+		if len(peers) >= neededReplicas {
+			break
+		}
 	}
 	return peers, nil
 }

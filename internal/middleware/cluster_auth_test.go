@@ -122,6 +122,39 @@ func TestClusterAuth_UnsignedPayloadDoesNotDrainBody(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestClusterAuth_SignedPayloadBodyLimit(t *testing.T) {
+	db := setupClusterAuthTestDB(t)
+	defer db.Close()
+
+	nodeID := "test-node-large-body"
+	nodeToken := "secret-token-12345"
+	insertTestNode(t, db, nodeID, "large-body-node", nodeToken, "healthy")
+
+	middleware := NewClusterAuthMiddleware(db)
+
+	handlerCalled := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("POST", "/api/internal/cluster/group-sync", strings.NewReader(strings.Repeat("a", maxSignedClusterBody+1)))
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	nonce := "test-nonce-large-body"
+	signature := computeSignature(nodeToken, "POST", "/api/internal/cluster/group-sync", timestamp, nonce, "bad")
+	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
+	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+	req.Header.Set("X-MaxIOFS-Nonce", nonce)
+	req.Header.Set("X-MaxIOFS-Signature", signature)
+	w := httptest.NewRecorder()
+
+	handler := middleware.ClusterAuth(nextHandler)
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	assert.False(t, handlerCalled)
+}
+
 func TestClusterAuth_InvalidSignature(t *testing.T) {
 	db := setupClusterAuthTestDB(t)
 	defer db.Close()

@@ -138,7 +138,7 @@ type Handler struct {
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 	}
-	publicAPIURL string
+	publicAPIURL     string
 	iamSTSEndpoint   func() string
 	dataDir          string             // For calculating disk capacity in SOSAPI
 	notifHTTPClient  *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
@@ -569,7 +569,6 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
-
 // checkBucketPolicyPermission evaluates bucket policy for a specific action.
 // r may be nil (e.g. from internal callers); when non-nil, IP and TLS context
 // are extracted so that aws:SourceIp and aws:SecureTransport conditions work.
@@ -925,8 +924,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if maxKeys > 1000 {
-		h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
-		return
+		maxKeys = 1000
 	}
 
 	// Parse encoding-type — only "url" is valid per the S3 spec.
@@ -1045,8 +1043,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 		maxKeys = parsed
 	}
 	if maxKeys > 1000 {
-		h.writeError(w, "InvalidArgument", "The specified value for max-keys is not valid. It must be between 0 and 1000.", bucketName, r)
-		return
+		maxKeys = 1000
 	}
 
 	// Parse encoding-type — only "url" is valid per the S3 spec.
@@ -1287,9 +1284,12 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		var parseErr error
 		rangeStart, rangeEnd, parseErr = parseRangeHeader(rangeHeader, obj.Size)
 		if parseErr != nil {
-			// Invalid range - return 416 Range Not Satisfiable
-			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
-			h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
+			if isUnsatisfiableRangeError(parseErr) {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
+				h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
+			} else {
+				h.writeError(w, "InvalidArgument", parseErr.Error(), objectKey, r)
+			}
 			return
 		}
 		isRangeRequest = true
@@ -1802,7 +1802,7 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var versioningConfig VersioningConfiguration
-	if err := xml.NewDecoder(r.Body).Decode(&versioningConfig); err != nil {
+	if err := decodeS3ControlXML(w, r, &versioningConfig); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}
@@ -2522,7 +2522,6 @@ func (h *Handler) checkPublicObjectAccess(ctx context.Context, bucketPath, objec
 	return aclManager.CheckPublicAccess(aclData, permission)
 }
 
-
 // getACLManager extracts the ACL manager from bucket manager
 // This is a helper to access the internal ACL manager
 func (h *Handler) getACLManager() acl.Manager {
@@ -2572,7 +2571,6 @@ func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
 	// Redirect to DeleteObject which now handles versionId
 	h.DeleteObject(w, r)
 }
-
 
 // ========== GetObject Helper Functions (Refactoring for Complexity Reduction) ==========
 
@@ -3049,7 +3047,6 @@ func (h *Handler) validateBucketReadPermission(
 			return true
 		}
 
-
 		logrus.WithFields(logrus.Fields{
 			"bucket":       bucketName,
 			"object":       objectKey,
@@ -3082,14 +3079,14 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 	ifNoneMatch := r.Header.Get("If-None-Match")
 
 	if ifMatch != "" {
-		if normalizeETag(etag) != normalizeETag(ifMatch) {
+		if strings.TrimSpace(ifMatch) != "*" && normalizeETag(etag) != normalizeETag(ifMatch) {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return false
 		}
 	}
 
 	if ifNoneMatch != "" {
-		if normalizeETag(etag) == normalizeETag(ifNoneMatch) {
+		if strings.TrimSpace(ifNoneMatch) == "*" || normalizeETag(etag) == normalizeETag(ifNoneMatch) {
 			w.WriteHeader(http.StatusNotModified)
 			return false
 		}
@@ -3124,6 +3121,11 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 // may not include quotes while the If-Match / If-None-Match header value may differ.
 func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
+}
+
+func isUnsatisfiableRangeError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "out of bounds") || strings.Contains(msg, "greater than end")
 }
 
 // setGetObjectResponseHeaders sets all response headers for GetObject operation
@@ -3182,7 +3184,6 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 	}
 }
 
-
 // validateTenantQuota checks tenant storage quota before accepting upload
 // Returns error if quota is exceeded, nil if quota check passes or is skipped
 func (h *Handler) validateTenantQuota(
@@ -3219,7 +3220,7 @@ func (h *Handler) validateTenantQuota(
 	// Calculate actual storage increment (consider existing object size)
 	var sizeIncrement int64 = contentLength
 	bucketPath := h.getBucketPath(r, bucketName)
-	existingObj, _, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	existingObj, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
 	if err == nil && existingObj != nil {
 		// Object exists - calculate size difference for quota check
 		sizeIncrement = contentLength - existingObj.Size
@@ -3521,7 +3522,6 @@ func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object
 	}
 }
 
-
 // validateHeadBucketReadPermission checks if user has READ permission on bucket (not object)
 // Similar to validateBucketReadPermission but without presigned URL or share support
 func (h *Handler) validateHeadBucketReadPermission(
@@ -3634,15 +3634,13 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	}
 }
 
-
-
 // parseObjectLockConfigXML reads and parses Object Lock configuration XML from request body
 func (h *Handler) parseObjectLockConfigXML(
 	w http.ResponseWriter,
 	r *http.Request,
 	bucketName string,
 ) (*ObjectLockConfiguration, bool) {
-	body, err := io.ReadAll(r.Body)
+	body, err := readS3ControlBody(w, r)
 	if err != nil {
 		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to read request body")
 		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
@@ -3704,7 +3702,6 @@ func storageClassOrStandard(sc string) string {
 	return sc
 }
 
-
 // RestoreObject handles POST /{bucket}/{object}?restore.
 func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -3727,7 +3724,7 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 		GlacierJobParams *glacierJobParams `xml:"GlacierJobParameters"`
 	}
 	var req restoreRequestXML
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeS3ControlXML(w, r, &req); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}

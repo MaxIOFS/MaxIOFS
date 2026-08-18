@@ -193,35 +193,11 @@ func (s *Server) handleReceiveGroupDeleteSync(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	rowsAffected, err := s.deleteGroupAndRecordTombstone(ctx, deleteData.ID, sourceNodeID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("begin tx: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ?`, deleteData.ID); err != nil {
-		http.Error(w, fmt.Sprintf("delete members: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM bucket_permissions WHERE group_id = ?`, deleteData.ID); err != nil {
-		http.Error(w, fmt.Sprintf("delete bucket_permissions: %v", err), http.StatusInternalServerError)
-		return
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, deleteData.ID)
-	if err != nil {
+		logrus.WithError(err).WithField("group_id", deleteData.ID).Error("Failed to delete group with tombstone")
 		http.Error(w, fmt.Sprintf("delete group: %v", err), http.StatusInternalServerError)
 		return
-	}
-	if err := tx.Commit(); err != nil {
-		http.Error(w, fmt.Sprintf("commit: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeGroup, deleteData.ID, sourceNodeID); err != nil {
-		logrus.WithError(err).WithField("group_id", deleteData.ID).Warn("Failed to record group deletion tombstone")
 	}
 
 	logrus.WithFields(logrus.Fields{

@@ -367,11 +367,6 @@ func (m *Manager) DeleteRule(ctx context.Context, tenantID, ruleID string) error
 		return fmt.Errorf("rule not found")
 	}
 
-	// Clean up lock for deleted rule to prevent unbounded map growth
-	m.locksMu.Lock()
-	delete(m.ruleLocks, ruleID)
-	m.locksMu.Unlock()
-
 	return nil
 }
 
@@ -824,11 +819,11 @@ func (m *Manager) SyncBucket(ctx context.Context, ruleID string) (int, error) {
 
 // SyncRule triggers a sync for a specific replication rule
 func (m *Manager) SyncRule(ctx context.Context, ruleID string) (int, error) {
-	// Try to acquire lock for this rule
-	if !m.tryLockRule(ruleID) {
+	lock, ok := m.tryLockRule(ruleID)
+	if !ok {
 		return 0, fmt.Errorf("sync already in progress for rule: %s", ruleID)
 	}
-	defer m.unlockRule(ruleID)
+	defer m.releaseRule(ruleID, lock)
 
 	logrus.WithField("rule_id", ruleID).Info("Starting rule sync")
 
@@ -850,30 +845,35 @@ func (m *Manager) SyncRule(ctx context.Context, ruleID string) (int, error) {
 }
 
 // tryLockRule attempts to acquire a lock for a rule
-func (m *Manager) tryLockRule(ruleID string) bool {
+// tryLockRule returns the mutex it acquired, so the caller releases that exact
+// one. Looking it up again by ID could find a different mutex, and unlocking
+// somebody else's is an unrecoverable panic.
+func (m *Manager) tryLockRule(ruleID string) (*sync.Mutex, bool) {
 	m.locksMu.Lock()
 	defer m.locksMu.Unlock()
 
-	// Check if lock exists for this rule
 	lock, exists := m.ruleLocks[ruleID]
 	if !exists {
-		// Create new lock for this rule
 		lock = &sync.Mutex{}
 		m.ruleLocks[ruleID] = lock
 	}
 
-	// Try to acquire the lock (non-blocking)
-	return lock.TryLock()
+	if !lock.TryLock() {
+		return nil, false
+	}
+	return lock, true
 }
 
-// unlockRule releases the lock for a rule
-func (m *Manager) unlockRule(ruleID string) {
-	m.locksMu.RLock()
-	lock, exists := m.ruleLocks[ruleID]
-	m.locksMu.RUnlock()
+// releaseRule drops the lock and forgets the rule if nobody else took it in the
+// meantime, so the map does not grow with every rule that ever existed.
+func (m *Manager) releaseRule(ruleID string, lock *sync.Mutex) {
+	lock.Unlock()
 
-	if exists {
-		lock.Unlock()
+	m.locksMu.Lock()
+	defer m.locksMu.Unlock()
+	if current, ok := m.ruleLocks[ruleID]; ok && current == lock && current.TryLock() {
+		current.Unlock()
+		delete(m.ruleLocks, ruleID)
 	}
 }
 

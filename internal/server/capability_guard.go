@@ -50,16 +50,21 @@ func consoleObjectARN(bucketName, objectKey string) string {
 }
 
 func (s *Server) resolveConsoleBucketTenantID(r *http.Request, bucketName string, user *auth.User) string {
-	if s.metadataStore != nil {
-		if meta, err := s.metadataStore.GetBucketByName(r.Context(), bucketName); err == nil && meta != nil {
-			return meta.TenantID
-		}
+	if user != nil && user.TenantID != "" {
+		return user.TenantID
 	}
 	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user != nil && user.TenantID == "" {
 		return q
 	}
-	if user != nil {
-		return user.TenantID
+	if s.metadataStore != nil {
+		if user != nil && user.TenantID == "" {
+			if meta, err := s.metadataStore.GetBucket(r.Context(), "", bucketName); err == nil && meta != nil {
+				return meta.TenantID
+			}
+		}
+		if meta, err := s.metadataStore.GetBucketByName(r.Context(), bucketName); err == nil && meta != nil {
+			return meta.TenantID
+		}
 	}
 	return ""
 }

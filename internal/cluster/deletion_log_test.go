@@ -56,6 +56,25 @@ func TestRecordDeletion(t *testing.T) {
 	assert.Equal(t, "node-2", nodeID)
 }
 
+func TestObjectTombstoneIDRoundTrip(t *testing.T) {
+	bucket := "tenant-a/bucket-a"
+	key := "nested/key with spaces?and&chars\nline"
+	id := ObjectTombstoneID(bucket, key)
+
+	gotBucket, gotKey, ok := DecodeObjectTombstoneID(id)
+	require.True(t, ok)
+	assert.Equal(t, bucket, gotBucket)
+	assert.Equal(t, key, gotKey)
+
+	versionID := "v-123"
+	versionIDEncoded := ObjectVersionTombstoneID(bucket, key, versionID)
+	gotBucket, gotKey, gotVersionID, ok := DecodeObjectVersionTombstoneID(versionIDEncoded)
+	require.True(t, ok)
+	assert.Equal(t, bucket, gotBucket)
+	assert.Equal(t, key, gotKey)
+	assert.Equal(t, versionID, gotVersionID)
+}
+
 func TestRecordDeletion_MultipleEntityTypes(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

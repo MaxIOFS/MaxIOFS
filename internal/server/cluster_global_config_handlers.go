@@ -34,11 +34,12 @@ func (s *Server) handleReceiveGlobalConfigSync(w http.ResponseWriter, r *http.Re
 		localVal, err := cluster.GetGlobalConfig(ctx, s.db, entry.Key)
 		if err == nil {
 			// Key exists locally — check timestamp
-			var localUpdatedAt int64
+			var rawLocalUpdatedAt interface{}
 			_ = s.db.QueryRowContext(ctx,
-				`SELECT CAST(strftime('%s', updated_at) AS INTEGER) FROM cluster_global_config WHERE key = ?`,
+				`SELECT updated_at FROM cluster_global_config WHERE key = ?`,
 				entry.Key,
-			).Scan(&localUpdatedAt)
+			).Scan(&rawLocalUpdatedAt)
+			localUpdatedAt, _ := cluster.SQLiteTimestampUnix(rawLocalUpdatedAt)
 			if localUpdatedAt >= entry.UpdatedAt {
 				continue // local is same age or newer, skip
 			}

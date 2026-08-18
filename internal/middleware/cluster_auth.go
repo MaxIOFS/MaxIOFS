@@ -23,24 +23,28 @@ const emptyBodyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7
 const (
 	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
 	clusterUnsignedPayloadHash = "UNSIGNED-PAYLOAD"
+	maxSignedClusterBody       = 8 << 20
 )
 
 // readAndHashBody drains req.Body, restores it, and returns the hex SHA-256.
 // Returns emptyBodyHash for nil bodies.
-func readAndHashBody(req *http.Request) string {
+func readAndHashBody(req *http.Request) (string, error) {
 	if req.Header.Get(clusterBodySHA256Header) == clusterUnsignedPayloadHash {
-		return clusterUnsignedPayloadHash
+		return clusterUnsignedPayloadHash, nil
 	}
 	if req.Body == nil {
-		return emptyBodyHash
+		return emptyBodyHash, nil
 	}
-	data, err := io.ReadAll(req.Body)
+	data, err := io.ReadAll(io.LimitReader(req.Body, maxSignedClusterBody+1))
 	if err != nil {
-		return emptyBodyHash
+		return "", err
+	}
+	if len(data) > maxSignedClusterBody {
+		return "", fmt.Errorf("cluster request body too large")
 	}
 	req.Body = io.NopCloser(bytes.NewReader(data))
 	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
+	return hex.EncodeToString(h[:]), nil
 }
 
 // ClusterAuthMiddleware provides HMAC-based authentication for cluster-internal endpoints
@@ -105,7 +109,12 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 		}
 
 		// Read and hash the body so it is covered by the HMAC, then restore it for downstream handlers.
-		bodyHash := readAndHashBody(r)
+		bodyHash, err := readAndHashBody(r)
+		if err != nil {
+			logrus.WithError(err).WithField("node_id", nodeID).Warn("Cluster authentication failed: invalid body")
+			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 
 		// Compute expected signature
 		expectedSignature := computeSignature(nodeToken, r.Method, r.URL.Path, timestamp, nonce, bodyHash)

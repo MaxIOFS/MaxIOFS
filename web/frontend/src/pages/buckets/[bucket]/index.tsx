@@ -39,7 +39,7 @@ import { Sigma as SigmaIcon } from 'lucide-react';
 import { ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient, s3Client } from '@/lib/api';
-import { ObjectSearchFilter } from '@/types';
+import { ListObjectsResponse, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
 import { isHttpStatus, escapeHtml } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
@@ -87,6 +87,8 @@ export default function BucketDetailsPage() {
   const [isFolderScanning, setIsFolderScanning] = useState(false);
   const [selectedObjects, setSelectedObjects] = useState<Set<string>>(new Set());
   const [objectFilter, setObjectFilter] = useState<ObjectSearchFilter>({});
+  const [additionalObjectPages, setAdditionalObjectPages] = useState<ListObjectsResponse[]>([]);
+  const [isLoadingMoreObjects, setIsLoadingMoreObjects] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -168,6 +170,11 @@ export default function BucketDetailsPage() {
           delimiter: '/',
         }),
   });
+
+  useEffect(() => {
+    setAdditionalObjectPages([]);
+    setSelectedObjects(new Set());
+  }, [bucketName, currentPrefix, tenantId, hasActiveFilters, objectFilter]);
 
   const { data: sharesMap = {} } = useQuery({
     queryKey: ['shares', bucketName, tenantId],
@@ -352,9 +359,41 @@ export default function BucketDetailsPage() {
     },
   });
 
+  const objectPages = objectsResponse ? [objectsResponse, ...additionalObjectPages] : additionalObjectPages;
+  const lastObjectPage = objectPages.length > 0 ? objectPages[objectPages.length - 1] : undefined;
+  const hasMoreObjects = !showVersions && !!lastObjectPage?.isTruncated && !!lastObjectPage?.nextContinuationToken;
+
+  const handleLoadMoreObjects = async () => {
+    if (!lastObjectPage?.nextContinuationToken || isLoadingMoreObjects) return;
+    setIsLoadingMoreObjects(true);
+    try {
+      const page = hasActiveFilters
+        ? await APIClient.searchObjects({
+            bucket: bucketName,
+            ...(tenantId && { tenantId }),
+            prefix: currentPrefix,
+            delimiter: '/',
+            marker: lastObjectPage.nextContinuationToken,
+            filter: objectFilter,
+          })
+        : await APIClient.getObjects({
+            bucket: bucketName,
+            ...(tenantId && { tenantId }),
+            prefix: currentPrefix,
+            delimiter: '/',
+            continuationToken: lastObjectPage.nextContinuationToken,
+          });
+      setAdditionalObjectPages(prev => [...prev, page]);
+    } catch (error) {
+      ModalManager.apiError(error);
+    } finally {
+      setIsLoadingMoreObjects(false);
+    }
+  };
+
   // Process objects and common prefixes (folders)
-  const objects = objectsResponse?.objects || [];
-  const commonPrefixes = objectsResponse?.commonPrefixes || [];
+  const objects = objectPages.flatMap(page => page.objects || []);
+  const commonPrefixes = Array.from(new Set(objectPages.flatMap(page => page.commonPrefixes || [])));
 
   // Combine folders and files
   // Filter out objects that are folder markers (empty files ending with / and size 0)
@@ -391,7 +430,7 @@ export default function BucketDetailsPage() {
       storageClass: '',
     })),
     ...normalizedFilteredObjects,
-  ];
+  ].filter((item, index, items) => items.findIndex(other => other.key === item.key) === index);
 
   const filteredItems = allItems.filter(item =>
     item.key.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1965,6 +2004,18 @@ export default function BucketDetailsPage() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {hasMoreObjects && (
+            <div className="flex items-center justify-center border-t border-border px-4 py-3">
+              <Button
+                variant="outline"
+                size="sm"
+                loading={isLoadingMoreObjects}
+                onClick={handleLoadMoreObjects}
+              >
+                {t('loadMore', 'Load more')}
+              </Button>
+            </div>
           )}
         </div>
       </div>

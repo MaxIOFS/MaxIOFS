@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -85,4 +86,38 @@ func TestPutObjectRawFailsWhenMetadataSaveFails(t *testing.T) {
 	err := om.PutObjectRaw(ctx, bucketName, "replica.txt",
 		bytes.NewReader([]byte("data")), map[string]string{"size": "4"}, metaObj)
 	require.Error(t, err, "a failed replica metadata save must fail the transfer")
+}
+
+func TestCompleteMultipartUploadMetadataFailurePreservesPreviousObject(t *testing.T) {
+	ctx := context.Background()
+	om, _, metaStore := setupManagerWithConfigKey(t)
+
+	bucketName := "metafail-mpu-bucket"
+	key := "victim.txt"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:    bucketName,
+		OwnerID: "user-1",
+	}))
+
+	_, err := om.PutObject(ctx, bucketName, key,
+		bytes.NewReader([]byte("previous payload")), http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+
+	upload, err := om.CreateMultipartUpload(ctx, bucketName, key, http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader([]byte("replacement payload")))
+	require.NoError(t, err)
+
+	failing := &failingPutStore{Store: metaStore, failPuts: true}
+	om.metadataStore = failing
+	_, err = om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.Error(t, err)
+
+	failing.failPuts = false
+	_, reader, err := om.GetObject(ctx, bucketName, key)
+	require.NoError(t, err)
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, "previous payload", string(data))
 }

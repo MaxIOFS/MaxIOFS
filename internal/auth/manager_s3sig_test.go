@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ========================================
@@ -996,7 +997,9 @@ func TestValidateS3Signature_AutoDetect(t *testing.T) {
 			name: "Detects SigV4 from Authorization header",
 			setupReq: func() *http.Request {
 				req, _ := http.NewRequest("GET", "/", nil)
-				req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=KEY/20240101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=sig")
+				amzDate := time.Now().UTC().Format("20060102T150405Z")
+				req.Header.Set("X-Amz-Date", amzDate)
+				req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=KEY/%s/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=sig", amzDate[:8]))
 				return req
 			},
 			wantV4:  true,
@@ -1102,35 +1105,7 @@ func TestValidateS3SignatureV4_FullFlow(t *testing.T) {
 		{
 			name: "Valid SigV4 request",
 			setupReq: func() *http.Request {
-				req, _ := http.NewRequest("GET", "/bucket/object.txt", nil)
-				req.Host = "s3.amazonaws.com"
-				req.Header.Set("X-Amz-Date", "20240101T120000Z")
-				req.Header.Set("X-Amz-Content-Sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-
-				sig := &S3SignatureV4{
-					AccessKey:     accessKey,
-					Date:          "20240101",
-					Region:        "us-east-1",
-					Service:       "s3",
-					SignedHeaders: "host;x-amz-content-sha256;x-amz-date",
-				}
-
-				// Calculate correct signature
-				canonicalRequest := manager.createCanonicalRequest(req, sig.SignedHeaders)
-				canonicalRequestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(canonicalRequest)))
-				stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s/%s/%s/aws4_request\n%s",
-					req.Header.Get("X-Amz-Date"),
-					sig.Date,
-					sig.Region,
-					sig.Service,
-					canonicalRequestHash)
-				signature := manager.calculateSignatureV4(stringToSign, secretKey, sig.Date, sig.Region, sig.Service)
-
-				authHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s/%s/%s/aws4_request, SignedHeaders=%s, Signature=%s",
-					accessKey, sig.Date, sig.Region, sig.Service, sig.SignedHeaders, signature)
-				req.Header.Set("Authorization", authHeader)
-
-				return req
+				return signedV4TestRequest(t, manager, accessKey, secretKey, time.Now().UTC().Format("20060102T150405Z"))
 			},
 			wantErr: false,
 		},
@@ -1139,11 +1114,13 @@ func TestValidateS3SignatureV4_FullFlow(t *testing.T) {
 			setupReq: func() *http.Request {
 				req, _ := http.NewRequest("GET", "/bucket/object.txt", nil)
 				req.Host = "s3.amazonaws.com"
-				req.Header.Set("X-Amz-Date", "20240101T120000Z")
+				amzDate := time.Now().UTC().Format("20060102T150405Z")
+				dateStamp := amzDate[:8]
+				req.Header.Set("X-Amz-Date", amzDate)
 				req.Header.Set("X-Amz-Content-Sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
-				authHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/20240101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=invalidsignature",
-					accessKey)
+				authHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=invalidsignature",
+					accessKey, dateStamp)
 				req.Header.Set("Authorization", authHeader)
 
 				return req
@@ -1155,7 +1132,9 @@ func TestValidateS3SignatureV4_FullFlow(t *testing.T) {
 			name: "Non-existent access key",
 			setupReq: func() *http.Request {
 				req, _ := http.NewRequest("GET", "/bucket/object.txt", nil)
-				req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=NONEXISTENT/20240101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=sig")
+				amzDate := time.Now().UTC().Format("20060102T150405Z")
+				req.Header.Set("X-Amz-Date", amzDate)
+				req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=NONEXISTENT/"+amzDate[:8]+"/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=sig")
 				return req
 			},
 			wantErr: true,
@@ -1333,6 +1312,109 @@ func TestValidateS3SignatureV2_FullFlow(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateS3SignatureV4RejectsStaleTimestamp(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+	ctx := context.Background()
+
+	user := &User{
+		ID:       "stale-sig-user",
+		Username: "stale-sig-user",
+		Status:   UserStatusActive,
+		Roles:    []string{"user"},
+	}
+	if err := manager.store.CreateUser(user); err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	key, err := manager.GenerateAccessKey(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GenerateAccessKey failed: %v", err)
+	}
+
+	req := signedV4TestRequest(t, manager, key.AccessKeyID, key.SecretAccessKey, "20150101T000000Z")
+	_, err = manager.ValidateS3SignatureV4(ctx, req)
+	if err != ErrTimestampSkew {
+		t.Fatalf("ValidateS3SignatureV4 error = %v, want %v", err, ErrTimestampSkew)
+	}
+}
+
+func TestValidateS3SignatureRejectsSuspendedUserAccessKey(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+	ctx := context.Background()
+
+	user := &User{
+		ID:       "suspended-s3-user",
+		Username: "suspended-s3-user",
+		Status:   UserStatusActive,
+		Roles:    []string{"user"},
+	}
+	if err := manager.store.CreateUser(user); err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	key, err := manager.GenerateAccessKey(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GenerateAccessKey failed: %v", err)
+	}
+
+	user.Status = UserStatusSuspended
+	if err := manager.store.UpdateUser(user); err != nil {
+		t.Fatalf("UpdateUser failed: %v", err)
+	}
+
+	req := signedV4TestRequest(t, manager, key.AccessKeyID, key.SecretAccessKey, time.Now().UTC().Format("20060102T150405Z"))
+	_, err = manager.ValidateS3SignatureV4(ctx, req)
+	if err != ErrAccessDenied {
+		t.Fatalf("ValidateS3SignatureV4 error = %v, want %v", err, ErrAccessDenied)
+	}
+
+	req = signedV2TestRequest(t, manager, key.AccessKeyID, key.SecretAccessKey)
+	_, err = manager.ValidateS3SignatureV2(ctx, req)
+	if err != ErrAccessDenied {
+		t.Fatalf("ValidateS3SignatureV2 error = %v, want %v", err, ErrAccessDenied)
+	}
+}
+
+func signedV4TestRequest(t *testing.T, manager *authManager, accessKey, secretKey, amzDate string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest("GET", "/bucket/object.txt", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Host = "s3.amazonaws.com"
+	req.Header.Set("X-Amz-Date", amzDate)
+	req.Header.Set("X-Amz-Content-Sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+	dateStamp := amzDate[:8]
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonicalRequest := manager.createCanonicalRequest(req, signedHeaders)
+	canonicalRequestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(canonicalRequest)))
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s/us-east-1/s3/aws4_request\n%s",
+		amzDate, dateStamp, canonicalRequestHash)
+	signature := manager.calculateSignatureV4(stringToSign, secretKey, dateStamp, "us-east-1", "s3")
+	req.Header.Set("Authorization", fmt.Sprintf(
+		"AWS4-HMAC-SHA256 Credential=%s/%s/us-east-1/s3/aws4_request, SignedHeaders=%s, Signature=%s",
+		accessKey, dateStamp, signedHeaders, signature))
+	return req
+}
+
+func signedV2TestRequest(t *testing.T, manager *authManager, accessKey, secretKey string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest("GET", "/bucket/object.txt", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Host = "s3.amazonaws.com"
+	req.Header.Set("Date", "Tue, 27 Mar 2007 19:36:42 +0000")
+	stringToSign := manager.createStringToSignV2(req)
+	hash := hmac.New(sha1.New, []byte(secretKey))
+	hash.Write([]byte(stringToSign))
+	req.Header.Set("Authorization", "AWS "+accessKey+":"+base64.StdEncoding.EncodeToString(hash.Sum(nil)))
+	return req
 }
 
 // TestCreateStringToSignV2CanonicalAmzHeaders verifies that x-amz-* headers are correctly

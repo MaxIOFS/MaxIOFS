@@ -35,8 +35,8 @@ type Manager struct {
 	storage             storage.Backend
 	aclManager          acl.Manager
 	bucketManager       bucketManagerForMigration
-	tlsConfig         atomic.Pointer[tls.Config]
-	clusterHTTPClient atomic.Pointer[http.Client]
+	tlsConfig           atomic.Pointer[tls.Config]
+	clusterHTTPClient   atomic.Pointer[http.Client]
 
 	healthClientMu   sync.Mutex
 	healthHTTPClient *http.Client
@@ -238,18 +238,18 @@ func NodesToJoinPackage(nodes []*Node) []*JoinPackageNode {
 // Node B uses the CA key to generate its OWN cert+key (with its own IP in the SANs),
 // so every node has a cert valid for its own address, all signed by the same CA.
 type ClusterJoinPackage struct {
-	NodeID       string             `json:"node_id"`
-	NodeName     string             `json:"node_name"`
-	ClusterToken string             `json:"cluster_token"`
-	Region       string             `json:"region"`
-	CACertPEM    string             `json:"ca_cert"`
-	CAKeyPEM     string             `json:"ca_key"` // sent once so Node B can sign its own cert
-	JWTSecret    string             `json:"jwt_secret"`
-	SelfEndpoint string             `json:"self_endpoint"` // Node B's 8082 URL — used for cert SANs
-	NodeEndpoint string             `json:"node_endpoint"` // Node A's 8082 URL
-	APIURL       string             `json:"api_url"`       // Node B's S3 API public URL
-	Nodes        []*JoinPackageNode `json:"nodes"`
-	EncryptionKeys []kek.KeyRecord `json:"encryption_keys,omitempty"`
+	NodeID         string             `json:"node_id"`
+	NodeName       string             `json:"node_name"`
+	ClusterToken   string             `json:"cluster_token"`
+	Region         string             `json:"region"`
+	CACertPEM      string             `json:"ca_cert"`
+	CAKeyPEM       string             `json:"ca_key"` // sent once so Node B can sign its own cert
+	JWTSecret      string             `json:"jwt_secret"`
+	SelfEndpoint   string             `json:"self_endpoint"` // Node B's 8082 URL — used for cert SANs
+	NodeEndpoint   string             `json:"node_endpoint"` // Node A's 8082 URL
+	APIURL         string             `json:"api_url"`       // Node B's S3 API public URL
+	Nodes          []*JoinPackageNode `json:"nodes"`
+	EncryptionKeys []kek.KeyRecord    `json:"encryption_keys,omitempty"`
 }
 
 // AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.
@@ -1086,10 +1086,7 @@ func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
 	if factor <= 1 {
 		return true, nil
 	}
-	neededReplicas := (factor+1)/2 - 1
-	if neededReplicas == 0 {
-		return true, nil
-	}
+	neededReplicas := RequiredReplicaAcks(factor)
 	localID, err := m.GetLocalNodeID(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get local node id: %w", err)

@@ -1496,9 +1496,9 @@ func TestPutObject_OversizedHeaders(t *testing.T) {
 		nil, nil,
 	).Maybe()
 
-	// Mock GetObject call for quota validation (object doesn't exist yet)
-	mockObject.On("GetObject", mock.Anything, "test-tenant/test-bucket", "test-object", mock.Anything).Return(
-		nil, nil, object.ErrObjectNotFound,
+	// Quota validation looks up the existing object's size (it does not exist yet)
+	mockObject.On("GetObjectMetadata", mock.Anything, "test-tenant/test-bucket", "test-object").Return(
+		nil, object.ErrObjectNotFound,
 	).Maybe()
 
 	// Mock tenant storage quota check

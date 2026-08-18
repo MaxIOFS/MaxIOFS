@@ -54,22 +54,26 @@ func (s *Server) startEncryptionWorker(ctx context.Context) {
 		logrus.Warn("Encryption worker: object manager does not support conversion, worker disabled")
 		return
 	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	s.encWorkerCancel = cancel
+	s.encWorkerWG.Add(1)
 	go func() {
+		defer s.encWorkerWG.Done()
 		select {
-		case <-ctx.Done():
+		case <-workerCtx.Done():
 			return
 		case <-time.After(encWorkerInitialDelay):
 		}
-		s.runEncryptionPass(ctx)
+		s.runEncryptionPass(workerCtx)
 
 		ticker := time.NewTicker(encWorkerRescanEvery)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-workerCtx.Done():
 				return
 			case <-ticker.C:
-				s.runEncryptionPass(ctx)
+				s.runEncryptionPass(workerCtx)
 			}
 		}
 	}()
@@ -322,6 +326,10 @@ func (s *Server) handleEncryptionWorkerRun(w http.ResponseWriter, r *http.Reques
 	if bg == nil {
 		bg = context.Background()
 	}
-	go s.runEncryptionPass(bg)
+	s.encWorkerWG.Add(1)
+	go func() {
+		defer s.encWorkerWG.Done()
+		s.runEncryptionPass(bg)
+	}()
 	s.writeJSON(w, map[string]interface{}{"started": true})
 }

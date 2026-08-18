@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -94,8 +95,10 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		return s
 	}
 
-	// Get all versions directly from metadata (don't rely on ListObjects which excludes deleted objects)
-	allObjectVersions, err := h.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys*10)
+	// Get all versions directly from metadata (don't rely on ListObjects which excludes deleted objects).
+	// The response is truncated after sorting and delimiter grouping below; passing 0 avoids silently
+	// dropping versions before the final S3 pagination rules are applied.
+	allObjectVersions, err := h.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, 0)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
@@ -112,11 +115,32 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		etag         string
 		size         int64
 		storageClass string
+		commonPrefix string
 	}
 
 	var unified []versionItem
+	seenCommonPrefixes := make(map[string]struct{})
 
 	for _, ver := range allObjectVersions {
+		if delimiter != "" {
+			remaining := strings.TrimPrefix(ver.Key, prefix)
+			if idx := strings.Index(remaining, delimiter); idx >= 0 {
+				commonPrefix := prefix + remaining[:idx+len(delimiter)]
+				if keyMarker != "" && commonPrefix <= keyMarker {
+					continue
+				}
+				if _, seen := seenCommonPrefixes[commonPrefix]; seen {
+					continue
+				}
+				seenCommonPrefixes[commonPrefix] = struct{}{}
+				unified = append(unified, versionItem{
+					key:          commonPrefix,
+					commonPrefix: commonPrefix,
+				})
+				continue
+			}
+		}
+
 		// Skip if before key marker
 		if keyMarker != "" && ver.Key < keyMarker {
 			continue
@@ -165,9 +189,12 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	var allVersions []VersionEntry
 	var allDeleteMarkers []DeleteMarker
+	var commonPrefixes []CommonPrefix
 
 	for _, item := range unified {
-		if item.isDeleteMarker {
+		if item.commonPrefix != "" {
+			commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStr(item.commonPrefix)})
+		} else if item.isDeleteMarker {
 			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
 				Key:          encodeStr(item.key),
 				VersionId:    item.versionID,
@@ -208,6 +235,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		IsTruncated:         isTruncated,
 		Versions:            allVersions,
 		DeleteMarkers:       allDeleteMarkers,
+		CommonPrefixes:      commonPrefixes,
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)

@@ -556,6 +556,7 @@ export interface ListObjectsResponse {
   objects: S3Object[];
   commonPrefixes?: string[];
   isTruncated: boolean;
+  nextMarker?: string;
   nextContinuationToken?: string;
   keyCount: number;
   maxKeys: number;

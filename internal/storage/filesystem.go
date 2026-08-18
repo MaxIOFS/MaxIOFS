@@ -21,6 +21,8 @@ import (
 // metadataStagingSuffix is appended to a sidecar path to form the STAGED
 const metadataStagingSuffix = "-staging" // full staged name: <object>.metadata-staging
 
+const folderMarkerName = ".maxiofs-folder"
+
 // pathLockShards is the number of striped mutexes serialising per-path
 // commit/repair sections. Collisions only serialise unrelated paths briefly.
 const pathLockShards = 256
@@ -239,10 +241,10 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 		return NewErrorWithCause("StatFile", "Failed to stat file", err)
 	}
 
-	// Delete file or directory
+	// A directory is a folder marker, not object data: it may hold other objects.
 	if info.IsDir() {
-		if err := os.RemoveAll(fullPath); err != nil {
-			return NewErrorWithCause("DeleteDirectory", "Failed to delete directory", err)
+		if err := fs.deleteFolderMarker(fullPath); err != nil {
+			return err
 		}
 	} else {
 		// On Windows a just-written file may be briefly held by an external
@@ -545,6 +547,21 @@ func (fs *FilesystemBackend) getFullPath(path string) string {
 }
 
 // getMetadataPath returns the path for the metadata file
+func (fs *FilesystemBackend) deleteFolderMarker(dir string) error {
+	marker := filepath.Join(dir, folderMarkerName)
+	for _, p := range []string{marker + metadataStagingSuffix, marker + ".metadata", marker} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return NewErrorWithCause("DeleteFolderMarker", "Failed to delete folder marker", err)
+		}
+	}
+
+	// Fails while objects remain under the prefix, which is when it must stay.
+	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
+		logrus.WithField("path", dir).Debug("Folder still holds objects; keeping the directory")
+	}
+	return nil
+}
+
 func (fs *FilesystemBackend) getMetadataPath(path string) string {
 	return fs.getFullPath(path) + ".metadata"
 }

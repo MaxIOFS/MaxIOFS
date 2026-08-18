@@ -557,6 +557,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		objectPath = om.getObjectPath(bucket, key)
 	}
 
+	defer om.lockKey(bucket, key)()
+
 	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
@@ -698,8 +700,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if err := om.applyDefaultRetention(ctx, object); err != nil {
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
-
-	defer om.lockKey(bucket, key)()
 
 	// CRITICAL: Get existing object BEFORE overwriting in metadata store
 	// This is needed for correct size calculations in metrics and quotas
@@ -932,7 +932,6 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-
 	if om.bucketManager != nil && deletingLatest {
 		deletedIsDeleteMarker := isMetadataDeleteMarker(metaObj)
 
@@ -1050,7 +1049,6 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 			}
 		}
 	}
-
 
 	// Step 1: Delete metadata
 	if err := om.metadataStore.DeleteObject(ctx, bucket, key); err != nil {
@@ -2024,6 +2022,8 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	multipart := fromMetadataMultipartUpload(metaMU)
 	versioningEnabled := om.isBucketVersioningEnabled(ctx, multipart.Bucket)
 
+	defer om.lockKey(multipart.Bucket, multipart.Key)()
+
 	// Validate parts list and calculate total size
 	totalSize, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
 	if err != nil {
@@ -2057,6 +2057,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	} else {
 		objectPath = om.getObjectPath(multipart.Bucket, multipart.Key)
 	}
+
+	var restorePreviousFinal func()
+	var cleanupPreviousFinalBackup func()
+	if !versioningEnabled && existingObj != nil {
+		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to backup existing object before multipart completion: %w", err)
+		}
+		defer cleanupPreviousFinalBackup()
+	}
+
 	if err := om.combineMultipartParts(ctx, uploadID, parts, objectPath); err != nil {
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
@@ -2140,7 +2151,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		}
 	} else if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 		logrus.WithError(err).Warn("Failed to save final multipart object metadata")
-		if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+		if restorePreviousFinal != nil {
+			restorePreviousFinal()
+		} else if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
 			logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
 		}
 		return nil, fmt.Errorf("failed to save final multipart object metadata: %w", err)
@@ -2181,6 +2194,50 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath st
 	}
 	tempFile.Close()
 	return tempPath, nil
+}
+
+func (om *objectManager) backupStorageObject(ctx context.Context, objectPath string) (func(), func(), error) {
+	reader, storageMeta, err := om.storage.Get(ctx, objectPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open existing object for backup: %w", err)
+	}
+	defer reader.Close()
+
+	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-mpu-backup-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create multipart backup file: %w", err)
+	}
+	tempPath := tempFile.Name()
+
+	if _, err := io.Copy(tempFile, reader); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return nil, nil, fmt.Errorf("failed to backup existing object: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		os.Remove(tempPath)
+		return nil, nil, fmt.Errorf("failed to close multipart backup file: %w", err)
+	}
+
+	restore := func() {
+		backup, err := os.Open(tempPath)
+		if err != nil {
+			logrus.WithError(err).WithField("path", tempPath).Error("Failed to open multipart backup for restore")
+			return
+		}
+		defer backup.Close()
+
+		if err := om.storage.Put(ctx, objectPath, backup, storageMeta); err != nil {
+			logrus.WithError(err).WithField("path", objectPath).Error("Failed to restore previous object after multipart metadata failure")
+		}
+	}
+	cleanup := func() {
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logrus.WithError(err).WithField("path", tempPath).Debug("Failed to remove multipart backup file")
+		}
+	}
+
+	return restore, cleanup, nil
 }
 
 func (om *objectManager) AbortMultipartUpload(ctx context.Context, uploadID string) error {

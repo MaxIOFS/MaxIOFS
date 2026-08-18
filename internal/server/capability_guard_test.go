@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 )
 
 func TestGlobalAdminConsoleS3AccessIsReadOnlyAcrossTenants(t *testing.T) {
@@ -35,4 +36,37 @@ func TestGlobalAdminConsoleS3AccessIsReadOnlyAcrossTenants(t *testing.T) {
 	if s.userCanPerformConsoleS3Action(req, user, "tenant-a", auth.ActionPutBucketPolicy, "arn:aws:s3:::photos") {
 		t.Fatal("global admin must not modify tenant bucket policy from the console")
 	}
+}
+
+func TestResolveConsoleBucketTenantIDPrefersExplicitTenantForGlobalAdmin(t *testing.T) {
+	s := &Server{metadataStore: tenantResolvingStore{
+		byName: &metadata.BucketMetadata{Name: "shared-name", TenantID: ""},
+	}}
+	globalAdmin := &auth.User{ID: "global-admin", Roles: []string{auth.RoleAdmin}}
+	req := httptest.NewRequest("DELETE", "/api/v1/buckets/shared-name?tenantId=tenant-a", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", globalAdmin))
+
+	if got := s.resolveConsoleBucketTenantID(req, "shared-name", globalAdmin); got != "tenant-a" {
+		t.Fatalf("expected explicit tenant-a to win over same-name global bucket, got %q", got)
+	}
+}
+
+type tenantResolvingStore struct {
+	metadata.Store
+	byName *metadata.BucketMetadata
+	global *metadata.BucketMetadata
+}
+
+func (s tenantResolvingStore) GetBucket(ctx context.Context, tenantID, name string) (*metadata.BucketMetadata, error) {
+	if tenantID == "" && s.global != nil && s.global.Name == name {
+		return s.global, nil
+	}
+	return nil, metadata.ErrBucketNotFound
+}
+
+func (s tenantResolvingStore) GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error) {
+	if s.byName != nil && s.byName.Name == name {
+		return s.byName, nil
+	}
+	return nil, metadata.ErrBucketNotFound
 }

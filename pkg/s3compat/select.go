@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -215,7 +214,6 @@ func bulkInsert(db *sql.DB, cols []string, rows [][]string) error {
 	return tx.Commit()
 }
 
-
 // countingReader wraps an io.Reader and counts total bytes read.
 type countingReader struct {
 	r io.Reader
@@ -352,7 +350,6 @@ func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err e
 	return cols, scanned, nil
 }
 
-
 // streamSelectResults executes the SQL expression, writes Records events to w,
 // and returns the total bytes returned.
 func streamSelectResults(w io.Writer, db *sql.DB, expr string, out selectOutputSerial, flusher http.Flusher) (int64, error) {
@@ -463,7 +460,6 @@ func streamSelectResults(w io.Writer, db *sql.DB, expr string, out selectOutputS
 	return totalReturned, flush()
 }
 
-
 // SelectObjectContent handles POST /{bucket}/{object}?select&select-type=2.
 func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -481,7 +477,7 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	// ── Parse request ────────────────────────────────────────────────────────
 
 	var req selectObjectContentRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeS3ControlXML(w, r, &req); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}

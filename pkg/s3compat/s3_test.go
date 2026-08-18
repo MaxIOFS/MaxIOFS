@@ -38,6 +38,7 @@ type s3TestEnv struct {
 	authManager   auth.Manager
 	bucketManager bucket.Manager
 	objectManager object.Manager
+	metadataStore metadata.Store
 	router        *mux.Router
 	accessKey     string
 	secretKey     string
@@ -248,6 +249,7 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 		authManager:   authManager,
 		bucketManager: bucketManager,
 		objectManager: objectManager,
+		metadataStore: metadataStore,
 		router:        router,
 		accessKey:     accessKey.AccessKeyID,
 		secretKey:     accessKey.SecretAccessKey,
@@ -1456,6 +1458,15 @@ func TestS3RangeRequests(t *testing.T) {
 		assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, w.Code, "Should return 416 for invalid range")
 	})
 
+	t.Run("Malformed range returns 400", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("Range", "bytes=abc-def")
+		env.router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Malformed Range should return 400")
+		assert.Contains(t, w.Body.String(), "InvalidArgument")
+	})
+
 	t.Run("Get without Range header (full object)", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
 		env.router.ServeHTTP(w, req)
@@ -1540,6 +1551,63 @@ func TestS3ListObjectVersions(t *testing.T) {
 		if strings.Contains(w.Body.String(), "<IsTruncated>true</IsTruncated>") {
 			assert.Contains(t, w.Body.String(), "<NextKeyMarker>", "Should have NextKeyMarker for pagination")
 		}
+	})
+
+	t.Run("List versions with delimiter returns common prefixes", func(t *testing.T) {
+		_, err := env.objectManager.PutObject(ctx, bucketPath, "dir/a.txt", bytes.NewReader([]byte("a")), headers)
+		require.NoError(t, err)
+		_, err = env.objectManager.PutObject(ctx, bucketPath, "dir/b.txt", bytes.NewReader([]byte("b")), headers)
+		require.NoError(t, err)
+		_, err = env.objectManager.PutObject(ctx, bucketPath, "root.txt", bytes.NewReader([]byte("root")), headers)
+		require.NoError(t, err)
+
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?versions&delimiter=/", nil)
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should list versions with delimiter")
+		body := w.Body.String()
+		assert.Contains(t, body, "<CommonPrefixes><Prefix>dir/</Prefix></CommonPrefixes>")
+		assert.Contains(t, body, "<Key>root.txt</Key>")
+		assert.NotContains(t, body, "<Key>dir/a.txt</Key>")
+		assert.NotContains(t, body, "<Key>dir/b.txt</Key>")
+	})
+
+	t.Run("List versions beyond ten thousand internal metadata entries", func(t *testing.T) {
+		largeBucket := "versioned-large-bucket"
+		require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, largeBucket, env.userID))
+		largeBucketPath := env.tenantID + "/" + largeBucket
+
+		baseTime := time.Now().UTC()
+		for i := 0; i <= 10000; i++ {
+			key := fmt.Sprintf("bulk-%05d", i)
+			versionID := fmt.Sprintf("v-%05d", i)
+			obj := &metadata.ObjectMetadata{
+				Bucket:       largeBucketPath,
+				Key:          key,
+				VersionID:    versionID,
+				IsLatest:     true,
+				Size:         1,
+				ETag:         fmt.Sprintf("%032x", i),
+				LastModified: baseTime.Add(time.Duration(i) * time.Millisecond),
+				StorageClass: "STANDARD",
+			}
+			version := &metadata.ObjectVersion{
+				VersionID:    versionID,
+				IsLatest:     true,
+				Key:          key,
+				Size:         1,
+				ETag:         obj.ETag,
+				LastModified: obj.LastModified,
+				StorageClass: "STANDARD",
+			}
+			require.NoError(t, env.metadataStore.PutObjectVersion(ctx, obj, version))
+		}
+
+		req, w := env.makeS3Request("GET", "/"+largeBucket+"?versions&key-marker=bulk-10000&max-keys=1", nil)
+		env.router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<Key>bulk-10000</Key>")
 	})
 
 	t.Run("List versions in non-versioned bucket", func(t *testing.T) {
@@ -2504,7 +2572,23 @@ func TestAwsChunkedReader(t *testing.T) {
 
 		_, err := io.ReadAll(reader)
 		assert.Error(t, err, "Should error on invalid hex size")
-		assert.Contains(t, err.Error(), "invalid chunk size", "Error should mention invalid chunk size")
+		require.ErrorIs(t, err, ErrInvalidAwsChunkedSize)
+	})
+
+	t.Run("Negative chunk size", func(t *testing.T) {
+		input := "-1\r\nx\r\n0\r\n\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		_, err := io.ReadAll(reader)
+		require.ErrorIs(t, err, ErrInvalidAwsChunkedSize)
+	})
+
+	t.Run("Unsafe huge chunk size", func(t *testing.T) {
+		input := "7FFFFFFFFFFFFFFF\r\n"
+		reader := NewAwsChunkedReader(strings.NewReader(input))
+
+		_, err := io.ReadAll(reader)
+		require.ErrorIs(t, err, ErrInvalidAwsChunkedSize)
 	})
 
 	t.Run("Premature EOF in chunk data", func(t *testing.T) {
@@ -2946,12 +3030,12 @@ func TestS3ListObjectsV2(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "<StartAfter>a.txt</StartAfter>")
 	})
 
-	// ── max-keys > 1000 returns InvalidArgument ───────────────────────────────
-	t.Run("max-keys greater than 1000 returns InvalidArgument", func(t *testing.T) {
+	// ── max-keys > 1000 is capped ─────────────────────────────────────────────
+	t.Run("max-keys greater than 1000 is capped", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucketName+"/?list-type=2&max-keys=1001", nil)
 		env.router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "InvalidArgument")
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>1000</MaxKeys>")
 	})
 
 	// ── invalid continuation-token returns InvalidArgument ────────────────────
@@ -3410,18 +3494,18 @@ func TestS3ListObjectsMaxKeys(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("V1 max-keys=1001 returns InvalidArgument", func(t *testing.T) {
+	t.Run("V1 max-keys=1001 is capped", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=1001", nil)
 		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "InvalidArgument")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>1000</MaxKeys>")
 	})
 
-	t.Run("V1 max-keys=9999 returns InvalidArgument", func(t *testing.T) {
+	t.Run("V1 max-keys=9999 is capped", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=9999", nil)
 		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "InvalidArgument")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>1000</MaxKeys>")
 	})
 
 	t.Run("V1 max-keys=0 is valid (returns empty list)", func(t *testing.T) {
@@ -3444,13 +3528,13 @@ func TestS3ListObjectsMaxKeys(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "InvalidArgument")
 	})
 
-	// ── V2 (should already pass — regression guard) ────────────────────────
+	// ── V2 cap regression guard ─────────────────────────────────────────────
 
-	t.Run("V2 max-keys=1001 also returns InvalidArgument", func(t *testing.T) {
+	t.Run("V2 max-keys=1001 is capped", func(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucket+"/?list-type=2&max-keys=1001", nil)
 		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "InvalidArgument")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>1000</MaxKeys>")
 	})
 }
 
@@ -3830,6 +3914,13 @@ func TestS3ETagConditionalHeaders(t *testing.T) {
 		req.Header.Set("If-Match", etag) // no quotes
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code, "If-Match with bare ETag should succeed")
+	})
+
+	t.Run("If-Match wildcard matches existing object", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+		req.Header.Set("If-Match", "*")
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "If-Match wildcard should succeed when the object exists")
 	})
 
 	t.Run("If-Match with wrong ETag returns 412", func(t *testing.T) {

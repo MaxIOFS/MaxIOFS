@@ -122,6 +122,31 @@ func TestProxyClient_CreateAuthenticatedRequest_DoesNotDrainStreamingBody(t *tes
 	assert.Equal(t, "streaming payload", string(data))
 }
 
+func TestClusterProxyAuthBindsForwardedIdentityAndRequest(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "http://node.local/bucket/key?uploads=", nil)
+	req.Header.Set(clusterBodySHA256Header, clusterUnsignedPayloadHash)
+	req.Header.Set("X-MaxIOFS-Proxied", "true")
+	AddClusterProxyHeaders(req, "node-1", "cluster-token", "user-1", "tenant-1", "user")
+
+	userID, tenantID, roles, ok := ValidateClusterProxyAuth(req, "cluster-token")
+	require.True(t, ok)
+	assert.Equal(t, "user-1", userID)
+	assert.Equal(t, "tenant-1", tenantID)
+	assert.Equal(t, "user", roles)
+
+	tamperedRoles := req.Clone(context.Background())
+	tamperedRoles.Header = req.Header.Clone()
+	tamperedRoles.Header.Set("X-MaxIOFS-Forwarded-Roles", "admin")
+	_, _, _, ok = ValidateClusterProxyAuth(tamperedRoles, "cluster-token")
+	assert.False(t, ok, "forwarded roles must be covered by the proxy HMAC")
+
+	tamperedPath := req.Clone(context.Background())
+	tamperedPath.Header = req.Header.Clone()
+	tamperedPath.URL.Path = "/other/key"
+	_, _, _, ok = ValidateClusterProxyAuth(tamperedPath, "cluster-token")
+	assert.False(t, ok, "request URI must be covered by the proxy HMAC")
+}
+
 func TestProxyClient_ProxyRequest_ServerError(t *testing.T) {
 	// Create mock target server that returns error
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

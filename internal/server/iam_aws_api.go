@@ -184,17 +184,17 @@ func (s *Server) handleAWSIAMRequest(w http.ResponseWriter, r *http.Request) {
 	case "CreateUser":
 		s.iamCreateUser(w, r, iamManager, caller)
 	case "DeleteUser":
-		s.iamDeleteUser(w, r, iamManager)
+		s.iamDeleteUser(w, r, iamManager, caller)
 	case "GetUser":
 		s.iamGetUser(w, r, iamManager, caller)
 	case "ListUsers":
-		s.iamListUsers(w, r, iamManager)
+		s.iamListUsers(w, r, iamManager, caller)
 
 	// Credentials
 	case "CreateAccessKey":
 		s.iamCreateAccessKey(w, r, iamManager, caller)
 	case "DeleteAccessKey":
-		s.iamDeleteAccessKey(w, r)
+		s.iamDeleteAccessKey(w, r, caller)
 	case "ListAccessKeys":
 		s.iamListAccessKeys(w, r, iamManager, caller)
 
@@ -296,11 +296,16 @@ func (s *Server) iamCreateUser(w http.ResponseWriter, r *http.Request, im auth.I
 	})
 }
 
-func (s *Server) iamDeleteUser(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamDeleteUser(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	userName := r.PostForm.Get("UserName")
 	// The tombstones have to name what the delete removed, so the identity is
 	// resolved before it stops existing.
-	userID, _ := im.ResolveIAMUserID(r.Context(), userName)
+	target, err := s.iamGetUserForCaller(r, im, caller, userName)
+	if err != nil {
+		writeIAMErrorFor(w, r, err)
+		return
+	}
+	userID := target.ID
 	inlineNames := s.iamInlinePolicyNames(r.Context(), im, auth.IAMTargetUser, userID)
 	attachedNames := s.iamAttachedPolicyNames(r.Context(), im, auth.IAMTargetUser, userID)
 
@@ -329,7 +334,7 @@ func (s *Server) iamGetUser(w http.ResponseWriter, r *http.Request, im auth.IAMM
 		userName = caller.Username
 	}
 
-	user, err := im.GetIAMUser(r.Context(), userName)
+	user, err := s.iamGetUserForCaller(r, im, caller, userName)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -343,7 +348,7 @@ func (s *Server) iamGetUser(w http.ResponseWriter, r *http.Request, im auth.IAMM
 	})
 }
 
-func (s *Server) iamListUsers(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamListUsers(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	users, err := im.ListIAMUsers(r.Context())
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
@@ -357,6 +362,9 @@ func (s *Server) iamListUsers(w http.ResponseWriter, r *http.Request, im auth.IA
 	}
 	out := &result{XMLName: xml.Name{Local: "ListUsersResult"}}
 	for _, u := range users {
+		if caller != nil && caller.TenantID != "" && u.TenantID != caller.TenantID {
+			continue
+		}
 		out.Users = append(out.Users, iamUserDoc{
 			Path:       iamPathOf(u),
 			UserName:   u.Username,
@@ -376,7 +384,7 @@ func (s *Server) iamCreateAccessKey(w http.ResponseWriter, r *http.Request, im a
 		userName = caller.Username
 	}
 
-	user, err := im.GetIAMUser(r.Context(), userName)
+	user, err := s.iamGetUserForCaller(r, im, caller, userName)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -403,10 +411,24 @@ func (s *Server) iamCreateAccessKey(w http.ResponseWriter, r *http.Request, im a
 	})
 }
 
-func (s *Server) iamDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
+func (s *Server) iamDeleteAccessKey(w http.ResponseWriter, r *http.Request, caller *auth.User) {
 	accessKeyID := r.PostForm.Get("AccessKeyId")
 	if accessKeyID == "" {
 		writeIAMError(w, r, http.StatusBadRequest, "ValidationError", "AccessKeyId is required.")
+		return
+	}
+	key, err := s.authManager.GetAccessKey(r.Context(), accessKeyID)
+	if err != nil {
+		writeIAMError(w, r, http.StatusNotFound, "NoSuchEntity", "The access key does not exist.")
+		return
+	}
+	keyUser, err := s.authManager.GetUser(r.Context(), key.UserID)
+	if err != nil {
+		writeIAMError(w, r, http.StatusNotFound, "NoSuchEntity", "The access key does not exist.")
+		return
+	}
+	if caller.TenantID != "" && keyUser.TenantID != caller.TenantID {
+		writeIAMErrorFor(w, r, auth.ErrAccessDenied)
 		return
 	}
 	if err := s.authManager.RevokeAccessKey(r.Context(), accessKeyID); err != nil {
@@ -426,7 +448,7 @@ func (s *Server) iamListAccessKeys(w http.ResponseWriter, r *http.Request, im au
 		userName = caller.Username
 	}
 
-	user, err := im.GetIAMUser(r.Context(), userName)
+	user, err := s.iamGetUserForCaller(r, im, caller, userName)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -839,14 +861,15 @@ func (s *Server) iamUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Reques
 // iamResolveTarget works out which entity a policy action applies to from the
 // action name and the UserName / RoleName / GroupName parameter that goes with it.
 func (s *Server) iamResolveTarget(r *http.Request, im auth.IAMManager, action string) (string, string, error) {
+	caller, _ := auth.GetUserFromContext(r.Context())
 	switch {
 	case strings.Contains(action, "User"):
 		name := r.PostForm.Get("UserName")
-		id, err := im.ResolveIAMUserID(r.Context(), name)
+		user, err := s.iamGetUserForCaller(r, im, caller, name)
 		if err != nil {
 			return "", "", err
 		}
-		return auth.IAMTargetUser, id, nil
+		return auth.IAMTargetUser, user.ID, nil
 
 	case strings.Contains(action, "Role"):
 		name := r.PostForm.Get("RoleName")
@@ -865,6 +888,20 @@ func (s *Server) iamResolveTarget(r *http.Request, im auth.IAMManager, action st
 		return auth.IAMTargetGroup, group.ID, nil
 	}
 	return "", "", auth.ErrIAMInvalidInput
+}
+
+func (s *Server) iamGetUserForCaller(r *http.Request, im auth.IAMManager, caller *auth.User, userName string) (*auth.User, error) {
+	if caller == nil {
+		return nil, auth.ErrAccessDenied
+	}
+	user, err := im.GetIAMUser(r.Context(), userName)
+	if err != nil {
+		return nil, err
+	}
+	if caller.TenantID != "" && user.TenantID != caller.TenantID {
+		return nil, auth.ErrAccessDenied
+	}
+	return user, nil
 }
 
 // iamPolicyFromRequest resolves the policy an action names, accepting either

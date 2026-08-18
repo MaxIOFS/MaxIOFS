@@ -204,7 +204,7 @@ func (m *GlobalConfigSyncManager) SyncKEKs(ctx context.Context) {
 
 // listGlobalConfig returns all entries from cluster_global_config.
 func (m *GlobalConfigSyncManager) listGlobalConfig(ctx context.Context) ([]GlobalConfigEntry, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT key, value, COALESCE(CAST(strftime('%s', updated_at) AS INTEGER), 0) FROM cluster_global_config`)
+	rows, err := m.db.QueryContext(ctx, `SELECT key, value, updated_at FROM cluster_global_config`)
 	if err != nil {
 		return nil, err
 	}
@@ -213,8 +213,12 @@ func (m *GlobalConfigSyncManager) listGlobalConfig(ctx context.Context) ([]Globa
 	var entries []GlobalConfigEntry
 	for rows.Next() {
 		var e GlobalConfigEntry
-		if err := rows.Scan(&e.Key, &e.Value, &e.UpdatedAt); err != nil {
+		var updatedAt interface{}
+		if err := rows.Scan(&e.Key, &e.Value, &updatedAt); err != nil {
 			return nil, err
+		}
+		if ts, ok := SQLiteTimestampUnix(updatedAt); ok {
+			e.UpdatedAt = ts
 		}
 		entries = append(entries, e)
 	}

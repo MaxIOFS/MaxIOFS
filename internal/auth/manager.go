@@ -181,15 +181,15 @@ type User struct {
 
 // Tenant represents an organizational unit for multi-tenancy
 type Tenant struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	DisplayName         string `json:"display_name"`
-	Description         string `json:"description"`
-	Status              string `json:"status"` // active, inactive
-	MaxAccessKeys       int64  `json:"max_access_keys"`
-	CurrentAccessKeys   int64  `json:"current_access_keys"` // Calculated in real-time
-	MaxStorageBytes     int64  `json:"max_storage_bytes"`
-	CurrentStorageBytes int64  `json:"current_storage_bytes"` // Calculated in real-time
+	ID                      string            `json:"id"`
+	Name                    string            `json:"name"`
+	DisplayName             string            `json:"display_name"`
+	Description             string            `json:"description"`
+	Status                  string            `json:"status"` // active, inactive
+	MaxAccessKeys           int64             `json:"max_access_keys"`
+	CurrentAccessKeys       int64             `json:"current_access_keys"` // Calculated in real-time
+	MaxStorageBytes         int64             `json:"max_storage_bytes"`
+	CurrentStorageBytes     int64             `json:"current_storage_bytes"` // Calculated in real-time
 	MaxBandwidthBytesPerSec int64             `json:"max_bandwidth_bytes_per_sec"`
 	MaxBuckets              int64             `json:"max_buckets"`
 	CurrentBuckets          int64             `json:"current_buckets"` // Incremented/decremented on create/delete
@@ -787,6 +787,9 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		logrus.WithError(err).Error("Failed to parse SigV4 header")
 		return nil, err
 	}
+	if err := validateS3SigV4Timestamp(r); err != nil {
+		return nil, err
+	}
 
 	// STS: temporary credentials resolve against sts_sessions instead of
 	// access_keys and return the base user.
@@ -798,6 +801,9 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
 	if err != nil {
 		logrus.WithField("access_key", sig.AccessKey).Warn("Access key not found")
+		return nil, ErrInvalidCredentials
+	}
+	if accessKey.Status != AccessKeyStatusActive {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -814,6 +820,9 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		logrus.WithField("user_id", accessKey.UserID).Warn("User not found for access key")
 		return nil, ErrUserNotFound
 	}
+	if user.Status != UserStatusActive {
+		return nil, ErrAccessDenied
+	}
 
 	// Verify signature
 	if !am.verifyS3SignatureV4(r, sig, accessKey.SecretAccessKey) {
@@ -824,6 +833,27 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 	am.store.UpdateAccessKeyLastUsed(accessKey.AccessKeyID, time.Now().Unix())
 
 	return user, nil
+}
+
+func validateS3SigV4Timestamp(r *http.Request) error {
+	const maxSkew = 15 * time.Minute
+
+	raw := r.Header.Get("X-Amz-Date")
+	if raw == "" {
+		return ErrTimestampSkew
+	}
+	t, err := time.Parse("20060102T150405Z", raw)
+	if err != nil {
+		return ErrTimestampSkew
+	}
+	diff := time.Since(t)
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > maxSkew {
+		return ErrTimestampSkew
+	}
+	return nil
 }
 
 // ValidateS3SignatureV2 validates AWS Signature Version 2
@@ -849,6 +879,9 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
+	if accessKey.Status != AccessKeyStatusActive {
+		return nil, ErrInvalidCredentials
+	}
 
 	// SEC-04: decrypt the stored secret before HMAC verification.
 	plainSecret, decErr := am.decryptSecret(accessKey.SecretAccessKey)
@@ -861,6 +894,9 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	user, err := am.store.GetUserByID(accessKey.UserID)
 	if err != nil {
 		return nil, ErrUserNotFound
+	}
+	if user.Status != UserStatusActive {
+		return nil, ErrAccessDenied
 	}
 
 	// Verify signature
@@ -1095,7 +1131,6 @@ func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 
-
 	// Convert []*User to []User
 	users := make([]User, len(usersPtrs))
 	for i, u := range usersPtrs {
@@ -1107,9 +1142,12 @@ func (am *authManager) ListUsers(ctx context.Context) ([]User, error) {
 // Access key management methods
 func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*AccessKey, error) {
 	// Verify user exists
-	_, err := am.store.GetUserByID(userID)
+	user, err := am.store.GetUserByID(userID)
 	if err != nil {
 		return nil, ErrUserNotFound
+	}
+	if user.Status != UserStatusActive {
+		return nil, ErrAccessDenied
 	}
 
 	// Generate new access key pair (AWS-compatible format)
@@ -1241,6 +1279,8 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 					}).Warn("Authentication failed")
 
 					switch {
+					case errors.Is(err, ErrTimestampSkew):
+						writeS3Error(w, r, "RequestTimeTooSkewed", "The difference between the request time and the server's time is too large.", http.StatusForbidden)
 					case errors.Is(err, ErrSTSSessionExpired):
 						writeS3Error(w, r, "ExpiredToken", "The provided token has expired.", http.StatusForbidden)
 					case errors.Is(err, ErrAccessDenied):
@@ -2300,7 +2340,6 @@ func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string)
 		"ip":      ip,
 	}).Debug("RecordFailedLogin called")
 
-
 	// Increment failed attempts in database
 	err := am.store.IncrementFailedLoginAttempts(userID)
 	if err != nil {
@@ -2435,7 +2474,6 @@ func containsRole(roles []string, role string) bool {
 	}
 	return false
 }
-
 
 // Setup2FA initiates 2FA setup for a user
 // Returns the TOTP secret, QR code, and URL for the user to scan

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,9 @@ const (
 	EntityTypeIAMRole         = "iam_role"
 	EntityTypeIAMInlinePolicy = "iam_inline_policy"
 	EntityTypeIAMAttachment   = "iam_attachment"
+
+	EntityTypeObject        = "object"
+	EntityTypeObjectVersion = "object_version"
 )
 
 // DeletionEntry represents a tombstone in the cluster deletion log
@@ -41,6 +45,50 @@ type DeletionEntry struct {
 	EntityID        string `json:"entity_id"`
 	DeletedByNodeID string `json:"deleted_by_node_id"`
 	DeletedAt       int64  `json:"deleted_at"`
+}
+
+// ObjectTombstoneID returns a stable opaque ID for a bucket/key delete marker
+// or non-versioned object delete.
+func ObjectTombstoneID(bucket, key string) string {
+	return encodeObjectTombstoneID(bucket, key)
+}
+
+// ObjectVersionTombstoneID returns a stable opaque ID for a permanent version delete.
+func ObjectVersionTombstoneID(bucket, key, versionID string) string {
+	return encodeObjectTombstoneID(bucket, key, versionID)
+}
+
+func DecodeObjectTombstoneID(id string) (bucket, key string, ok bool) {
+	parts, ok := decodeObjectTombstoneID(id, 2)
+	if !ok {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func DecodeObjectVersionTombstoneID(id string) (bucket, key, versionID string, ok bool) {
+	parts, ok := decodeObjectTombstoneID(id, 3)
+	if !ok {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+func encodeObjectTombstoneID(parts ...string) string {
+	data, _ := json.Marshal(parts)
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeObjectTombstoneID(id string, expectedParts int) ([]string, bool) {
+	data, err := base64.RawURLEncoding.DecodeString(id)
+	if err != nil {
+		return nil, false
+	}
+	var parts []string
+	if err := json.Unmarshal(data, &parts); err != nil || len(parts) != expectedParts {
+		return nil, false
+	}
+	return parts, true
 }
 
 // sqlQuerier is satisfied by both *sql.DB and *sql.Tx, allowing the check and

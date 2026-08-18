@@ -384,13 +384,13 @@ export default function BucketsPage() {
       : <ArrowDown className="h-3 w-3 text-brand-600 dark:text-brand-400" />;
   };
 
-  const handleDeleteBucket = async (bucketName: string) => {
+  // The tenant comes from the row: bucket names repeat across tenants, so
+  // looking one up by name would find whichever came first.
+  const handleDeleteBucket = async (bucketName: string, tenantId?: string) => {
     try {
       const result = await ModalManager.confirmDeleteBucket(bucketName);
       if (result.isConfirmed) {
         ModalManager.loading(t('deletingBucket'), t('deletingBucketMessage', { name: bucketName }));
-        const bucket = buckets?.find(b => b.name === bucketName);
-        const tenantId = bucket?.tenant_id || bucket?.tenantId;
         deleteBucketMutation.mutate({ bucketName, tenantId });
       }
     } catch (err) {
@@ -743,7 +743,7 @@ export default function BucketsPage() {
                                   : t('delete');
                               return (
                                 <button
-                                  onClick={() => handleDeleteBucket(bucket.name)}
+                                  onClick={() => handleDeleteBucket(bucket.name, bucket.tenant_id || bucket.tenantId)}
                                   disabled={deleteDisabled}
                                   className="p-2 text-muted-foreground hover:text-error-600 dark:hover:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                   title={deleteTitle}

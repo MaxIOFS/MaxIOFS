@@ -105,7 +105,7 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the XML retention configuration
 	var xmlRetention ObjectRetention
-	if err := xml.NewDecoder(r.Body).Decode(&xmlRetention); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlRetention); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
 		return
 	}
@@ -208,7 +208,7 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the XML legal hold configuration
 	var xmlLegalHold ObjectLegalHold
-	if err := xml.NewDecoder(r.Body).Decode(&xmlLegalHold); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlLegalHold); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
 		return
 	}
@@ -439,7 +439,7 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the XML tagging configuration
 	var xmlTagging Tagging
-	if err := xml.NewDecoder(r.Body).Decode(&xmlTagging); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlTagging); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
 		return
 	}
@@ -655,7 +655,7 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Parse the XML ACL
-		body, err := io.ReadAll(r.Body)
+		body, err := readS3ControlBody(w, r)
 		if err != nil {
 			h.writeError(w, "InvalidRequest", "Failed to read request body", objectKey, r)
 			return

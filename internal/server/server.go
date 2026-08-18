@@ -106,8 +106,10 @@ type Server struct {
 	buildDate               string          // Build date
 	serverCtx               context.Context // lifecycle context, set in Start()
 	encWorkerRunning        atomic.Bool     // single-flight guard for the encryption worker pass
-	clusterBgOnce           sync.Once       // ensures cluster background services start exactly once
-	oauthCodeStore          sync.Map        // one-time OAuth exchange codes, keyed by random hex, TTL 60s
+	encWorkerCancel         context.CancelFunc
+	encWorkerWG             sync.WaitGroup
+	clusterBgOnce           sync.Once // ensures cluster background services start exactly once
+	oauthCodeStore          sync.Map  // one-time OAuth exchange codes, keyed by random hex, TTL 60s
 }
 
 // New creates a new MaxIOFS server
@@ -981,6 +983,11 @@ func (s *Server) shutdown() error {
 		s.replicationManager.Stop()
 		logrus.Info("Replication manager stopped")
 	}
+
+	if s.encWorkerCancel != nil {
+		s.encWorkerCancel()
+	}
+	s.encWorkerWG.Wait()
 
 	// Stop cluster manager
 	if s.clusterManager != nil {

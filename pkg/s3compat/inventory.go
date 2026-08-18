@@ -50,7 +50,6 @@ type listInventoryConfigurationsResultXML struct {
 	IsTruncated      bool                 `xml:"IsTruncated"`
 }
 
-
 // s3FieldToInternal maps S3 OptionalFields names to our internal field constants.
 var s3FieldToInternal = map[string]string{
 	"Size":                inventory.FieldSize,
@@ -188,7 +187,6 @@ func xmlToInternal(x inventoryConfigXML, bucketName, tenantID string) *inventory
 	}
 }
 
-
 // GetBucketInventoryConfiguration handles GET /{bucket}?inventory&id={id}
 func (h *Handler) GetBucketInventoryConfiguration(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -240,7 +238,7 @@ func (h *Handler) PutBucketInventoryConfiguration(w http.ResponseWriter, r *http
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var x inventoryConfigXML
-	if err := xml.NewDecoder(r.Body).Decode(&x); err != nil {
+	if err := decodeS3ControlXML(w, r, &x); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}

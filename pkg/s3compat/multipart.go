@@ -518,7 +518,7 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 
 	// Parse the complete multipart upload request
 	var completeRequest CompleteMultipartUploadRequest
-	if err := xml.NewDecoder(r.Body).Decode(&completeRequest); err != nil {
+	if err := decodeS3ControlXML(w, r, &completeRequest); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", objectKey, r)
 		return
 	}

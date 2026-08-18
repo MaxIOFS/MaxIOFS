@@ -814,7 +814,11 @@ export class APIClient {
     const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
       `/buckets/${request.bucket}/objects?${params.toString()}`
     );
-    return response.data.data!;
+    const data = response.data.data!;
+    return {
+      ...data,
+      nextContinuationToken: data.nextContinuationToken ?? data.nextMarker,
+    };
   }
 
   static async searchObjects(request: SearchObjectsRequest): Promise<ListObjectsResponse> {
@@ -844,7 +848,11 @@ export class APIClient {
     const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
       `/buckets/${request.bucket}/objects/search?${params.toString()}`
     );
-    return response.data.data!;
+    const data = response.data.data!;
+    return {
+      ...data,
+      nextContinuationToken: data.nextContinuationToken ?? data.nextMarker,
+    };
   }
 
   static async getObject(bucket: string, key: string, tenantId?: string, versionId?: string): Promise<S3Object> {

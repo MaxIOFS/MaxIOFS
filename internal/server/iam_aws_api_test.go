@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/stretchr/testify/assert"
@@ -91,6 +92,44 @@ func TestIAMXML_TemporaryCredentialsCannotManageIAM(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Equal(t, "AccessDenied", iamErrorCodeOf(t, rec.Body.String()),
 		"a session credential must not be able to mint identities that outlive it")
+}
+
+func TestIAMXML_TenantAdminCannotManageGlobalAdminIdentity(t *testing.T) {
+	tenantAdmin := iamAdmin("tenant-iam-admin")
+	tenantAdmin.TenantID = "tenant-iam-a"
+	server := getSharedServer()
+	globalUser := &auth.User{
+		ID:        "iam-test-global-key-owner",
+		Username:  "global-key-owner",
+		Status:    auth.UserStatusActive,
+		Roles:     []string{auth.RoleAdmin},
+		CreatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, server.authManager.CreateUser(t.Context(), globalUser))
+	t.Cleanup(func() { _ = server.authManager.DeleteUser(t.Context(), globalUser.ID) })
+	globalKey, err := server.authManager.GenerateAccessKey(t.Context(), globalUser.ID)
+	require.NoError(t, err)
+
+	rec := postIAMForm(t, url.Values{"Action": {"CreateAccessKey"}, "UserName": {"admin"}}, tenantAdmin)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, "AccessDenied", iamErrorCodeOf(t, rec.Body.String()))
+
+	rec = postIAMForm(t, url.Values{"Action": {"GetUser"}, "UserName": {"admin"}}, tenantAdmin)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, "AccessDenied", iamErrorCodeOf(t, rec.Body.String()))
+
+	rec = postIAMForm(t, url.Values{"Action": {"ListUsers"}}, tenantAdmin)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "<UserName>admin</UserName>")
+
+	rec = postIAMForm(t, url.Values{"Action": {"ListAccessKeys"}, "UserName": {globalUser.Username}}, tenantAdmin)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, "AccessDenied", iamErrorCodeOf(t, rec.Body.String()))
+
+	rec = postIAMForm(t, url.Values{"Action": {"DeleteAccessKey"}, "AccessKeyId": {globalKey.AccessKeyID}}, tenantAdmin)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, "AccessDenied", iamErrorCodeOf(t, rec.Body.String()))
 }
 
 func TestIsIAMAction(t *testing.T) {

@@ -3,7 +3,6 @@ package s3compat
 import (
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -65,7 +64,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 
 	// Parse XML request body
-	body, err := io.ReadAll(r.Body)
+	body, err := readS3ControlBody(w, r)
 	if err != nil {
 		h.writeError(w, "InvalidRequest", "Failed to read request body", r.URL.Path, r)
 		return

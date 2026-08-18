@@ -443,6 +443,7 @@ func (r *StaleReconciler) applyRemoteTombstones(ctx context.Context, remote, loc
 			}).Warn("Failed to commit tombstone application")
 			continue
 		}
+		r.applyObjectTombstone(ctx, e)
 		applied++
 	}
 
@@ -450,6 +451,36 @@ func (r *StaleReconciler) applyRemoteTombstones(ctx context.Context, remote, loc
 		r.log.WithField("count", applied).Debug("Applied remote tombstones locally")
 	}
 	return nil
+}
+
+func (r *StaleReconciler) applyObjectTombstone(ctx context.Context, e *DeletionEntry) {
+	if r.objMgr == nil || e == nil {
+		return
+	}
+	switch e.EntityType {
+	case EntityTypeObject:
+		bucket, key, ok := DecodeObjectTombstoneID(e.EntityID)
+		if !ok {
+			r.log.WithField("entity_id", e.EntityID).Warn("Invalid object tombstone ID")
+			return
+		}
+		if _, err := r.objMgr.DeleteObject(WithHAReplicaContext(ctx), bucket, key, false); err != nil && err != object.ErrObjectNotFound {
+			r.log.WithError(err).WithFields(logrus.Fields{
+				"bucket": bucket, "key": key,
+			}).Warn("Failed to apply object tombstone")
+		}
+	case EntityTypeObjectVersion:
+		bucket, key, versionID, ok := DecodeObjectVersionTombstoneID(e.EntityID)
+		if !ok {
+			r.log.WithField("entity_id", e.EntityID).Warn("Invalid object-version tombstone ID")
+			return
+		}
+		if _, err := r.objMgr.DeleteObject(WithHAReplicaContext(ctx), bucket, key, false, versionID); err != nil && err != object.ErrObjectNotFound {
+			r.log.WithError(err).WithFields(logrus.Fields{
+				"bucket": bucket, "key": key, "version_id": versionID,
+			}).Warn("Failed to apply object-version tombstone")
+		}
+	}
 }
 
 // clearStaleFlag resets is_stale = 0 and last_local_write_at = NULL.
@@ -704,10 +735,13 @@ func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID stri
 					Warn("Delta sync: list-changed-since failed, skipping bucket")
 				break
 			}
-			for _, key := range changed {
-				if pullErr := r.pullObject(ctx, peer, localNodeID, localToken, bp, key); pullErr != nil {
+			for _, changedObj := range changed {
+				if r.objectTombstoneNewer(ctx, bp, changedObj.Key, changedObj.LastModified) {
+					continue
+				}
+				if pullErr := r.pullObject(ctx, peer, localNodeID, localToken, bp, changedObj.Key); pullErr != nil {
 					r.log.WithError(pullErr).WithFields(logrus.Fields{
-						"bucket": bp, "key": key,
+						"bucket": bp, "key": changedObj.Key,
 					}).Warn("Delta sync: failed to pull object, skipping")
 					continue
 				}
@@ -715,7 +749,7 @@ func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID stri
 				if synced%100 == 0 {
 					r.db.ExecContext(ctx, //nolint:errcheck
 						`UPDATE ha_sync_jobs SET objects_synced=?, last_checkpoint_bucket=?, last_checkpoint_key=? WHERE id=?`,
-						synced, bp, key, jobID)
+						synced, bp, changedObj.Key, jobID)
 				}
 			}
 			if !truncated {
@@ -737,10 +771,15 @@ func (r *StaleReconciler) reconcileObjects(ctx context.Context, localNodeID stri
 }
 
 // listChangedSince calls GET /api/internal/cluster/ha/objects/changed-since on the peer.
+type changedObject struct {
+	Key          string
+	LastModified time.Time
+}
+
 func (r *StaleReconciler) listChangedSince(
 	ctx context.Context, peer *Node, localNodeID, localToken, bucketPath string,
 	since time.Time, marker string,
-) (keys []string, nextMarker string, truncated bool, err error) {
+) (objects []changedObject, nextMarker string, truncated bool, err error) {
 	q := url.Values{}
 	q.Set("bucket", bucketPath)
 	q.Set("since", strconv.FormatInt(since.Unix(), 10))
@@ -763,7 +802,8 @@ func (r *StaleReconciler) listChangedSince(
 	}
 	var result struct {
 		Objects []struct {
-			Key string `json:"key"`
+			Key          string    `json:"key"`
+			LastModified time.Time `json:"last_modified"`
 		} `json:"objects"`
 		NextMarker  string `json:"next_marker"`
 		IsTruncated bool   `json:"is_truncated"`
@@ -772,9 +812,9 @@ func (r *StaleReconciler) listChangedSince(
 		return nil, "", false, fmt.Errorf("decode changed-since response: %w", err)
 	}
 	for _, o := range result.Objects {
-		keys = append(keys, o.Key)
+		objects = append(objects, changedObject{Key: o.Key, LastModified: o.LastModified})
 	}
-	return keys, result.NextMarker, result.IsTruncated, nil
+	return objects, result.NextMarker, result.IsTruncated, nil
 }
 
 // pullObject fetches an object from the peer and writes it locally.
@@ -801,6 +841,10 @@ func (r *StaleReconciler) pullObject(
 		return fmt.Errorf("GET object returned %d: %s", resp.StatusCode, body)
 	}
 
+	if lm, ok := HALastModifiedFromHeader(resp.Header); ok && r.objectTombstoneNewer(ctx, bucketPath, key, lm) {
+		return nil
+	}
+
 	ctx = WithHAReplicaContext(ctx)
 	if versionID := resp.Header.Get(HAObjectVersionHeader); versionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, versionID)
@@ -810,4 +854,16 @@ func (r *StaleReconciler) pullObject(
 	}
 	_, err = r.objMgr.PutObject(ctx, bucketPath, key, resp.Body, resp.Header.Clone())
 	return err
+}
+
+func (r *StaleReconciler) objectTombstoneNewer(ctx context.Context, bucketPath, key string, objectModified time.Time) bool {
+	var deletedAt int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT deleted_at FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?`,
+		EntityTypeObject, ObjectTombstoneID(bucketPath, key),
+	).Scan(&deletedAt)
+	if err != nil {
+		return false
+	}
+	return objectModified.IsZero() || deletedAt >= objectModified.Unix()
 }

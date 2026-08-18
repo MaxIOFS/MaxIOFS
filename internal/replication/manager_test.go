@@ -304,6 +304,34 @@ func TestDeleteRule(t *testing.T) {
 	assert.Nil(t, retrieved)
 }
 
+func TestDeleteRule_DoesNotReplaceHeldRuleLock(t *testing.T) {
+	manager, _ := setupTestManager(t)
+	ctx := context.Background()
+
+	rule := &ReplicationRule{
+		TenantID:          "tenant-1",
+		SourceBucket:      "source-bucket",
+		DestinationBucket: "dest-bucket",
+		Enabled:           true,
+		Mode:              ModeScheduled,
+	}
+	require.NoError(t, manager.CreateRule(ctx, rule))
+
+	held, ok := manager.tryLockRule(rule.ID)
+	require.True(t, ok)
+	require.NoError(t, manager.DeleteRule(ctx, "tenant-1", rule.ID))
+
+	_, ok = manager.tryLockRule(rule.ID)
+	assert.False(t, ok, "delete must not replace a held rule lock")
+
+	manager.releaseRule(rule.ID, held)
+	assert.Empty(t, manager.ruleLocks, "a released rule keeps no entry behind")
+
+	again, ok := manager.tryLockRule(rule.ID)
+	require.True(t, ok)
+	manager.releaseRule(rule.ID, again)
+}
+
 func TestDeleteRule_NotFound(t *testing.T) {
 	manager, _ := setupTestManager(t)
 	ctx := context.Background()

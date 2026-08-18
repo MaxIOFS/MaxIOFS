@@ -310,6 +310,34 @@ func TestRunCycle_FactorOne_NoOp(t *testing.T) {
 	assert.Equal(t, 0, n)
 }
 
+func TestHealthyPeers_LimitedByReplicationFactor(t *testing.T) {
+	db, cleanup := setupQuorumTestDB(t)
+	defer cleanup()
+	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
+	ctx := context.Background()
+
+	_, err := mgr.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
+	require.NoError(t, err)
+	require.NoError(t, mgr.SetReplicationFactor(ctx, 2))
+
+	for _, name := range []string{"peer-a", "peer-b", "peer-c"} {
+		peer := &Node{
+			Name: name, Endpoint: "http://" + name + ":8082", NodeToken: "token",
+			Region: "us-east-1", Priority: 100, Metadata: "{}",
+		}
+		require.NoError(t, mgr.AddNode(ctx, peer))
+		_, err = db.ExecContext(ctx,
+			`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`,
+			HealthStatusHealthy, peer.ID)
+		require.NoError(t, err)
+	}
+
+	scrubber := NewAntiEntropyScrubber(nil, nil, mgr, newFakeRawKV())
+	peers, err := scrubber.healthyPeers(ctx, "local-node")
+	require.NoError(t, err)
+	require.Len(t, peers, 1, "RF=2 should scrub only one replica target, not every healthy peer")
+}
+
 // ── ListRecentRuns / pruneRuns ───────────────────────────────────────────────
 
 func TestListRecentRuns_OrderAndLimit(t *testing.T) {

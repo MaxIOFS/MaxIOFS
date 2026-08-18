@@ -8,7 +8,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
-	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
 )
 
@@ -206,20 +205,25 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.authManager.DeleteGroup(r.Context(), groupID); err != nil {
+	// Record tombstone + trigger sync so other nodes also drop the group.
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		localNodeID, err := s.clusterManager.GetLocalNodeID(r.Context())
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to get local node ID for group tombstone")
+			s.writeError(w, "Failed to delete group", http.StatusInternalServerError)
+			return
+		}
+		if _, err := s.deleteGroupAndRecordTombstone(r.Context(), groupID, localNodeID); err != nil {
+			logrus.WithError(err).WithField("group_id", groupID).Error("Failed to delete group transactionally with tombstone")
+			s.writeError(w, "Failed to delete group", http.StatusInternalServerError)
+			return
+		}
+	} else if err := s.authManager.DeleteGroup(r.Context(), groupID); err != nil {
 		s.writeError(w, "Failed to delete group", http.StatusInternalServerError)
 		return
 	}
 
 	s.touchLocalWriteAt(r.Context())
-
-	// Record tombstone + trigger sync so other nodes also drop the group.
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroup, groupID, localNodeID); err != nil {
-			logrus.WithError(err).WithField("group_id", groupID).Warn("Failed to record group deletion tombstone")
-		}
-	}
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}

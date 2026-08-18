@@ -73,7 +73,7 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read the policy document from request body
-	body, err := io.ReadAll(r.Body)
+	body, err := readS3ControlBody(w, r)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to read request body")
 		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
@@ -290,7 +290,7 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the XML lifecycle configuration
 	var xmlConfig LifecycleConfiguration
-	if err := xml.NewDecoder(r.Body).Decode(&xmlConfig); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlConfig); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", bucketName, r)
 		return
 	}
@@ -472,7 +472,7 @@ func (h *Handler) PutBucketCORS(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the XML CORS configuration
 	var xmlConfig CORSConfiguration
-	if err := xml.NewDecoder(r.Body).Decode(&xmlConfig); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlConfig); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", bucketName, r)
 		return
 	}
@@ -619,7 +619,7 @@ func (h *Handler) PutBucketTagging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read the tagging XML from request body
-	body, err := io.ReadAll(r.Body)
+	body, err := readS3ControlBody(w, r)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to read request body")
 		h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
@@ -774,7 +774,7 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Parse XML ACL from body
-		body, err := io.ReadAll(r.Body)
+		body, err := readS3ControlBody(w, r)
 		if err != nil {
 			h.writeError(w, "InvalidRequest", "Failed to read request body", bucketName, r)
 			return
@@ -921,7 +921,7 @@ func (h *Handler) PutBucketNotification(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readS3ControlBody(w, r)
 	if err != nil {
 		h.writeError(w, "MalformedXML", "Failed to read request body", bucketName, r)
 		return
@@ -1100,7 +1100,7 @@ func (h *Handler) PutBucketWebsite(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: PutBucketWebsite")
 
 	var xmlCfg websiteConfiguration
-	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlCfg); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against the published schema", bucketName, r)
 		return
 	}
@@ -1290,7 +1290,7 @@ func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg sseConfiguration
-	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlCfg); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against the published schema", bucketName, r)
 		return
 	}
@@ -1431,7 +1431,7 @@ func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg bucketLoggingStatus
-	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlCfg); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}
@@ -1519,7 +1519,7 @@ func (h *Handler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg publicAccessBlockXML
-	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlCfg); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}
@@ -1563,7 +1563,6 @@ func (h *Handler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // ownershipControlsXML is the AWS XML envelope for GetOwnershipControls / PutOwnershipControls.
 type ownershipControlsXML struct {
@@ -1619,7 +1618,7 @@ func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	var xmlCfg ownershipControlsXML
-	if err := xml.NewDecoder(r.Body).Decode(&xmlCfg); err != nil {
+	if err := decodeS3ControlXML(w, r, &xmlCfg); err != nil {
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return
 	}
