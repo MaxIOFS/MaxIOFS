@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 import React from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -113,7 +114,7 @@ export function ObjectVersionsModal({
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    return new Date(dateString).toLocaleString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

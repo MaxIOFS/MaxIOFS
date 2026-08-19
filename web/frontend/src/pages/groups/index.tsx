@@ -52,6 +52,7 @@ export default function GroupsPage() {
       setIsCreateModalOpen(false);
       setNewGroup({});
     },
+    onError: (error) => ModalManager.apiError(error),
   });
 
   const deleteMutation = useMutation({
@@ -59,6 +60,7 @@ export default function GroupsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
+    onError: (error) => ModalManager.apiError(error),
   });
 
   const handleDelete = (group: Group) => {

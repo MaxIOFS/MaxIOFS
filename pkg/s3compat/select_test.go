@@ -16,7 +16,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-
 // parseEventMessages reads all event-stream messages from data and returns them
 // as a slice of (eventType, payload) pairs for easy assertions.
 func parseEventMessages(t *testing.T, data []byte) []struct{ EventType, Payload string } {

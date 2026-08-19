@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,6 +117,60 @@ func TestCompleteMultipartUploadMetadataFailurePreservesPreviousObject(t *testin
 	failing.failPuts = false
 	_, reader, err := om.GetObject(ctx, bucketName, key)
 	require.NoError(t, err)
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, "previous payload", string(data))
+}
+
+// kekOutage stops handing out a current KEK once armed, which is what a KEK
+// store outage or a rotation window looks like to the encryption step.
+type kekOutage struct {
+	inner kek.Provider
+	down  bool
+}
+
+func (k *kekOutage) CurrentKEK() ([]byte, int) {
+	if k.down {
+		return nil, 0
+	}
+	return k.inner.CurrentKEK()
+}
+func (k *kekOutage) KEKByVersion(v int) ([]byte, error) { return k.inner.KEKByVersion(v) }
+func (k *kekOutage) IsClusterShared(v int) bool         { return k.inner.IsClusterShared(v) }
+
+// The combine writes over the live object, so a failure after it must put the
+// previous object back rather than delete the path it landed on.
+func TestCompleteMultipartUploadEncryptionFailurePreservesPreviousObject(t *testing.T) {
+	ctx := context.Background()
+	om, _, metaStore := setupManagerWithConfigKey(t)
+
+	bucketName := "mpu-encfail-bucket"
+	key := "victim.txt"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:    bucketName,
+		OwnerID: "user-1",
+	}))
+
+	_, err := om.PutObject(ctx, bucketName, key,
+		bytes.NewReader([]byte("previous payload")), http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+
+	upload, err := om.CreateMultipartUpload(ctx, bucketName, key, http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader([]byte("replacement payload")))
+	require.NoError(t, err)
+
+	outage := &kekOutage{inner: om.kekProvider}
+	om.kekProvider = outage
+	outage.down = true
+
+	_, err = om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.Error(t, err)
+
+	outage.down = false
+	_, reader, err := om.GetObject(ctx, bucketName, key)
+	require.NoError(t, err, "the object that was already there must still be readable")
 	defer reader.Close()
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)

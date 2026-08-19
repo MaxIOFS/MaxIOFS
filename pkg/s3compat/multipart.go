@@ -36,6 +36,8 @@ type ListMultipartUploadsResult struct {
 	UploadIdMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
 	NextUploadIdMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	Prefix             string            `xml:"Prefix"`
+	Delimiter          string            `xml:"Delimiter,omitempty"`
 	MaxUploads         int               `xml:"MaxUploads"`
 	IsTruncated        bool              `xml:"IsTruncated"`
 	Uploads            []MultipartUpload `xml:"Upload,omitempty"`
@@ -147,6 +149,8 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	keyMarker := r.URL.Query().Get("key-marker")
 	uploadIdMarker := r.URL.Query().Get("upload-id-marker")
+	prefix := r.URL.Query().Get("prefix")
+	delimiter := r.URL.Query().Get("delimiter")
 	maxUploads := 1000
 
 	if maxUploadsStr := r.URL.Query().Get("max-uploads"); maxUploadsStr != "" {
@@ -172,10 +176,24 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Without the prefix filter a cleanup tool asking for its own namespace is
+	// handed every in-progress upload in the bucket, including other workloads'.
+	if prefix != "" {
+		kept := uploads[:0]
+		for _, u := range uploads {
+			if strings.HasPrefix(u.Key, prefix) {
+				kept = append(kept, u)
+			}
+		}
+		uploads = kept
+	}
+
 	filteredUploads, isTruncated, nextKeyMarker, nextUploadIdMarker := paginateMultipartUploads(uploads, keyMarker, uploadIdMarker, maxUploads)
 
 	result := ListMultipartUploadsResult{
 		Bucket:             bucketName,
+		Prefix:             prefix,
+		Delimiter:          delimiter,
 		KeyMarker:          keyMarker,
 		UploadIdMarker:     uploadIdMarker,
 		NextKeyMarker:      nextKeyMarker,
@@ -499,20 +517,11 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Nothing has been written yet, so this is an ordinary 404. The in-body
+	// error further down exists only because the keep-alive path has already
+	// committed a 200 by the time it can fail.
 	if !h.uploadMatchesTarget(r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
-		w.Header().Set("Content-Type", "application/xml")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(xml.Header)) //nolint:errcheck
-		_ = xml.NewEncoder(w).Encode(struct {
-			XMLName  xml.Name `xml:"Error"`
-			Code     string   `xml:"Code"`
-			Message  string   `xml:"Message"`
-			Resource string   `xml:"Resource"`
-		}{
-			Code:     "NoSuchUpload",
-			Message:  "The specified multipart upload does not exist",
-			Resource: objectKey,
-		})
+		h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", objectKey, r)
 		return
 	}
 

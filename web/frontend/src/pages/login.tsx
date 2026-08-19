@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import APIClient from '@/lib/api';
 import { getBasePath } from '@/lib/basePath';
-import ModalManager from '@/lib/modals';
+import ModalManager, { ModalRenderer, ToastNotifications } from '@/lib/modals';
 import { getErrorMessage, isHttpStatus } from '@/lib/utils';
 import { TwoFactorInput } from '@/components/TwoFactorInput';
 import { useQuery } from '@tanstack/react-query';
@@ -14,7 +14,11 @@ export default function LoginPage() {
   // Check URL for OAuth error
   const urlParams = new URLSearchParams(window.location.search);
   const oauthError = urlParams.get('error');
-  const urlOauthErrorMessage = oauthError ? (t('oauthError_' + oauthError) || oauthError) : null;
+  // i18next returns the key itself when there is no translation, so `||` never
+  // reaches the fallback. defaultValue is what actually supplies it.
+  const urlOauthErrorMessage = oauthError
+    ? t('oauthError_' + oauthError, { defaultValue: oauthError })
+    : null;
   const [error, setError] = useState<string | null>(null);
   const [ssoHighlight, setSsoHighlight] = useState(false);
   const [ssoPreset, setSsoPreset] = useState<string | null>(null);
@@ -540,6 +544,9 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      <ModalRenderer />
+      <ToastNotifications />
     </div>
   );
 }

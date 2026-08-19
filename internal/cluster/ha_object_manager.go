@@ -408,7 +408,15 @@ func (h *HAObjectManager) sendRawReplica(ctx context.Context, client *ProxyClien
 	}
 
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
-	req, rErr := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
+	// The sidecar's etag is the MD5 of the bytes on disk, which is exactly what
+	// is being streamed — the digest costs nothing and the peer can check it.
+	var req *http.Request
+	var rErr error
+	if etag := sidecar["etag"]; etag != "" {
+		req, rErr = client.CreateAuthenticatedRequestWithDigest(ctx, "PUT", url, reader, localID, n.NodeToken, "md5:"+etag)
+	} else {
+		req, rErr = client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
+	}
 	if rErr != nil {
 		return true, rErr
 	}

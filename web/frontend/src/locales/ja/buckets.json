@@ -362,5 +362,18 @@
   "noVersionsFound": "バージョンが見つかりません",
   "noVersionsDesc": "このバケットにはバージョン管理されたオブジェクトがないか、バージョニングが有効になっていません。",
   "restoring": "復元中…",
-  "globalAdminReadOnlyBanner": "これはテナントに属するバケットです。グローバル管理者は内容と設定を閲覧できますが、変更を伴う操作はすべて無効になっています。"
+  "globalAdminReadOnlyBanner": "これはテナントに属するバケットです。グローバル管理者は内容と設定を閲覧できますが、変更を伴う操作はすべて無効になっています。",
+  "changeFolderLabel": "フォルダーを変更",
+  "bulkDeleteTitle": "{{count}} 件を削除しますか？",
+  "bulkDeleteBody": "<strong>{{count}}</strong> 件を削除しようとしています",
+  "bulkDeleteIrreversible": "この操作は取り消せません",
+  "bulkDeleteLockedNote": "{{count}} 件は Object Lock で保護されているためスキップされます。",
+  "bulkDeleteConfirm": "削除する",
+  "bulkDeleteProgress": "{{count}} 件を削除しています",
+  "uploadingFiles": "{{count}} 件のファイルをアップロードしています",
+  "folderCreatedSuccess": "フォルダー「{{name}}」を作成しました",
+  "objectDeletedSuccess": "オブジェクトを削除しました",
+  "shareDeletedSuccess": "共有を削除しました",
+  "legalHoldEnabledSuccess": "リーガルホールドを有効にしました",
+  "legalHoldDisabledSuccess": "リーガルホールドを解除しました"
 }

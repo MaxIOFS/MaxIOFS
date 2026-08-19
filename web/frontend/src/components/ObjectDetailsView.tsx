@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -66,7 +67,7 @@ function formatSize(bytes: number): string {
 
 function formatDate(d: string): string {
   if (!d) return '-';
-  return new Date(d).toLocaleString('en-US', {
+  return new Date(d).toLocaleString(activeLocale(), {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });

@@ -92,11 +92,11 @@ func (f *fakeRawKV) RawGC() error { return nil }
 
 func TestClassifyDivergence_PeerMissing(t *testing.T) {
 	local := &object.Object{ETag: "abc", Size: 100, LastModified: time.Now()}
-	div, act := classifyDivergence(local, nil)
+	div, act := classifyDivergence(local, nil, 0)
 	assert.Equal(t, divPeerMissing, div)
 	assert.Equal(t, actPushToPeer, act)
 
-	div2, act2 := classifyDivergence(local, &ChecksumEntry{Key: "k", Found: false})
+	div2, act2 := classifyDivergence(local, &ChecksumEntry{Key: "k", Found: false}, 0)
 	assert.Equal(t, divPeerMissing, div2)
 	assert.Equal(t, actPushToPeer, act2)
 }
@@ -105,7 +105,7 @@ func TestClassifyDivergence_Identical(t *testing.T) {
 	now := time.Now()
 	local := &object.Object{ETag: "abc", Size: 100, LastModified: now}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "abc", Size: 100, LastModified: now.Unix()}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divNone, div)
 	assert.Equal(t, actNone, act)
 }
@@ -113,7 +113,7 @@ func TestClassifyDivergence_Identical(t *testing.T) {
 func TestClassifyDivergence_LocalNewer_Push(t *testing.T) {
 	local := &object.Object{ETag: "newer", Size: 200, LastModified: time.Unix(2000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "older", Size: 100, LastModified: 1000}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divLocalNewer, div)
 	assert.Equal(t, actPushToPeer, act)
 }
@@ -121,7 +121,7 @@ func TestClassifyDivergence_LocalNewer_Push(t *testing.T) {
 func TestClassifyDivergence_PeerNewer_Pull(t *testing.T) {
 	local := &object.Object{ETag: "older", Size: 100, LastModified: time.Unix(1000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "newer", Size: 200, LastModified: 2000}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divPeerNewer, div)
 	assert.Equal(t, actPullFromPeer, act)
 }
@@ -130,14 +130,14 @@ func TestClassifyDivergence_TieDifferentETag_ETagTieBreaker(t *testing.T) {
 	// "left" < "right": local ETag sorts lower → local defers to peer (pull)
 	local := &object.Object{ETag: "left", Size: 100, LastModified: time.Unix(1000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "right", Size: 100, LastModified: 1000}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divTieDifferentETag, div)
 	assert.Equal(t, actPullFromPeer, act)
 
 	// "z" > "a": local ETag sorts higher → local wins (push)
 	local2 := &object.Object{ETag: "z", Size: 100, LastModified: time.Unix(1000, 0)}
 	peer2 := &ChecksumEntry{Key: "k", Found: true, ETag: "a", Size: 100, LastModified: 1000}
-	div2, act2 := classifyDivergence(local2, peer2)
+	div2, act2 := classifyDivergence(local2, peer2, 0)
 	assert.Equal(t, divTieDifferentETag, div2)
 	assert.Equal(t, actPushToPeer, act2)
 }
@@ -146,7 +146,7 @@ func TestClassifyDivergence_Multipart_SizeAndMtimeMatch_NoFix(t *testing.T) {
 	// Multipart ETag (md5-N) — size and mtime within 1s tolerance.
 	local := &object.Object{ETag: "abc-5", Size: 1024, LastModified: time.Unix(1000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "different-5", Size: 1024, LastModified: 1001}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divNone, div)
 	assert.Equal(t, actNone, act)
 }
@@ -154,7 +154,7 @@ func TestClassifyDivergence_Multipart_SizeAndMtimeMatch_NoFix(t *testing.T) {
 func TestClassifyDivergence_Multipart_SizeDiffers_LWW(t *testing.T) {
 	local := &object.Object{ETag: "abc-5", Size: 2048, LastModified: time.Unix(2000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "abc-5", Size: 1024, LastModified: 1000}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divLocalNewer, div)
 	assert.Equal(t, actPushToPeer, act)
 }
@@ -162,7 +162,7 @@ func TestClassifyDivergence_Multipart_SizeDiffers_LWW(t *testing.T) {
 func TestClassifyDivergence_Multipart_MtimeDiffersBeyondTolerance_LWW(t *testing.T) {
 	local := &object.Object{ETag: "abc-3", Size: 1024, LastModified: time.Unix(1000, 0)}
 	peer := &ChecksumEntry{Key: "k", Found: true, ETag: "abc-3", Size: 1024, LastModified: 5000}
-	div, act := classifyDivergence(local, peer)
+	div, act := classifyDivergence(local, peer, 0)
 	assert.Equal(t, divPeerNewer, div)
 	assert.Equal(t, actPullFromPeer, act)
 }
@@ -419,4 +419,22 @@ func TestURLEscapeBucket(t *testing.T) {
 	assert.Equal(t, "a%26b", urlEscapeBucket("a&b"))
 	assert.Equal(t, "a%23b", urlEscapeBucket("a#b"))
 	assert.Equal(t, "a%20b", urlEscapeBucket("a b"))
+}
+
+func TestClassifyDivergence_PeerMissingAfterADeleteRemovesTheLocalCopy(t *testing.T) {
+	deletedAt := time.Unix(2000, 0)
+	local := &object.Object{ETag: "abc", Size: 100, LastModified: time.Unix(1500, 0)}
+
+	div, act := classifyDivergence(local, &ChecksumEntry{Key: "k", Found: false}, deletedAt.Unix())
+	assert.Equal(t, divPeerMissing, div)
+	assert.Equal(t, actDeleteLocal, act, "a copy older than the delete is the stale one")
+}
+
+func TestClassifyDivergence_PeerMissingAfterARewriteStillPushes(t *testing.T) {
+	deletedAt := time.Unix(2000, 0)
+	local := &object.Object{ETag: "abc", Size: 100, LastModified: time.Unix(2500, 0)}
+
+	div, act := classifyDivergence(local, &ChecksumEntry{Key: "k", Found: false}, deletedAt.Unix())
+	assert.Equal(t, divPeerMissing, div)
+	assert.Equal(t, actPushToPeer, act, "an object written after the delete is a new object")
 }

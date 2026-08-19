@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"context"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,8 +107,10 @@ func TestMultipartOwnership_CompleteKeepsItsContract(t *testing.T) {
 	w := httptest.NewRecorder()
 	env.handler.CompleteMultipartUpload(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code,
-		"the always-200 contract holds for a refusal too")
+	// Nothing has been written at this point, so the refusal is an ordinary
+	// 404. The always-200 contract only covers failures after the keep-alive
+	// path has already committed a status.
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Contains(t, w.Body.String(), "NoSuchUpload")
 
 	// Nothing was assembled at the victim's destination.
@@ -134,4 +137,37 @@ func TestMultipartOwnership_TheOwnersOwnUploadStillWorks(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code,
 		"the upload's own key must still reach it")
+}
+
+// A cleanup tool asks for the uploads under its own prefix. Ignoring the
+// parameter hands it every in-progress upload in the bucket, and aborting
+// those destroys other workloads' transfers.
+func TestListMultipartUploads_HonoursPrefix(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	const bucketName = "mpu-prefix"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	bucketPath := env.tenantID + "/" + bucketName
+
+	for _, key := range []string{"teamA/one.dat", "teamA/two.dat", "teamB/three.dat"} {
+		_, err := env.objectManager.CreateMultipartUpload(ctx, bucketPath, key, http.Header{})
+		require.NoError(t, err)
+	}
+
+	req, w := env.makeS3Request("GET", "/"+bucketName+"?uploads&prefix=teamA/", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var res ListMultipartUploadsResult
+	require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &res))
+
+	var keys []string
+	for _, u := range res.Uploads {
+		keys = append(keys, u.Key)
+	}
+	assert.ElementsMatch(t, []string{"teamA/one.dat", "teamA/two.dat"}, keys,
+		"only the uploads under the requested prefix")
+	assert.Equal(t, "teamA/", res.Prefix, "AWS echoes the prefix back")
 }

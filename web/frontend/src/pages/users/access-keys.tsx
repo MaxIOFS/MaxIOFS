@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -202,7 +203,7 @@ export default function AccessKeysPage() {
     const date = typeof timestamp === 'string'
       ? new Date(timestamp)
       : new Date(timestamp * 1000);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

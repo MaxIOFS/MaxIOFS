@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, activeLocale } from '@/lib/utils';
 import { Bucket, IntegrityResult } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
@@ -101,6 +101,10 @@ export default function BucketsPage() {
 
 
   // ── Load integrity history for all buckets (admins only) ────────────────────
+  // Keyed by the bucket list's identity, not the array: the list is refetched
+  // every 30 s, and a fresh array would re-fan-out one request per bucket each
+  // time, only to discard every answer.
+  const bucketKeysFingerprint = (buckets ?? []).map(getBucketKey).sort().join('|');
   useEffect(() => {
     if (!buckets || !isAnyAdmin) return;
     let cancelled = false;
@@ -143,7 +147,8 @@ export default function BucketsPage() {
     return () => {
       cancelled = true;
     };
-  }, [buckets, isAnyAdmin]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bucketKeysFingerprint, isAnyAdmin]);
 
   // Fetch the persisted scan history whenever the modal is open.
   const integrityBucketKey = integrityBucket ? getBucketKey(integrityBucket) : null;
@@ -407,7 +412,7 @@ export default function BucketsPage() {
   };
 
   const formatDate = (ds: string) =>
-    new Date(ds).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    new Date(ds).toLocaleDateString(activeLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const getOwnerDisplay = (bucket: Bucket) => {
     const ownerId = bucket.owner_id || bucket.ownerId;

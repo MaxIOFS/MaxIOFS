@@ -60,6 +60,7 @@ export default function GroupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['groups', groupId] });
       setIsEditing(false);
     },
+    onError: (error) => ModalManager.apiError(error),
   });
 
   const addMemberMutation = useMutation({
@@ -70,6 +71,7 @@ export default function GroupDetailPage() {
       setIsAddMemberOpen(false);
       setSelectedUserId('');
     },
+    onError: (error) => ModalManager.apiError(error),
   });
 
   const removeMemberMutation = useMutation({
@@ -78,6 +80,7 @@ export default function GroupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['groups', groupId, 'members'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
+    onError: (error) => ModalManager.apiError(error),
   });
 
   const handleRemoveMember = (member: GroupMember) => {

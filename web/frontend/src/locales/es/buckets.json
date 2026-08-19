@@ -362,5 +362,18 @@
   "noVersionsFound": "No se encontraron versiones",
   "noVersionsDesc": "Este bucket no tiene objetos versionados o el versionado no está activado.",
   "restoring": "Restaurando…",
-  "globalAdminReadOnlyBanner": "Estás viendo un bucket que pertenece a un tenant. Los administradores globales pueden leerlo y ver su configuración, pero toda operación que suponga un cambio está deshabilitada."
+  "globalAdminReadOnlyBanner": "Estás viendo un bucket que pertenece a un tenant. Los administradores globales pueden leerlo y ver su configuración, pero toda operación que suponga un cambio está deshabilitada.",
+  "changeFolderLabel": "Cambiar carpeta",
+  "bulkDeleteTitle": "¿Eliminar {{count}} elementos?",
+  "bulkDeleteBody": "Vas a eliminar <strong>{{count}}</strong> elementos",
+  "bulkDeleteIrreversible": "Esta acción no se puede deshacer",
+  "bulkDeleteLockedNote": "{{count}} elementos están protegidos por Object Lock y se omitirán.",
+  "bulkDeleteConfirm": "Sí, eliminar",
+  "bulkDeleteProgress": "Eliminando {{count}} elementos",
+  "uploadingFiles": "Subiendo {{count}} archivos",
+  "folderCreatedSuccess": "Carpeta \"{{name}}\" creada",
+  "objectDeletedSuccess": "Objeto eliminado",
+  "shareDeletedSuccess": "Enlace eliminado",
+  "legalHoldEnabledSuccess": "Retención legal activada",
+  "legalHoldDisabledSuccess": "Retención legal desactivada"
 }

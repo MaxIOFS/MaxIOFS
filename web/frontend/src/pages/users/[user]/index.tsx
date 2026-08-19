@@ -43,7 +43,7 @@ import { AccessKey, EditUserForm, Group } from '@/types';
 import Setup2FAModal, { BackupCodesModal } from '@/components/Setup2FAModal';
 import { ConfirmModal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { escapeHtml } from '@/lib/utils';
+import { escapeHtml, activeLocale } from '@/lib/utils';
 
 export default function UserDetailsPage() {
   const { t } = useTranslation('users');
@@ -463,7 +463,7 @@ export default function UserDetailsPage() {
   const formatDate = (date: string | number) => {
     // If it's a number (Unix timestamp in seconds), convert to milliseconds
     const timestamp = typeof date === 'number' ? date * 1000 : new Date(date).getTime();
-    return new Date(timestamp).toLocaleDateString('en-US', {
+    return new Date(timestamp).toLocaleDateString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

@@ -115,6 +115,7 @@ type Handler struct {
 	}
 	metadataStore interface {
 		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+		GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 		GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
 	}
@@ -349,6 +350,7 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 // SetMetadataStore sets the metadata store for accessing object versions
 func (h *Handler) SetMetadataStore(ms interface {
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+	GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 	GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 	GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
 }) {
@@ -1287,20 +1289,26 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			if isUnsatisfiableRangeError(parseErr) {
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
 				h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
-			} else {
-				h.writeError(w, "InvalidArgument", parseErr.Error(), objectKey, r)
+				return
 			}
-			return
+			// RFC 7233: a Range that cannot be parsed is ignored, and the whole
+			// object is returned. Only a satisfiable-looking one can fail.
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName, "object": objectKey, "range": rangeHeader,
+			}).Debug("GetObject: ignoring an unparseable Range header")
+		} else {
+			isRangeRequest = true
 		}
-		isRangeRequest = true
 
-		logrus.WithFields(logrus.Fields{
-			"bucket":     bucketName,
-			"object":     objectKey,
-			"rangeStart": rangeStart,
-			"rangeEnd":   rangeEnd,
-			"totalSize":  obj.Size,
-		}).Debug("GetObject: Range request detected")
+		if isRangeRequest {
+			logrus.WithFields(logrus.Fields{
+				"bucket":     bucketName,
+				"object":     objectKey,
+				"rangeStart": rangeStart,
+				"rangeEnd":   rangeEnd,
+				"totalSize":  obj.Size,
+			}).Debug("GetObject: Range request detected")
+		}
 	} else {
 		// No range header - send entire object
 		rangeStart = 0
@@ -1561,16 +1569,10 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get object info before deletion to track size for metrics
-	objectSize := h.getObjectSizeBeforeDeletion(r.Context(), bucketPath, objectKey, versionID)
-
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
 	if h.handleDeleteObjectErrors(w, r, err, bucketName, objectKey, versionID) {
 		return
 	}
-
-	// Update bucket metrics after successful deletion
-	h.updateMetricsAfterDeletion(r.Context(), user, userExists, tenantID, bucketName, objectSize, deleteMarkerVersionID)
 
 	// Set response headers
 	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID)
@@ -2809,7 +2811,6 @@ func (h *Handler) validateBypassGovernance(ctx context.Context, user *auth.User,
 	return nil
 }
 
-// getObjectSizeBeforeDeletion gets object size before deletion for metrics tracking
 func (h *Handler) getObjectSizeBeforeDeletion(ctx context.Context, bucketPath, objectKey, versionID string) int64 {
 	var objectSize int64
 	objInfo, reader, err := h.objectManager.GetObject(ctx, bucketPath, objectKey, versionID)
@@ -2870,7 +2871,6 @@ func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Reques
 	return true
 }
 
-// updateMetricsAfterDeletion updates bucket and tenant metrics after successful deletion
 func (h *Handler) updateMetricsAfterDeletion(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName string, objectSize int64, deleteMarkerVersionID string) {
 	// Update bucket metrics after successful deletion
 	// Only decrement if we actually deleted an object (not just created delete marker)
@@ -2939,7 +2939,10 @@ func (h *Handler) findExactObjectVersion(ctx context.Context, bucketPath, object
 	if h.metadataStore == nil {
 		return nil, false
 	}
-	versions, err := h.metadataStore.ListAllObjectVersions(ctx, bucketPath, objectKey, 0)
+	// Scoped to this key's own version range. Listing the bucket's versions and
+	// filtering afterwards turns every miss — the probe a backup tool makes
+	// before each write — into a full scan of the bucket.
+	versions, err := h.metadataStore.GetObjectVersions(ctx, bucketPath, objectKey)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket":    bucketPath,
@@ -3078,18 +3081,16 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 	ifMatch := r.Header.Get("If-Match")
 	ifNoneMatch := r.Header.Get("If-None-Match")
 
-	if ifMatch != "" {
-		if strings.TrimSpace(ifMatch) != "*" && normalizeETag(etag) != normalizeETag(ifMatch) {
-			w.WriteHeader(http.StatusPreconditionFailed)
-			return false
-		}
+	if ifMatch != "" && !etagSatisfies(etag, ifMatch) {
+		h.writeError(w, "PreconditionFailed",
+			"At least one of the pre-conditions you specified did not hold", r.URL.Path, r)
+		return false
 	}
 
-	if ifNoneMatch != "" {
-		if strings.TrimSpace(ifNoneMatch) == "*" || normalizeETag(etag) == normalizeETag(ifNoneMatch) {
-			w.WriteHeader(http.StatusNotModified)
-			return false
-		}
+	// A 304 carries no body by definition, so it is written directly.
+	if ifNoneMatch != "" && etagSatisfies(etag, ifNoneMatch) {
+		w.WriteHeader(http.StatusNotModified)
+		return false
 	}
 
 	// Date conditions (only evaluated when the corresponding ETag header is absent).
@@ -3114,6 +3115,24 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 	}
 
 	return true
+}
+
+// etagSatisfies reports whether an ETag meets an If-Match / If-None-Match
+// condition. The header may be "*", one entity tag, or a comma-separated list —
+// comparing it as a single opaque string fails every list a client sends.
+func etagSatisfies(etag, condition string) bool {
+	condition = strings.TrimSpace(condition)
+	if condition == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(condition, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/") // a weak validator still names the same entity
+		if candidate != "" && normalizeETag(etag) == normalizeETag(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeETag strips surrounding double-quote characters from an ETag value so that

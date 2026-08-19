@@ -18,6 +18,9 @@ export interface ModalProps {
   className?: string;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 const sizeClasses = {
   sm: 'max-w-md 3xl:max-w-lg 4xl:max-w-xl',
   md: 'max-w-lg 3xl:max-w-xl 4xl:max-w-2xl',
@@ -63,17 +66,46 @@ export function Modal({
     }
   };
 
-  // Focus management
+  // Focus management: move focus in, keep it inside while the dialog is open,
+  // and give it back on close. Without the trap, Tab walks out into the page
+  // behind the overlay, where every control is still reachable and clickable.
   useEffect(() => {
-    if (isOpen && modalRef.current) {
-      const focusableElements = modalRef.current.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
-      const firstElement = focusableElements[0] as HTMLElement;
-      if (firstElement) {
-        firstElement.focus();
+    if (!isOpen) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const focusable = () =>
+      Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []
+      ).filter((el) => !el.hasAttribute('disabled') && !el.hasAttribute('hidden'));
+
+    focusable()[0]?.focus();
+
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const items = focusable();
+      if (items.length === 0) {
+        e.preventDefault();
+        return;
       }
-    }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (e.shiftKey && (active === first || !modalRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleTab);
+    return () => {
+      document.removeEventListener('keydown', handleTab);
+      previouslyFocused?.focus?.();
+    };
   }, [isOpen]);
 
   // Prevent body scroll when modal is open
@@ -98,6 +130,9 @@ export function Modal({
     >
       <div
         ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className={cn(
           'relative w-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl max-h-[90vh] flex flex-col border border-gray-200/50 dark:border-gray-700/50 animate-in zoom-in-95 duration-200',
           sizeClasses[size],

@@ -362,5 +362,18 @@
   "noVersionsFound": "未找到版本",
   "noVersionsDesc": "此存储桶没有版本化对象或未启用版本控制。",
   "restoring": "恢复中…",
-  "globalAdminReadOnlyBanner": "你正在查看属于某个租户的存储桶。全局管理员可以读取其内容和配置，但所有会造成更改的操作均已禁用。"
+  "globalAdminReadOnlyBanner": "你正在查看属于某个租户的存储桶。全局管理员可以读取其内容和配置，但所有会造成更改的操作均已禁用。",
+  "changeFolderLabel": "更换文件夹",
+  "bulkDeleteTitle": "删除 {{count}} 个项目？",
+  "bulkDeleteBody": "你即将删除 <strong>{{count}}</strong> 个项目",
+  "bulkDeleteIrreversible": "此操作无法撤销",
+  "bulkDeleteLockedNote": "{{count}} 个项目受 Object Lock 保护，将被跳过。",
+  "bulkDeleteConfirm": "确认删除",
+  "bulkDeleteProgress": "正在删除 {{count}} 个项目",
+  "uploadingFiles": "正在上传 {{count}} 个文件",
+  "folderCreatedSuccess": "已创建文件夹“{{name}}”",
+  "objectDeletedSuccess": "对象已删除",
+  "shareDeletedSuccess": "共享已删除",
+  "legalHoldEnabledSuccess": "已启用法律保留",
+  "legalHoldDisabledSuccess": "已停用法律保留"
 }

@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 import React from 'react';
 import {
   LineChart,
@@ -129,7 +130,7 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = React.memo(({
   // Format timestamp for display
   const formatXAxis = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
-    return date.toLocaleTimeString('en-US', {
+    return date.toLocaleTimeString(activeLocale(), {
       hour: '2-digit',
       minute: '2-digit',
     });

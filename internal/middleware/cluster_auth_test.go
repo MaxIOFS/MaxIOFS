@@ -334,7 +334,7 @@ func TestClusterAuth_TimestampSkew(t *testing.T) {
 
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := tc.timestampFunc()
-			nonce := "nonce"
+			nonce := "nonce-" + tc.name
 			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
@@ -482,7 +482,7 @@ func TestClusterAuth_HealthyNodeStatuses(t *testing.T) {
 
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
-			nonce := "nonce"
+			nonce := "nonce-" + tc.healthStatus
 			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
@@ -573,7 +573,7 @@ func TestClusterAuth_DifferentPaths(t *testing.T) {
 
 			req := httptest.NewRequest("GET", path, nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
-			nonce := fmt.Sprintf("nonce-%d", time.Now().UnixNano())
+			nonce := "nonce-" + path
 			signature := computeSignature(nodeToken, "GET", path, timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
@@ -650,4 +650,94 @@ func TestGetNodeToken(t *testing.T) {
 	insertTestNode(t, db, removedNodeID, "removed", "removed-token", "removed")
 	_, err = middleware.getNodeToken(context.Background(), removedNodeID)
 	assert.Error(t, err, "Should not find token for removed node")
+}
+
+// A signature stays valid for its whole skew window, so without a nonce store a
+// captured request could simply be sent again inside it.
+func TestClusterAuth_ReplayedNonceIsRejected(t *testing.T) {
+	db := setupClusterAuthTestDB(t)
+	defer db.Close()
+
+	nodeID := "test-node-replay"
+	nodeToken := "test-token-replay"
+	insertTestNode(t, db, nodeID, "node-replay", nodeToken, "healthy")
+
+	middleware := NewClusterAuthMiddleware(db)
+
+	calls := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := middleware.ClusterAuth(next)
+
+	const path = "/api/internal/cluster/replay"
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	nonce := "captured-nonce"
+	signature := computeSignature(nodeToken, "GET", path, timestamp, nonce, emptyBodyHash)
+
+	send := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
+		req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+		req.Header.Set("X-MaxIOFS-Nonce", nonce)
+		req.Header.Set("X-MaxIOFS-Signature", signature)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	assert.Equal(t, http.StatusOK, send().Code, "the original request is served")
+
+	replay := send()
+	assert.Equal(t, http.StatusUnauthorized, replay.Code)
+	assert.Contains(t, replay.Body.String(), "Replayed request")
+	assert.Equal(t, 1, calls, "the replay must not reach the handler")
+}
+
+// A declared digest is signed in place of the body, so a peer that swaps the
+// bytes in flight keeps a valid signature but fails on the content.
+func TestClusterAuth_SignedDigestRejectsASubstitutedBody(t *testing.T) {
+	db := setupClusterAuthTestDB(t)
+	defer db.Close()
+
+	nodeID := "test-node-digest"
+	nodeToken := "test-token-digest"
+	insertTestNode(t, db, nodeID, "node-digest", nodeToken, "healthy")
+
+	middleware := NewClusterAuthMiddleware(db)
+
+	const path = "/api/internal/cluster/ha/objects/k"
+	original := "the replicated bytes"
+	declared := "md5:" + md5Hex(original)
+
+	send := func(body, nonce string) (int, string, bool) {
+		timestamp := fmt.Sprintf("%d", time.Now().Unix())
+		signature := computeSignature(nodeToken, "PUT", path, timestamp, nonce, declared)
+
+		req := httptest.NewRequest("PUT", path, strings.NewReader(body))
+		req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
+		req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
+		req.Header.Set("X-MaxIOFS-Nonce", nonce)
+		req.Header.Set("X-MaxIOFS-Signature", signature)
+		req.Header.Set(ClusterBodyDigestHeader, declared)
+
+		var readErr error
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, readErr = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+		rr := httptest.NewRecorder()
+		middleware.ClusterAuth(next).ServeHTTP(rr, req)
+		return rr.Code, "", readErr != nil
+	}
+
+	code, _, failed := send(original, "nonce-good")
+	assert.Equal(t, http.StatusNoContent, code)
+	assert.False(t, failed, "the declared bytes stream through")
+
+	code, _, failed = send("attacker payload", "nonce-tampered")
+	assert.Equal(t, http.StatusNoContent, code, "the signature itself is still valid")
+	assert.True(t, failed, "reading the body must fail, so the handler cannot commit it")
 }

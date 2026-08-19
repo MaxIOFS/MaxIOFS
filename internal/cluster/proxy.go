@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/transfer"
 	"github.com/sirupsen/logrus"
 )
@@ -321,6 +322,19 @@ func (p *ProxyClient) CreateAuthenticatedRequest(ctx context.Context, method, ur
 		p.SignClusterRequest(req, localNodeID, nodeToken)
 	}
 
+	return req, nil
+}
+
+// CreateAuthenticatedRequestWithDigest signs a streamed body by the digest the
+// caller already knows, so the receiver can verify the bytes instead of taking
+// them unsigned. digest is "md5:<hex>" or "sha256:<hex>".
+func (p *ProxyClient) CreateAuthenticatedRequestWithDigest(ctx context.Context, method, url string, body io.Reader, localNodeID, nodeToken, digest string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set(middleware.ClusterBodyDigestHeader, digest)
+	p.signClusterRequestWithBodyHash(req, localNodeID, nodeToken, digest)
 	return req, nil
 }
 

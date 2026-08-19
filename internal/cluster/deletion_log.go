@@ -154,6 +154,19 @@ func HasDeletion(ctx context.Context, db *sql.DB, entityType, entityID string) (
 	return exists, nil
 }
 
+// DeletionTime returns when the cluster recorded a delete for an entity, or 0
+// if it holds no tombstone for it.
+func DeletionTime(ctx context.Context, db *sql.DB, entityType, entityID string) int64 {
+	var deletedAt int64
+	err := db.QueryRowContext(ctx, `
+		SELECT deleted_at FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?
+	`, entityType, entityID).Scan(&deletedAt)
+	if err != nil {
+		return 0
+	}
+	return deletedAt
+}
+
 // EntityIsNewerThanTombstone returns true when the locally stored entity was updated
 func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
 	switch entityType {

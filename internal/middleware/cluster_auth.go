@@ -24,11 +24,24 @@ const (
 	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
 	clusterUnsignedPayloadHash = "UNSIGNED-PAYLOAD"
 	maxSignedClusterBody       = 8 << 20
+	clusterMaxSkew             = 30 * time.Second
 )
 
 // readAndHashBody drains req.Body, restores it, and returns the hex SHA-256.
 // Returns emptyBodyHash for nil bodies.
 func readAndHashBody(req *http.Request) (string, error) {
+	// A declared digest is signed in place of the body and enforced while the
+	// body streams, so a large transfer is authenticated without buffering it.
+	if declared := req.Header.Get(ClusterBodyDigestHeader); declared != "" {
+		if req.Body != nil {
+			verified, err := newVerifyingBody(req.Body, declared)
+			if err != nil {
+				return "", err
+			}
+			req.Body = verified
+		}
+		return declared, nil
+	}
 	if req.Header.Get(clusterBodySHA256Header) == clusterUnsignedPayloadHash {
 		return clusterUnsignedPayloadHash, nil
 	}
@@ -49,13 +62,15 @@ func readAndHashBody(req *http.Request) (string, error) {
 
 // ClusterAuthMiddleware provides HMAC-based authentication for cluster-internal endpoints
 type ClusterAuthMiddleware struct {
-	db *sql.DB
+	db     *sql.DB
+	nonces *nonceCache
 }
 
 // NewClusterAuthMiddleware creates a new cluster authentication middleware
 func NewClusterAuthMiddleware(db *sql.DB) *ClusterAuthMiddleware {
 	return &ClusterAuthMiddleware{
-		db: db,
+		db:     db,
+		nonces: newNonceCache(clusterMaxSkew * 2),
 	}
 }
 
@@ -89,7 +104,7 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 		}
 
 		now := time.Now().Unix()
-		maxSkew := int64(30) // 30 seconds — inter-node clocks are NTP-synced
+		maxSkew := int64(clusterMaxSkew / time.Second) // inter-node clocks are NTP-synced
 		if ts < now-maxSkew || ts > now+maxSkew {
 			logrus.WithFields(logrus.Fields{
 				"timestamp": ts,
@@ -129,6 +144,18 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 				"received": signature,
 			}).Warn("Cluster authentication failed: signature mismatch")
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
+			return
+		}
+
+		// A signature stays valid for the whole skew window, so the nonce is what
+		// stops the same request being sent twice inside it.
+		if !m.nonces.observe(nodeID+"\n"+nonce, time.Now()) {
+			logrus.WithFields(logrus.Fields{
+				"node_id": nodeID,
+				"method":  r.Method,
+				"path":    r.URL.Path,
+			}).Warn("Cluster authentication failed: nonce already used")
+			http.Error(w, "Replayed request", http.StatusUnauthorized)
 			return
 		}
 

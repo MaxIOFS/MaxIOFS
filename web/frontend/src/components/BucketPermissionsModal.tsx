@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -197,7 +198,7 @@ export function BucketPermissionsModal({
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return t('permNA');
-    return new Date(timestamp * 1000).toLocaleString('en-US', {
+    return new Date(timestamp * 1000).toLocaleString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

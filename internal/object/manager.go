@@ -440,29 +440,19 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
-	if storageMetadata[storage.MetadataGeneratedKey] == "true" && metaObj != nil {
-		onDiskSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
-		onDiskETag := storageMetadata["etag"]
-
-		mismatch := object.Size != onDiskSize
-		// The ETag is a plain MD5 only for single-part objects; a multipart one
-		// is "<md5>-<n>" and can never equal the digest of the assembled file.
-		if !mismatch && onDiskETag != "" && object.ETag != "" &&
-			!strings.Contains(object.ETag, "-") {
-			mismatch = !strings.EqualFold(strings.Trim(object.ETag, `"`), onDiskETag)
-		}
-
-		if mismatch {
-			encryptedReader.Close()
-			logrus.WithFields(logrus.Fields{
-				"bucket":       bucket,
-				"key":          key,
-				"recordedSize": object.Size,
-				"onDiskSize":   onDiskSize,
-			}).Error("Object has no metadata sidecar and its bytes do not match the recorded object; refusing to serve")
-			return nil, nil, fmt.Errorf(
-				"object %q is unreadable: its metadata sidecar is missing and the stored bytes do not match the recorded object", key)
-		}
+	var recorded *Object
+	if metaObj != nil {
+		recorded = fromMetadataObject(metaObj)
+	}
+	if verdict := confirmStorageIdentity(recorded, storageMetadata); !verdict.Servable {
+		encryptedReader.Close()
+		logrus.WithFields(logrus.Fields{
+			"bucket": bucket,
+			"key":    key,
+			"reason": verdict.Reason,
+		}).Error("Object has no metadata sidecar and its bytes cannot be identified; refusing to serve")
+		return nil, nil, fmt.Errorf(
+			"object %q is unreadable: its metadata sidecar is missing and %s", key, verdict.Reason)
 	}
 
 	// Check if object is encrypted
@@ -797,6 +787,7 @@ func (om *objectManager) resolveFolderDeleteKey(ctx context.Context, bucket, key
 
 // createDeleteMarker creates a delete marker for a versioned object
 func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key string) (string, error) {
+	defer om.lockKey(bucket, key)()
 	existingLatest, _ := om.metadataStore.GetObject(ctx, bucket, key)
 	wasVisible := existingLatest != nil && !isMetadataDeleteMarker(existingLatest)
 
@@ -860,6 +851,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 
 // deleteSpecificVersion permanently deletes a specific version
 func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key, versionID string, bypassGovernance bool) error {
+	defer om.lockKey(bucket, key)()
 	// Get all versions first to check if we're deleting the latest
 	allVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
 	if err != nil {
@@ -932,54 +924,63 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
-	if om.bucketManager != nil && deletingLatest {
-		deletedIsDeleteMarker := isMetadataDeleteMarker(metaObj)
-
-		// Find what becomes the new latest (if any)
-		var nextLatestForMetrics *metadata.ObjectVersion
-		if len(allVersions) > 1 {
-			for _, ver := range allVersions {
-				if ver.VersionID == versionID {
-					continue
-				}
-				if nextLatestForMetrics == nil || ver.LastModified.After(nextLatestForMetrics.LastModified) {
-					nextLatestForMetrics = ver
-				}
-			}
-		}
-		hasNextVersion := nextLatestForMetrics != nil
-		nextIsDeleteMarker := isVersionDeleteMarker(nextLatestForMetrics)
+	if om.bucketManager != nil {
+		tenantID, bucketName := om.parseBucketPath(bucket)
 
 		freedBytes := objMetadata.Size
 		if !physicalDeleteOK {
 			freedBytes = 0
 		}
 
-		tenantID, bucketName := om.parseBucketPath(bucket)
-
-		if om.authManager != nil && tenantID != "" && freedBytes > 0 {
-			if err := om.authManager.DecrementTenantStorage(ctx, tenantID, freedBytes); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
-					"tenant": tenantID, "bucket": bucketName,
-				}).Warn("Failed to return freed bytes to the tenant's storage quota")
+		// Any version that leaves the disk gives its bytes back, latest or not.
+		if freedBytes > 0 {
+			if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, -freedBytes); err != nil {
+				logrus.WithError(err).Warn("Failed to return the freed bytes to the bucket size")
+			}
+			if om.authManager != nil && tenantID != "" {
+				if err := om.authManager.DecrementTenantStorage(ctx, tenantID, freedBytes); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"tenant": tenantID, "bucket": bucketName,
+					}).Warn("Failed to return freed bytes to the tenant's storage quota")
+				}
 			}
 		}
 
-		switch {
-		case !hasNextVersion && !deletedIsDeleteMarker:
-			// Last real version gone
-			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, freedBytes); err != nil {
-				logrus.WithError(err).Warn("Failed to decrement object count after deleting last version")
+		// The object count follows the key you can see, which only the latest
+		// version decides. Sizes are already settled above, so these carry none.
+		if deletingLatest {
+			deletedIsDeleteMarker := isMetadataDeleteMarker(metaObj)
+
+			var nextLatestForMetrics *metadata.ObjectVersion
+			if len(allVersions) > 1 {
+				for _, ver := range allVersions {
+					if ver.VersionID == versionID {
+						continue
+					}
+					if nextLatestForMetrics == nil || ver.LastModified.After(nextLatestForMetrics.LastModified) {
+						nextLatestForMetrics = ver
+					}
+				}
 			}
-		case hasNextVersion && deletedIsDeleteMarker && !nextIsDeleteMarker:
-			// Delete marker removed → real object underneath resurfaces
-			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
-				logrus.WithError(err).Warn("Failed to increment object count after removing delete marker")
-			}
-		case hasNextVersion && !deletedIsDeleteMarker && nextIsDeleteMarker:
-			// Real latest version gone → delete marker on top → object hidden
-			if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, freedBytes); err != nil {
-				logrus.WithError(err).Warn("Failed to decrement object count after version delete exposed delete marker")
+			hasNextVersion := nextLatestForMetrics != nil
+			nextIsDeleteMarker := isVersionDeleteMarker(nextLatestForMetrics)
+
+			switch {
+			case !hasNextVersion && !deletedIsDeleteMarker:
+				// Last real version gone
+				if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
+					logrus.WithError(err).Warn("Failed to decrement object count after deleting last version")
+				}
+			case hasNextVersion && deletedIsDeleteMarker && !nextIsDeleteMarker:
+				// Delete marker removed → real object underneath resurfaces
+				if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
+					logrus.WithError(err).Warn("Failed to increment object count after removing delete marker")
+				}
+			case hasNextVersion && !deletedIsDeleteMarker && nextIsDeleteMarker:
+				// Real latest version gone → delete marker on top → object hidden
+				if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
+					logrus.WithError(err).Warn("Failed to decrement object count after version delete exposed delete marker")
+				}
 			}
 		}
 	}
@@ -1449,6 +1450,7 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 
 // UpdateObjectMetadata updates object metadata
 func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key string, metadata map[string]string) error {
+	defer om.lockKey(bucket, key)()
 	if err := om.validateObjectName(key); err != nil {
 		return err
 	}
@@ -1523,6 +1525,7 @@ func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key str
 }
 
 func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	var obj *Object
 
 	if len(versionID) > 0 && versionID[0] != "" {
@@ -1580,6 +1583,7 @@ func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key str
 }
 
 func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	var obj *Object
 
 	if len(versionID) > 0 && versionID[0] != "" {
@@ -1626,6 +1630,7 @@ func (om *objectManager) getObjectMetadataForVersion(ctx context.Context, bucket
 // status must be "ongoing" (restore in progress) or "restored" (copy available).
 // expiresAt is the time when the restored copy will expire; pass nil for ongoing restores.
 func (om *objectManager) SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
@@ -1698,6 +1703,7 @@ func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key strin
 }
 
 func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
@@ -1717,6 +1723,7 @@ func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key strin
 }
 
 func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
@@ -1759,6 +1766,7 @@ func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string, v
 }
 
 func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, objectACL *ACL, versionID ...string) error {
+	defer om.lockKey(bucket, key)()
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
 		return err
@@ -2076,10 +2084,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	// PutObjectVersion/PutObject handle their own cleanup on metadata-write failure.
 	needsCombinedFileCleanup := true
 	defer func() {
-		if needsCombinedFileCleanup {
-			if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
-				logrus.WithError(delErr).WithField("path", objectPath).Warn("Failed to remove orphaned combined object after error")
-			}
+		if !needsCombinedFileCleanup {
+			return
+		}
+		// Without versioning the combine wrote over the live object, so deleting
+		// the path destroys whatever was already there.
+		if restorePreviousFinal != nil {
+			restorePreviousFinal()
+			return
+		}
+		if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+			logrus.WithError(delErr).WithField("path", objectPath).Warn("Failed to remove orphaned combined object after error")
 		}
 	}()
 

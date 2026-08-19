@@ -362,5 +362,18 @@
   "noVersionsFound": "Aucune version trouvée",
   "noVersionsDesc": "Ce bucket n'a pas d'objets versionnés ou la gestion des versions n'est pas activée.",
   "restoring": "Restauration…",
-  "globalAdminReadOnlyBanner": "Vous consultez un bucket qui appartient à un locataire. Les administrateurs globaux peuvent le lire ainsi que sa configuration, mais toute opération de modification est désactivée."
+  "globalAdminReadOnlyBanner": "Vous consultez un bucket qui appartient à un locataire. Les administrateurs globaux peuvent le lire ainsi que sa configuration, mais toute opération de modification est désactivée.",
+  "changeFolderLabel": "Changer de dossier",
+  "bulkDeleteTitle": "Supprimer {{count}} éléments ?",
+  "bulkDeleteBody": "Vous allez supprimer <strong>{{count}}</strong> éléments",
+  "bulkDeleteIrreversible": "Cette action est irréversible",
+  "bulkDeleteLockedNote": "{{count}} éléments sont protégés par Object Lock et seront ignorés.",
+  "bulkDeleteConfirm": "Oui, supprimer",
+  "bulkDeleteProgress": "Suppression de {{count}} éléments",
+  "uploadingFiles": "Envoi de {{count}} fichiers",
+  "folderCreatedSuccess": "Dossier \"{{name}}\" créé",
+  "objectDeletedSuccess": "Objet supprimé",
+  "shareDeletedSuccess": "Partage supprimé",
+  "legalHoldEnabledSuccess": "Legal Hold activé",
+  "legalHoldDisabledSuccess": "Legal Hold désactivé"
 }

@@ -1078,10 +1078,9 @@ func (s *PebbleStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 	sort.Strings(candidateKeys)
 
 	var objects []*ObjectMetadata
-	var nextMarker string
+	page := newPager(maxKeys)
 	for _, objKey := range candidateKeys {
-		if len(objects) >= maxKeys {
-			nextMarker = objKey
+		if page.full() {
 			break
 		}
 		obj, err := s.GetObject(ctx, bucket, objKey)
@@ -1090,7 +1089,8 @@ func (s *PebbleStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 		}
 		if matchesFilter(obj, filter) {
 			objects = append(objects, obj)
+			page.took(objKey)
 		}
 	}
-	return objects, nextMarker, nil
+	return objects, page.nextMarker(), nil
 }

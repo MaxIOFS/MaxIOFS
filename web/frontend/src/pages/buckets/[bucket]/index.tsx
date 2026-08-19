@@ -41,7 +41,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient, s3Client } from '@/lib/api';
 import { ListObjectsResponse, ObjectSearchFilter } from '@/types';
 import ModalManager from '@/lib/modals';
-import { isHttpStatus, escapeHtml } from '@/lib/utils';
+import { isHttpStatus, escapeHtml, activeLocale } from '@/lib/utils';
 import { BucketPermissionsModal } from '@/components/BucketPermissionsModal';
 import { ObjectVersionsModal } from '@/components/ObjectVersionsModal';
 import { PresignedURLModal } from '@/components/PresignedURLModal';
@@ -236,7 +236,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
       setIsCreateFolderModalOpen(false);
       setNewFolderName('');
-      ModalManager.toast('success', `Folder "${newFolderName}" created successfully`);
+      ModalManager.toast('success', t('folderCreatedSuccess', { name: newFolderName }));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -322,7 +322,7 @@ export default function BucketDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
       queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       queryClient.invalidateQueries({ queryKey: ['buckets'] });
-      ModalManager.toast('success', 'Object deleted successfully');
+      ModalManager.toast('success', t('objectDeletedSuccess'));
       // If we were in the object detail view, go back to the list
       if (detailsObjectKeyRef.current) {
         setDetailsObjectKey('');
@@ -339,7 +339,7 @@ export default function BucketDetailsPage() {
     mutationFn: ({ bucket, key }: { bucket: string; key: string }) => APIClient.deleteShare(bucket, key, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares', bucketName, tenantId] });
-      ModalManager.toast('success', 'Share deleted successfully');
+      ModalManager.toast('success', t('shareDeletedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -352,7 +352,7 @@ export default function BucketDetailsPage() {
     onSuccess: (_, variables) => {
       // Invalidate objects to refresh Legal Hold status
       queryClient.invalidateQueries({ queryKey: ['objects', bucketName] });
-      ModalManager.toast('success', `Legal Hold ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
+      ModalManager.toast('success', variables.enabled ? t('legalHoldEnabledSuccess') : t('legalHoldDisabledSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -533,7 +533,7 @@ export default function BucketDetailsPage() {
 
     // Start background task — progress bar appears bottom-right
     const taskId = ModalManager.startBgTask(
-      `Uploading ${totalFiles} file${totalFiles !== 1 ? 's' : ''}`,
+      t('uploadingFiles', { count: totalFiles }),
       totalFiles
     );
 
@@ -913,7 +913,7 @@ export default function BucketDetailsPage() {
     if (selectedObjects.size === 0) return;
 
     // Separate locked from deletable items
-    const allSelected = filteredItems.filter(item => selectedObjects.has(item.key));
+    const allSelected = allItems.filter(item => selectedObjects.has(item.key));
     const lockedItems = allSelected.filter(isObjectLocked);
     const deletableItems = allSelected.filter(item => !isObjectLocked(item));
 
@@ -925,18 +925,18 @@ export default function BucketDetailsPage() {
 
     const total = deletableItems.length;
     const lockedNote = lockedItems.length > 0
-      ? `<p class="text-yellow-600 mt-2">${lockedItems.length} item${lockedItems.length !== 1 ? 's are' : ' is'} protected by Object Lock and will be skipped.</p>`
+      ? `<p class="text-yellow-600 mt-2">${t('bulkDeleteLockedNote', { count: lockedItems.length })}</p>`
       : '';
 
     const result = await ModalManager.fire({
       icon: 'warning',
-      title: `Delete ${total} item${total !== 1 ? 's' : ''}?`,
-      html: `<p>You are about to delete <strong>${total}</strong> item${total !== 1 ? 's' : ''}</p>
-             <p class="text-red-600 mt-2">This action cannot be undone</p>
+      title: t('bulkDeleteTitle', { count: total }),
+      html: `<p>${t('bulkDeleteBody', { count: total })}</p>
+             <p class="text-red-600 mt-2">${t('bulkDeleteIrreversible')}</p>
              ${lockedNote}`,
       showCancelButton: true,
-      confirmButtonText: 'Yes, delete',
-      cancelButtonText: 'Cancel',
+      confirmButtonText: t('bulkDeleteConfirm'),
+      cancelButtonText: t('cancel'),
       confirmButtonColor: '#dc2626',
     });
 
@@ -948,7 +948,7 @@ export default function BucketDetailsPage() {
 
     // Start background task — dialog is now closed, bar appears bottom-right
     const taskId = ModalManager.startBgTask(
-      `Deleting ${total} item${total !== 1 ? 's' : ''}`,
+      t('bulkDeleteProgress', { count: total }),
       total
     );
 
@@ -1126,7 +1126,7 @@ export default function BucketDetailsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

@@ -28,6 +28,8 @@ vi.mock('@/lib/modals', () => ({
     error: vi.fn(),
     apiError: vi.fn(),
   },
+  ModalRenderer: () => null,
+  ToastNotifications: () => null,
 }));
 
 describe('Login Page', () => {

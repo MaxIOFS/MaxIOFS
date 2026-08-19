@@ -10,7 +10,9 @@ import (
 	"hash/crc32"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -173,45 +175,131 @@ func createSelectTable(db *sql.DB, cols []string) error {
 	return err
 }
 
-// bulkInsert inserts all rows into s3object in a single transaction.
-func bulkInsert(db *sql.DB, cols []string, rows [][]string) error {
-	if len(rows) == 0 {
+// rowWriter inserts rows into s3object as they are read, inside one
+// transaction, so the loaders never hold the object in memory. Columns can
+// appear mid-stream (JSON lines have no fixed schema), and the table grows to
+// match rather than the input being buffered to discover its shape first.
+type rowWriter struct {
+	db    *sql.DB
+	tx    *sql.Tx
+	cols  []string
+	index map[string]int
+	stmt  *sql.Stmt
+}
+
+func newRowWriter(db *sql.DB) *rowWriter {
+	return &rowWriter{db: db, index: map[string]int{}}
+}
+
+// ensureColumns extends the table so every named column exists.
+func (rw *rowWriter) ensureColumns(names []string) error {
+	var fresh []string
+	for _, name := range names {
+		if _, ok := rw.index[name]; ok {
+			continue
+		}
+		rw.index[name] = len(rw.cols)
+		rw.cols = append(rw.cols, name)
+		fresh = append(fresh, name)
+	}
+	if len(fresh) == 0 {
 		return nil
 	}
-	placeholders := strings.Repeat(",?", len(cols))
-	placeholders = "(" + placeholders[1:] + ")"
 
-	quotedCols := make([]string, len(cols))
-	for i, c := range cols {
-		quotedCols[i] = quoteColIdent(c)
-	}
-	insertSQL := fmt.Sprintf("INSERT INTO s3object (%s) VALUES %s",
-		strings.Join(quotedCols, ","), placeholders)
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	stmt, err := tx.Prepare(insertSQL)
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	defer stmt.Close()
-
-	for _, row := range rows {
-		vals := make([]interface{}, len(cols))
-		for i := range cols {
-			if i < len(row) {
-				vals[i] = row[i]
-			}
-		}
-		if _, err := stmt.Exec(vals...); err != nil {
-			_ = tx.Rollback()
+	if rw.tx == nil {
+		if err := createSelectTable(rw.db, rw.cols); err != nil {
 			return err
 		}
+		tx, err := rw.db.Begin()
+		if err != nil {
+			return err
+		}
+		rw.tx = tx
+	} else {
+		for _, name := range fresh {
+			if _, err := rw.tx.Exec(`ALTER TABLE s3object ADD COLUMN ` + quoteColIdent(name) + ` TEXT`); err != nil {
+				return err
+			}
+		}
 	}
+
+	// The prepared insert names a fixed column list, so it is rebuilt.
+	if rw.stmt != nil {
+		_ = rw.stmt.Close()
+		rw.stmt = nil
+	}
+	return nil
+}
+
+func (rw *rowWriter) prepare() error {
+	if rw.stmt != nil {
+		return nil
+	}
+	quoted := make([]string, len(rw.cols))
+	for i, c := range rw.cols {
+		quoted[i] = quoteColIdent(c)
+	}
+	placeholders := "(" + strings.TrimPrefix(strings.Repeat(",?", len(rw.cols)), ",") + ")"
+	stmt, err := rw.tx.Prepare(fmt.Sprintf("INSERT INTO s3object (%s) VALUES %s",
+		strings.Join(quoted, ","), placeholders))
+	if err != nil {
+		return err
+	}
+	rw.stmt = stmt
+	return nil
+}
+
+// writeValues inserts one row, positionally against the current columns.
+func (rw *rowWriter) writeValues(values []string) error {
+	if len(rw.cols) == 0 {
+		return nil
+	}
+	if err := rw.prepare(); err != nil {
+		return err
+	}
+	vals := make([]interface{}, len(rw.cols))
+	for i := range rw.cols {
+		if i < len(values) {
+			vals[i] = values[i]
+		}
+	}
+	_, err := rw.stmt.Exec(vals...)
+	return err
+}
+
+// writeNamed inserts one row given values by column name.
+func (rw *rowWriter) writeNamed(values map[string]string) error {
+	row := make([]string, len(rw.cols))
+	for name, v := range values {
+		if i, ok := rw.index[name]; ok {
+			row[i] = v
+		}
+	}
+	return rw.writeValues(row)
+}
+
+func (rw *rowWriter) commit() error {
+	if rw.stmt != nil {
+		_ = rw.stmt.Close()
+		rw.stmt = nil
+	}
+	if rw.tx == nil {
+		return nil
+	}
+	tx := rw.tx
+	rw.tx = nil
 	return tx.Commit()
+}
+
+func (rw *rowWriter) rollback() {
+	if rw.stmt != nil {
+		_ = rw.stmt.Close()
+		rw.stmt = nil
+	}
+	if rw.tx != nil {
+		_ = rw.tx.Rollback()
+		rw.tx = nil
+	}
 }
 
 // countingReader wraps an io.Reader and counts total bytes read.
@@ -233,19 +321,11 @@ func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned 
 	cr := csv.NewReader(counter)
 	cr.LazyQuotes = true
 	cr.TrimLeadingSpace = true
-	cr.FieldsPerRecord = -1 // allow variable field counts
+	cr.FieldsPerRecord = -1
+	cr.ReuseRecord = true // the record is copied into the insert before the next read
 
 	if cfg != nil && cfg.FieldDelimiter != "" {
 		cr.Comma = rune(cfg.FieldDelimiter[0])
-	}
-
-	records, err := cr.ReadAll()
-	scanned = counter.n
-	if err != nil {
-		return nil, scanned, fmt.Errorf("parsing CSV: %w", err)
-	}
-	if len(records) == 0 {
-		return nil, scanned, nil
 	}
 
 	headerInfo := "NONE"
@@ -253,47 +333,70 @@ func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned 
 		headerInfo = strings.ToUpper(cfg.FileHeaderInfo)
 	}
 
-	var dataRows [][]string
+	writer := newRowWriter(db)
+	defer writer.rollback()
+
+	first, err := cr.Read()
+	if err == io.EOF {
+		return nil, counter.n, nil
+	}
+	if err != nil {
+		return nil, counter.n, fmt.Errorf("parsing CSV: %w", err)
+	}
+
 	switch headerInfo {
 	case "USE":
-		cols = records[0]
-		dataRows = records[1:]
-	case "IGNORE":
-		n := len(records[0])
-		cols = make([]string, n)
+		cols = append([]string(nil), first...)
+	default: // IGNORE and NONE both use positional names
+		cols = make([]string, len(first))
 		for i := range cols {
 			cols[i] = fmt.Sprintf("_%d", i+1)
 		}
-		dataRows = records[1:]
-	default: // NONE
-		n := len(records[0])
-		cols = make([]string, n)
-		for i := range cols {
-			cols[i] = fmt.Sprintf("_%d", i+1)
-		}
-		dataRows = records
 	}
-
 	if len(cols) == 0 {
-		return nil, scanned, nil
+		return nil, counter.n, nil
+	}
+	if err := writer.ensureColumns(cols); err != nil {
+		return nil, counter.n, err
 	}
 
-	if err := createSelectTable(db, cols); err != nil {
-		return nil, scanned, err
+	// NONE keeps the first record as data; USE and IGNORE consume it as a header.
+	if headerInfo != "USE" && headerInfo != "IGNORE" {
+		if err := writer.writeValues(first); err != nil {
+			return nil, counter.n, err
+		}
 	}
-	if err := bulkInsert(db, cols, dataRows); err != nil {
-		return nil, scanned, err
+
+	for {
+		record, readErr := cr.Read()
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, counter.n, fmt.Errorf("parsing CSV: %w", readErr)
+		}
+		if err := writer.writeValues(record); err != nil {
+			return nil, counter.n, err
+		}
 	}
-	return cols, scanned, nil
+
+	if err := writer.commit(); err != nil {
+		return nil, counter.n, err
+	}
+	return cols, counter.n, nil
 }
 
 // loadJSONLines reads newline-delimited JSON objects from r into s3object.
-// Returns column names (from keys of all records) and bytes read.
+// The schema is discovered as the stream goes: a key that first appears on a
+// later record adds a column, so the input never has to be buffered to learn
+// its shape.
 func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err error) {
 	counter := &countingReader{r: r}
 	dec := json.NewDecoder(counter)
 
-	var allMaps []map[string]interface{}
+	writer := newRowWriter(db)
+	defer writer.rollback()
+
 	for {
 		var obj map[string]interface{}
 		if decErr := dec.Decode(&obj); decErr != nil {
@@ -302,52 +405,42 @@ func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err e
 			}
 			return nil, counter.n, fmt.Errorf("parsing JSON lines: %w", decErr)
 		}
-		allMaps = append(allMaps, obj)
-	}
-	scanned = counter.n
 
-	if len(allMaps) == 0 {
-		return nil, scanned, nil
-	}
+		names := make([]string, 0, len(obj))
+		for k := range obj {
+			names = append(names, k)
+		}
+		sort.Strings(names) // a map iterates at random; columns must not
+		if err := writer.ensureColumns(names); err != nil {
+			return nil, counter.n, err
+		}
 
-	// Collect all unique keys (first-seen order).
-	seen := make(map[string]bool)
-	for _, m := range allMaps {
-		for k := range m {
-			if !seen[k] {
-				seen[k] = true
-				cols = append(cols, k)
-			}
+		values := make(map[string]string, len(obj))
+		for k, v := range obj {
+			values[k] = jsonFieldToText(v)
+		}
+		if err := writer.writeNamed(values); err != nil {
+			return nil, counter.n, err
 		}
 	}
 
-	if err := createSelectTable(db, cols); err != nil {
-		return nil, scanned, err
+	if err := writer.commit(); err != nil {
+		return nil, counter.n, err
 	}
+	return writer.cols, counter.n, nil
+}
 
-	rows := make([][]string, len(allMaps))
-	for i, m := range allMaps {
-		row := make([]string, len(cols))
-		for j, col := range cols {
-			if v, ok := m[col]; ok {
-				switch vv := v.(type) {
-				case string:
-					row[j] = vv
-				case nil:
-					row[j] = ""
-				default:
-					b, _ := json.Marshal(vv)
-					row[j] = string(b)
-				}
-			}
-		}
-		rows[i] = row
+// jsonFieldToText renders a JSON value as the text the query engine stores.
+func jsonFieldToText(v interface{}) string {
+	switch vv := v.(type) {
+	case string:
+		return vv
+	case nil:
+		return ""
+	default:
+		b, _ := json.Marshal(vv)
+		return string(b)
 	}
-
-	if err := bulkInsert(db, cols, rows); err != nil {
-		return nil, scanned, err
-	}
-	return cols, scanned, nil
 }
 
 // streamSelectResults executes the SQL expression, writes Records events to w,
@@ -526,13 +619,26 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 
 	// ── Load into in-memory SQLite ───────────────────────────────────────────
 
-	db, dbErr := sql.Open("sqlite", ":memory:")
+	// The engine loads the object into a database before querying it, so that
+	// database is backed by a temporary file rather than by RAM: a large object
+	// costs disk, which is bounded and reclaimed, instead of memory the node
+	// shares with every other request.
+	scratch, scratchErr := os.CreateTemp("", "maxiofs-select-*.db")
+	if scratchErr != nil {
+		h.writeError(w, "InternalError", "failed to initialise query engine", objectKey, r)
+		return
+	}
+	scratchPath := scratch.Name()
+	_ = scratch.Close()
+	defer os.Remove(scratchPath)
+
+	db, dbErr := sql.Open("sqlite", scratchPath+"?_pragma=journal_mode(OFF)&_pragma=synchronous(OFF)")
 	if dbErr != nil {
 		h.writeError(w, "InternalError", "failed to initialise query engine", objectKey, r)
 		return
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(1) // required: all ops must share the same in-memory DB
+	db.SetMaxOpenConns(1) // all operations must share one connection
 
 	var bytesScanned int64
 	if req.InputSerialization.CSV != nil {
@@ -540,6 +646,7 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_, bytesScanned, err = loadJSONLines(db, reader)
 	}
+
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,

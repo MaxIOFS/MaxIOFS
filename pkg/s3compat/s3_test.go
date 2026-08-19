@@ -965,13 +965,16 @@ func TestS3MultipartUpload(t *testing.T) {
 		assert.Contains(t, w.Body.String(), objectKey, "Response should contain object key")
 	})
 
-	t.Run("Complete multipart upload with invalid uploadId returns NoSuchUpload in body", func(t *testing.T) {
+	t.Run("Complete multipart upload with invalid uploadId returns 404", func(t *testing.T) {
 		completeXML := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"abc"</ETag></Part></CompleteMultipartUpload>`
 		req, w := env.makeS3Request("POST", fmt.Sprintf("/%s/nonexistent.dat?uploadId=invalid-upload-id-xyz", bucketName), []byte(completeXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code, "CompleteMultipartUpload always returns 200 OK immediately (AWS S3 compatible)")
+		// Nothing is written before this check, so it is an ordinary 404. The
+		// always-200 behaviour applies to failures after the keep-alive path
+		// has committed a status, not to an unknown upload.
+		assert.Equal(t, http.StatusNotFound, w.Code)
 		assert.Contains(t, w.Body.String(), "NoSuchUpload", "Error body must contain NoSuchUpload code")
 	})
 
@@ -1458,13 +1461,17 @@ func TestS3RangeRequests(t *testing.T) {
 		assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, w.Code, "Should return 416 for invalid range")
 	})
 
-	t.Run("Malformed range returns 400", func(t *testing.T) {
-		req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
-		req.Header.Set("Range", "bytes=abc-def")
-		env.router.ServeHTTP(w, req)
+	// RFC 7233 3.1: a Range the server cannot parse is ignored, and the whole
+	// object is returned. Only a well-formed but unsatisfiable one gets 416.
+	t.Run("Malformed range is ignored and the whole object is returned", func(t *testing.T) {
+		for _, bad := range []string{"bytes=abc-def", "bytes=xyz-", "seconds=1-2", "garbage"} {
+			req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+			req.Header.Set("Range", bad)
+			env.router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Malformed Range should return 400")
-		assert.Contains(t, w.Body.String(), "InvalidArgument")
+			assert.Equal(t, http.StatusOK, w.Code, "Range %q should be ignored", bad)
+			assert.Equal(t, string(content), w.Body.String(), "Range %q should return the whole object", bad)
+		}
 	})
 
 	t.Run("Get without Range header (full object)", func(t *testing.T) {

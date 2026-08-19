@@ -126,9 +126,6 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 			remaining := strings.TrimPrefix(ver.Key, prefix)
 			if idx := strings.Index(remaining, delimiter); idx >= 0 {
 				commonPrefix := prefix + remaining[:idx+len(delimiter)]
-				if keyMarker != "" && commonPrefix <= keyMarker {
-					continue
-				}
 				if _, seen := seenCommonPrefixes[commonPrefix]; seen {
 					continue
 				}
@@ -139,15 +136,6 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-		}
-
-		// Skip if before key marker
-		if keyMarker != "" && ver.Key < keyMarker {
-			continue
-		}
-		// Skip if at keyMarker but before versionIDMarker
-		if keyMarker == ver.Key && versionIDMarker != "" && ver.VersionID < versionIDMarker {
-			continue
 		}
 
 		versionID := ver.VersionID
@@ -177,12 +165,31 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		return unified[i].lastModified.After(unified[j].lastModified)
 	})
 
+	if keyMarker != "" {
+		resumeAt := len(unified)
+		for i, item := range unified {
+			if item.key < keyMarker {
+				continue
+			}
+			if item.key > keyMarker {
+				resumeAt = i
+				break
+			}
+			// Same key: the version marker picks which of its versions resumes.
+			if versionIDMarker == "" || item.versionID == versionIDMarker {
+				resumeAt = i
+				break
+			}
+		}
+		unified = unified[resumeAt:]
+	}
+
 	// Truncate the unified list to maxKeys, then split into versions and delete markers
 	isTruncated := len(unified) > maxKeys
 	nextKeyMarker := ""
 	nextVersionIDMarker := ""
 	if isTruncated {
-		nextKeyMarker = encodeStr(unified[maxKeys].key)
+		nextKeyMarker = unified[maxKeys].key
 		nextVersionIDMarker = unified[maxKeys].versionID
 		unified = unified[:maxKeys]
 	}

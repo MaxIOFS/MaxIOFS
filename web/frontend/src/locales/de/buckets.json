@@ -362,5 +362,18 @@
   "noVersionsFound": "Keine Versionen gefunden",
   "noVersionsDesc": "Dieser Bucket hat keine versionierten Objekte oder die Versionierung ist nicht aktiviert.",
   "restoring": "Wird wiederhergestellt…",
-  "globalAdminReadOnlyBanner": "Sie sehen einen Bucket, der zu einem Mandanten gehört. Globale Administratoren können ihn und seine Konfiguration lesen, aber jede ändernde Operation ist deaktiviert."
+  "globalAdminReadOnlyBanner": "Sie sehen einen Bucket, der zu einem Mandanten gehört. Globale Administratoren können ihn und seine Konfiguration lesen, aber jede ändernde Operation ist deaktiviert.",
+  "changeFolderLabel": "Ordner wechseln",
+  "bulkDeleteTitle": "{{count}} Elemente löschen?",
+  "bulkDeleteBody": "Sie löschen <strong>{{count}}</strong> Elemente",
+  "bulkDeleteIrreversible": "Diese Aktion kann nicht rückgängig gemacht werden",
+  "bulkDeleteLockedNote": "{{count}} Elemente sind durch Object Lock geschützt und werden übersprungen.",
+  "bulkDeleteConfirm": "Ja, löschen",
+  "bulkDeleteProgress": "{{count}} Elemente werden gelöscht",
+  "uploadingFiles": "{{count}} Dateien werden hochgeladen",
+  "folderCreatedSuccess": "Ordner \"{{name}}\" erstellt",
+  "objectDeletedSuccess": "Objekt gelöscht",
+  "shareDeletedSuccess": "Freigabe gelöscht",
+  "legalHoldEnabledSuccess": "Legal Hold aktiviert",
+  "legalHoldDisabledSuccess": "Legal Hold deaktiviert"
 }

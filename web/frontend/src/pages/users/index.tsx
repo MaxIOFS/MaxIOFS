@@ -1,3 +1,4 @@
+import { activeLocale } from '@/lib/utils';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, Navigate } from 'react-router-dom';
@@ -244,7 +245,7 @@ export default function UsersPage() {
   const formatDate = (dateValue: string | number) => {
     // Si es un número, convertirlo de timestamp Unix (segundos) a milisegundos
     const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(activeLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

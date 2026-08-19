@@ -231,6 +231,9 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 		return err
 	}
 
+	unlock := fs.lockPath(path)
+	defer unlock()
+
 	fullPath := fs.getFullPath(path)
 
 	// Check if file exists

@@ -420,7 +420,11 @@ func (s *AntiEntropyScrubber) processBatch(
 
 			local := localByKey[key]
 			peerEntry := peerByKey[key]
-			divergence, action := classifyDivergence(local, peerEntry)
+			deletedAt := int64(0)
+			if peerEntry == nil || !peerEntry.Found {
+				deletedAt = DeletionTime(ctx, s.mgr.db, EntityTypeObject, ObjectTombstoneID(bucketPath, key))
+			}
+			divergence, action := classifyDivergence(local, peerEntry, deletedAt)
 			if divergence != divNone {
 				cp.DivergencesFound++
 				if s.applyAction(ctx, client, peer, localID, bucketPath, key, local, action) {
@@ -465,16 +469,23 @@ const (
 	actNone reconcileAction = iota
 	actPushToPeer
 	actPullFromPeer
+	actDeleteLocal
 )
 
 // classifyDivergence applies the LWW rules.  multipart objects (ETag has a
 // "-N" suffix) skip checksum compare and rely on existence + size + 1s
 // last_modified tolerance.
-func classifyDivergence(local *object.Object, peer *ChecksumEntry) (divergenceKind, reconcileAction) {
+// deletedAt is when the cluster recorded a delete for this key, or 0 if it
+// never did. Without it "the peer does not have it" and "the peer deleted it"
+// are the same observation, and the scrubber resurrects deleted objects.
+func classifyDivergence(local *object.Object, peer *ChecksumEntry, deletedAt int64) (divergenceKind, reconcileAction) {
 	if local == nil {
 		return divNone, actNone
 	}
 	if peer == nil || !peer.Found {
+		if deletedAt > 0 && local.LastModified.Unix() <= deletedAt {
+			return divPeerMissing, actDeleteLocal
+		}
 		return divPeerMissing, actPushToPeer
 	}
 
@@ -558,6 +569,18 @@ func (s *AntiEntropyScrubber) applyAction(
 		logrus.WithFields(logrus.Fields{
 			"peer": peer.ID, "bucket": bucketPath, "key": key,
 		}).Info("AntiEntropyScrubber: pulled newer copy from peer")
+		return true
+
+	case actDeleteLocal:
+		if _, err := s.objMgr.DeleteObject(ctx, bucketPath, key, false); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"peer": peer.ID, "bucket": bucketPath, "key": key,
+			}).Warn("AntiEntropyScrubber: local delete failed")
+			return false
+		}
+		logrus.WithFields(logrus.Fields{
+			"peer": peer.ID, "bucket": bucketPath, "key": key,
+		}).Info("AntiEntropyScrubber: removed a local copy the cluster had deleted")
 		return true
 
 	default:

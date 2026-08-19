@@ -1,3 +1,4 @@
+import i18n from 'i18next';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -32,7 +33,13 @@ export function formatDate(date: string | Date | number, options?: Intl.DateTime
     minute: '2-digit',
   };
 
-  return dateObj.toLocaleDateString('en-US', { ...defaultOptions, ...options });
+  return dateObj.toLocaleDateString(activeLocale(), { ...defaultOptions, ...options });
+}
+
+// activeLocale is the language the console is currently displaying. Dates in
+// US order inside an otherwise translated page read as a bug to the user.
+export function activeLocale(): string {
+  return i18n.language || 'en';
 }
 
 export function formatRelativeTime(date: string | Date): string {
@@ -43,10 +50,11 @@ export function formatRelativeTime(date: string | Date): string {
   const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
   const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
 
-  if (diffInMinutes < 1) return 'Just now';
-  if (diffInMinutes < 60) return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
-  if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
-  if (diffInDays < 7) return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+  const relative = new Intl.RelativeTimeFormat(activeLocale(), { numeric: 'auto' });
+  if (diffInMinutes < 1) return relative.format(0, 'minute');
+  if (diffInMinutes < 60) return relative.format(-diffInMinutes, 'minute');
+  if (diffInHours < 24) return relative.format(-diffInHours, 'hour');
+  if (diffInDays < 7) return relative.format(-diffInDays, 'day');
 
   return formatDate(dateObj);
 }

@@ -362,5 +362,18 @@
   "noVersionsFound": "No versions found",
   "noVersionsDesc": "This bucket has no versioned objects or versioning is not enabled.",
   "restoring": "Restoring…",
-  "globalAdminReadOnlyBanner": "You are viewing a bucket that belongs to a tenant. Global administrators can read it and its configuration, but every operation that would change something is disabled."
+  "globalAdminReadOnlyBanner": "You are viewing a bucket that belongs to a tenant. Global administrators can read it and its configuration, but every operation that would change something is disabled.",
+  "changeFolderLabel": "Change folder",
+  "bulkDeleteTitle": "Delete {{count}} items?",
+  "bulkDeleteBody": "You are about to delete <strong>{{count}}</strong> items",
+  "bulkDeleteIrreversible": "This action cannot be undone",
+  "bulkDeleteLockedNote": "{{count}} items are protected by Object Lock and will be skipped.",
+  "bulkDeleteConfirm": "Yes, delete",
+  "bulkDeleteProgress": "Deleting {{count}} items",
+  "uploadingFiles": "Uploading {{count}} files",
+  "folderCreatedSuccess": "Folder \"{{name}}\" created",
+  "objectDeletedSuccess": "Object deleted",
+  "shareDeletedSuccess": "Share deleted",
+  "legalHoldEnabledSuccess": "Legal Hold enabled",
+  "legalHoldDisabledSuccess": "Legal Hold disabled"
 }

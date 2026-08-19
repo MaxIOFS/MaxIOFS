@@ -141,3 +141,16 @@ func hasPrefix(s, prefix string) bool {
 	}
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
+
+// countsTowardBucketStorage is the single definition of what occupies a bucket.
+// Every path that measures a bucket — the running counters kept on each write
+// and the full recount — must agree by asking this, or they drift apart.
+//
+// A delete marker records an absence and a folder marker is a console
+// convenience that S3 does not have; neither is stored data.
+func countsTowardBucketStorage(key, etag string, size int64) bool {
+	if strings.HasSuffix(key, "/") {
+		return false
+	}
+	return !(etag == "" && size == 0)
+}
