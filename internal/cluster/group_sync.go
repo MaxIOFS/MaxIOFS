@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"sort"
@@ -31,7 +32,7 @@ type GroupData struct {
 
 // GroupSyncManager handles automatic group synchronization between cluster nodes.
 type GroupSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -71,7 +72,7 @@ func (m *GroupSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting group synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 func (m *GroupSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -85,7 +86,7 @@ func (m *GroupSyncManager) syncLoop(ctx context.Context, interval time.Duration)
 		case <-ctx.Done():
 			m.log.Info("Group sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Group sync loop stopped")
 			return
 		case <-ticker.C:
@@ -385,7 +386,7 @@ func (m *GroupSyncManager) sendDeletionToNode(ctx context.Context, groupID strin
 
 // TriggerSync runs a full group sync immediately in a goroutine.
 func (m *GroupSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllGroups)
+	runDetached(&m.Worker, ctx, m.syncAllGroups)
 }
 
 // SyncToNode immediately pushes all local groups to the given node.

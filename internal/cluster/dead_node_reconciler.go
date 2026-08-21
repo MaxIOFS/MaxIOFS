@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"strconv"
 	"sync"
 	"time"
@@ -58,7 +59,7 @@ type DeadNodeReconciler struct {
 	emit   EventEmitter
 	log    *logrus.Entry
 
-	bgWorker
+	bgwork.Worker
 	mu sync.Mutex
 }
 
@@ -77,7 +78,7 @@ func NewDeadNodeReconciler(mgr *Manager, syncer SyncTrigger, emit EventEmitter) 
 // Start launches the background goroutine. It returns immediately; Stop ends it
 // and waits for it.
 func (r *DeadNodeReconciler) Start(ctx context.Context) {
-	r.spawn(func() { r.run(ctx) })
+	r.Spawn(func() { r.run(ctx) })
 }
 
 func (r *DeadNodeReconciler) run(ctx context.Context) {
@@ -89,11 +90,11 @@ func (r *DeadNodeReconciler) run(ctx context.Context) {
 
 	// Run once shortly after startup so a freshly-restarted node catches any
 	// nodes that crossed the threshold while it was down.
-	r.spawn(func() {
+	r.Spawn(func() {
 		select {
 		case <-ctx.Done():
 			return
-		case <-r.stopped():
+		case <-r.Stopped():
 			return
 		case <-time.After(30 * time.Second):
 			if err := r.RunOnce(ctx); err != nil {

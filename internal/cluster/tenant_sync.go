@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -36,7 +37,7 @@ type TenantData struct {
 
 // TenantSyncManager handles automatic tenant synchronization between cluster nodes
 type TenantSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -78,7 +79,7 @@ func (m *TenantSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting tenant synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -94,7 +95,7 @@ func (m *TenantSyncManager) syncLoop(ctx context.Context, interval time.Duration
 		case <-ctx.Done():
 			m.log.Info("Tenant sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Tenant sync loop stopped")
 			return
 		case <-ticker.C:
@@ -433,7 +434,7 @@ func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID str
 // TriggerSync immediately runs a full tenant sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *TenantSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllTenants)
+	runDetached(&m.Worker, ctx, m.syncAllTenants)
 }
 
 // SyncToNode immediately pushes all local tenants to the given node.

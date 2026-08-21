@@ -23,7 +23,7 @@ func TestUserSyncManager_NewUserSyncManager(t *testing.T) {
 	assert.NotNil(t, syncManager.db)
 	assert.NotNil(t, syncManager.clusterManager)
 	assert.NotNil(t, syncManager.proxyClient)
-	assert.NotNil(t, syncManager.stopped())
+	assert.NotNil(t, syncManager.Stopped())
 	assert.NotNil(t, syncManager.log)
 }
 
@@ -227,7 +227,7 @@ func TestUserSyncManager_Stop(t *testing.T) {
 
 	// Stop channel should be closed
 	select {
-	case <-syncManager.stopped():
+	case <-syncManager.Stopped():
 		// Expected - channel is closed
 	default:
 		t.Error("Expected stop channel to be closed")

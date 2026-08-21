@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -107,6 +108,103 @@ func TestEncryptionWorkerRunEndpoint(t *testing.T) {
 	server.handleEncryptionWorkerRun(w, req)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), `"started":true`)
+}
+
+type blockingEncryptionObjectManager struct {
+	object.Manager
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingEncryptionObjectManager) ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*object.ListObjectsResult, error) {
+	return &object.ListObjectsResult{
+		Objects: []object.Object{{Bucket: bucket, Key: "blocked.txt"}},
+	}, nil
+}
+
+func (m *blockingEncryptionObjectManager) EncryptExistingObject(ctx context.Context, bucket, key string) (converted, skipped int, err error) {
+	select {
+	case m.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-m.release:
+		return 1, 0, nil
+	case <-ctx.Done():
+		return 0, 0, ctx.Err()
+	}
+}
+
+func TestStartEncryptionPassIsTrackedByShutdownWaitGroup(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	metaStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(tempDir, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { metaStore.Close() })
+
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:    "tracked-worker-bucket",
+		OwnerID: "admin",
+	}))
+
+	manager := &blockingEncryptionObjectManager{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	server := &Server{
+		metadataStore: metaStore,
+		objectManager: manager,
+	}
+
+	require.True(t, server.startEncryptionPass(ctx))
+	select {
+	case <-manager.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("encryption pass did not start")
+	}
+
+	waited := make(chan struct{})
+	go func() {
+		server.encWorkerWG.Wait()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+		t.Fatal("encryption worker wait returned while the pass was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(manager.release)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("encryption worker wait did not return after the pass finished")
+	}
+}
+
+func TestStartEncryptionPassRejectsAfterShutdownStarts(t *testing.T) {
+	manager := &blockingEncryptionObjectManager{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	server := &Server{
+		objectManager: manager,
+	}
+	server.stopAcceptingEncryptionWorkers()
+
+	require.False(t, server.startEncryptionPass(context.Background()))
+	assert.False(t, server.encWorkerRunning.Load(), "rejected start must clear the single-flight flag")
+
+	server.encWorkerWG.Wait()
+	select {
+	case <-manager.entered:
+		t.Fatal("encryption pass ran after shutdown started")
+	default:
+	}
 }
 
 func TestEncryptionWorkerStatusEndpoint(t *testing.T) {

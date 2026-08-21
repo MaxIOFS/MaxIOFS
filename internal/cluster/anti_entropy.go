@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"math/rand"
 	"net/http"
@@ -69,7 +70,7 @@ type AntiEntropyScrubber struct {
 	mgr       *Manager
 	rawKV     metadata.RawKVStore
 
-	bgWorker
+	bgwork.Worker
 	mu        sync.Mutex
 	cancel    context.CancelFunc
 	currentCP *ScrubCheckpoint // in-memory snapshot for status endpoint
@@ -98,7 +99,7 @@ func (s *AntiEntropyScrubber) Start(ctx context.Context) {
 	s.cancel = cancel
 	s.mu.Unlock()
 
-	s.spawn(func() { s.run(scrubCtx) })
+	s.Spawn(func() { s.run(scrubCtx) })
 }
 
 // Stop terminates the scheduler.  In-flight cycle is cancelled cleanly; the
@@ -111,7 +112,7 @@ func (s *AntiEntropyScrubber) Stop() {
 	}
 	s.mu.Unlock()
 
-	s.bgWorker.Stop()
+	s.Worker.Stop()
 }
 
 // CurrentCheckpoint returns a snapshot of the in-progress cycle (nil when

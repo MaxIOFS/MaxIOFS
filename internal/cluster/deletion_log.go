@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"time"
@@ -259,7 +260,7 @@ func StartDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge t
 
 // DeletionLogSyncManager synchronizes tombstone entries to other cluster nodes
 type DeletionLogSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -279,7 +280,7 @@ func NewDeletionLogSyncManager(db *sql.DB, clusterManager *Manager) *DeletionLog
 // Start begins the deletion log synchronization loop
 func (m *DeletionLogSyncManager) Start(ctx context.Context) {
 	m.log.Info("Starting deletion log synchronization manager")
-	m.spawn(func() { m.syncLoop(ctx, 30*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, 30*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -295,7 +296,7 @@ func (m *DeletionLogSyncManager) syncLoop(ctx context.Context, interval time.Dur
 		case <-ctx.Done():
 			m.log.Info("Deletion log sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Deletion log sync loop stopped")
 			return
 		case <-ticker.C:

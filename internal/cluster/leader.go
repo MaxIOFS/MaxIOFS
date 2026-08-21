@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"math/rand"
 	"net/http"
@@ -46,7 +47,7 @@ type LeaseResponse struct {
 
 // LeaderManager runs the election and answers whether this node leads.
 type LeaderManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -193,7 +194,7 @@ func (m *LeaderManager) LeaderID(ctx context.Context) string {
 // immediately: with one node, a majority is itself.
 func (m *LeaderManager) Start(ctx context.Context) {
 	m.rememberLocalID(ctx)
-	m.spawn(func() { m.loop(ctx) })
+	m.Spawn(func() { m.loop(ctx) })
 }
 
 func (m *LeaderManager) loop(ctx context.Context) {
@@ -205,7 +206,7 @@ func (m *LeaderManager) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			return
 		case <-ticker.C:
 			m.tick(ctx)
@@ -632,7 +633,7 @@ func (m *LeaderManager) standDown() {
 // Stop ends the election loop and hands the lease back, so the cluster elects a
 // new leader immediately instead of waiting for this node's lease to expire.
 func (m *LeaderManager) Stop() {
-	m.bgWorker.Stop()
+	m.Worker.Stop()
 	m.release(context.Background())
 }
 

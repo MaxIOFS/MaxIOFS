@@ -1,4 +1,4 @@
-package cluster
+package bgwork
 
 import (
 	"sync"
@@ -13,12 +13,12 @@ import (
 // panics on use after close, so Stop must not return while a goroutine is still
 // running.
 func TestBgWorker_StopWaitsForTheGoroutine(t *testing.T) {
-	var w bgWorker
+	var w Worker
 	var mu sync.Mutex
 	finished := false
 
-	w.spawn(func() {
-		<-w.stopped()
+	w.Spawn(func() {
+		<-w.Stopped()
 		time.Sleep(50 * time.Millisecond)
 		mu.Lock()
 		finished = true
@@ -34,8 +34,8 @@ func TestBgWorker_StopWaitsForTheGoroutine(t *testing.T) {
 
 // Two shutdown paths can reach the same component.
 func TestBgWorker_StopIsIdempotentUnderConcurrency(t *testing.T) {
-	var w bgWorker
-	w.spawn(func() { <-w.stopped() })
+	var w Worker
+	w.Spawn(func() { <-w.Stopped() })
 
 	require.NotPanics(t, func() {
 		var wg sync.WaitGroup
@@ -50,11 +50,11 @@ func TestBgWorker_StopIsIdempotentUnderConcurrency(t *testing.T) {
 // A goroutine started while the shutdown is already waiting would be missed by
 // the WaitGroup, so spawn refuses instead.
 func TestBgWorker_SpawnAfterStopIsRefused(t *testing.T) {
-	var w bgWorker
+	var w Worker
 	w.Stop()
 
 	ran := make(chan struct{})
-	started := w.spawn(func() { close(ran) })
+	started := w.Spawn(func() { close(ran) })
 
 	assert.False(t, started, "spawn accepted work after the component had stopped")
 	select {
@@ -67,13 +67,13 @@ func TestBgWorker_SpawnAfterStopIsRefused(t *testing.T) {
 // The zero value has to be usable: components embed this without a constructor,
 // and a nil channel would block every loop forever and panic on close.
 func TestBgWorker_ZeroValueIsUsable(t *testing.T) {
-	var w bgWorker
+	var w Worker
 
-	require.NotNil(t, w.stopped())
+	require.NotNil(t, w.Stopped())
 	require.NotPanics(t, func() { w.Stop() })
 
 	select {
-	case <-w.stopped():
+	case <-w.Stopped():
 	default:
 		t.Fatal("the stop signal never fired on a zero-value worker")
 	}

@@ -277,7 +277,7 @@ func TestAccessKeySyncManager_Stop(t *testing.T) {
 
 	// Stop channel should be closed
 	select {
-	case <-syncManager.stopped():
+	case <-syncManager.Stopped():
 		// Expected - channel is closed
 	default:
 		t.Error("Expected stop channel to be closed")

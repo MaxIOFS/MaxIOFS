@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"sync"
 	"time"
 
@@ -40,7 +41,7 @@ type HASyncWorker struct {
 	bucketMgr bucket.Manager
 	mgr       *Manager
 
-	bgWorker
+	bgwork.Worker
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // nodeID → cancel func
 }
@@ -54,7 +55,7 @@ func (w *HASyncWorker) Stop() {
 		cancel()
 	}
 	w.mu.Unlock()
-	w.bgWorker.Stop()
+	w.Worker.Stop()
 }
 
 // NewHASyncWorker creates a worker.  Call Start once at server startup, then
@@ -225,7 +226,7 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 	w.running[node.ID] = cancel
 	w.mu.Unlock()
 
-	started := w.spawn(func() {
+	started := w.Spawn(func() {
 		defer func() {
 			cancel()
 			w.mu.Lock()

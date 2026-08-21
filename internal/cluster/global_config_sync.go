@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"time"
@@ -28,7 +29,7 @@ type KEKProvider interface {
 
 // GlobalConfigSyncManager synchronizes cluster_global_config and cluster_nodes
 type GlobalConfigSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -54,7 +55,7 @@ func (m *GlobalConfigSyncManager) SetKEKProvider(p KEKProvider) {
 // Start begins the global config synchronization loop.
 func (m *GlobalConfigSyncManager) Start(ctx context.Context) {
 	m.log.Info("Starting global config synchronization manager (interval: 60s)")
-	m.spawn(func() { m.syncLoop(ctx, 60*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, 60*time.Second) })
 }
 
 func (m *GlobalConfigSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -69,7 +70,7 @@ func (m *GlobalConfigSyncManager) syncLoop(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			m.log.Info("Global config sync loop stopped (context cancelled)")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Global config sync loop stopped")
 			return
 		case <-ticker.C:

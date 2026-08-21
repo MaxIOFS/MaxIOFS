@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -51,7 +52,7 @@ type CapabilityOverrideData struct {
 
 // UserSyncManager handles automatic user synchronization between cluster nodes
 type UserSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -93,7 +94,7 @@ func (m *UserSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting user synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -109,7 +110,7 @@ func (m *UserSyncManager) syncLoop(ctx context.Context, interval time.Duration) 
 		case <-ctx.Done():
 			m.log.Info("User sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("User sync loop stopped")
 			return
 		case <-ticker.C:
@@ -468,7 +469,7 @@ func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string,
 // TriggerSync immediately runs a full user sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *UserSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllUsers)
+	runDetached(&m.Worker, ctx, m.syncAllUsers)
 }
 
 // SyncToNode immediately pushes all local users to the given node.

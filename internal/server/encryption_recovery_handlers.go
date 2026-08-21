@@ -120,13 +120,11 @@ func (s *Server) handleRotateKEK(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Kick the worker so existing DEKs start re-wrapping immediately.
-	if !s.encWorkerRunning.Load() {
-		bg := s.serverCtx
-		if bg == nil {
-			bg = context.Background()
-		}
-		go s.runEncryptionPass(bg)
+	bg := s.serverCtx
+	if bg == nil {
+		bg = context.Background()
 	}
+	s.startEncryptionPass(bg)
 
 	s.writeJSON(w, map[string]interface{}{
 		"newVersion": newVersion,

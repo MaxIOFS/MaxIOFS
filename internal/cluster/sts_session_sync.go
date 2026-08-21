@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -40,7 +41,7 @@ type STSSessionSyncPayload struct {
 
 // STSSessionSyncManager replicates temporary credentials across cluster nodes.
 type STSSessionSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -76,14 +77,14 @@ func (m *STSSessionSyncManager) Start(ctx context.Context) {
 	}
 
 	m.log.WithField("interval_seconds", interval).Info("Starting STS session synchronization manager")
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // TriggerSync pushes the current state to all peers immediately. Called right
 // after issuing or revoking a session so a client using the credential through
 // a load balancer doesn't have to wait for the next tick.
 func (m *STSSessionSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllSessions)
+	runDetached(&m.Worker, ctx, m.syncAllSessions)
 }
 
 func (m *STSSessionSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -97,7 +98,7 @@ func (m *STSSessionSyncManager) syncLoop(ctx context.Context, interval time.Dura
 		case <-ctx.Done():
 			m.log.Info("STS session sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("STS session sync loop stopped")
 			return
 		case <-ticker.C:

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"time"
 )
 
@@ -18,14 +19,14 @@ func detachedSyncContext(ctx context.Context) (context.Context, context.CancelFu
 // runDetached performs work in the component's tracked background worker. The
 // sync is detached from the caller's request cancellation, but still cancels
 // when the component stops so shutdown can wait deterministically.
-func runDetached(w *bgWorker, ctx context.Context, work func(context.Context)) {
-	w.spawn(func() {
+func runDetached(w *bgwork.Worker, ctx context.Context, work func(context.Context)) {
+	w.Spawn(func() {
 		syncCtx, cancel := detachedSyncContext(ctx)
 		defer cancel()
 		done := make(chan struct{})
 		go func() {
 			select {
-			case <-w.stopped():
+			case <-w.Stopped():
 				cancel()
 			case <-done:
 			}

@@ -66,13 +66,17 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 
 	// Cluster certs were just generated — restart the cluster listener with TLS and
 	// start all cluster background services (health checker, sync managers, etc.).
-	go func() {
+	bgCtx := s.serverCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	}
+	s.goWorker("cluster initialization background services", func() {
 		if err := s.enableClusterTLS(); err != nil {
 			logrus.WithError(err).Error("Failed to start cluster TLS after initialization")
 			return
 		}
-		s.startClusterBackgroundServices(s.serverCtx)
-	}()
+		s.startClusterBackgroundServices(bgCtx)
+	})
 
 	s.writeJSON(w, map[string]interface{}{
 		"message":       "Cluster initialized successfully",
@@ -129,7 +133,13 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 
 	// Start health checker, sync managers and all other cluster background services.
 	// Uses sync.Once so it's safe to call even if already started.
-	go s.startClusterBackgroundServices(s.serverCtx)
+	bgCtx := s.serverCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	}
+	s.goWorker("cluster join background services", func() {
+		s.startClusterBackgroundServices(bgCtx)
+	})
 
 	s.writeJSON(w, map[string]interface{}{"message": "Join accepted, cluster TLS ready"})
 }
@@ -478,11 +488,19 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 	// Step 6: Broadcast Node B to ALL existing cluster nodes so every member's
 	// registry is updated immediately (not waiting for the next periodic sync).
-	go s.broadcastNewNodeToCluster(newNode)
+	bgCtx := s.serverCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	}
+	s.goWorker("broadcast new cluster node", func() {
+		s.broadcastNewNodeToCluster(bgCtx, newNode)
+	})
 
 	// Step 7: Health-check + immediate data push to new node so users, access keys
 	// and tenants are available right away (no 30-second wait for the periodic ticker).
-	go s.kickstartNewNodeSync(newNode)
+	s.goWorker("kickstart new node sync", func() {
+		s.kickstartNewNodeSync(bgCtx, newNode)
+	})
 
 	logrus.WithField("endpoint", req.Endpoint).Info("Remote node joined cluster successfully")
 	s.writeJSON(w, map[string]interface{}{
@@ -887,21 +905,19 @@ func (s *Server) handleRegisterPeerNode(w http.ResponseWriter, r *http.Request) 
 // broadcastNewNodeToCluster notifies all existing cluster members (except self and the new node)
 // about the new node so every member's registry is immediately up to date.
 // Runs in a goroutine — best-effort, logs but does not block the caller.
-func (s *Server) broadcastNewNodeToCluster(newNode *cluster.Node) {
-	bgCtx := context.Background()
-
-	localNodeID, err := s.clusterManager.GetLocalNodeID(bgCtx)
+func (s *Server) broadcastNewNodeToCluster(ctx context.Context, newNode *cluster.Node) {
+	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("broadcastNewNode: failed to get local node ID")
 		return
 	}
-	localNodeToken, err := s.clusterManager.GetLocalNodeToken(bgCtx)
+	localNodeToken, err := s.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("broadcastNewNode: failed to get local node token")
 		return
 	}
 
-	nodes, err := s.clusterManager.ListNodes(bgCtx)
+	nodes, err := s.clusterManager.ListNodes(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("broadcastNewNode: failed to list nodes")
 		return
@@ -935,7 +951,7 @@ func (s *Server) broadcastNewNodeToCluster(newNode *cluster.Node) {
 		}
 
 		url := strings.TrimRight(node.Endpoint, "/") + "/api/internal/cluster/peer-node"
-		req, err := proxyClient.CreateAuthenticatedRequest(bgCtx, "POST", url, bytes.NewReader(body), localNodeID, localNodeToken)
+		req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), localNodeID, localNodeToken)
 		if err != nil {
 			logrus.WithError(err).WithField("target_node", node.ID).Warn("broadcastNewNode: failed to create request")
 			continue
@@ -1041,9 +1057,7 @@ func parseNodeAddress(input, defaultPort string) (string, error) {
 }
 
 // kickstartNewNodeSync performs an immediate health check on the new node (to mark it
-func (s *Server) kickstartNewNodeSync(newNode *cluster.Node) {
-	ctx := context.Background()
-
+func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node) {
 	// Health check marks the node healthy in the DB immediately.
 	if _, err := s.clusterManager.CheckNodeHealth(ctx, newNode.ID); err != nil {
 		logrus.WithError(err).WithField("node_id", newNode.ID).Warn("kickstartNewNodeSync: health check failed, sync may be delayed")

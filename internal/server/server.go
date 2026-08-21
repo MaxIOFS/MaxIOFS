@@ -91,7 +91,7 @@ type Server struct {
 	haSyncWorker            *cluster.HASyncWorker
 	antiEntropyScrubber     *cluster.AntiEntropyScrubber
 	deadNodeReconciler      *cluster.DeadNodeReconciler
-	reg                     registry
+	reg                     *registry
 	notificationHub         *NotificationHub
 	quotaAlerts             *quotaAlertTracker
 	bucketQuotaAlerts       *bucketQuotaAlertTracker
@@ -108,7 +108,11 @@ type Server struct {
 	serverCtx               context.Context // lifecycle context, set in Start()
 	encWorkerRunning        atomic.Bool     // single-flight guard for the encryption worker pass
 	encWorkerCancel         context.CancelFunc
+	encWorkerMu             sync.Mutex
+	encWorkersClosed        bool
 	encWorkerWG             sync.WaitGroup
+	workersMu               sync.Mutex
+	workersClosed           bool
 	workers                 sync.WaitGroup // background workers that write to the stores
 	clusterBgOnce           sync.Once      // ensures cluster background services start exactly once
 	oauthCodeStore          sync.Map       // one-time OAuth exchange codes, keyed by random hex, TTL 60s
@@ -118,12 +122,57 @@ type Server struct {
 // worker to return before closing the stores: Pebble panics on use after close,
 // so a worker still writing while the store shuts down takes the process down
 // with it.
-func (s *Server) goWorker(name string, fn func()) {
+func (s *Server) goWorker(name string, fn func()) bool {
+	s.workersMu.Lock()
+	if s.workersClosed {
+		s.workersMu.Unlock()
+		logrus.WithField("worker", name).Debug("Rejected background worker after shutdown started")
+		return false
+	}
 	s.workers.Add(1)
+	s.workersMu.Unlock()
+
 	go func() {
 		defer s.workers.Done()
 		fn()
 	}()
+	return true
+}
+
+func (s *Server) stopAcceptingWorkers() {
+	s.workersMu.Lock()
+	s.workersClosed = true
+	s.workersMu.Unlock()
+}
+
+func (s *Server) goEncryptionWorker(name string, fn func()) bool {
+	s.encWorkerMu.Lock()
+	if s.encWorkersClosed {
+		s.encWorkerMu.Unlock()
+		logrus.WithField("worker", name).Debug("Rejected encryption worker after shutdown started")
+		return false
+	}
+	s.encWorkerWG.Add(1)
+	s.encWorkerMu.Unlock()
+
+	go func() {
+		defer s.encWorkerWG.Done()
+		fn()
+	}()
+	return true
+}
+
+func (s *Server) stopAcceptingEncryptionWorkers() {
+	s.encWorkerMu.Lock()
+	s.encWorkersClosed = true
+	s.encWorkerMu.Unlock()
+}
+
+func (s *Server) componentRegistry() *registry {
+	if s.reg == nil {
+		s.reg = &registry{}
+	}
+	return s.reg
 }
 
 // New creates a new MaxIOFS server
@@ -241,9 +290,9 @@ func New(cfg *config.Config) (*Server, error) {
 		om.SetAuthManager(authManager)
 	}
 
-	reg := registry{}
+	reg := &registry{}
 
-	metricsManager := supervise(&reg, "metrics", metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore))
+	metricsManager := supervise(reg, "metrics", metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore))
 
 	// Initialize system metrics
 	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)
@@ -312,11 +361,11 @@ func New(cfg *config.Config) (*Server, error) {
 	bucketQuotaAlerts := newBucketQuotaAlertTracker()
 
 	// Initialize lifecycle worker
-	lifecycleWorker := supervise(&reg, "lifecycle", lifecycle.NewWorker(bucketManager, objectManager, metadataStore))
+	lifecycleWorker := supervise(reg, "lifecycle", lifecycle.NewWorker(bucketManager, objectManager, metadataStore))
 
 	// Initialize inventory manager and worker
 	inventoryManager := inventory.NewManager(db)
-	inventoryWorker := supervise(&reg, "inventory", inventory.NewWorker(inventoryManager, bucketManager, metadataStore, storageBackend))
+	inventoryWorker := supervise(reg, "inventory", inventory.NewWorker(inventoryManager, bucketManager, metadataStore, storageBackend))
 
 	// Initialize IDP manager
 	idpStore := idpkg.NewStore(db)
@@ -389,12 +438,12 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Create adapters for cluster router
 	bucketManagerAdapter := &clusterBucketManagerAdapter{mgr: bucketManager, metaStore: metadataStore}
-	supervise(&reg, "replication", replicationManager)
+	supervise(reg, "replication", replicationManager)
 
 	replicationManagerAdapter := &clusterReplicationManagerAdapter{mgr: replicationManager}
 
 	// Initialize cluster router with adapters
-	clusterRouter := supervise(&reg, "clusterRouter", cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID))
+	clusterRouter := supervise(reg, "clusterRouter", cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID))
 
 	// Initialize bucket aggregator for cross-node bucket listing
 	bucketAggregator := cluster.NewBucketAggregator(clusterManager, bucketManager)
@@ -420,36 +469,36 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize tenant synchronization manager
-	tenantSyncMgr := supervise(&reg, "tenantSync", cluster.NewTenantSyncManager(db, clusterManager))
+	tenantSyncMgr := supervise(reg, "tenantSync", cluster.NewTenantSyncManager(db, clusterManager))
 
 	// Initialize user synchronization manager
-	userSyncMgr := supervise(&reg, "userSync", cluster.NewUserSyncManager(db, clusterManager))
+	userSyncMgr := supervise(reg, "userSync", cluster.NewUserSyncManager(db, clusterManager))
 
 	// Initialize access key synchronization manager
-	accessKeySyncMgr := supervise(&reg, "accessKeySync", cluster.NewAccessKeySyncManager(db, clusterManager))
+	accessKeySyncMgr := supervise(reg, "accessKeySync", cluster.NewAccessKeySyncManager(db, clusterManager))
 
 	// Initialize STS session synchronization manager
-	stsSessionSyncMgr := supervise(&reg, "stsSessionSync", cluster.NewSTSSessionSyncManager(db, clusterManager))
-	iamSyncMgr := supervise(&reg, "iamSync", cluster.NewIAMSyncManager(db, clusterManager))
-	leaderMgr := supervise(&reg, "leader", cluster.NewLeaderManager(db, clusterManager))
+	stsSessionSyncMgr := supervise(reg, "stsSessionSync", cluster.NewSTSSessionSyncManager(db, clusterManager))
+	iamSyncMgr := supervise(reg, "iamSync", cluster.NewIAMSyncManager(db, clusterManager))
+	leaderMgr := supervise(reg, "leader", cluster.NewLeaderManager(db, clusterManager))
 
 	// Initialize bucket permission synchronization manager
-	bucketPermissionSyncMgr := supervise(&reg, "bucketPermissionSync", cluster.NewBucketPermissionSyncManager(db, clusterManager))
+	bucketPermissionSyncMgr := supervise(reg, "bucketPermissionSync", cluster.NewBucketPermissionSyncManager(db, clusterManager))
 
 	// Initialize IDP provider synchronization manager
-	idpProviderSyncMgr := supervise(&reg, "idpProviderSync", cluster.NewIDPProviderSyncManager(db, clusterManager))
+	idpProviderSyncMgr := supervise(reg, "idpProviderSync", cluster.NewIDPProviderSyncManager(db, clusterManager))
 
 	// Initialize group mapping synchronization manager
-	groupMappingSyncMgr := supervise(&reg, "groupMappingSync", cluster.NewGroupMappingSyncManager(db, clusterManager))
+	groupMappingSyncMgr := supervise(reg, "groupMappingSync", cluster.NewGroupMappingSyncManager(db, clusterManager))
 
 	// Initialize internal group synchronization manager (groups + group_members)
-	groupSyncMgr := supervise(&reg, "groupSync", cluster.NewGroupSyncManager(db, clusterManager))
+	groupSyncMgr := supervise(reg, "groupSync", cluster.NewGroupSyncManager(db, clusterManager))
 
 	// Initialize deletion log synchronization manager
-	deletionLogSyncMgr := supervise(&reg, "deletionLogSync", cluster.NewDeletionLogSyncManager(db, clusterManager))
+	deletionLogSyncMgr := supervise(reg, "deletionLogSync", cluster.NewDeletionLogSyncManager(db, clusterManager))
 
 	// Initialize global config and node list synchronization manager
-	globalConfigSyncMgr := supervise(&reg, "globalConfigSync", cluster.NewGlobalConfigSyncManager(db, clusterManager))
+	globalConfigSyncMgr := supervise(reg, "globalConfigSync", cluster.NewGlobalConfigSyncManager(db, clusterManager))
 	// Cluster-shared encryption KEKs ride the same periodic sync (covers
 	// nodes that were offline during a KEK rotation).
 	globalConfigSyncMgr.SetKEKProvider(kekStore)
@@ -466,10 +515,10 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize HA initial-sync worker
-	haSyncWorker := supervise(&reg, "haSync", cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager))
+	haSyncWorker := supervise(reg, "haSync", cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager))
 
 	// Initialize anti-entropy scrubber (PebbleStore implements RawKVStore for crash-safe checkpoints).
-	antiEntropyScrubber := supervise(&reg, "antiEntropy", cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore))
+	antiEntropyScrubber := supervise(reg, "antiEntropy", cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore))
 
 	// Dead-node reconciler is wired below after the Server struct is built so
 	// it can capture the notification hub for SSE emission.
@@ -498,7 +547,7 @@ func New(cfg *config.Config) (*Server, error) {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	apiRateLimiter := supervise(&reg, "apiRateLimiter", auth.NewAPIRateLimiter())
+	apiRateLimiter := supervise(reg, "apiRateLimiter", auth.NewAPIRateLimiter())
 
 	server := &Server{
 		config:                  cfg,
@@ -554,7 +603,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Wire the dead-node reconciler now that the Server is built — the
 	// emitter closure relays events to SSE clients via the notification hub.
-	server.deadNodeReconciler = supervise(&server.reg, "deadNodeReconciler", cluster.NewDeadNodeReconciler(
+	server.deadNodeReconciler = supervise(server.componentRegistry(), "deadNodeReconciler", cluster.NewDeadNodeReconciler(
 		clusterManager,
 		haSyncWorker,
 		func(ev cluster.DeadNodeEvent) {
@@ -962,6 +1011,8 @@ func (s *Server) enableClusterTLS() error {
 
 func (s *Server) shutdown() error {
 	logrus.Info("Shutting down servers")
+	s.stopAcceptingWorkers()
+	s.stopAcceptingEncryptionWorkers()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -981,7 +1032,9 @@ func (s *Server) shutdown() error {
 		logrus.WithError(err).Error("Failed to shutdown cluster server")
 	}
 
-	s.reg.stopAll()
+	if s.reg != nil {
+		s.reg.stopAll()
+	}
 
 	if s.encWorkerCancel != nil {
 		s.encWorkerCancel()
@@ -1193,7 +1246,7 @@ func (s *Server) setupRoutes() error {
 	}
 
 	// Start S3 access logger (delivers requests to configured target buckets)
-	s.accessLogger = supervise(&s.reg, "accessLogger", NewBucketAccessLogger(s.bucketManager, s.objectManager))
+	s.accessLogger = supervise(s.componentRegistry(), "accessLogger", NewBucketAccessLogger(s.bucketManager, s.objectManager))
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
 	// Log every S3 request at Info (logrus) first so "first probe" (e.g. VEEAM capabilities) is visible

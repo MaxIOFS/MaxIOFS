@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"net/http"
 	"sort"
 	"sync"
@@ -30,7 +31,7 @@ type Manager struct {
 	publicAPIURL        string
 	clusterURL          string // cluster inter-node URL (scheme://host:clusterPort)
 	healthCheckInterval time.Duration
-	bgWorker
+	bgwork.Worker
 	log               *logrus.Entry
 	storage           storage.Backend
 	aclManager        acl.Manager
@@ -949,7 +950,7 @@ func (m *Manager) loadTLSConfig() error {
 
 // StartCertRenewal starts a background goroutine that checks monthly for cert renewal.
 func (m *Manager) StartCertRenewal(ctx context.Context) {
-	m.spawn(func() {
+	m.Spawn(func() {
 		ticker := time.NewTicker(30 * 24 * time.Hour) // Monthly
 		defer ticker.Stop()
 
@@ -957,7 +958,7 @@ func (m *Manager) StartCertRenewal(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-m.stopped():
+			case <-m.Stopped():
 				return
 			case <-ticker.C:
 				m.checkAndRenewCert()

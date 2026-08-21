@@ -26,12 +26,15 @@ type registryEntry struct {
 // supervise records a component and returns it unchanged, so registering and
 // constructing are one expression:
 //
-//	userSyncMgr := supervise(&reg, "userSync", cluster.NewUserSyncManager(db, mgr))
+//	userSyncMgr := supervise(reg, "userSync", cluster.NewUserSyncManager(db, mgr))
 //
 // There is no separate list to keep in step with the struct, which is how
 // thirteen managers ended up never being stopped.
 func supervise[T component](r *registry, name string, c T) T {
 	if v := reflect.ValueOf(c); v.Kind() == reflect.Ptr && v.IsNil() {
+		return c
+	}
+	if r == nil {
 		return c
 	}
 	r.entries = append(r.entries, registryEntry{name: name, c: c})

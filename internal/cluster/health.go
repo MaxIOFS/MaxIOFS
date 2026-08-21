@@ -147,16 +147,7 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 			}
 		}
 		if event != nil {
-			fn := m.storagePressureFn
-			ev := *event
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logrus.WithField("panic", r).Error("storage pressure callback panicked")
-					}
-				}()
-				fn(ev)
-			}()
+			m.emitStoragePressure(*event)
 		}
 	}
 
@@ -183,6 +174,17 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	}
 
 	return healthStatus, nil
+}
+
+// emitStoragePressure calls the emitter inline; the emitter contract forbids
+// blocking. The recover keeps a faulty one from killing the health check.
+func (m *Manager) emitStoragePressure(ev StoragePressureEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("panic", r).Error("storage pressure callback panicked")
+		}
+	}()
+	m.storagePressureFn(ev)
 }
 
 // performHealthCheck performs an HTTP health check on the given endpoint.
@@ -268,7 +270,7 @@ func (m *Manager) StartHealthChecker(ctx context.Context) {
 		case <-ctx.Done():
 			m.log.Info("Health checker stopped due to context cancellation")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Health checker stopped")
 			return
 		case <-ticker.C:

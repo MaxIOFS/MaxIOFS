@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"sync"
 	"time"
 )
@@ -11,7 +12,7 @@ type BucketLocationCache struct {
 	entries map[string]*cacheEntry
 	ttl     time.Duration
 
-	bgWorker
+	bgwork.Worker
 }
 
 type cacheEntry struct {
@@ -26,7 +27,7 @@ func NewBucketLocationCache(ttl time.Duration) *BucketLocationCache {
 		ttl:     ttl,
 	}
 
-	cache.spawn(cache.cleanupExpired)
+	cache.Spawn(cache.cleanupExpired)
 
 	return cache
 }
@@ -92,7 +93,7 @@ func (c *BucketLocationCache) cleanupExpired() {
 
 	for {
 		select {
-		case <-c.stopped():
+		case <-c.Stopped():
 			return
 		case <-ticker.C:
 		}

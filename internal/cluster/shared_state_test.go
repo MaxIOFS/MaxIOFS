@@ -63,7 +63,7 @@ func TestLeaderManager_StopIsIdempotent(t *testing.T) {
 	}, "stopping twice must not take the process down on its way out")
 
 	select {
-	case <-m.stopped():
+	case <-m.Stopped():
 	default:
 		t.Fatal("Stop must close the channel the loop waits on")
 	}

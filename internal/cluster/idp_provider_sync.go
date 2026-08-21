@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -31,7 +32,7 @@ type IDPProviderData struct {
 
 // IDPProviderSyncManager handles automatic identity provider synchronization between cluster nodes
 type IDPProviderSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -73,7 +74,7 @@ func (m *IDPProviderSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting IDP provider synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -89,7 +90,7 @@ func (m *IDPProviderSyncManager) syncLoop(ctx context.Context, interval time.Dur
 		case <-ctx.Done():
 			m.log.Info("IDP provider sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("IDP provider sync loop stopped")
 			return
 		case <-ticker.C:
@@ -394,5 +395,5 @@ func (m *IDPProviderSyncManager) sendDeletionToNode(ctx context.Context, provide
 // TriggerSync immediately runs a full IDP provider sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *IDPProviderSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllProviders)
+	runDetached(&m.Worker, ctx, m.syncAllProviders)
 }

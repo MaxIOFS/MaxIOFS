@@ -19,10 +19,10 @@ func TestGoWorker_ShutdownWaitsForWorkersToReturn(t *testing.T) {
 	var finished atomic.Bool
 	release := make(chan struct{})
 
-	s.goWorker("slow worker", func() {
+	require.True(t, s.goWorker("slow worker", func() {
 		<-release
 		finished.Store(true)
-	})
+	}))
 
 	waited := make(chan struct{})
 	go func() {
@@ -46,23 +46,49 @@ func TestGoWorker_ShutdownWaitsForWorkersToReturn(t *testing.T) {
 	}
 }
 
-// A worker that never stops must not keep the process alive for ever; the wait
-// is bounded and the stores are closed regardless.
+// Every worker started through goWorker must be part of the shutdown wait.
 func TestGoWorker_TracksEveryWorker(t *testing.T) {
 	s := &Server{}
 	var started atomic.Int32
 	release := make(chan struct{})
 
-	for i := 0; i < 5; i++ {
-		s.goWorker("worker", func() {
+	const workerCount = 32
+	for i := 0; i < workerCount; i++ {
+		require.True(t, s.goWorker("worker", func() {
 			started.Add(1)
 			<-release
-		})
+		}))
 	}
 
-	require.Eventually(t, func() bool { return started.Load() == 5 },
+	require.Eventually(t, func() bool { return started.Load() == workerCount },
 		2*time.Second, 10*time.Millisecond)
 
 	close(release)
-	s.workers.Wait() // returns only once all five have returned
+	s.workers.Wait()
+}
+
+func TestGoWorker_RejectsAfterShutdownStarts(t *testing.T) {
+	s := &Server{}
+	s.stopAcceptingWorkers()
+
+	var ran atomic.Bool
+	assert.False(t, s.goWorker("late worker", func() {
+		ran.Store(true)
+	}))
+
+	s.workers.Wait()
+	assert.False(t, ran.Load(), "late worker must not run after shutdown starts")
+}
+
+func TestEncryptionWorker_RejectsAfterShutdownStarts(t *testing.T) {
+	s := &Server{}
+	s.stopAcceptingEncryptionWorkers()
+
+	var ran atomic.Bool
+	assert.False(t, s.goEncryptionWorker("late encryption worker", func() {
+		ran.Store(true)
+	}))
+
+	s.encWorkerWG.Wait()
+	assert.False(t, ran.Load(), "late encryption worker must not run after shutdown starts")
 }

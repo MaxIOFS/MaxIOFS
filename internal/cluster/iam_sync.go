@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -73,7 +74,7 @@ type IAMSyncPayload struct {
 
 // IAMSyncManager replicates IAM entities across cluster nodes.
 type IAMSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -105,14 +106,14 @@ func (m *IAMSyncManager) Start(ctx context.Context) {
 	}
 
 	m.log.WithField("interval_seconds", interval).Info("Starting IAM synchronization manager")
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // TriggerSync pushes current state to all peers immediately, so an identity
 // created through the IAM API can use its credentials on any node right away
 // instead of waiting out the interval behind a load balancer.
 func (m *IAMSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAll)
+	runDetached(&m.Worker, ctx, m.syncAll)
 }
 
 func (m *IAMSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -126,7 +127,7 @@ func (m *IAMSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			m.log.Info("IAM sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("IAM sync loop stopped")
 			return
 		case <-ticker.C:

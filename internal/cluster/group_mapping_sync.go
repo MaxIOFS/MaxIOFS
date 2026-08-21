@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -32,7 +33,7 @@ type GroupMappingData struct {
 
 // GroupMappingSyncManager handles automatic IDP group mapping synchronization between cluster nodes
 type GroupMappingSyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -74,7 +75,7 @@ func (m *GroupMappingSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting group mapping synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -90,7 +91,7 @@ func (m *GroupMappingSyncManager) syncLoop(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			m.log.Info("Group mapping sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Group mapping sync loop stopped")
 			return
 		case <-ticker.C:
@@ -400,5 +401,5 @@ func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappin
 // TriggerSync immediately runs a full group mapping sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *GroupMappingSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllMappings)
+	runDetached(&m.Worker, ctx, m.syncAllMappings)
 }

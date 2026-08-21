@@ -56,9 +56,7 @@ func (s *Server) startEncryptionWorker(ctx context.Context) {
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	s.encWorkerCancel = cancel
-	s.encWorkerWG.Add(1)
-	go func() {
-		defer s.encWorkerWG.Done()
+	if !s.goEncryptionWorker("encryption periodic worker", func() {
 		select {
 		case <-workerCtx.Done():
 			return
@@ -76,7 +74,27 @@ func (s *Server) startEncryptionWorker(ctx context.Context) {
 				s.runEncryptionPass(workerCtx)
 			}
 		}
-	}()
+	}) {
+		cancel()
+	}
+}
+
+func (s *Server) startEncryptionPass(ctx context.Context) bool {
+	if _, ok := s.objectManager.(objectEncryptor); !ok {
+		logrus.Warn("Encryption worker: object manager does not support conversion, worker disabled")
+		return false
+	}
+	if !s.encWorkerRunning.CompareAndSwap(false, true) {
+		return false
+	}
+	if !s.goEncryptionWorker("encryption pass", func() {
+		defer s.encWorkerRunning.Store(false)
+		s.runEncryptionPassLocked(ctx)
+	}) {
+		s.encWorkerRunning.Store(false)
+		return false
+	}
+	return true
 }
 
 // runEncryptionPass walks every bucket and converts plaintext objects.
@@ -87,6 +105,10 @@ func (s *Server) runEncryptionPass(ctx context.Context) {
 	}
 	defer s.encWorkerRunning.Store(false)
 
+	s.runEncryptionPassLocked(ctx)
+}
+
+func (s *Server) runEncryptionPassLocked(ctx context.Context) {
 	encryptor := s.objectManager.(objectEncryptor)
 
 	state := s.loadEncryptionWorkerState(ctx)
@@ -326,10 +348,10 @@ func (s *Server) handleEncryptionWorkerRun(w http.ResponseWriter, r *http.Reques
 	if bg == nil {
 		bg = context.Background()
 	}
-	s.encWorkerWG.Add(1)
-	go func() {
-		defer s.encWorkerWG.Done()
-		s.runEncryptionPass(bg)
-	}()
+	started := s.startEncryptionPass(bg)
+	if !started {
+		s.writeJSON(w, map[string]interface{}{"started": false, "reason": "already running"})
+		return
+	}
 	s.writeJSON(w, map[string]interface{}{"started": true})
 }

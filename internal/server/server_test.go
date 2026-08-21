@@ -175,6 +175,46 @@ func TestServerNew(t *testing.T) {
 	// Removed: Data directory creation is tested implicitly by shared server in TestMain
 }
 
+func TestServerNewRegistersManagedComponents(t *testing.T) {
+	server := getSharedServer()
+	require.NotNil(t, server.reg, "server must keep a live component registry")
+
+	expected := []string{
+		"metrics",
+		"lifecycle",
+		"inventory",
+		"replication",
+		"clusterRouter",
+		"tenantSync",
+		"userSync",
+		"accessKeySync",
+		"stsSessionSync",
+		"iamSync",
+		"leader",
+		"bucketPermissionSync",
+		"idpProviderSync",
+		"groupMappingSync",
+		"groupSync",
+		"deletionLogSync",
+		"globalConfigSync",
+		"haSync",
+		"antiEntropy",
+		"apiRateLimiter",
+		"deadNodeReconciler",
+		"accessLogger",
+	}
+
+	got := make(map[string]int, len(server.reg.entries))
+	for _, entry := range server.reg.entries {
+		got[entry.name]++
+	}
+
+	require.Len(t, server.reg.entries, len(expected), "component registry changed; update this test with every supervised component")
+	for _, name := range expected {
+		assert.Equalf(t, 1, got[name], "component %q must be registered exactly once", name)
+	}
+}
+
 func TestServerSetVersion(t *testing.T) {
 	server := getSharedServer()
 

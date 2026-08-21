@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
 	"strconv"
@@ -28,7 +29,7 @@ type AccessKeyData struct {
 
 // AccessKeySyncManager handles automatic access key synchronization between cluster nodes
 type AccessKeySyncManager struct {
-	bgWorker
+	bgwork.Worker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
@@ -70,7 +71,7 @@ func (m *AccessKeySyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting access key synchronization manager")
 
-	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
+	m.Spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -86,7 +87,7 @@ func (m *AccessKeySyncManager) syncLoop(ctx context.Context, interval time.Durat
 		case <-ctx.Done():
 			m.log.Info("Access key sync loop stopped")
 			return
-		case <-m.stopped():
+		case <-m.Stopped():
 			m.log.Info("Access key sync loop stopped")
 			return
 		case <-ticker.C:
@@ -413,7 +414,7 @@ func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKey
 // TriggerSync immediately runs a full access key sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *AccessKeySyncManager) TriggerSync(ctx context.Context) {
-	runDetached(&m.bgWorker, ctx, m.syncAllAccessKeys)
+	runDetached(&m.Worker, ctx, m.syncAllAccessKeys)
 }
 
 // SyncToNode immediately pushes all local access keys to the given node.
