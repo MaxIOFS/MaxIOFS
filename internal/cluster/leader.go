@@ -46,11 +46,10 @@ type LeaseResponse struct {
 
 // LeaderManager runs the election and answers whether this node leads.
 type LeaderManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
-	stopOnce       sync.Once
 	log            *logrus.Entry
 
 	mu sync.RWMutex
@@ -62,8 +61,8 @@ type LeaderManager struct {
 	knownLeader string
 	// campaignAt is when this node may next stand for election, set to a random
 	// point after it first notices the lease is free.
-	campaignAt time.Time
-	peerSilent map[string]bool
+	campaignAt  time.Time
+	peerSilent  map[string]bool
 	localNodeID string
 }
 
@@ -73,7 +72,6 @@ func NewLeaderManager(db *sql.DB, clusterManager *Manager) *LeaderManager {
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "leader"),
 	}
 }
@@ -195,16 +193,7 @@ func (m *LeaderManager) LeaderID(ctx context.Context) string {
 // immediately: with one node, a majority is itself.
 func (m *LeaderManager) Start(ctx context.Context) {
 	m.rememberLocalID(ctx)
-	go m.loop(ctx)
-}
-
-// Stop halts the loop and releases the lease, so a planned shutdown hands over
-// in seconds instead of leaving the cluster leaderless for a full lease.
-func (m *LeaderManager) Stop() {
-	m.stopOnce.Do(func() {
-		close(m.stopChan)
-		m.release(context.Background())
-	})
+	m.spawn(func() { m.loop(ctx) })
 }
 
 func (m *LeaderManager) loop(ctx context.Context) {
@@ -216,7 +205,7 @@ func (m *LeaderManager) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			return
 		case <-ticker.C:
 			m.tick(ctx)
@@ -638,6 +627,13 @@ func (m *LeaderManager) standDown() {
 	defer m.mu.Unlock()
 	m.isLeader = false
 	m.leaderUntil = time.Time{}
+}
+
+// Stop ends the election loop and hands the lease back, so the cluster elects a
+// new leader immediately instead of waiting for this node's lease to expire.
+func (m *LeaderManager) Stop() {
+	m.bgWorker.Stop()
+	m.release(context.Background())
 }
 
 // release hands the lease back on a clean shutdown so the cluster elects a new

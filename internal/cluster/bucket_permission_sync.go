@@ -31,10 +31,10 @@ type BucketPermissionData struct {
 
 // BucketPermissionSyncManager handles automatic bucket permission synchronization between cluster nodes
 type BucketPermissionSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -44,7 +44,6 @@ func NewBucketPermissionSyncManager(db *sql.DB, clusterManager *Manager) *Bucket
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "bucket-permission-sync"),
 	}
 }
@@ -74,7 +73,7 @@ func (m *BucketPermissionSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting bucket permission synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -90,7 +89,7 @@ func (m *BucketPermissionSyncManager) syncLoop(ctx context.Context, interval tim
 		case <-ctx.Done():
 			m.log.Info("Bucket permission sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Bucket permission sync loop stopped")
 			return
 		case <-ticker.C:
@@ -425,9 +424,5 @@ func (m *BucketPermissionSyncManager) sendDeletionToNode(ctx context.Context, pe
 // TriggerSync immediately runs a full bucket permission sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *BucketPermissionSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllBucketPermissions)
-}
-
-func (m *BucketPermissionSyncManager) Stop() {
-	close(m.stopChan)
+	runDetached(&m.bgWorker, ctx, m.syncAllBucketPermissions)
 }

@@ -69,6 +69,7 @@ type AntiEntropyScrubber struct {
 	mgr       *Manager
 	rawKV     metadata.RawKVStore
 
+	bgWorker
 	mu        sync.Mutex
 	cancel    context.CancelFunc
 	currentCP *ScrubCheckpoint // in-memory snapshot for status endpoint
@@ -97,18 +98,20 @@ func (s *AntiEntropyScrubber) Start(ctx context.Context) {
 	s.cancel = cancel
 	s.mu.Unlock()
 
-	go s.run(scrubCtx)
+	s.spawn(func() { s.run(scrubCtx) })
 }
 
 // Stop terminates the scheduler.  In-flight cycle is cancelled cleanly; the
 // current checkpoint stays in Pebble so the next Start resumes from there.
 func (s *AntiEntropyScrubber) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.cancel != nil {
 		s.cancel()
 		s.cancel = nil
 	}
+	s.mu.Unlock()
+
+	s.bgWorker.Stop()
 }
 
 // CurrentCheckpoint returns a snapshot of the in-progress cycle (nil when

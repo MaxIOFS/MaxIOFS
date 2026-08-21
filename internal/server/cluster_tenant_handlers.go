@@ -463,7 +463,6 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 		logrus.WithField("user_id", user.ID).Debug("Inserted new user")
 	}
 
-
 	return nil
 }
 

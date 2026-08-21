@@ -90,8 +90,8 @@ func TestTracingMiddleware_StatusCodeCapture(t *testing.T) {
 	metrics.InitGlobalPerformanceCollector(100, 1*time.Hour)
 
 	tests := []struct {
-		name           string
-		statusCode     int
+		name            string
+		statusCode      int
 		expectedSuccess bool
 	}{
 		{"200 OK", http.StatusOK, true},
@@ -134,8 +134,8 @@ func TestIsS3Request(t *testing.T) {
 			name: "S3 with AWS signature",
 			path: "/bucket/object",
 			headers: map[string]string{
-				"Authorization":       "AWS4-HMAC-SHA256 ...",
-				"x-amz-date":          "20231201T120000Z",
+				"Authorization":        "AWS4-HMAC-SHA256 ...",
+				"x-amz-date":           "20231201T120000Z",
 				"x-amz-content-sha256": "...",
 			},
 			expected: true,

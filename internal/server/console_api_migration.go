@@ -70,6 +70,7 @@ func (s *Server) handleMigrateBucket(w http.ResponseWriter, r *http.Request) {
 
 	// Create bucket location manager
 	bucketLocationCache := cluster.NewBucketLocationCache(5 * time.Minute)
+	defer bucketLocationCache.Stop()
 	localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
 	locationMgr := cluster.NewBucketLocationManager(s.bucketManager, bucketLocationCache, localNodeID)
 

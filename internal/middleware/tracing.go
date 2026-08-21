@@ -15,9 +15,9 @@ import (
 type contextKey string
 
 const (
-	TraceIDKey     contextKey = "trace_id"
-	StartTimeKey   contextKey = "start_time"
-	OperationKey   contextKey = "operation"
+	TraceIDKey   contextKey = "trace_id"
+	StartTimeKey contextKey = "start_time"
+	OperationKey contextKey = "operation"
 )
 
 // TracingMiddleware adds request tracing and automatic latency recording
@@ -46,9 +46,9 @@ func TracingMiddleware(next http.Handler) http.Handler {
 
 		// Log request start
 		logrus.WithFields(logrus.Fields{
-			"trace_id": traceID,
-			"method":   r.Method,
-			"path":     r.URL.Path,
+			"trace_id":  traceID,
+			"method":    r.Method,
+			"path":      r.URL.Path,
 			"operation": operation,
 		}).Debug("Request started")
 
@@ -149,7 +149,7 @@ func isS3Request(r *http.Request) bool {
 
 	// Check for AWS signature headers
 	if r.Header.Get("Authorization") != "" &&
-	   (r.Header.Get("x-amz-date") != "" || r.Header.Get("x-amz-content-sha256") != "") {
+		(r.Header.Get("x-amz-date") != "" || r.Header.Get("x-amz-content-sha256") != "") {
 		return true
 	}
 
@@ -227,4 +227,3 @@ func mapConsoleOperation(r *http.Request) string {
 	// Could be more granular if needed
 	return string(metrics.OpMetadataOperation)
 }
-

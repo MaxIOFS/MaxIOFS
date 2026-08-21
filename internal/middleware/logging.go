@@ -313,4 +313,3 @@ func escapeJSON(s string) string {
 	}
 	return result
 }
-

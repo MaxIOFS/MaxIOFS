@@ -44,7 +44,6 @@ func createTestHealthManager(t *testing.T, db *sql.DB) *Manager {
 		db:                  db,
 		log:                 logrus.NewEntry(logger),
 		healthCheckInterval: 100 * time.Millisecond, // Fast for testing
-		stopChan:            make(chan struct{}),
 	}
 }
 
@@ -400,9 +399,9 @@ func TestStartHealthChecker_StopsOnStopChan(t *testing.T) {
 		done <- true
 	}()
 
-	// Close stopChan after short delay
+	// Signal the stop after a short delay, the way shutdown does.
 	time.Sleep(50 * time.Millisecond)
-	close(manager.stopChan)
+	manager.Stop()
 
 	// Wait for health checker to stop
 	select {

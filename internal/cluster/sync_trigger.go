@@ -15,11 +15,22 @@ func detachedSyncContext(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(context.WithoutCancel(ctx), syncPushTimeout)
 }
 
-// runDetached performs work in the background under a detached context.
-func runDetached(ctx context.Context, work func(context.Context)) {
-	syncCtx, cancel := detachedSyncContext(ctx)
-	go func() {
+// runDetached performs work in the component's tracked background worker. The
+// sync is detached from the caller's request cancellation, but still cancels
+// when the component stops so shutdown can wait deterministically.
+func runDetached(w *bgWorker, ctx context.Context, work func(context.Context)) {
+	w.spawn(func() {
+		syncCtx, cancel := detachedSyncContext(ctx)
 		defer cancel()
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-w.stopped():
+				cancel()
+			case <-done:
+			}
+		}()
+		defer close(done)
 		work(syncCtx)
-	}()
+	})
 }

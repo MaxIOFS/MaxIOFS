@@ -307,7 +307,7 @@ func TestBucketPermissionSyncManager_Stop(t *testing.T) {
 
 	// Stop channel should be closed
 	select {
-	case <-syncManager.stopChan:
+	case <-syncManager.stopped():
 		// Expected - channel is closed
 	default:
 		t.Error("Expected stop channel to be closed")

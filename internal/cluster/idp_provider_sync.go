@@ -31,10 +31,10 @@ type IDPProviderData struct {
 
 // IDPProviderSyncManager handles automatic identity provider synchronization between cluster nodes
 type IDPProviderSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -44,7 +44,6 @@ func NewIDPProviderSyncManager(db *sql.DB, clusterManager *Manager) *IDPProvider
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "idp-provider-sync"),
 	}
 }
@@ -74,7 +73,7 @@ func (m *IDPProviderSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting IDP provider synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -90,7 +89,7 @@ func (m *IDPProviderSyncManager) syncLoop(ctx context.Context, interval time.Dur
 		case <-ctx.Done():
 			m.log.Info("IDP provider sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("IDP provider sync loop stopped")
 			return
 		case <-ticker.C:
@@ -395,9 +394,5 @@ func (m *IDPProviderSyncManager) sendDeletionToNode(ctx context.Context, provide
 // TriggerSync immediately runs a full IDP provider sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *IDPProviderSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllProviders)
-}
-
-func (m *IDPProviderSyncManager) Stop() {
-	close(m.stopChan)
+	runDetached(&m.bgWorker, ctx, m.syncAllProviders)
 }

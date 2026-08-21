@@ -79,9 +79,9 @@ func TestPerformanceCollector_Throughput(t *testing.T) {
 	collector := NewPerformanceCollector(1000, 1*time.Hour)
 
 	// Record some throughput data
-	collector.RecordThroughput(1024, 1)      // 1KB, 1 object
-	collector.RecordThroughput(2048, 1)      // 2KB, 1 object
-	collector.RecordThroughput(4096, 2)      // 4KB, 2 objects
+	collector.RecordThroughput(1024, 1) // 1KB, 1 object
+	collector.RecordThroughput(2048, 1) // 2KB, 1 object
+	collector.RecordThroughput(4096, 2) // 4KB, 2 objects
 
 	// Wait a bit to ensure time passes
 	time.Sleep(100 * time.Millisecond)

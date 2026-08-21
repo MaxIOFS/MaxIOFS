@@ -268,7 +268,7 @@ func (m *Manager) StartHealthChecker(ctx context.Context) {
 		case <-ctx.Done():
 			m.log.Info("Health checker stopped due to context cancellation")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Health checker stopped")
 			return
 		case <-ticker.C:

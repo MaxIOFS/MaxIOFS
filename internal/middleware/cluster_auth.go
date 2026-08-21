@@ -3,7 +3,6 @@ package middleware
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -13,12 +12,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/clusterauth"
+
 	"github.com/sirupsen/logrus"
 )
 
 // emptyBodyHash is the hex-encoded SHA-256 of an empty byte slice.
 // Used as the body hash for requests with no body (GET, DELETE, HEAD).
-const emptyBodyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+const emptyBodyHash = clusterauth.EmptyBodyHash
 
 const (
 	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
@@ -63,14 +64,14 @@ func readAndHashBody(req *http.Request) (string, error) {
 // ClusterAuthMiddleware provides HMAC-based authentication for cluster-internal endpoints
 type ClusterAuthMiddleware struct {
 	db     *sql.DB
-	nonces *nonceCache
+	nonces *clusterauth.NonceCache
 }
 
 // NewClusterAuthMiddleware creates a new cluster authentication middleware
 func NewClusterAuthMiddleware(db *sql.DB) *ClusterAuthMiddleware {
 	return &ClusterAuthMiddleware{
 		db:     db,
-		nonces: newNonceCache(clusterMaxSkew * 2),
+		nonces: clusterauth.NewNonceCache(clusterMaxSkew * 2),
 	}
 }
 
@@ -132,10 +133,18 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 		}
 
 		// Compute expected signature
-		expectedSignature := computeSignature(nodeToken, r.Method, r.URL.Path, timestamp, nonce, bodyHash)
+		expectedSignature := clusterauth.Sign(nodeToken, clusterauth.Request{
+			NodeID:    nodeID,
+			Timestamp: timestamp,
+			Nonce:     nonce,
+			Method:    r.Method,
+			Path:      r.URL.Path,
+			Query:     r.URL.RawQuery,
+			BodyHash:  bodyHash,
+		})
 
 		// Compare signatures (constant time to prevent timing attacks)
-		if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		if !clusterauth.Equal(signature, expectedSignature) {
 			logrus.WithFields(logrus.Fields{
 				"node_id":  nodeID,
 				"method":   r.Method,
@@ -149,7 +158,7 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 
 		// A signature stays valid for the whole skew window, so the nonce is what
 		// stops the same request being sent twice inside it.
-		if !m.nonces.observe(nodeID+"\n"+nonce, time.Now()) {
+		if !m.nonces.Observe(nodeID+"\n"+nonce, time.Now()) {
 			logrus.WithFields(logrus.Fields{
 				"node_id": nodeID,
 				"method":  r.Method,
@@ -182,13 +191,4 @@ func (m *ClusterAuthMiddleware) getNodeToken(ctx context.Context, nodeID string)
 		return "", err
 	}
 	return nodeToken, nil
-}
-
-// computeSignature computes HMAC-SHA256 signature for cluster authentication.
-// bodyHash must be the hex-encoded SHA-256 of the request body (use emptyBodyHash for empty/nil bodies).
-func computeSignature(nodeToken, method, path, timestamp, nonce, bodyHash string) string {
-	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s", method, path, timestamp, nonce, bodyHash)
-	h := hmac.New(sha256.New, []byte(nodeToken))
-	h.Write([]byte(payload))
-	return hex.EncodeToString(h.Sum(nil))
 }

@@ -28,10 +28,10 @@ type AccessKeyData struct {
 
 // AccessKeySyncManager handles automatic access key synchronization between cluster nodes
 type AccessKeySyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -41,7 +41,6 @@ func NewAccessKeySyncManager(db *sql.DB, clusterManager *Manager) *AccessKeySync
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "access-key-sync"),
 	}
 }
@@ -71,7 +70,7 @@ func (m *AccessKeySyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting access key synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -87,7 +86,7 @@ func (m *AccessKeySyncManager) syncLoop(ctx context.Context, interval time.Durat
 		case <-ctx.Done():
 			m.log.Info("Access key sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Access key sync loop stopped")
 			return
 		case <-ticker.C:
@@ -411,15 +410,10 @@ func (m *AccessKeySyncManager) sendDeletionToNode(ctx context.Context, accessKey
 	return nil
 }
 
-// Stop stops the access key sync manager
-func (m *AccessKeySyncManager) Stop() {
-	close(m.stopChan)
-}
-
 // TriggerSync immediately runs a full access key sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *AccessKeySyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllAccessKeys)
+	runDetached(&m.bgWorker, ctx, m.syncAllAccessKeys)
 }
 
 // SyncToNode immediately pushes all local access keys to the given node.

@@ -356,8 +356,7 @@ func TestIsHealthy(t *testing.T) {
 	assert.True(t, manager.IsHealthy())
 
 	// After stopping
-	err = manager.Stop()
-	require.NoError(t, err)
+	manager.Stop()
 	assert.False(t, manager.IsHealthy())
 }
 
@@ -381,12 +380,10 @@ func TestStartStop(t *testing.T) {
 	assert.Error(t, err)
 
 	// Stop
-	err = manager.Stop()
-	require.NoError(t, err)
+	manager.Stop()
 
-	// Try to stop again (should error)
-	err = manager.Stop()
-	assert.Error(t, err)
+	// Stopping again is a no-op: two shutdown paths can reach it.
+	assert.NotPanics(t, func() { manager.Stop() })
 }
 
 func TestMiddleware(t *testing.T) {
@@ -442,7 +439,7 @@ func TestNoopManager(t *testing.T) {
 	assert.True(t, noop.IsHealthy())
 	assert.NoError(t, noop.Reset())
 	assert.NoError(t, noop.Start(context.Background()))
-	assert.NoError(t, noop.Stop())
+	noop.Stop()
 
 	_, err := noop.GetMetricsSnapshot()
 	assert.Error(t, err)

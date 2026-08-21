@@ -54,7 +54,7 @@ func TestManagerTLSState_IsRaceFree(t *testing.T) {
 // TestLeaderManager_StopIsIdempotent: a bare close panics on the second call,
 // and two shutdown paths can both reach it.
 func TestLeaderManager_StopIsIdempotent(t *testing.T) {
-	m := &LeaderManager{stopChan: make(chan struct{})}
+	m := &LeaderManager{}
 
 	assert.NotPanics(t, func() {
 		m.Stop()
@@ -63,7 +63,7 @@ func TestLeaderManager_StopIsIdempotent(t *testing.T) {
 	}, "stopping twice must not take the process down on its way out")
 
 	select {
-	case <-m.stopChan:
+	case <-m.stopped():
 	default:
 		t.Fatal("Stop must close the channel the loop waits on")
 	}

@@ -186,7 +186,6 @@ func TestRouteOrdering_BugReproduction(t *testing.T) {
 	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
-
 	resp, err := http.Get(ts.URL + "/api/internal/cluster/buckets")
 	require.NoError(t, err)
 	defer resp.Body.Close()

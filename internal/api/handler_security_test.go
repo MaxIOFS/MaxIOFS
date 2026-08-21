@@ -1067,9 +1067,8 @@ func (m *MockMetricsManager) Start(ctx context.Context) error {
 	return args.Error(0)
 }
 
-func (m *MockMetricsManager) Stop() error {
-	args := m.Called()
-	return args.Error(0)
+func (m *MockMetricsManager) Stop() {
+	m.Called()
 }
 
 // Helper function to create test handler
@@ -1102,7 +1101,6 @@ func addUserToContext(r *http.Request, user *auth.User) *http.Request {
 	ctx := context.WithValue(r.Context(), "user", user)
 	return r.WithContext(ctx)
 }
-
 
 // TestHealthEndpoint_NoAuthenticationRequired tests that health endpoint doesn't require auth
 func TestHealthEndpoint_NoAuthenticationRequired(t *testing.T) {
@@ -1159,7 +1157,6 @@ func TestReadyEndpoint_ChecksAuthReadiness(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
 	assert.Contains(t, rr.Body.String(), "not ready")
 }
-
 
 // TestS3Operation_MissingAuthentication tests that S3 operations require authentication
 func TestS3Operation_MissingAuthentication(t *testing.T) {
@@ -1222,7 +1219,6 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 	}
 }
 
-
 // TestS3Operation_InvalidSignature tests detection of invalid AWS signature
 func TestS3Operation_InvalidSignature(t *testing.T) {
 	handler, mockBucket, _, _ := setupTestHandler()
@@ -1250,7 +1246,6 @@ func TestS3Operation_InvalidSignature(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	assert.Contains(t, rr.Body.String(), "AccessDenied")
 }
-
 
 // TestS3Operation_ExpiredCredentials tests rejection of expired credentials
 func TestS3Operation_ExpiredCredentials(t *testing.T) {
@@ -1281,7 +1276,6 @@ func TestS3Operation_ExpiredCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	assert.Contains(t, rr.Body.String(), "AccessDenied")
 }
-
 
 // TestBucketName_PathTraversal tests prevention of path traversal attacks in bucket names
 func TestBucketName_PathTraversal(t *testing.T) {
@@ -1461,7 +1455,6 @@ func TestObjectKey_SQLInjectionAttempt(t *testing.T) {
 	}
 }
 
-
 // TestPutObject_OversizedHeaders tests handling of oversized HTTP headers
 func TestPutObject_OversizedHeaders(t *testing.T) {
 	handler, mockBucket, mockObject, mockAuth := setupTestHandler()
@@ -1533,7 +1526,6 @@ func TestPutObject_OversizedHeaders(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusInternalServerError, rr.Code, "Should not crash with oversized headers")
 }
-
 
 // TestConcurrentRequests_RateLimiting simulates concurrent requests
 func TestConcurrentRequests_RateLimiting(t *testing.T) {

@@ -44,11 +44,10 @@ func (a *RealObjectAdapter) CopyObject(ctx context.Context, sourceBucket, source
 	defer reader.Close()
 
 	logrus.WithFields(logrus.Fields{
-		"source_key": sourceKey,
-		"size":       size,
+		"source_key":   sourceKey,
+		"size":         size,
 		"content_type": contentType,
 	}).Debug("Retrieved source object from local storage")
-
 
 	return size, nil
 }

@@ -40,10 +40,10 @@ type STSSessionSyncPayload struct {
 
 // STSSessionSyncManager replicates temporary credentials across cluster nodes.
 type STSSessionSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -53,7 +53,6 @@ func NewSTSSessionSyncManager(db *sql.DB, clusterManager *Manager) *STSSessionSy
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "sts-session-sync"),
 	}
 }
@@ -77,19 +76,14 @@ func (m *STSSessionSyncManager) Start(ctx context.Context) {
 	}
 
 	m.log.WithField("interval_seconds", interval).Info("Starting STS session synchronization manager")
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
-}
-
-// Stop halts the synchronization loop.
-func (m *STSSessionSyncManager) Stop() {
-	close(m.stopChan)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // TriggerSync pushes the current state to all peers immediately. Called right
 // after issuing or revoking a session so a client using the credential through
 // a load balancer doesn't have to wait for the next tick.
 func (m *STSSessionSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllSessions)
+	runDetached(&m.bgWorker, ctx, m.syncAllSessions)
 }
 
 func (m *STSSessionSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -103,7 +97,7 @@ func (m *STSSessionSyncManager) syncLoop(ctx context.Context, interval time.Dura
 		case <-ctx.Done():
 			m.log.Info("STS session sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("STS session sync loop stopped")
 			return
 		case <-ticker.C:

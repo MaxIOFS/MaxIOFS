@@ -1,15 +1,15 @@
-package middleware
+package clusterauth
 
 import (
 	"sync"
 	"time"
 )
 
-// nonceCache remembers the nonces seen inside the signature's own time window,
+// NonceCache remembers the nonces seen inside the signature's own time window,
 // so a captured request cannot be replayed while its timestamp is still valid.
 // Entries older than the window can be forgotten: the timestamp check refuses
 // them before the nonce is ever consulted.
-type nonceCache struct {
+type NonceCache struct {
 	window time.Duration
 
 	mu     sync.Mutex
@@ -18,8 +18,8 @@ type nonceCache struct {
 	sweepe time.Duration
 }
 
-func newNonceCache(window time.Duration) *nonceCache {
-	return &nonceCache{
+func NewNonceCache(window time.Duration) *NonceCache {
+	return &NonceCache{
 		window: window,
 		seen:   make(map[string]time.Time),
 		swept:  time.Now(),
@@ -27,8 +27,8 @@ func newNonceCache(window time.Duration) *nonceCache {
 	}
 }
 
-// observe records a nonce and reports whether it is the first time it is seen.
-func (c *nonceCache) observe(key string, now time.Time) bool {
+// Observe records a nonce and reports whether it is the first time it is seen.
+func (c *NonceCache) Observe(key string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

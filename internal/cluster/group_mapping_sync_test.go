@@ -23,7 +23,7 @@ func TestGroupMappingSyncManager_New(t *testing.T) {
 	assert.NotNil(t, syncManager.db)
 	assert.NotNil(t, syncManager.clusterManager)
 	assert.NotNil(t, syncManager.proxyClient)
-	assert.NotNil(t, syncManager.stopChan)
+	assert.NotNil(t, syncManager.stopped())
 	assert.NotNil(t, syncManager.log)
 }
 
@@ -219,7 +219,7 @@ func TestGroupMappingSyncManager_Stop(t *testing.T) {
 	syncManager.Stop()
 
 	select {
-	case <-syncManager.stopChan:
+	case <-syncManager.stopped():
 		// Expected
 	default:
 		t.Error("Expected stop channel to be closed")

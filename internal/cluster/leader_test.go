@@ -17,9 +17,8 @@ func leaseNode(t *testing.T) (*LeaderManager, func()) {
 	db, cleanup := setupTestDB(t)
 
 	m := &LeaderManager{
-		db:       db,
-		stopChan: make(chan struct{}),
-		log:      logrus.WithField("component", "leader-test"),
+		db:  db,
+		log: logrus.WithField("component", "leader-test"),
 	}
 	require.NoError(t, m.EnsureSchema())
 	return m, cleanup

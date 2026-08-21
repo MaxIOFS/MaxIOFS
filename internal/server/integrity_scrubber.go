@@ -14,7 +14,7 @@ import (
 // integrity scan every 24 hours.  It does NOT run immediately on startup —
 // the first scan fires after the initial 24-hour tick.
 func (s *Server) startIntegrityScrubber(ctx context.Context) {
-	go func() {
+	s.goWorker("integrity scrubber", func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {
@@ -25,7 +25,7 @@ func (s *Server) startIntegrityScrubber(ctx context.Context) {
 				s.runIntegrityScrub(ctx)
 			}
 		}
-	}()
+	})
 }
 
 // runIntegrityScrub iterates over every bucket → object page and calls

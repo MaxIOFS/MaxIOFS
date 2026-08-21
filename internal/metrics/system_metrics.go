@@ -128,10 +128,10 @@ func (sm *SystemMetricsTracker) GetDiskUsage() (*DiskStats, error) {
 
 // RequestStats represents request tracking statistics
 type RequestStats struct {
-	TotalRequests   uint64  `json:"total_requests"`
-	TotalErrors     uint64  `json:"total_errors"`
-	AverageLatency  float64 `json:"average_latency_ms"`
-	RequestsPerSec  float64 `json:"requests_per_sec"`
+	TotalRequests  uint64  `json:"total_requests"`
+	TotalErrors    uint64  `json:"total_errors"`
+	AverageLatency float64 `json:"average_latency_ms"`
+	RequestsPerSec float64 `json:"requests_per_sec"`
 }
 
 // GetRequestStats returns request tracking statistics
@@ -161,11 +161,11 @@ func (sm *SystemMetricsTracker) GetRequestStats() *RequestStats {
 
 // PerformanceStats represents performance metrics
 type PerformanceStats struct {
-	Uptime          int64   `json:"uptime_seconds"`
-	GoRoutines      int     `json:"goroutines"`
-	HeapAllocMB     float64 `json:"heap_alloc_mb"`
-	TotalAllocMB    float64 `json:"total_alloc_mb"`
-	GCRuns          uint32  `json:"gc_runs"`
+	Uptime       int64   `json:"uptime_seconds"`
+	GoRoutines   int     `json:"goroutines"`
+	HeapAllocMB  float64 `json:"heap_alloc_mb"`
+	TotalAllocMB float64 `json:"total_alloc_mb"`
+	GCRuns       uint32  `json:"gc_runs"`
 }
 
 // GetPerformanceStats returns performance statistics

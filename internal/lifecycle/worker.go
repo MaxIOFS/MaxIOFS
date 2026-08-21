@@ -20,6 +20,7 @@ type Worker struct {
 	ticker        *time.Ticker
 	stopChan      chan struct{}
 	stopOnce      sync.Once
+	wg            sync.WaitGroup
 }
 
 // NewWorker creates a new lifecycle worker
@@ -38,7 +39,9 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 
 	logrus.WithField("interval", interval).Info("Lifecycle worker started")
 
+	w.wg.Add(1)
 	go func() {
+		defer w.wg.Done()
 		for {
 			select {
 			case <-w.ticker.C:
@@ -57,8 +60,12 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 }
 
 // Stop stops the lifecycle worker
+// Stop signals the worker and waits for a run in progress to finish. The
+// caller closes the stores next, and a sweep still walking them would be using
+// a closed database.
 func (w *Worker) Stop() {
 	w.stopOnce.Do(func() { close(w.stopChan) })
+	w.wg.Wait()
 }
 
 // processLifecyclePolicies processes all lifecycle policies for all buckets

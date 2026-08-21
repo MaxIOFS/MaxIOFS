@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -18,6 +19,8 @@ type Worker struct {
 	bucketManager bucket.Manager
 	ticker        *time.Ticker
 	stopChan      chan struct{}
+	stopOnce      sync.Once
+	wg            sync.WaitGroup
 	log           *logrus.Entry
 }
 
@@ -44,9 +47,15 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 	w.log.WithField("interval", interval).Info("Inventory worker started")
 
 	// Run immediately on start
-	go w.processInventories(ctx)
-
+	w.wg.Add(1)
 	go func() {
+		defer w.wg.Done()
+		w.processInventories(ctx)
+	}()
+
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
 		for {
 			select {
 			case <-w.ticker.C:
@@ -65,8 +74,11 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 }
 
 // Stop stops the inventory worker
+// Stop signals the worker and waits for a run in progress to finish, so the
+// caller can close the stores behind it. Safe to call more than once.
 func (w *Worker) Stop() {
-	close(w.stopChan)
+	w.stopOnce.Do(func() { close(w.stopChan) })
+	w.wg.Wait()
 }
 
 // processInventories processes all ready inventory configurations

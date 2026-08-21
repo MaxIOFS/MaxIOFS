@@ -17,6 +17,8 @@ type LoginRateLimiter struct {
 	attempts map[string]*RateLimitAttempt
 	mu       sync.RWMutex
 	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 
 	// Configuration
 	maxAttempts   int
@@ -35,6 +37,7 @@ func NewLoginRateLimiter(maxAttempts, windowSeconds int) *LoginRateLimiter {
 	}
 
 	// BUG-01: goroutine is now stoppable via Stop()
+	limiter.wg.Add(1)
 	go limiter.cleanupLoop()
 
 	return limiter
@@ -168,6 +171,7 @@ func (l *LoginRateLimiter) GetAttempts(ip string) int {
 
 // cleanupLoop periodically removes expired entries until Stop() is called.
 func (l *LoginRateLimiter) cleanupLoop() {
+	defer l.wg.Done()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -184,7 +188,8 @@ func (l *LoginRateLimiter) cleanupLoop() {
 // Stop signals the background cleanup goroutine to exit. Call this when
 // the limiter is no longer needed (e.g., during server shutdown).
 func (l *LoginRateLimiter) Stop() {
-	close(l.stopCh)
+	l.stopOnce.Do(func() { close(l.stopCh) })
+	l.wg.Wait()
 }
 
 // cleanup removes expired entries from the map

@@ -1741,7 +1741,6 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 	}
 }
 
-
 // handleHAGetObject serves an object to a rejoining stale replica.
 // GET /api/internal/ha/objects/{key:.*}
 // Bucket path is in the X-HA-Bucket query parameter (or header).

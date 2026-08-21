@@ -40,8 +40,21 @@ type HASyncWorker struct {
 	bucketMgr bucket.Manager
 	mgr       *Manager
 
+	bgWorker
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // nodeID → cancel func
+}
+
+// Stop cancels the in-flight syncs and waits for them. Their final status write
+// goes to the same database the shutdown is about to close, so returning before
+// they finish means writing into a closed handle.
+func (w *HASyncWorker) Stop() {
+	w.mu.Lock()
+	for _, cancel := range w.running {
+		cancel()
+	}
+	w.mu.Unlock()
+	w.bgWorker.Stop()
 }
 
 // NewHASyncWorker creates a worker.  Call Start once at server startup, then
@@ -212,7 +225,7 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 	w.running[node.ID] = cancel
 	w.mu.Unlock()
 
-	go func() {
+	started := w.spawn(func() {
 		defer func() {
 			cancel()
 			w.mu.Lock()
@@ -239,7 +252,15 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 		}
 		// If jobCtx.Err() != nil the server is shutting down — leave status as
 		// "running" so that Start() resumes from the last checkpoint on next boot.
-	}()
+	})
+
+	if !started {
+		// Shutting down: leave the job "running" so the next boot resumes it.
+		cancel()
+		w.mu.Lock()
+		delete(w.running, node.ID)
+		w.mu.Unlock()
+	}
 }
 
 func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, startBucket, startKey string) error {

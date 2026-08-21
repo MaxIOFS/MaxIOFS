@@ -6796,7 +6796,6 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-
 // handleSetup2FA generates a new TOTP secret and QR code for the user
 func (s *Server) handleSetup2FA(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*auth.User)
@@ -7640,7 +7639,6 @@ You received this email because you requested a test from the System Settings pa
 	})
 }
 
-
 // handleGetBucketNotification retrieves the notification configuration for a bucket
 func (s *Server) handleGetBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -7798,7 +7796,6 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 		"message": "Notification configuration deleted successfully",
 	})
 }
-
 
 // handleGetBucketEncryption returns the SSE configuration of a bucket.
 func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Request) {
@@ -7961,7 +7958,6 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
-
 // handleGetObjectLockConfiguration returns the current Object Lock configuration
 // for a bucket (enabled flag + default retention rule).
 func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -8001,7 +7997,6 @@ func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http
 
 	s.writeJSON(w, bucketInfo.ObjectLock)
 }
-
 
 // handleGetPublicAccessBlock returns the public-access-block configuration.
 func (s *Server) handleGetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {

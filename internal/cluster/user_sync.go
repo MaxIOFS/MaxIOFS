@@ -51,10 +51,10 @@ type CapabilityOverrideData struct {
 
 // UserSyncManager handles automatic user synchronization between cluster nodes
 type UserSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -64,7 +64,6 @@ func NewUserSyncManager(db *sql.DB, clusterManager *Manager) *UserSyncManager {
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "user-sync"),
 	}
 }
@@ -94,7 +93,7 @@ func (m *UserSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting user synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -110,7 +109,7 @@ func (m *UserSyncManager) syncLoop(ctx context.Context, interval time.Duration) 
 		case <-ctx.Done():
 			m.log.Info("User sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("User sync loop stopped")
 			return
 		case <-ticker.C:
@@ -466,15 +465,10 @@ func (m *UserSyncManager) sendDeletionToNode(ctx context.Context, userID string,
 	return nil
 }
 
-// Stop stops the user sync manager
-func (m *UserSyncManager) Stop() {
-	close(m.stopChan)
-}
-
 // TriggerSync immediately runs a full user sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *UserSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllUsers)
+	runDetached(&m.bgWorker, ctx, m.syncAllUsers)
 }
 
 // SyncToNode immediately pushes all local users to the given node.

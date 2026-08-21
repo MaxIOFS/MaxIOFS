@@ -32,10 +32,10 @@ type GroupMappingData struct {
 
 // GroupMappingSyncManager handles automatic IDP group mapping synchronization between cluster nodes
 type GroupMappingSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -45,7 +45,6 @@ func NewGroupMappingSyncManager(db *sql.DB, clusterManager *Manager) *GroupMappi
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "group-mapping-sync"),
 	}
 }
@@ -75,7 +74,7 @@ func (m *GroupMappingSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting group mapping synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -91,7 +90,7 @@ func (m *GroupMappingSyncManager) syncLoop(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			m.log.Info("Group mapping sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Group mapping sync loop stopped")
 			return
 		case <-ticker.C:
@@ -401,9 +400,5 @@ func (m *GroupMappingSyncManager) sendDeletionToNode(ctx context.Context, mappin
 // TriggerSync immediately runs a full group mapping sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *GroupMappingSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllMappings)
-}
-
-func (m *GroupMappingSyncManager) Stop() {
-	close(m.stopChan)
+	runDetached(&m.bgWorker, ctx, m.syncAllMappings)
 }

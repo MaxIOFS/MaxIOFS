@@ -29,14 +29,17 @@ type PebbleStore struct {
 	dbPath           string
 	walDirty         atomic.Bool // unsynced NoSync writes since the last WAL fsync
 	walSyncWG        sync.WaitGroup
+	bgWG             sync.WaitGroup // background goroutines that touch the DB
+	closeOnce        sync.Once
+	closeErr         error
 	wasCleanShutdown bool
 }
 
 // PebbleOptions contains configuration options for PebbleStore
 type PebbleOptions struct {
-	DataDir     string
-	Logger      *logrus.Logger
-	CacheSizeMB int // Block cache size in MB (default 256)
+	DataDir         string
+	Logger          *logrus.Logger
+	CacheSizeMB     int // Block cache size in MB (default 256)
 	WALSyncInterval time.Duration
 }
 
@@ -114,8 +117,13 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	}
 	store.ready.Store(true)
 
-	// Start TTL cleanup goroutine for multipart uploads.
-	go store.runMultipartCleanup()
+	// Start TTL cleanup goroutine for multipart uploads. Tracked: Pebble panics
+	// on use after close, so Close must not return while it is mid-sweep.
+	store.bgWG.Add(1)
+	go func() {
+		defer store.bgWG.Done()
+		store.runMultipartCleanup()
+	}()
 
 	// Start the periodic WAL fsync loop.
 	walSyncInterval := opts.WALSyncInterval
@@ -648,10 +656,18 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 // ==================== Lifecycle ====================
 
 // Close shuts down the Pebble store gracefully.
+// Close is safe to call more than once: two shutdown paths can reach it, and
+// closing the stop channel twice panics.
 func (s *PebbleStore) Close() error {
+	s.closeOnce.Do(func() { s.closeErr = s.closeStore() })
+	return s.closeErr
+}
+
+func (s *PebbleStore) closeStore() error {
 	s.ready.Store(false)
 	close(s.stopCh)
 	s.walSyncWG.Wait()
+	s.bgWG.Wait()
 	s.logger.Info("Closing Pebble metadata store")
 	if s.walDirty.Swap(false) {
 		if err := s.db.LogData(nil, pebble.Sync); err != nil {

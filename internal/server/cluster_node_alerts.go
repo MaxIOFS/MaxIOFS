@@ -36,7 +36,7 @@ func (s *clusterNodeAlertStates) set(nodeID string, level alertLevel) {
 // startClusterNodeAlertMonitor starts a background goroutine that checks
 func (s *Server) startClusterNodeAlertMonitor(ctx context.Context) {
 	states := newClusterNodeAlertStates()
-	go func() {
+	s.goWorker("cluster node alert monitor", func() {
 		// Check immediately on startup
 		s.checkClusterNodeAlerts(ctx, states)
 
@@ -50,7 +50,7 @@ func (s *Server) startClusterNodeAlertMonitor(ctx context.Context) {
 				s.checkClusterNodeAlerts(ctx, states)
 			}
 		}
-	}()
+	})
 }
 
 func (s *Server) checkClusterNodeAlerts(ctx context.Context, states *clusterNodeAlertStates) {

@@ -105,14 +105,14 @@ type ReplicationMetrics struct {
 
 // ReplicationConfig contains configuration for the replication manager
 type ReplicationConfig struct {
-	Enable          bool          `json:"enable"`
-	WorkerCount     int           `json:"worker_count"`
-	QueueSize       int           `json:"queue_size"`
-	BatchSize       int           `json:"batch_size"`
-	RetryInterval   time.Duration `json:"retry_interval"`
-	MaxRetries      int           `json:"max_retries"`
-	CleanupInterval time.Duration `json:"cleanup_interval"`
-	RetentionDays   int           `json:"retention_days"`
-	CredentialEncryptionKey string `json:"-"` // never serialise the key
-	AllowInternalEndpoints bool `json:"allow_internal_endpoints"`
+	Enable                  bool          `json:"enable"`
+	WorkerCount             int           `json:"worker_count"`
+	QueueSize               int           `json:"queue_size"`
+	BatchSize               int           `json:"batch_size"`
+	RetryInterval           time.Duration `json:"retry_interval"`
+	MaxRetries              int           `json:"max_retries"`
+	CleanupInterval         time.Duration `json:"cleanup_interval"`
+	RetentionDays           int           `json:"retention_days"`
+	CredentialEncryptionKey string        `json:"-"` // never serialise the key
+	AllowInternalEndpoints  bool          `json:"allow_internal_endpoints"`
 }

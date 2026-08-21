@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/kek"
@@ -29,11 +28,10 @@ type KEKProvider interface {
 
 // GlobalConfigSyncManager synchronizes cluster_global_config and cluster_nodes
 type GlobalConfigSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
-	stopOnce       sync.Once
 	log            *logrus.Entry
 	kekProvider    KEKProvider
 }
@@ -44,7 +42,6 @@ func NewGlobalConfigSyncManager(db *sql.DB, clusterManager *Manager) *GlobalConf
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "global-config-sync"),
 	}
 }
@@ -57,12 +54,7 @@ func (m *GlobalConfigSyncManager) SetKEKProvider(p KEKProvider) {
 // Start begins the global config synchronization loop.
 func (m *GlobalConfigSyncManager) Start(ctx context.Context) {
 	m.log.Info("Starting global config synchronization manager (interval: 60s)")
-	go m.syncLoop(ctx, 60*time.Second)
-}
-
-// Stop gracefully stops the sync loop. Safe to call more than once.
-func (m *GlobalConfigSyncManager) Stop() {
-	m.stopOnce.Do(func() { close(m.stopChan) })
+	m.spawn(func() { m.syncLoop(ctx, 60*time.Second) })
 }
 
 func (m *GlobalConfigSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -77,7 +69,7 @@ func (m *GlobalConfigSyncManager) syncLoop(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			m.log.Info("Global config sync loop stopped (context cancelled)")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Global config sync loop stopped")
 			return
 		case <-ticker.C:

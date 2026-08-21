@@ -254,6 +254,8 @@ type authManager struct {
 	userLockedCallback        func(*User)
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
+	closeOnce                 sync.Once
+	closeErr                  error
 	clusterManager            interface {
 		IsClusterEnabled() bool
 	}
@@ -1363,6 +1365,21 @@ func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 			"max_attempts_per_minute": maxAttempts,
 		}).Info("Rate limiter configured from settings")
 	}
+}
+
+// Close releases the manager-owned background loops and SQLite handle. It is
+// intentionally not part of Manager so test doubles and narrow adapters do not
+// need to grow a lifecycle method, but the server calls it when available.
+func (am *authManager) Close() error {
+	am.closeOnce.Do(func() {
+		if am.rateLimiter != nil {
+			am.rateLimiter.Stop()
+		}
+		if am.store != nil {
+			am.closeErr = am.store.Close()
+		}
+	})
+	return am.closeErr
 }
 
 // SetClusterManager sets the cluster manager for cluster-aware quota checking

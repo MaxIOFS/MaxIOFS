@@ -55,7 +55,6 @@ func TestBucketAggregator_queryBucketsFromNode_Success(t *testing.T) {
 		HealthStatus: "healthy",
 	}
 
-
 	// Create a test that doesn't rely on cluster manager
 	ctx := context.Background()
 

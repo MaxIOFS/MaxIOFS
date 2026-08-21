@@ -57,6 +57,13 @@ func NewRouter(manager *Manager, bucketMgr BucketManager, replMgr ReplicationMan
 	}
 }
 
+// Stop releases background resources owned by the router.
+func (r *Router) Stop() {
+	if r != nil && r.cache != nil {
+		r.cache.Stop()
+	}
+}
+
 // GetBucketNode returns the primary node for a bucket
 // This is determined by checking where the bucket exists (locally or on a remote node).
 // Returns nil when the bucket is on the local node.

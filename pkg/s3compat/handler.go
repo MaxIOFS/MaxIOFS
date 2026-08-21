@@ -334,12 +334,14 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 			"error":  err.Error(),
 		}).Error("proxyBucketRequest: failed to proxy to remote node")
 
-		if r.Body != nil && r.ContentLength != 0 {
-			h.writeError(w, "ServiceUnavailable",
-				"The node that owns this bucket could not be reached", bucketName, r)
-			return true
-		}
-		return false
+		// This node does not own the bucket, so it cannot answer for it. Falling
+		// through would run the operation here: a mutation without a body — a
+		// delete, a versioning or object-lock change, a copy, a tagging call —
+		// would be applied to the wrong node, and a read would answer from a
+		// place that does not hold the data.
+		h.writeError(w, "ServiceUnavailable",
+			"The node that owns this bucket could not be reached", bucketName, r)
+		return true
 	}
 	defer resp.Body.Close()
 

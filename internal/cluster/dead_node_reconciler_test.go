@@ -61,7 +61,6 @@ func newTestManager(t *testing.T, db *sql.DB) *Manager {
 		db:                  db,
 		log:                 logrus.NewEntry(logger),
 		healthCheckInterval: 30 * time.Second,
-		stopChan:            make(chan struct{}),
 	}
 }
 

@@ -30,7 +30,7 @@ type diskAlertState struct {
 // every 5 minutes and sends SSE notifications + emails when thresholds are crossed.
 func (s *Server) startDiskAlertMonitor(ctx context.Context) {
 	state := &diskAlertState{}
-	go func() {
+	s.goWorker("disk alert monitor", func() {
 		// Check immediately on startup
 		s.checkDiskAlerts(state)
 
@@ -44,7 +44,7 @@ func (s *Server) startDiskAlertMonitor(ctx context.Context) {
 				s.checkDiskAlerts(state)
 			}
 		}
-	}()
+	})
 }
 
 func (s *Server) checkDiskAlerts(state *diskAlertState) {

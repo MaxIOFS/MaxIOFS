@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/maxiofs/maxiofs/internal/clusterauth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,22 @@ import (
 )
 
 // setupTestDB creates a test database with cluster_nodes table
+
+// signFor signs exactly what the server verifies, splitting the target the way
+// a real request arrives so the query is covered rather than assumed empty.
+func signFor(nodeToken, nodeID, method, target, timestamp, nonce, bodyHash string) string {
+	path, query, _ := strings.Cut(target, "?")
+	return clusterauth.Sign(nodeToken, clusterauth.Request{
+		NodeID:    nodeID,
+		Timestamp: timestamp,
+		Nonce:     nonce,
+		Method:    method,
+		Path:      path,
+		Query:     query,
+		BodyHash:  bodyHash,
+	})
+}
+
 func setupClusterAuthTestDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
@@ -72,7 +89,7 @@ func TestClusterAuth_ValidSignature(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/internal/cluster/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "test-nonce-123"
-	signature := computeSignature(nodeToken, "GET", "/api/internal/cluster/test", timestamp, nonce, emptyBodyHash)
+	signature := signFor(nodeToken, nodeID, "GET", "/api/internal/cluster/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -99,7 +116,7 @@ func TestClusterAuth_UnsignedPayloadDoesNotDrainBody(t *testing.T) {
 
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "test-nonce-stream"
-	signature := computeSignature(nodeToken, "PUT", "/api/internal/cluster/ha/objects/key", timestamp, nonce, clusterUnsignedPayloadHash)
+	signature := signFor(nodeToken, nodeID, "PUT", "/api/internal/cluster/ha/objects/key", timestamp, nonce, clusterUnsignedPayloadHash)
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -141,7 +158,7 @@ func TestClusterAuth_SignedPayloadBodyLimit(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/internal/cluster/group-sync", strings.NewReader(strings.Repeat("a", maxSignedClusterBody+1)))
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "test-nonce-large-body"
-	signature := computeSignature(nodeToken, "POST", "/api/internal/cluster/group-sync", timestamp, nonce, "bad")
+	signature := signFor(nodeToken, nodeID, "POST", "/api/internal/cluster/group-sync", timestamp, nonce, "bad")
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
 	req.Header.Set("X-MaxIOFS-Nonce", nonce)
@@ -335,7 +352,7 @@ func TestClusterAuth_TimestampSkew(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := tc.timestampFunc()
 			nonce := "nonce-" + tc.name
-			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
+			signature := signFor(nodeToken, nodeID, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -398,7 +415,7 @@ func TestClusterAuth_NodeNotFound(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "nonce"
-	signature := computeSignature("some-token", "GET", "/test", timestamp, nonce, emptyBodyHash)
+	signature := signFor("some-token", "non-existent-node", "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", "non-existent-node")
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -434,7 +451,7 @@ func TestClusterAuth_RemovedNode(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "nonce"
-	signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
+	signature := signFor(nodeToken, nodeID, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -483,7 +500,7 @@ func TestClusterAuth_HealthyNodeStatuses(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := "nonce-" + tc.healthStatus
-			signature := computeSignature(nodeToken, "GET", "/test", timestamp, nonce, emptyBodyHash)
+			signature := signFor(nodeToken, nodeID, "GET", "/test", timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -529,7 +546,7 @@ func TestClusterAuth_DifferentHTTPMethods(t *testing.T) {
 			req := httptest.NewRequest(method, path, nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := fmt.Sprintf("nonce-%s", method)
-			signature := computeSignature(nodeToken, method, path, timestamp, nonce, emptyBodyHash)
+			signature := signFor(nodeToken, nodeID, method, path, timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -574,7 +591,7 @@ func TestClusterAuth_DifferentPaths(t *testing.T) {
 			req := httptest.NewRequest("GET", path, nil)
 			timestamp := fmt.Sprintf("%d", time.Now().Unix())
 			nonce := "nonce-" + path
-			signature := computeSignature(nodeToken, "GET", path, timestamp, nonce, emptyBodyHash)
+			signature := signFor(nodeToken, nodeID, "GET", path, timestamp, nonce, emptyBodyHash)
 
 			req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 			req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -593,6 +610,7 @@ func TestClusterAuth_DifferentPaths(t *testing.T) {
 
 func TestComputeSignature(t *testing.T) {
 	token := "test-secret-token"
+	nodeID := "test-node-signature"
 	method := "POST"
 	path := "/api/internal/cluster/test"
 	timestamp := "1234567890"
@@ -601,8 +619,8 @@ func TestComputeSignature(t *testing.T) {
 	bodyHash := emptyBodyHash
 
 	// Compute signature twice with same inputs
-	sig1 := computeSignature(token, method, path, timestamp, nonce, bodyHash)
-	sig2 := computeSignature(token, method, path, timestamp, nonce, bodyHash)
+	sig1 := signFor(token, nodeID, method, path, timestamp, nonce, bodyHash)
+	sig2 := signFor(token, nodeID, method, path, timestamp, nonce, bodyHash)
 
 	// Should be deterministic
 	assert.Equal(t, sig1, sig2, "Signature should be deterministic")
@@ -610,19 +628,19 @@ func TestComputeSignature(t *testing.T) {
 	assert.Len(t, sig1, 64, "SHA256 hex signature should be 64 characters")
 
 	// Different inputs should produce different signatures
-	sig3 := computeSignature(token, "GET", path, timestamp, nonce, bodyHash)
+	sig3 := signFor(token, nodeID, "GET", path, timestamp, nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig3, "Different method should produce different signature")
 
-	sig4 := computeSignature(token, method, "/different/path", timestamp, nonce, bodyHash)
+	sig4 := signFor(token, nodeID, method, "/different/path", timestamp, nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig4, "Different path should produce different signature")
 
-	sig5 := computeSignature(token, method, path, "9999999999", nonce, bodyHash)
+	sig5 := signFor(token, nodeID, method, path, "9999999999", nonce, bodyHash)
 	assert.NotEqual(t, sig1, sig5, "Different timestamp should produce different signature")
 
-	sig6 := computeSignature(token, method, path, timestamp, "different-nonce", bodyHash)
+	sig6 := signFor(token, nodeID, method, path, timestamp, "different-nonce", bodyHash)
 	assert.NotEqual(t, sig1, sig6, "Different nonce should produce different signature")
 
-	sig7 := computeSignature(token, method, path, timestamp, nonce, "a"+"b"+bodyHash[:60])
+	sig7 := signFor(token, nodeID, method, path, timestamp, nonce, "a"+"b"+bodyHash[:60])
 	assert.NotEqual(t, sig1, sig7, "Different body hash should produce different signature")
 }
 
@@ -674,7 +692,7 @@ func TestClusterAuth_ReplayedNonceIsRejected(t *testing.T) {
 	const path = "/api/internal/cluster/replay"
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "captured-nonce"
-	signature := computeSignature(nodeToken, "GET", path, timestamp, nonce, emptyBodyHash)
+	signature := signFor(nodeToken, nodeID, "GET", path, timestamp, nonce, emptyBodyHash)
 
 	send := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest("GET", path, nil)
@@ -713,7 +731,7 @@ func TestClusterAuth_SignedDigestRejectsASubstitutedBody(t *testing.T) {
 
 	send := func(body, nonce string) (int, string, bool) {
 		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		signature := computeSignature(nodeToken, "PUT", path, timestamp, nonce, declared)
+		signature := signFor(nodeToken, nodeID, "PUT", path, timestamp, nonce, declared)
 
 		req := httptest.NewRequest("PUT", path, strings.NewReader(body))
 		req.Header.Set("X-MaxIOFS-Node-ID", nodeID)

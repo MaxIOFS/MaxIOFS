@@ -17,15 +17,20 @@ type apiRateBucket struct {
 // APIRateLimiter enforces per-user (by access key or user ID) request rate limiting
 // for the S3 API using a token-bucket algorithm.
 type APIRateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*apiRateBucket
+	mu       sync.Mutex
+	buckets  map[string]*apiRateBucket
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 // NewAPIRateLimiter creates a new API rate limiter.
 func NewAPIRateLimiter() *APIRateLimiter {
 	rl := &APIRateLimiter{
 		buckets: make(map[string]*apiRateBucket),
+		stopCh:  make(chan struct{}),
 	}
+	rl.wg.Add(1)
 	go rl.cleanupLoop()
 	return rl
 }
@@ -65,9 +70,15 @@ func (rl *APIRateLimiter) Allow(key string, ratePerSecond int) bool {
 
 // cleanupLoop removes stale buckets every minute.
 func (rl *APIRateLimiter) cleanupLoop() {
+	defer rl.wg.Done()
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-ticker.C:
+		}
 		rl.mu.Lock()
 		for k, b := range rl.buckets {
 			if time.Since(b.lastFill) > 2*time.Minute {
@@ -76,6 +87,12 @@ func (rl *APIRateLimiter) cleanupLoop() {
 		}
 		rl.mu.Unlock()
 	}
+}
+
+// Stop terminates the cleanup loop and waits for it to exit.
+func (rl *APIRateLimiter) Stop() {
+	rl.stopOnce.Do(func() { close(rl.stopCh) })
+	rl.wg.Wait()
 }
 
 // APIRateLimitMiddleware returns a Gorilla Mux middleware that enforces per-user

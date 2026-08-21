@@ -150,20 +150,19 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the replication manager
-func (m *Manager) Stop() error {
+// Stop is safe to call more than once and waits for the workers.
+func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.running {
-		return nil
+		return
 	}
 
 	close(m.stopChan)
 	m.wg.Wait()
 	close(m.queue)
 	m.running = false
-	return nil
 }
 
 // CreateRule creates a new replication rule

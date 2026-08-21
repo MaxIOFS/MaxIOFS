@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -224,42 +223,46 @@ func CleanupOldDeletions(ctx context.Context, db *sql.DB, maxAge time.Duration) 
 	return result.RowsAffected()
 }
 
-// StartDeletionLogCleanup starts a goroutine that periodically cleans up old tombstones
-func StartDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge time.Duration) {
+// RunDeletionLogCleanup periodically cleans up old tombstones until ctx is
+// cancelled. It blocks so callers that own shutdown can run it under their own
+// worker tracking and wait for it before closing the database.
+func RunDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge time.Duration) {
 	log := logrus.WithField("component", "deletion-log-cleanup")
 	log.WithFields(logrus.Fields{
 		"interval": interval,
 		"max_age":  maxAge,
 	}).Info("Starting deletion log cleanup")
 
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("Deletion log cleanup stopped")
-				return
-			case <-ticker.C:
-				count, err := CleanupOldDeletions(ctx, db, maxAge)
-				if err != nil {
-					log.WithError(err).Error("Failed to cleanup old deletions")
-				} else if count > 0 {
-					log.WithField("count", count).Info("Cleaned up old deletion log entries")
-				}
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Deletion log cleanup stopped")
+			return
+		case <-ticker.C:
+			count, err := CleanupOldDeletions(ctx, db, maxAge)
+			if err != nil {
+				log.WithError(err).Error("Failed to cleanup old deletions")
+			} else if count > 0 {
+				log.WithField("count", count).Info("Cleaned up old deletion log entries")
 			}
 		}
-	}()
+	}
+}
+
+// StartDeletionLogCleanup starts a goroutine that periodically cleans up old tombstones.
+func StartDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge time.Duration) {
+	go RunDeletionLogCleanup(ctx, db, interval, maxAge)
 }
 
 // DeletionLogSyncManager synchronizes tombstone entries to other cluster nodes
 type DeletionLogSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
-	stopOnce       sync.Once
 	log            *logrus.Entry
 }
 
@@ -269,7 +272,6 @@ func NewDeletionLogSyncManager(db *sql.DB, clusterManager *Manager) *DeletionLog
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "deletion-log-sync"),
 	}
 }
@@ -277,7 +279,7 @@ func NewDeletionLogSyncManager(db *sql.DB, clusterManager *Manager) *DeletionLog
 // Start begins the deletion log synchronization loop
 func (m *DeletionLogSyncManager) Start(ctx context.Context) {
 	m.log.Info("Starting deletion log synchronization manager")
-	go m.syncLoop(ctx, 30*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, 30*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -293,7 +295,7 @@ func (m *DeletionLogSyncManager) syncLoop(ctx context.Context, interval time.Dur
 		case <-ctx.Done():
 			m.log.Info("Deletion log sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Deletion log sync loop stopped")
 			return
 		case <-ticker.C:
@@ -413,9 +415,4 @@ func (m *DeletionLogSyncManager) syncToNode(ctx context.Context, entries []*Dele
 	}
 
 	return nil
-}
-
-// Stop stops the deletion log sync manager
-func (m *DeletionLogSyncManager) Stop() {
-	m.stopOnce.Do(func() { close(m.stopChan) })
 }

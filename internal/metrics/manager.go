@@ -68,7 +68,7 @@ type Manager interface {
 
 	// Lifecycle
 	Start(ctx context.Context) error
-	Stop() error
+	Stop()
 }
 
 // StorageMetricsProvider is a function that returns current storage metrics
@@ -76,6 +76,9 @@ type StorageMetricsProvider func() (totalBuckets, totalObjects, totalSize int64)
 
 // metricsManager implements the Manager interface using Prometheus
 type metricsManager struct {
+	// Background collection loops, waited for by Stop
+	loops sync.WaitGroup
+
 	// Configuration
 	config MetricsConfig
 
@@ -1158,8 +1161,9 @@ func (m *metricsManager) Start(ctx context.Context) error {
 	// Start metrics collection goroutine if history store is available
 	if m.historyStore != nil {
 		logrus.WithField("interval", m.config.Interval).Info("Starting metrics collection loops")
-		go m.metricsCollectionLoop()
-		go m.metricsMaintenanceLoop()
+		m.loops.Add(2)
+		go func() { defer m.loops.Done(); m.metricsCollectionLoop() }()
+		go func() { defer m.loops.Done(); m.metricsMaintenanceLoop() }()
 	} else {
 		logrus.Warn("Metrics history store is nil, collection will not start")
 	}
@@ -1167,13 +1171,16 @@ func (m *metricsManager) Start(ctx context.Context) error {
 	return nil
 }
 
-func (m *metricsManager) Stop() error {
+// Stop is safe to call more than once and waits for the collection loops before
+// closing the history store: they write to it, and it is backed by the metadata
+// store that shutdown is about to close.
+func (m *metricsManager) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.started {
-		return fmt.Errorf("metrics manager not started")
+		m.mu.Unlock()
+		return
 	}
+	m.started = false
 
 	// Persist counters before stopping
 	if err := m.persistCounters(); err != nil {
@@ -1184,14 +1191,13 @@ func (m *metricsManager) Stop() error {
 	if m.cancel != nil {
 		m.cancel()
 	}
+	m.mu.Unlock()
 
-	// Close history store
+	m.loops.Wait()
+
 	if m.historyStore != nil {
 		m.historyStore.Close()
 	}
-
-	m.started = false
-	return nil
 }
 
 // metricsCollectionLoop periodically collects and stores metrics snapshots.
@@ -1410,4 +1416,4 @@ func (n *noopManager) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler { return next }
 }
 func (n *noopManager) Start(ctx context.Context) error { return nil }
-func (n *noopManager) Stop() error                     { return nil }
+func (n *noopManager) Stop()                           {}

@@ -45,7 +45,6 @@ func (s *Server) handleReceiveKEKSync(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-
 // requireGlobalAdmin resolves the requesting user and enforces global-admin
 // access. Returns nil (after writing the error response) when access is denied.
 func (s *Server) requireGlobalAdmin(w http.ResponseWriter, r *http.Request) *auth.User {

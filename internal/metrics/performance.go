@@ -62,9 +62,9 @@ type PerformanceCollector struct {
 	retention  time.Duration // How long to keep samples
 
 	// Throughput tracking
-	requestCount  int64
-	bytesProcessed int64
-	objectsProcessed int64
+	requestCount       int64
+	bytesProcessed     int64
+	objectsProcessed   int64
 	lastThroughputCalc time.Time
 
 	// Current throughput (calculated periodically)

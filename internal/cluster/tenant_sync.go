@@ -36,10 +36,10 @@ type TenantData struct {
 
 // TenantSyncManager handles automatic tenant synchronization between cluster nodes
 type TenantSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -49,7 +49,6 @@ func NewTenantSyncManager(db *sql.DB, clusterManager *Manager) *TenantSyncManage
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "tenant-sync"),
 	}
 }
@@ -79,7 +78,7 @@ func (m *TenantSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting tenant synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 // syncLoop runs the synchronization loop
@@ -95,7 +94,7 @@ func (m *TenantSyncManager) syncLoop(ctx context.Context, interval time.Duration
 		case <-ctx.Done():
 			m.log.Info("Tenant sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Tenant sync loop stopped")
 			return
 		case <-ticker.C:
@@ -434,11 +433,7 @@ func (m *TenantSyncManager) sendDeletionToNode(ctx context.Context, tenantID str
 // TriggerSync immediately runs a full tenant sync to all healthy nodes without
 // waiting for the periodic ticker. Safe to call concurrently; runs in a goroutine.
 func (m *TenantSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllTenants)
-}
-
-func (m *TenantSyncManager) Stop() {
-	close(m.stopChan)
+	runDetached(&m.bgWorker, ctx, m.syncAllTenants)
 }
 
 // SyncToNode immediately pushes all local tenants to the given node.

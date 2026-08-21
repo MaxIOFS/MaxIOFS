@@ -18,14 +18,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/clusterauth"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/transfer"
+
 	"github.com/sirupsen/logrus"
 )
 
 const (
 	clusterBodySHA256Header    = "X-MaxIOFS-Body-SHA256"
-	clusterUnsignedPayloadHash = "UNSIGNED-PAYLOAD"
+	clusterUnsignedPayloadHash = clusterauth.UnsignedPayload
 )
 
 // ProxyClient handles proxying S3 requests to remote nodes.
@@ -286,11 +288,15 @@ func (p *ProxyClient) signClusterRequestWithBodyHash(req *http.Request, localNod
 }
 
 func (p *ProxyClient) signWithNonce(req *http.Request, localNodeID, nodeToken, timestamp, nonce, bodyHash string) {
-	// Compute signature: HMAC-SHA256(nodeToken, method + path + timestamp + nonce + bodyHash)
-	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s", req.Method, req.URL.Path, timestamp, nonce, bodyHash)
-	h := hmac.New(sha256.New, []byte(nodeToken))
-	h.Write([]byte(payload))
-	signature := hex.EncodeToString(h.Sum(nil))
+	signature := clusterauth.Sign(nodeToken, clusterauth.Request{
+		NodeID:    localNodeID,
+		Timestamp: timestamp,
+		Nonce:     nonce,
+		Method:    req.Method,
+		Path:      req.URL.Path,
+		Query:     req.URL.RawQuery,
+		BodyHash:  bodyHash,
+	})
 
 	// Add authentication headers
 	req.Header.Set("X-MaxIOFS-Node-ID", localNodeID)
@@ -380,6 +386,7 @@ func (p *ProxyClient) DoAuthenticatedRequest(req *http.Request) (*http.Response,
 // AddClusterProxyHeaders adds inter-node proxy authentication headers to an outgoing S3 request.
 func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, tenantID, roles string) {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	nonce := clusterauth.NewNonce()
 
 	// Remove original Authorization (SigV4 was signed for the client's host — invalid on the target node)
 	req.Header.Del("Authorization")
@@ -389,7 +396,8 @@ func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, ten
 	req.Header.Set("X-MaxIOFS-Forwarded-User", userID)
 	req.Header.Set("X-MaxIOFS-Forwarded-Tenant", tenantID)
 	req.Header.Set("X-MaxIOFS-Forwarded-Roles", roles)
-	req.Header.Set("X-MaxIOFS-Node-Hmac", clusterProxySignature(req, clusterToken, nodeID, timestamp, userID, tenantID, roles))
+	req.Header.Set("X-MaxIOFS-Nonce", nonce)
+	req.Header.Set("X-MaxIOFS-Node-Hmac", clusterProxySignature(req, clusterToken, nodeID, timestamp, nonce, userID, tenantID, roles))
 }
 
 // ValidateClusterProxyAuth validates inter-node proxy authentication headers.
@@ -400,13 +408,14 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 
 	nodeID := req.Header.Get("X-MaxIOFS-Node-ID")
 	timestamp := req.Header.Get("X-MaxIOFS-Timestamp")
+	nonce := req.Header.Get("X-MaxIOFS-Nonce")
 	providedSig := req.Header.Get("X-MaxIOFS-Node-Hmac")
 
-	if nodeID == "" || timestamp == "" || providedSig == "" {
+	if nodeID == "" || timestamp == "" || nonce == "" || providedSig == "" {
 		return "", "", "", false
 	}
 
-	// Validate timestamp (within 30 seconds — inter-node clocks are NTP-synced)
+	// Validate timestamp — inter-node clocks are NTP-synced
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
 		return "", "", "", false
@@ -415,7 +424,7 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 	if diff < 0 {
 		diff = -diff
 	}
-	if diff > int64(30*time.Second.Seconds()) {
+	if diff > int64(clusterProxyMaxSkew.Seconds()) {
 		return "", "", "", false
 	}
 
@@ -426,37 +435,59 @@ func ValidateClusterProxyAuth(req *http.Request, clusterToken string) (userID, t
 		return "", "", "", false
 	}
 
-	expectedSig := clusterProxySignature(req, clusterToken, nodeID, timestamp, userID, tenantID, roles)
+	expectedSig := clusterProxySignature(req, clusterToken, nodeID, timestamp, nonce, userID, tenantID, roles)
 	if !hmac.Equal([]byte(providedSig), []byte(expectedSig)) {
+		return "", "", "", false
+	}
+
+	// The signature stays valid for the whole skew window; the nonce is what
+	// stops the same forwarded request being replayed inside it.
+	if !proxyNonces.Observe(nodeID+"\n"+nonce, time.Now()) {
 		return "", "", "", false
 	}
 
 	return userID, tenantID, roles, true
 }
 
-func clusterProxySignature(req *http.Request, clusterToken, nodeID, timestamp, userID, tenantID, roles string) string {
+// clusterProxyMaxSkew is how long a forwarded request's signature is accepted,
+// and therefore exactly how long its nonce has to be remembered.
+const clusterProxyMaxSkew = 30 * time.Second
+
+// proxyNonces remembers forwarded requests for as long as their signature is
+// accepted, so one cannot be captured and sent again inside that window.
+var proxyNonces = clusterauth.NewNonceCache(clusterProxyMaxSkew)
+
+func clusterProxySignature(req *http.Request, clusterToken, nodeID, timestamp, nonce, userID, tenantID, roles string) string {
 	bodyHash := req.Header.Get(clusterBodySHA256Header)
 	if bodyHash == "" {
-		bodyHash = clusterUnsignedPayloadHash
+		bodyHash = clusterauth.UnsignedPayload
 	}
-	payload := strings.Join([]string{
-		"proxy-v2",
-		nodeID,
-		timestamp,
-		req.Method,
-		req.URL.RequestURI(),
-		bodyHash,
-		userID,
-		tenantID,
-		roles,
-	}, "\n")
-	h := hmac.New(sha256.New, []byte(clusterToken))
-	h.Write([]byte(payload))
-	return hex.EncodeToString(h.Sum(nil))
+	return clusterauth.Sign(clusterToken, clusterauth.Request{
+		NodeID:    nodeID,
+		Timestamp: timestamp,
+		Nonce:     nonce,
+		Method:    req.Method,
+		Path:      req.URL.Path,
+		Query:     req.URL.RawQuery,
+		BodyHash:  bodyHash,
+		User:      userID,
+		Tenant:    tenantID,
+		Roles:     roles,
+	})
 }
 
 // buildInternalS3URL derives the inter-node S3 API URL from node.Endpoint.
 func buildInternalS3URL(node *Node) string {
+	if node.APIURL != "" {
+		apiParsed, err := url.Parse(node.APIURL)
+		if err == nil && apiParsed.Scheme != "" && apiParsed.Host != "" {
+			apiParsed.Path = ""
+			apiParsed.RawPath = ""
+			apiParsed.RawQuery = ""
+			apiParsed.Fragment = ""
+			return strings.TrimRight(apiParsed.String(), "/")
+		}
+	}
 	if node.Endpoint == "" {
 		return ""
 	}
@@ -507,6 +538,9 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 	if err != nil {
 		return nil, fmt.Errorf("failed to create proxy request: %w", err)
 	}
+	// Without this the body goes out chunked and the receiving node sees a
+	// length of -1, which its quota check reads as "nothing to account for".
+	proxyReq.ContentLength = originalReq.ContentLength
 
 	// Copy headers from original request
 	copyHeaders(proxyReq.Header, originalReq.Header)

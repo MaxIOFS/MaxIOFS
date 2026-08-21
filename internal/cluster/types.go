@@ -77,10 +77,10 @@ type HealthCheckResult struct {
 
 // Health status constants
 const (
-	HealthStatusHealthy     = "healthy"
-	HealthStatusDegraded    = "degraded"
-	HealthStatusUnavailable = "unavailable"
-	HealthStatusUnknown     = "unknown"
-	HealthStatusDead = "dead"
+	HealthStatusHealthy         = "healthy"
+	HealthStatusDegraded        = "degraded"
+	HealthStatusUnavailable     = "unavailable"
+	HealthStatusUnknown         = "unknown"
+	HealthStatusDead            = "dead"
 	HealthStatusStoragePressure = "storage_pressure"
 )

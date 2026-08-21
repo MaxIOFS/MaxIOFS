@@ -30,13 +30,13 @@ type Manager struct {
 	publicAPIURL        string
 	clusterURL          string // cluster inter-node URL (scheme://host:clusterPort)
 	healthCheckInterval time.Duration
-	stopChan            chan struct{}
-	log                 *logrus.Entry
-	storage             storage.Backend
-	aclManager          acl.Manager
-	bucketManager       bucketManagerForMigration
-	tlsConfig           atomic.Pointer[tls.Config]
-	clusterHTTPClient   atomic.Pointer[http.Client]
+	bgWorker
+	log               *logrus.Entry
+	storage           storage.Backend
+	aclManager        acl.Manager
+	bucketManager     bucketManagerForMigration
+	tlsConfig         atomic.Pointer[tls.Config]
+	clusterHTTPClient atomic.Pointer[http.Client]
 
 	healthClientMu   sync.Mutex
 	healthHTTPClient *http.Client
@@ -81,7 +81,6 @@ func NewManager(db *sql.DB, publicAPIURL, clusterURL string) *Manager {
 		publicAPIURL:        publicAPIURL,
 		clusterURL:          clusterURL,
 		healthCheckInterval: 30 * time.Second,
-		stopChan:            make(chan struct{}),
 		log:                 logrus.WithField("component", "cluster-manager"),
 	}
 	m.clusterHTTPClient.Store(&http.Client{Timeout: 10 * time.Second})
@@ -950,7 +949,7 @@ func (m *Manager) loadTLSConfig() error {
 
 // StartCertRenewal starts a background goroutine that checks monthly for cert renewal.
 func (m *Manager) StartCertRenewal(ctx context.Context) {
-	go func() {
+	m.spawn(func() {
 		ticker := time.NewTicker(30 * 24 * time.Hour) // Monthly
 		defer ticker.Stop()
 
@@ -958,13 +957,13 @@ func (m *Manager) StartCertRenewal(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-m.stopChan:
+			case <-m.stopped():
 				return
 			case <-ticker.C:
 				m.checkAndRenewCert()
 			}
 		}
-	}()
+	})
 }
 
 // checkAndRenewCert checks if the node certificate is expiring soon and renews it.
@@ -1028,11 +1027,9 @@ func (m *Manager) checkAndRenewCert() {
 	}
 }
 
-// Close stops the cluster manager
+// Close stops the cluster manager and waits for its background goroutines.
 func (m *Manager) Close() error {
-	if m.stopChan != nil {
-		close(m.stopChan)
-	}
+	m.Stop()
 	return nil
 }
 

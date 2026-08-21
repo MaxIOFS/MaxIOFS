@@ -31,10 +31,10 @@ type GroupData struct {
 
 // GroupSyncManager handles automatic group synchronization between cluster nodes.
 type GroupSyncManager struct {
+	bgWorker
 	db             *sql.DB
 	clusterManager *Manager
 	proxyClient    *ProxyClient
-	stopChan       chan struct{}
 	log            *logrus.Entry
 }
 
@@ -44,7 +44,6 @@ func NewGroupSyncManager(db *sql.DB, clusterManager *Manager) *GroupSyncManager 
 		db:             db,
 		clusterManager: clusterManager,
 		proxyClient:    NewDynamicProxyClient(clusterManager.GetTLSConfig),
-		stopChan:       make(chan struct{}),
 		log:            logrus.WithField("component", "group-sync"),
 	}
 }
@@ -72,7 +71,7 @@ func (m *GroupSyncManager) Start(ctx context.Context) {
 
 	m.log.WithField("interval_seconds", interval).Info("Starting group synchronization manager")
 
-	go m.syncLoop(ctx, time.Duration(interval)*time.Second)
+	m.spawn(func() { m.syncLoop(ctx, time.Duration(interval)*time.Second) })
 }
 
 func (m *GroupSyncManager) syncLoop(ctx context.Context, interval time.Duration) {
@@ -86,7 +85,7 @@ func (m *GroupSyncManager) syncLoop(ctx context.Context, interval time.Duration)
 		case <-ctx.Done():
 			m.log.Info("Group sync loop stopped")
 			return
-		case <-m.stopChan:
+		case <-m.stopped():
 			m.log.Info("Group sync loop stopped")
 			return
 		case <-ticker.C:
@@ -384,14 +383,9 @@ func (m *GroupSyncManager) sendDeletionToNode(ctx context.Context, groupID strin
 	return nil
 }
 
-// Stop stops the group sync manager.
-func (m *GroupSyncManager) Stop() {
-	close(m.stopChan)
-}
-
 // TriggerSync runs a full group sync immediately in a goroutine.
 func (m *GroupSyncManager) TriggerSync(ctx context.Context) {
-	runDetached(ctx, m.syncAllGroups)
+	runDetached(&m.bgWorker, ctx, m.syncAllGroups)
 }
 
 // SyncToNode immediately pushes all local groups to the given node.

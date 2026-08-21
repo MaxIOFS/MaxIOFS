@@ -394,4 +394,3 @@ func (c *collector) getNetworkBytesOut() int64 {
 	}
 	return int64(counters[0].BytesSent)
 }
-

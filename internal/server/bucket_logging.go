@@ -38,6 +38,7 @@ type BucketAccessLogger struct {
 	objectManager object.Manager
 	entries       chan AccessLogEntry
 	done          chan struct{}
+	stopOnce      sync.Once
 	wg            sync.WaitGroup
 }
 
@@ -67,7 +68,7 @@ func (l *BucketAccessLogger) Log(entry AccessLogEntry) {
 // then waits for it to finish before returning. This ensures no writes happen
 // to the metadata store after Stop() returns, so Pebble can be safely closed.
 func (l *BucketAccessLogger) Stop() {
-	close(l.done)
+	l.stopOnce.Do(func() { close(l.done) })
 	l.wg.Wait()
 }
 
@@ -174,7 +175,6 @@ func (l *BucketAccessLogger) flushEntries(entries []AccessLogEntry) {
 		}
 	}
 }
-
 
 // captureResponseWriter wraps http.ResponseWriter to capture status code and
 // bytes written so the access logger can record them without interfering with
