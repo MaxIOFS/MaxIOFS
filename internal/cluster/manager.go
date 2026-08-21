@@ -695,7 +695,7 @@ func (m *Manager) SelectReadNodes(ctx context.Context, bucket string) ([]*Node, 
 // client.
 func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) error {
 	client := NewProxyClient(m.GetTLSConfig())
-	// SEC-05: strip internal cluster headers so external clients cannot spoof them.
+	// strip internal cluster headers so external clients cannot spoof them.
 	StripInternalClusterHeaders(r)
 	resp, err := client.ProxyRequest(ctx, node, r)
 	if err != nil {
@@ -708,7 +708,7 @@ func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.
 // TryProxyRead forwards a read to the given replica and only writes to w when
 func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) (served bool, err error) {
 	client := NewProxyClient(m.GetTLSConfig())
-	// SEC-05: strip internal cluster headers so external clients cannot spoof them.
+	// strip internal cluster headers so external clients cannot spoof them.
 	StripInternalClusterHeaders(r)
 	resp, err := client.ProxyRequest(ctx, node, r)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/maxiofs/maxiofs/internal/audit"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/pbkdf2"
@@ -254,9 +255,10 @@ type authManager struct {
 	userLockedCallback        func(*User)
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
-	closeOnce                 sync.Once
-	closeErr                  error
-	clusterManager            interface {
+	bgwork.Worker
+	closeOnce      sync.Once
+	closeErr       error
+	clusterManager interface {
 		IsClusterEnabled() bool
 	}
 	quotaAggregator interface {
@@ -403,13 +405,13 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 		}, nil
 	}
 
-	// Get access key from database (SEC-04: GetAccessKey decrypts the stored secret)
+	// Get access key from database (GetAccessKey decrypts the stored secret)
 	key, err := am.GetAccessKey(ctx, accessKey)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Validate secret key using constant-time comparison to prevent timing attacks (SEC-01)
+	// Validate secret key using constant-time comparison to prevent timing attacks
 	if subtle.ConstantTimeCompare([]byte(key.SecretAccessKey), []byte(secretKey)) != 1 {
 		return nil, ErrInvalidCredentials
 	}
@@ -498,7 +500,7 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 }
 
 // hashPasswordSHA256 creates a SHA256 hash (legacy - for migration only).
-// SEC-07: Do NOT use for new passwords — use bcrypt via SQLiteStore.CreateUser instead.
+// Do NOT use for new passwords — use bcrypt via SQLiteStore.CreateUser instead.
 func hashPasswordSHA256(password string) string {
 	h := sha256.New()
 	h.Write([]byte(password))
@@ -809,7 +811,7 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		return nil, ErrInvalidCredentials
 	}
 
-	// SEC-04: decrypt the stored secret before HMAC verification.
+	// decrypt the stored secret before HMAC verification.
 	plainSecret, decErr := am.decryptSecret(accessKey.SecretAccessKey)
 	if decErr != nil {
 		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
@@ -885,7 +887,7 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 		return nil, ErrInvalidCredentials
 	}
 
-	// SEC-04: decrypt the stored secret before HMAC verification.
+	// decrypt the stored secret before HMAC verification.
 	plainSecret, decErr := am.decryptSecret(accessKey.SecretAccessKey)
 	if decErr != nil {
 		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
@@ -1163,7 +1165,7 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 		return nil, err
 	}
 
-	// SEC-04: encrypt the secret before storing in the database.
+	// encrypt the secret before storing in the database.
 	encryptedSecret, encErr := am.encryptSecret(secretAccessKey)
 	if encErr != nil {
 		return nil, fmt.Errorf("failed to encrypt secret access key: %w", encErr)
@@ -1198,7 +1200,7 @@ func (am *authManager) GetAccessKey(ctx context.Context, accessKeyID string) (*A
 	if err != nil {
 		return nil, err
 	}
-	// SEC-04: decrypt the stored secret before returning.
+	// decrypt the stored secret before returning.
 	plaintext, decErr := am.decryptSecret(key.SecretAccessKey)
 	if decErr != nil {
 		return nil, fmt.Errorf("failed to decrypt access key secret: %w", decErr)
@@ -1372,6 +1374,7 @@ func (am *authManager) SetSettingsManager(settingsMgr SettingsManager) {
 // need to grow a lifecycle method, but the server calls it when available.
 func (am *authManager) Close() error {
 	am.closeOnce.Do(func() {
+		am.Stop()
 		if am.rateLimiter != nil {
 			am.rateLimiter.Stop()
 		}
@@ -1443,15 +1446,14 @@ func (am *authManager) IncrementTenantStorage(ctx context.Context, tenantID stri
 	if err := am.store.IncrementTenantStorage(tenantID, bytes); err != nil {
 		return err
 	}
-	// Fire quota alert callback asynchronously — don't block the upload path
 	if am.storageQuotaAlertCallback != nil && tenantID != "" {
-		go func() {
+		am.Spawn(func() {
 			tenant, err := am.store.GetTenant(tenantID)
 			if err != nil || tenant == nil || tenant.MaxStorageBytes == 0 {
 				return // unlimited or tenant not found — skip
 			}
 			am.storageQuotaAlertCallback(tenantID, tenant.CurrentStorageBytes, tenant.MaxStorageBytes)
-		}()
+		})
 	}
 	return nil
 }
@@ -1636,7 +1638,7 @@ func (am *authManager) generateSecretAccessKey() (string, error) {
 }
 
 // deriveStorageKey derives a 32-byte AES-256 key from the JWT secret for
-// encrypting S3 secret access keys at rest. Uses PBKDF2-SHA256 (SEC-04).
+// encrypting S3 secret access keys at rest. Uses PBKDF2-SHA256.
 func (am *authManager) deriveStorageKey() []byte {
 	am.jwtSecretMu.RLock()
 	jwtSec := am.config.JWTSecret
@@ -1665,7 +1667,7 @@ func (am *authManager) encryptSecret(plaintext string) (string, error) {
 
 // decryptSecret decrypts a value produced by encryptSecret.
 // Returns the stored value unchanged when it lacks the "enc:" prefix so that
-// existing plaintext keys continue to work (backward compatibility, SEC-04).
+// existing plaintext keys continue to work (backward compatibility).
 func (am *authManager) decryptSecret(stored string) (string, error) {
 	if !strings.HasPrefix(stored, "enc:") {
 		return stored, nil // legacy plaintext key — unchanged

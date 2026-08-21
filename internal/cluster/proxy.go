@@ -140,9 +140,8 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 		"method":      originalReq.Method,
 	}).Debug("Proxying request to remote node")
 
-	// BUG-03: pass originalReq.Body directly to the outgoing request rather than
-	// buffering it with io.ReadAll. Buffering a 10 GB PUT would allocate 10 GB on
-	// the heap. The body has not been read by any upstream handler at this point.
+	// Streamed, not buffered: a 10 GB PUT would otherwise be a 10 GB allocation.
+	// No upstream handler has read the body at this point.
 	var bodyReader io.Reader
 	if originalReq.Body != nil {
 		defer originalReq.Body.Close()
@@ -527,7 +526,7 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 		"method":      originalReq.Method,
 	}).Debug("Proxying S3 request to remote node S3 API")
 
-	// BUG-03: pass originalReq.Body directly — avoids allocating entire body in RAM.
+	// Streamed, not buffered: the body never lands in RAM in one piece.
 	var bodyReader io.Reader
 	if originalReq.Body != nil {
 		defer originalReq.Body.Close()

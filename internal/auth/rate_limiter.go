@@ -36,7 +36,6 @@ func NewLoginRateLimiter(maxAttempts, windowSeconds int) *LoginRateLimiter {
 		stopCh:        make(chan struct{}),
 	}
 
-	// BUG-01: goroutine is now stoppable via Stop()
 	limiter.wg.Add(1)
 	go limiter.cleanupLoop()
 

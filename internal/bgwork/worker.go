@@ -3,9 +3,7 @@ package bgwork
 
 import "sync"
 
-// Worker is embeddable and usable at its zero value. Spawn and Stop share one
-// lock, so Spawn refuses after Stop rather than registering work nobody waits
-// for. The stop channel is only handed out receive-only.
+// Usable at its zero value. Spawn refuses once Stop has begun.
 type Worker struct {
 	mu     sync.Mutex
 	signal chan struct{}
@@ -21,14 +19,13 @@ func (w *Worker) chanLocked() chan struct{} {
 	return w.signal
 }
 
-// Stopped is the signal loops select on.
 func (w *Worker) Stopped() <-chan struct{} {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.chanLocked()
 }
 
-// Spawn reports false when the component is already stopping and fn was not run.
+// Reports false when fn was not run because Stop had already begun.
 func (w *Worker) Spawn(fn func()) bool {
 	w.mu.Lock()
 	if w.closed {

@@ -9,6 +9,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
@@ -20,6 +21,8 @@ type badgerBucketManager struct {
 	metadataStore metadata.Store
 	aclManager    acl.Manager
 	auditManager  *audit.Manager
+
+	bgwork.Worker
 
 	quotaAlertCb func(tenantID, bucketName string, currentBytes, maxBytes int64)
 
@@ -38,18 +41,17 @@ func (bm *badgerBucketManager) SetBucketQuotaAlertCallback(cb func(tenantID, buc
 	bm.quotaAlertCb = cb
 }
 
-// fireBucketQuotaAlert reads the bucket's current metadata and, if a size quota
 func (bm *badgerBucketManager) fireBucketQuotaAlert(tenantID, name string) {
 	if bm.quotaAlertCb == nil {
 		return
 	}
-	go func() {
+	bm.Spawn(func() {
 		meta, err := bm.metadataStore.GetBucket(context.Background(), tenantID, name)
 		if err != nil || meta == nil || meta.Quota == nil || meta.Quota.MaxSizeBytes == 0 {
 			return // unlimited or bucket not found — nothing to alert on
 		}
 		bm.quotaAlertCb(tenantID, name, meta.TotalSize, meta.Quota.MaxSizeBytes)
-	}()
+	})
 }
 
 // newBucketManager creates a new bucket manager backed by any metadata.Store

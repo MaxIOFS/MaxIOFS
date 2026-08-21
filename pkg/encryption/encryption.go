@@ -328,7 +328,7 @@ func (e *aesGCMEncryptor) GenerateKey() ([]byte, error) {
 }
 
 // DeriveKey derives a 256-bit AES key from password and salt using PBKDF2-SHA256.
-// SEC-06: 310,000 iterations (OWASP 2023 minimum for PBKDF2-SHA256).
+// 310,000 iterations (OWASP 2023 minimum for PBKDF2-SHA256).
 // The caller is responsible for providing a unique, random salt per usage context.
 func (e *aesGCMEncryptor) DeriveKey(password, salt []byte) []byte {
 	iterations := e.config.KeyDerivationRounds

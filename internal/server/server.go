@@ -292,6 +292,11 @@ func New(cfg *config.Config) (*Server, error) {
 
 	reg := &registry{}
 
+	// Stopped last: its quota-alert reads must finish before the store closes.
+	if c, ok := bucketManager.(component); ok {
+		supervise(reg, "bucketManager", c)
+	}
+
 	metricsManager := supervise(reg, "metrics", metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore))
 
 	// Initialize system metrics
@@ -1080,6 +1085,11 @@ func (s *Server) shutdown() error {
 		logrus.WithError(err).Error("Failed to close metadata store")
 	} else {
 		logrus.Info("Metadata store closed")
+	}
+
+	// Last: the remote outputs buffer, so everything above must be logged first.
+	if s.loggingManager != nil {
+		s.loggingManager.Close()
 	}
 
 	return nil

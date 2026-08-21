@@ -1279,7 +1279,8 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 		return nil, ErrBucketNotFound
 	}
 
-	// BUG-04: the old code set scanLimit=100000 when delimiter!="" to find all
+	// A delimiter collapses many keys into few prefixes, so the scan has to read
+	// past maxKeys to fill a page — capped, or a deep tree scans the bucket.
 	const maxScanLimit = 10000
 	scanLimit := maxKeys
 	if delimiter != "" {
@@ -2196,7 +2197,7 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath st
 	}
 	defer reader.Close()
 
-	// Use DataDir to stay on the same filesystem as the final object path (BUG-05).
+	// Use DataDir to stay on the same filesystem as the final object path.
 	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-multipart-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file for encryption staging: %w", err)

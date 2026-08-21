@@ -45,7 +45,7 @@ func DefaultCORSConfig() *CORSConfig {
 			"Content-Language",
 			"Content-Type",
 			"Authorization",
-			// AWS S3 request headers — listed explicitly because browsers do not expand globs (BUG-07)
+			// AWS S3 request headers — listed explicitly because browsers do not expand globs
 			"X-Amz-Date",
 			"X-Amz-Content-Sha256",
 			"X-Amz-Security-Token",
@@ -89,7 +89,7 @@ func DefaultCORSConfig() *CORSConfig {
 		},
 		ExposedHeaders: []string{
 			"ETag",
-			// AWS S3 response headers — listed explicitly (BUG-07)
+			// AWS S3 response headers — listed explicitly
 			"x-amz-request-id",
 			"x-amz-id-2",
 			"x-amz-version-id",

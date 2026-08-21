@@ -316,7 +316,7 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	})
 
 	if r.syncer != nil {
-		go r.syncer.Trigger(ctx)
+		r.Spawn(func() { r.syncer.Trigger(ctx) })
 	}
 	return nil
 }

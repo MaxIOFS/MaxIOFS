@@ -180,6 +180,7 @@ func TestServerNewRegistersManagedComponents(t *testing.T) {
 	require.NotNil(t, server.reg, "server must keep a live component registry")
 
 	expected := []string{
+		"bucketManager",
 		"metrics",
 		"lifecycle",
 		"inventory",

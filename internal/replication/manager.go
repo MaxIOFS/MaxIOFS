@@ -9,18 +9,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
 )
 
 // Manager handles replication operations
 type Manager struct {
-	db              *sql.DB
-	config          ReplicationConfig
-	workers         []*Worker
-	queue           chan *QueueItem
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
+	db      *sql.DB
+	config  ReplicationConfig
+	workers []*Worker
+	queue   chan *QueueItem
+	bgwork.Worker
 	mu              sync.RWMutex
 	running         bool
 	objectAdapter   ObjectAdapter
@@ -81,7 +81,6 @@ func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapte
 		db:              db,
 		config:          config,
 		queue:           make(chan *QueueItem, config.QueueSize),
-		stopChan:        make(chan struct{}),
 		objectAdapter:   objectAdapter,
 		objectManager:   objectManager,
 		bucketLister:    bucketLister,
@@ -118,49 +117,26 @@ func (m *Manager) Start(ctx context.Context) error {
 	for i := 0; i < m.config.WorkerCount; i++ {
 		worker := newWorkerWithEncryption(i, m.queue, m.db, m.objectAdapter, m.objectManager, m.s3ClientFactory, m.config.CredentialEncryptionKey)
 		m.workers[i] = worker
-		m.wg.Add(1)
-		go func(w *Worker) {
-			defer m.wg.Done()
-			w.Start(ctx, m.stopChan)
-		}(worker)
+		w := worker
+		m.Spawn(func() { w.Start(ctx, m.Stopped()) })
 	}
 
-	// Start cleanup routine
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		m.cleanupRoutine(ctx)
-	}()
-
-	// Start queue loader
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		m.queueLoader(ctx)
-	}()
-
-	// Start rule scheduler
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		m.ruleScheduler(ctx)
-	}()
+	m.Spawn(func() { m.cleanupRoutine(ctx) })
+	m.Spawn(func() { m.queueLoader(ctx) })
+	m.Spawn(func() { m.ruleScheduler(ctx) })
 
 	m.running = true
 	return nil
 }
 
-// Stop is safe to call more than once and waits for the workers.
 func (m *Manager) Stop() {
+	m.Worker.Stop()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	if !m.running {
 		return
 	}
-
-	close(m.stopChan)
-	m.wg.Wait()
 	close(m.queue)
 	m.running = false
 }
@@ -510,7 +486,7 @@ func (m *Manager) queueLoader(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.stopChan:
+		case <-m.Stopped():
 			return
 		case <-ticker.C:
 			m.loadPendingItems(ctx)
@@ -649,7 +625,7 @@ func (m *Manager) cleanupRoutine(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.stopChan:
+		case <-m.Stopped():
 			return
 		case <-ticker.C:
 			m.cleanup(ctx)
@@ -672,7 +648,7 @@ func (m *Manager) ruleScheduler(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.stopChan:
+		case <-m.Stopped():
 			return
 		case <-ticker.C:
 			m.processScheduledRules(ctx, lastSync)
@@ -724,8 +700,8 @@ func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string
 			// to lastSync, eliminating the data race with the worker goroutine.
 			lastSync[ruleID] = now
 
-			// Trigger sync in a goroutine to not block the scheduler
-			go func(rID string) {
+			rID := ruleID
+			m.Spawn(func() {
 				count, err := m.SyncRule(ctx, rID)
 				if err != nil {
 					logrus.WithFields(logrus.Fields{
@@ -738,7 +714,7 @@ func (m *Manager) processScheduledRules(ctx context.Context, lastSync map[string
 					"rule_id": rID,
 					"objects": count,
 				}).Info("Scheduled sync completed")
-			}(ruleID)
+			})
 
 			activeRuleIDs[ruleID] = true
 		}
