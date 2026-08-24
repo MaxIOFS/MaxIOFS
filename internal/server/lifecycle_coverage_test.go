@@ -10,7 +10,7 @@ import (
 var lifecycleRelease = map[string]string{
 	"httpServer":     "shutdown(): httpServer.Shutdown",
 	"consoleServer":  "shutdown(): consoleServer.Shutdown",
-	"clusterServer":  "shutdown(): clusterServer.Shutdown",
+	"clusterServer":  "shutdown(): shutdownClusterServer under clusterServerMu",
 	"storageBackend": "shutdown(): storageBackend.Close",
 	"metadataStore":  "shutdown(): metadataStore.Close, last",
 	"db":             "owned by authManager, closed by its Close",

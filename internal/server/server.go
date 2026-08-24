@@ -53,6 +53,7 @@ type Server struct {
 	httpServer          *http.Server
 	consoleServer       *http.Server
 	clusterServer       *http.Server // dedicated inter-node communication port
+	clusterServerMu     sync.Mutex
 	storageBackend      storage.Backend
 	metadataStore       metadata.Store
 	bucketManager       bucket.Manager
@@ -106,7 +107,8 @@ type Server struct {
 	commit                  string          // Git commit hash
 	buildDate               string          // Build date
 	serverCtx               context.Context // lifecycle context, set in Start()
-	encWorkerRunning        atomic.Bool     // single-flight guard for the encryption worker pass
+	shuttingDown            atomic.Bool
+	encWorkerRunning        atomic.Bool // single-flight guard for the encryption worker pass
 	encWorkerCancel         context.CancelFunc
 	encWorkerMu             sync.Mutex
 	encWorkersClosed        bool
@@ -117,6 +119,8 @@ type Server struct {
 	clusterBgOnce           sync.Once      // ensures cluster background services start exactly once
 	oauthCodeStore          sync.Map       // one-time OAuth exchange codes, keyed by random hex, TTL 60s
 }
+
+var errServerShuttingDown = errors.New("server is shutting down")
 
 // goWorker runs a background worker and records it. Shutdown waits for every
 // worker to return before closing the stores: Pebble panics on use after close,
@@ -760,11 +764,11 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		go func() {
+		s.goWorker("cluster server", func() {
 			if err := s.startClusterServer(); err != nil && err != http.ErrServerClosed {
 				logrus.WithError(err).Error("Cluster server error")
 			}
-		}()
+		})
 	}
 
 	// Wait for context cancellation
@@ -847,9 +851,23 @@ func (s *Server) startClusterServer() error {
 	if err != nil {
 		return fmt.Errorf("cluster server requires TLS but certs are unavailable: %w", err)
 	}
-	s.clusterServer.TLSConfig = tlsCfg
-	logrus.WithField("address", s.clusterServer.Addr).Info("Starting cluster inter-node server (TLS)")
-	return s.clusterServer.ListenAndServeTLS("", "")
+
+	s.clusterServerMu.Lock()
+	if s.shuttingDown.Load() {
+		s.clusterServerMu.Unlock()
+		return http.ErrServerClosed
+	}
+	clusterServer := s.clusterServer
+	if clusterServer == nil {
+		s.clusterServerMu.Unlock()
+		return nil
+	}
+	clusterServer.TLSConfig = tlsCfg
+	addr := clusterServer.Addr
+	s.clusterServerMu.Unlock()
+
+	logrus.WithField("address", addr).Info("Starting cluster inter-node server (TLS)")
+	return clusterServer.ListenAndServeTLS("", "")
 }
 
 // startClusterBackgroundServices starts all cluster-mode background goroutines exactly once.
@@ -968,9 +986,22 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 
 // enableClusterTLS shuts down the current cluster listener and restarts it with TLS.
 func (s *Server) enableClusterTLS() error {
+	if s.shuttingDown.Load() {
+		return errServerShuttingDown
+	}
+
 	tlsCfg, err := s.clusterManager.GetServerTLSConfig()
 	if err != nil {
 		return fmt.Errorf("failed to build cluster TLS config: %w", err)
+	}
+
+	s.clusterServerMu.Lock()
+	defer s.clusterServerMu.Unlock()
+	if s.shuttingDown.Load() {
+		return errServerShuttingDown
+	}
+	if s.clusterServer == nil {
+		return nil
 	}
 
 	// Gracefully stop the current listener (5 s timeout).
@@ -988,34 +1019,42 @@ func (s *Server) enableClusterTLS() error {
 	if err != nil {
 		return fmt.Errorf("failed to bind cluster port %s: %w", addr, err)
 	}
+	if s.shuttingDown.Load() {
+		_ = ln.Close()
+		return errServerShuttingDown
+	}
 
 	// Build a fresh http.Server with TLS config.
-	s.clusterServer = &http.Server{
+	clusterServer := &http.Server{
 		Addr:              addr,
 		TLSConfig:         tlsCfg,
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-
 	// Re-register cluster routes on the new server.
 	clusterRouter := mux.NewRouter()
 	s.setupClusterRoutes(clusterRouter)
-	s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
+	clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
 
 	// Wrap with TLS and serve in background — port is already bound above.
 	tlsListener := tls.NewListener(ln, tlsCfg)
-	logrus.WithField("address", addr).Info("Cluster inter-node TLS server started (port bound)")
-	go func() {
-		if err := s.clusterServer.Serve(tlsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Fatal("Cluster inter-node server failed after TLS restart")
+	if !s.goWorker("cluster TLS server", func() {
+		if err := clusterServer.Serve(tlsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.WithError(err).Error("Cluster inter-node server failed after TLS restart")
 		}
-	}()
+	}) {
+		_ = ln.Close()
+		return errServerShuttingDown
+	}
+	s.clusterServer = clusterServer
 
+	logrus.WithField("address", addr).Info("Cluster inter-node TLS server started (port bound)")
 	return nil
 }
 
 func (s *Server) shutdown() error {
 	logrus.Info("Shutting down servers")
+	s.shuttingDown.Store(true)
 	s.stopAcceptingWorkers()
 	s.stopAcceptingEncryptionWorkers()
 
@@ -1033,7 +1072,7 @@ func (s *Server) shutdown() error {
 	}
 
 	// Shutdown cluster server
-	if err := s.clusterServer.Shutdown(ctx); err != nil {
+	if err := s.shutdownClusterServer(ctx); err != nil {
 		logrus.WithError(err).Error("Failed to shutdown cluster server")
 	}
 
@@ -1093,6 +1132,15 @@ func (s *Server) shutdown() error {
 	}
 
 	return nil
+}
+
+func (s *Server) shutdownClusterServer(ctx context.Context) error {
+	s.clusterServerMu.Lock()
+	defer s.clusterServerMu.Unlock()
+	if s.clusterServer == nil {
+		return nil
+	}
+	return s.clusterServer.Shutdown(ctx)
 }
 
 // shareManagerAdapter adapts share.Manager to the interface expected by api.NewHandler

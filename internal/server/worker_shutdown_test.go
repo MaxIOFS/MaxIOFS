@@ -92,3 +92,10 @@ func TestEncryptionWorker_RejectsAfterShutdownStarts(t *testing.T) {
 	s.encWorkerWG.Wait()
 	assert.False(t, ran.Load(), "late encryption worker must not run after shutdown starts")
 }
+
+func TestEnableClusterTLSRejectsAfterShutdownStarts(t *testing.T) {
+	s := &Server{}
+	s.shuttingDown.Store(true)
+
+	require.ErrorIs(t, s.enableClusterTLS(), errServerShuttingDown)
+}
