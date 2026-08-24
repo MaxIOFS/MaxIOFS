@@ -1,7 +1,6 @@
 package s3compat
 
 import (
-	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -558,26 +557,31 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Run the heavy processing in the background.
+	// Request values are preserved, but cancellation is tied to the server
+	// lifecycle instead of the client connection. If the client times out and
+	// reconnects, the file must already be assembled; if the server shuts down,
+	// shutdown waits for this worker before closing the stores.
+	type completionResult struct {
+		obj *object.Object
+		err error
+	}
+	resultCh := make(chan completionResult, 1)
+	bgCtx := h.backgroundJobContext(r.Context())
+	if !h.runBackground("S3 complete multipart upload", func() {
+		obj, err := h.objectManager.CompleteMultipartUpload(bgCtx, uploadID, parts)
+		resultCh <- completionResult{obj, err}
+	}) {
+		h.writeError(w, "ServiceUnavailable", "server is shutting down", objectKey, r)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-
-	// Run the heavy processing in the background.
-	// Use context.WithoutCancel so the combine operation survives a client disconnect —
-	// if the client times out and reconnects, the file must already be assembled.
-	type completionResult struct {
-		obj *object.Object
-		err error
-	}
-	resultCh := make(chan completionResult, 1)
-	bgCtx := context.WithoutCancel(r.Context())
-	go func() {
-		obj, err := h.objectManager.CompleteMultipartUpload(bgCtx, uploadID, parts)
-		resultCh <- completionResult{obj, err}
-	}()
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()

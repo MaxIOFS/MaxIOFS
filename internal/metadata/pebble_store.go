@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -408,10 +409,32 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 	if err != nil {
 		return fmt.Errorf("failed to create object iterator: %w", err)
 	}
-	hasObjects := objIter.First()
+	var implicitFolderKeys [][]byte
+	for valid := objIter.First(); valid; valid = objIter.Next() {
+		var obj ObjectMetadata
+		if err := json.Unmarshal(objIter.Value(), &obj); err != nil {
+			_ = objIter.Close()
+			return fmt.Errorf("failed to unmarshal object while checking bucket emptiness: %w", err)
+		}
+		if !isImplicitFolderObject(&obj) {
+			_ = objIter.Close()
+			return ErrBucketNotEmpty
+		}
+		keyCopy := append([]byte(nil), objIter.Key()...)
+		implicitFolderKeys = append(implicitFolderKeys, keyCopy)
+	}
+	if err := objIter.Error(); err != nil {
+		_ = objIter.Close()
+		return fmt.Errorf("failed during object scan while checking bucket emptiness: %w", err)
+	}
 	_ = objIter.Close()
-	if hasObjects {
-		return ErrBucketNotEmpty
+
+	if len(implicitFolderKeys) > 0 {
+		s.logger.WithFields(logrus.Fields{
+			"bucket":           name,
+			"tenant_id":        tenantID,
+			"implicit_folders": len(implicitFolderKeys),
+		}).Debug("Deleting bucket with only implicit folder markers remaining")
 	}
 
 	verPrefix := []byte(fmt.Sprintf("version:%s:", bucketPath))
@@ -425,8 +448,18 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 		return ErrBucketNotEmpty
 	}
 
-	if err := s.db.Delete(key, pebble.Sync); err != nil {
+	batch := s.db.NewBatch()
+	defer batch.Close() //nolint:errcheck
+	for _, implicitKey := range implicitFolderKeys {
+		if err := batch.Delete(implicitKey, nil); err != nil {
+			return fmt.Errorf("failed to delete implicit folder marker: %w", err)
+		}
+	}
+	if err := batch.Delete(key, nil); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
+	}
+	if err := batch.Commit(pebble.Sync); err != nil {
+		return fmt.Errorf("failed to commit bucket deletion: %w", err)
 	}
 	s.deletedBuckets.Store(bucketPath, struct{}{})
 
@@ -436,6 +469,17 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 	}).Debug("Bucket deleted from Pebble metadata store")
 
 	return nil
+}
+
+func isImplicitFolderObject(obj *ObjectMetadata) bool {
+	if obj == nil {
+		return false
+	}
+	return strings.HasSuffix(obj.Key, "/") &&
+		obj.Size == 0 &&
+		obj.ContentType == "application/x-directory" &&
+		obj.Metadata != nil &&
+		obj.Metadata["x-maxiofs-implicit-folder"] == "true"
 }
 
 // ListBuckets lists all buckets for a tenant (empty tenantID = all tenants).

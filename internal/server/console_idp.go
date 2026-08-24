@@ -1218,6 +1218,27 @@ func (s *Server) countGlobalAdmins(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// countTenantAdmins returns the number of active users that can administer a
+// tenant. Used to keep a tenant from being left without an operator; deleting
+// the tenant itself is the operation that recursively removes tenant resources.
+func (s *Server) countTenantAdmins(ctx context.Context, tenantID string) (int, error) {
+	users, err := s.authManager.ListUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for i := range users {
+		user := &users[i]
+		if user.TenantID != tenantID || user.Status != auth.UserStatusActive {
+			continue
+		}
+		if s.isAdmin(user) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // findOAuthUser searches for an existing user across ALL active OAuth providers
 func (s *Server) findOAuthUser(ctx context.Context, email string) (*auth.User, string) {
 	providers, err := s.idpManager.ListActiveOAuthProviders(ctx)

@@ -79,11 +79,15 @@ func (p *PolicySet) AllowsOwnAccount(action, resource string) bool {
 // mayReachAccount decides whether the principal may touch the resource's
 // account at all, before any policy is consulted.
 //
-// Same account, or a resource in the shared namespace: yes. Otherwise only a
-// super administrator, and only to read — the audit view of another tenant.
+// Same account: yes. The shared namespace belongs only to tenant-less
+// principals. Otherwise only a super administrator, and only to read — the audit
+// view of another tenant.
 func (p *PolicySet) mayReachAccount(req AccessRequest) bool {
-	if req.Owner.tenantID == "" || p.TenantID == req.Owner.tenantID {
+	if p.TenantID == req.Owner.tenantID {
 		return true
+	}
+	if req.Owner.tenantID == "" {
+		return false
 	}
 	// A principal that belongs to an account never leaves it, whatever its own
 	// policies say. Reaching into another account is not something an identity

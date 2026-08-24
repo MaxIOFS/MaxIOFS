@@ -237,3 +237,22 @@ func TestTenantBoundary_SuperAdminWritesInTheGlobalNamespace(t *testing.T) {
 			auth.ActionPutObject, objectARN("their-bucket", "x")),
 		"crossing into a tenant stays read-only")
 }
+
+func TestTenantBoundary_TenantAdminCannotWriteGlobalNamespace(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, "", "global-tenant-denied", env.userID))
+
+	tenantAdmin := &auth.User{ID: "tenant-admin", TenantID: env.tenantID, Roles: []string{auth.RoleTenantAdmin}}
+
+	assert.False(t,
+		env.handler.userCanPerformS3ActionInTenant(ctx, tenantAdmin, "",
+			auth.ActionPutObject, objectARN("global-tenant-denied", "blocked.bin")),
+		"a tenant admin must not write in the shared global namespace")
+	assert.False(t,
+		env.handler.userCanPerformS3ActionInTenant(ctx, tenantAdmin, "",
+			auth.ActionDeleteObject, objectARN("global-tenant-denied", "blocked.bin")),
+		"a tenant admin must not delete in the shared global namespace")
+}

@@ -106,12 +106,16 @@ func NewHandler(
 	}
 }
 
+// SetBackgroundRunner wires S3 background jobs into the server lifecycle.
+func (h *Handler) SetBackgroundRunner(ctxProvider func() context.Context, runner func(name string, fn func()) bool) {
+	h.s3Handler.SetBackgroundRunner(ctxProvider, runner)
+}
+
 // RegisterRoutes registers all S3 API routes
 func (h *Handler) RegisterRoutes(router *mux.Router) {
 	// Health check endpoint
 	router.HandleFunc("/health", h.handleHealth).Methods("GET")
 	router.HandleFunc("/ready", h.handleReady).Methods("GET")
-
 
 	router.HandleFunc("/", h.handleRoot).Methods("GET", "HEAD")
 

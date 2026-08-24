@@ -1292,6 +1292,12 @@ func (s *Server) setupRoutes() error {
 		s.bucketAggregator,
 	)
 	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)
+	apiHandler.SetBackgroundRunner(func() context.Context {
+		if s.serverCtx != nil {
+			return s.serverCtx
+		}
+		return context.Background()
+	}, s.goWorker)
 
 	if s.inventoryManager != nil {
 		apiHandler.SetInventoryManager(s.inventoryManager)

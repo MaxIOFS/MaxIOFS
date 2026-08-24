@@ -22,6 +22,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bandwidth"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/inventory"
@@ -139,11 +140,14 @@ type Handler struct {
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 	}
-	publicAPIURL     string
-	iamSTSEndpoint   func() string
-	dataDir          string             // For calculating disk capacity in SOSAPI
-	notifHTTPClient  *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
-	bandwidthManager *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
+	backgroundContext func() context.Context
+	backgroundRunner  func(name string, fn func()) bool
+	localBackground   bgwork.Worker
+	publicAPIURL      string
+	iamSTSEndpoint    func() string
+	dataDir           string             // For calculating disk capacity in SOSAPI
+	notifHTTPClient   *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
+	bandwidthManager  *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
 }
 
 // NewHandler creates a new S3 compatibility handler
@@ -283,6 +287,60 @@ func (h *Handler) SetReplicationManager(rm interface {
 	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 }) {
 	h.replicationManager = rm
+}
+
+// SetBackgroundRunner connects S3 jobs that must survive client disconnects to
+// the server lifecycle. The context provider supplies the shutdown context;
+// request values are still taken from the HTTP request context.
+func (h *Handler) SetBackgroundRunner(ctxProvider func() context.Context, runner func(name string, fn func()) bool) {
+	h.backgroundContext = ctxProvider
+	h.backgroundRunner = runner
+}
+
+// StopBackgroundJobs stops jobs owned by a standalone Handler. The server sets
+// its own runner, so production shutdown waits through Server.goWorker instead.
+func (h *Handler) StopBackgroundJobs() {
+	h.localBackground.Stop()
+}
+
+func (h *Handler) runBackground(name string, fn func()) bool {
+	if h.backgroundRunner != nil {
+		return h.backgroundRunner(name, fn)
+	}
+	return h.localBackground.Spawn(fn)
+}
+
+func (h *Handler) backgroundJobContext(reqCtx context.Context) context.Context {
+	values := context.WithoutCancel(reqCtx)
+	if h.backgroundContext == nil {
+		return values
+	}
+	bgCtx := h.backgroundContext()
+	if bgCtx == nil {
+		return values
+	}
+	return requestValuesShutdownContext{values: values, shutdown: bgCtx}
+}
+
+type requestValuesShutdownContext struct {
+	values   context.Context
+	shutdown context.Context
+}
+
+func (c requestValuesShutdownContext) Deadline() (time.Time, bool) {
+	return c.shutdown.Deadline()
+}
+
+func (c requestValuesShutdownContext) Done() <-chan struct{} {
+	return c.shutdown.Done()
+}
+
+func (c requestValuesShutdownContext) Err() error {
+	return c.shutdown.Err()
+}
+
+func (c requestValuesShutdownContext) Value(key interface{}) interface{} {
+	return c.values.Value(key)
 }
 
 // proxyBucketRequest checks if the given bucket should be routed to a remote cluster node
@@ -938,6 +996,36 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if maxKeys == 0 {
+		bucketPath := h.getBucketPath(r, bucketName)
+		if _, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, 1); err != nil {
+			if err == object.ErrBucketNotFound {
+				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+				return
+			}
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+
+		encodeStr := func(s string) string {
+			if encodingType == "url" {
+				return s3URLEncode(s)
+			}
+			return s
+		}
+		result := ListBucketResult{
+			Name:         bucketName,
+			Prefix:       encodeStr(prefix),
+			Marker:       encodeStr(marker),
+			MaxKeys:      0,
+			Delimiter:    encodeStr(delimiter),
+			IsTruncated:  false,
+			EncodingType: encodingType,
+		}
+		h.writeXMLResponse(w, http.StatusOK, result)
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	listResult, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
 	if err != nil {
@@ -1067,6 +1155,38 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		marker = string(decoded)
+	}
+
+	if maxKeys == 0 {
+		bucketPath := h.getBucketPath(r, bucketName)
+		if _, err := h.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, 1); err != nil {
+			if err == object.ErrBucketNotFound {
+				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+				return
+			}
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+
+		encodeStrV2 := func(s string) string {
+			if encodingTypeV2 == "url" {
+				return s3URLEncode(s)
+			}
+			return s
+		}
+		result := ListBucketResultV2{
+			Name:              bucketName,
+			Prefix:            encodeStrV2(prefix),
+			Delimiter:         encodeStrV2(delimiter),
+			MaxKeys:           0,
+			KeyCount:          0,
+			IsTruncated:       false,
+			ContinuationToken: continuationToken,
+			StartAfter:        encodeStrV2(startAfter),
+			EncodingType:      encodingTypeV2,
+		}
+		h.writeXMLResponse(w, http.StatusOK, result)
+		return
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -1288,16 +1408,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		var parseErr error
 		rangeStart, rangeEnd, parseErr = parseRangeHeader(rangeHeader, obj.Size)
 		if parseErr != nil {
-			if isUnsatisfiableRangeError(parseErr) {
-				w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
-				h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
-				return
-			}
-			// RFC 7233: a Range that cannot be parsed is ignored, and the whole
-			// object is returned. Only a satisfiable-looking one can fail.
-			logrus.WithFields(logrus.Fields{
-				"bucket": bucketName, "object": objectKey, "range": rangeHeader,
-			}).Debug("GetObject: ignoring an unparseable Range header")
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.Size))
+			h.writeError(w, "InvalidRange", parseErr.Error(), objectKey, r)
+			return
 		} else {
 			isRangeRequest = true
 		}
@@ -1512,14 +1625,20 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	// Queue object for realtime replication (async, best-effort)
 	if h.replicationManager != nil {
-		go func() {
-			if err := h.replicationManager.QueueRealtimeObject(context.Background(), tenantID, bucketName, objectKey, "PUT"); err != nil {
+		ctx := h.backgroundJobContext(r.Context())
+		if !h.runBackground("S3 realtime replication PUT", func() {
+			if err := h.replicationManager.QueueRealtimeObject(ctx, tenantID, bucketName, objectKey, "PUT"); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"bucket": bucketName,
 					"object": objectKey,
 				}).Debug("Replication queue skipped (no matching rules or error)")
 			}
-		}()
+		}) {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Debug("Replication queue skipped because server is shutting down")
+		}
 	}
 }
 
@@ -1571,13 +1690,20 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	deletedVersionWasDeleteMarker := false
+	if versionID != "" {
+		if version, found := h.findExactObjectVersion(r.Context(), bucketPath, objectKey, versionID); found {
+			deletedVersionWasDeleteMarker = isS3DeleteMarkerVersion(version)
+		}
+	}
+
 	deleteMarkerVersionID, err := h.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, bypassGovernance, versionID)
 	if h.handleDeleteObjectErrors(w, r, err, bucketName, objectKey, versionID) {
 		return
 	}
 
 	// Set response headers
-	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID)
+	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID, deletedVersionWasDeleteMarker)
 	w.WriteHeader(http.StatusNoContent)
 
 	// Fire notification: permanent version delete → ObjectRemoved:Delete,
@@ -1590,14 +1716,20 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	// Queue delete for realtime replication (async, best-effort)
 	if h.replicationManager != nil {
-		go func() {
-			if err := h.replicationManager.QueueRealtimeObject(context.Background(), tenantID, bucketName, objectKey, "DELETE"); err != nil {
+		ctx := h.backgroundJobContext(r.Context())
+		if !h.runBackground("S3 realtime replication DELETE", func() {
+			if err := h.replicationManager.QueueRealtimeObject(ctx, tenantID, bucketName, objectKey, "DELETE"); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"bucket": bucketName,
 					"object": objectKey,
 				}).Debug("Replication delete queue skipped (no matching rules or error)")
 			}
-		}()
+		}) {
+			logrus.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"object": objectKey,
+			}).Debug("Replication delete queue skipped because server is shutting down")
+		}
 	}
 }
 
@@ -2898,7 +3030,7 @@ func (h *Handler) updateMetricsAfterDeletion(ctx context.Context, user *auth.Use
 }
 
 // setDeleteResponseHeaders sets appropriate response headers for delete operation
-func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVersionID, versionID string) {
+func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVersionID, versionID string, deletedVersionWasDeleteMarker bool) {
 	if deleteMarkerVersionID != "" {
 		// A delete marker was created
 		w.Header().Set("x-amz-version-id", deleteMarkerVersionID)
@@ -2906,7 +3038,9 @@ func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVe
 	} else if versionID != "" {
 		// A specific version was permanently deleted
 		w.Header().Set("x-amz-version-id", versionID)
-		w.Header().Set("x-amz-delete-marker", "false")
+		if deletedVersionWasDeleteMarker {
+			w.Header().Set("x-amz-delete-marker", "true")
+		}
 	}
 }
 
@@ -3142,11 +3276,6 @@ func etagSatisfies(etag, condition string) bool {
 // may not include quotes while the If-Match / If-None-Match header value may differ.
 func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
-}
-
-func isUnsatisfiableRangeError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "out of bounds") || strings.Contains(msg, "greater than end")
 }
 
 // setGetObjectResponseHeaders sets all response headers for GetObject operation

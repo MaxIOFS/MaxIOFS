@@ -5681,7 +5681,7 @@ func TestHandleDeleteUserEdgeCases(t *testing.T) {
 
 	t.Run("should return 404 or forbidden for nonexistent user", func(t *testing.T) {
 		req := createAuthenticatedRequest("DELETE", "/api/v1/users/nonexistent-id", nil, "", "admin-1", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent-id"})
+		req = mux.SetURLVars(req, map[string]string{"user": "nonexistent-id"})
 		rr := httptest.NewRecorder()
 		server.handleDeleteUser(rr, req)
 		assert.Contains(t, []int{http.StatusNotFound, http.StatusForbidden, http.StatusOK, http.StatusNoContent, http.StatusUnauthorized}, rr.Code)
@@ -5689,7 +5689,7 @@ func TestHandleDeleteUserEdgeCases(t *testing.T) {
 
 	t.Run("should handle request without auth", func(t *testing.T) {
 		req := httptest.NewRequest("DELETE", "/api/v1/users/some-id", nil)
-		req = mux.SetURLVars(req, map[string]string{"id": "some-id"})
+		req = mux.SetURLVars(req, map[string]string{"user": "some-id"})
 		rr := httptest.NewRecorder()
 		server.handleDeleteUser(rr, req)
 		// May return 404 if user lookup happens before auth check

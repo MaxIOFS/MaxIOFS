@@ -1461,16 +1461,15 @@ func TestS3RangeRequests(t *testing.T) {
 		assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, w.Code, "Should return 416 for invalid range")
 	})
 
-	// RFC 7233 3.1: a Range the server cannot parse is ignored, and the whole
-	// object is returned. Only a well-formed but unsatisfiable one gets 416.
-	t.Run("Malformed range is ignored and the whole object is returned", func(t *testing.T) {
+	t.Run("Malformed range returns InvalidRange", func(t *testing.T) {
 		for _, bad := range []string{"bytes=abc-def", "bytes=xyz-", "seconds=1-2", "garbage"} {
 			req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
 			req.Header.Set("Range", bad)
 			env.router.ServeHTTP(w, req)
 
-			assert.Equal(t, http.StatusOK, w.Code, "Range %q should be ignored", bad)
-			assert.Equal(t, string(content), w.Body.String(), "Range %q should return the whole object", bad)
+			assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, w.Code, "Range %q should fail", bad)
+			assert.Contains(t, w.Body.String(), "<Code>InvalidRange</Code>", "Range %q should return InvalidRange", bad)
+			assert.Equal(t, "bytes */62", w.Header().Get("Content-Range"), "Range %q should include unsatisfied Content-Range", bad)
 		}
 	})
 
@@ -2506,6 +2505,14 @@ func TestS3VersionedDeleteMarkerResponses(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, w.Code)
 		assert.Contains(t, w.Body.String(), "<Code>NoSuchVersion</Code>")
 	})
+
+	t.Run("DELETE explicit delete marker returns delete marker header", func(t *testing.T) {
+		req, w := env.makeS3Request("DELETE", "/"+bucketName+"/"+objectKey+"?versionId="+url.QueryEscape(deleteMarkerVersionID), nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNoContent, w.Code)
+		assert.Equal(t, "true", w.Header().Get("x-amz-delete-marker"))
+		assert.Equal(t, deleteMarkerVersionID, w.Header().Get("x-amz-version-id"))
+	})
 }
 
 // TestAwsChunkedReader tests AWS chunked encoding reader
@@ -3486,6 +3493,9 @@ func TestS3ListObjectsMaxKeys(t *testing.T) {
 	ctx := context.Background()
 	bucket := "maxkeys-bucket"
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucket, env.userID))
+	req, w := env.makeS3Request("PUT", "/"+bucket+"/visible.txt", []byte("visible"))
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 
 	// ── V1 ────────────────────────────────────────────────────────────────────
 
@@ -3519,6 +3529,9 @@ func TestS3ListObjectsMaxKeys(t *testing.T) {
 		req, w := env.makeS3Request("GET", "/"+bucket+"/?max-keys=0", nil)
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>0</MaxKeys>")
+		assert.NotContains(t, w.Body.String(), "<Contents>")
+		assert.NotContains(t, w.Body.String(), "visible.txt")
 	})
 
 	t.Run("V1 max-keys=-1 returns InvalidArgument", func(t *testing.T) {
@@ -3542,6 +3555,16 @@ func TestS3ListObjectsMaxKeys(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "<MaxKeys>1000</MaxKeys>")
+	})
+
+	t.Run("V2 max-keys=0 is valid (returns empty list)", func(t *testing.T) {
+		req, w := env.makeS3Request("GET", "/"+bucket+"/?list-type=2&max-keys=0", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<MaxKeys>0</MaxKeys>")
+		assert.Contains(t, w.Body.String(), "<KeyCount>0</KeyCount>")
+		assert.NotContains(t, w.Body.String(), "<Contents>")
+		assert.NotContains(t, w.Body.String(), "visible.txt")
 	})
 }
 
@@ -3952,7 +3975,7 @@ func TestS3ETagConditionalHeaders(t *testing.T) {
 	})
 }
 
-func TestS3GlobalBucketPathForTenantUser(t *testing.T) {
+func TestS3GlobalBucketPathForTenantUserIsDenied(t *testing.T) {
 	env := setupCompleteS3Environment(t)
 	defer env.cleanup()
 
@@ -3968,11 +3991,12 @@ func TestS3GlobalBucketPathForTenantUser(t *testing.T) {
 	require.NoError(t, err)
 
 	req, w := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
+	assert.Equal(t, bucketName, env.handler.getBucketPath(req, bucketName))
+
 	env.router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, string(body), w.Body.String())
-	assert.Equal(t, bucketName, env.handler.getBucketPath(req, bucketName))
+	require.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "AccessDenied")
 }
 
 func TestGetObjectAttributesHonorsVersionID(t *testing.T) {

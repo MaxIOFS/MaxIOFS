@@ -3,6 +3,7 @@ package object
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -174,6 +175,51 @@ func TestListObjects_Pagination(t *testing.T) {
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(result2.Objects), 1, "Should have more objects")
 	}
+}
+
+func TestListObjects_PaginationDoesNotCountHiddenFolderMarkers(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+
+	bucketName := "hidden-marker-pagination"
+	tenantID := "tenant-1"
+	bucketPath := tenantID + "/" + bucketName
+
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:     bucketName,
+		TenantID: tenantID,
+		OwnerID:  "user-1",
+	}))
+
+	for i := 0; i < 5; i++ {
+		_, err := om.PutObject(ctx, bucketPath, fmt.Sprintf("page/obj-%04d.txt", i),
+			bytes.NewReader([]byte("x")), http.Header{"Content-Type": []string{"text/plain"}})
+		require.NoError(t, err)
+	}
+
+	first, err := om.ListObjects(ctx, bucketPath, "page/", "", "", 3)
+	require.NoError(t, err)
+	require.Len(t, first.Objects, 3)
+	require.True(t, first.IsTruncated)
+	require.NotEmpty(t, first.NextMarker)
+
+	second, err := om.ListObjects(ctx, bucketPath, "page/", "", first.NextMarker, 3)
+	require.NoError(t, err)
+	require.Len(t, second.Objects, 2)
+	require.False(t, second.IsTruncated)
+
+	keys := []string{}
+	for _, obj := range append(first.Objects, second.Objects...) {
+		keys = append(keys, obj.Key)
+	}
+	assert.Equal(t, []string{
+		"page/obj-0000.txt",
+		"page/obj-0001.txt",
+		"page/obj-0002.txt",
+		"page/obj-0003.txt",
+		"page/obj-0004.txt",
+	}, keys)
 }
 
 // TestDeleteObject_Permanent tests permanent deletion

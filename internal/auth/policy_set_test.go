@@ -1,6 +1,7 @@
 package auth
 
 import "testing"
+
 // The account boundary lives in the engine, so these cases are about what the
 // engine refuses regardless of which handler asks.
 func TestAccountBoundary_EnforcedByTheEngine(t *testing.T) {
@@ -16,7 +17,8 @@ func TestAccountBoundary_EnforcedByTheEngine(t *testing.T) {
 		allowed        bool
 	}{
 		{"inside its own account", "t1", "t1", ActionPutObject, true},
-		{"a bucket owned by nobody is the shared namespace", "t1", "", ActionPutObject, true},
+		{"a tenant cannot reach the shared namespace", "t1", "", ActionPutObject, false},
+		{"a tenant-less principal owns the shared namespace", "", "", ActionPutObject, true},
 		{"reading across accounts", "t1", "t2", ActionGetObject, false},
 		{"writing across accounts", "t1", "t2", ActionPutObject, false},
 		{"a global operator without super admin cannot cross", "", "t2", ActionGetObject, false},
@@ -34,9 +36,9 @@ func TestAccountBoundary_EnforcedByTheEngine(t *testing.T) {
 			}
 			set := &PolicySet{UserID: "u", TenantID: tc.principal, Documents: documents}
 			got := set.Allows(AccessRequest{
-				Action:         tc.action,
-				Resource:       "arn:aws:s3:::shared-name/key.txt",
-				Owner:          OwnedBy(tc.resourceTenant),
+				Action:   tc.action,
+				Resource: "arn:aws:s3:::shared-name/key.txt",
+				Owner:    OwnedBy(tc.resourceTenant),
 			})
 			if got != tc.allowed {
 				t.Fatalf("allowed = %v, want %v — a policy allowing everything must not cross an account", got, tc.allowed)
@@ -92,10 +94,11 @@ func TestAccountBoundary_AnUnstatedOwnerIsRefused(t *testing.T) {
 		t.Fatal("a resource in the principal's own account must still be allowed")
 	}
 
-	// And the shared namespace is a deliberate answer, not an omission.
-	if !set.Allows(AccessRequest{
+	// And the shared namespace is a deliberate answer, not an omission; a tenant
+	// still cannot claim it as its own namespace.
+	if set.Allows(AccessRequest{
 		Action: ActionPutObject, Resource: "arn:aws:s3:::b/k", Owner: OwnedBy(""),
 	}) {
-		t.Fatal("a bucket outside every tenant is the shared namespace")
+		t.Fatal("a tenant principal must not reach the shared namespace")
 	}
 }

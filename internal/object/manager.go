@@ -1145,38 +1145,43 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 		return om.listObjectsDelimited(ctx, bucket, prefix, delimiter, marker, maxKeys)
 	}
 
-	// Flat listing (no delimiter) — scan only maxKeys objects.
-	metadataObjects, nextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, marker, maxKeys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects from metadata store: %w", err)
-	}
-
 	var objects []Object
+	nextMarker := ""
+	rawMarker := marker
+	isTruncated := false
 
-	for _, metaObj := range metadataObjects {
-		key := metaObj.Key
-
-		// Skip internal MaxIOFS files
-		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
-			continue
+	// Flat listing: metadata may contain entries that S3 must not expose
+	// (implicit folder markers, delete markers, internal files). Those entries
+	// must not consume MaxKeys, so page over raw metadata until the S3-visible
+	// page is full or there is no later visible object.
+	for {
+		metadataObjects, rawNextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, rawMarker, maxKeys+1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects from metadata store: %w", err)
 		}
 
-		// Flat listing: skip implicit folder markers
-		if metaObj.Metadata != nil {
-			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
+		for _, metaObj := range metadataObjects {
+			if hiddenFromFlatListing(metaObj) {
 				continue
 			}
+			if len(objects) >= maxKeys {
+				isTruncated = true
+				break
+			}
+
+			objects = append(objects, *fromMetadataObject(metaObj))
+			nextMarker = metaObj.Key
 		}
 
-		// Skip Delete Markers
-		if metaObj.Size == 0 && metaObj.ETag == "" {
-			continue
+		if isTruncated {
+			break
 		}
-
-		objects = append(objects, *fromMetadataObject(metaObj))
+		if rawNextMarker == "" {
+			nextMarker = ""
+			break
+		}
+		rawMarker = rawNextMarker
 	}
-
-	isTruncated := nextMarker != ""
 
 	result := &ListObjectsResult{
 		Objects:        objects,
@@ -1190,6 +1195,19 @@ func (om *objectManager) ListObjects(ctx context.Context, bucket, prefix, delimi
 	}
 
 	return result, nil
+}
+
+func hiddenFromFlatListing(metaObj *metadata.ObjectMetadata) bool {
+	key := metaObj.Key
+	if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
+		return true
+	}
+	if metaObj.Metadata != nil {
+		if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
+			return true
+		}
+	}
+	return metaObj.Size == 0 && metaObj.ETag == ""
 }
 
 // listObjectsDelimited handles hierarchical listing with delimiter. It delegates

@@ -3094,6 +3094,17 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if targetUser.TenantID != "" && s.isAdmin(targetUser) {
+		n, err := s.countTenantAdmins(r.Context(), targetUser.TenantID)
+		if err != nil {
+			s.writeError(w, "Failed to verify tenant admin count", http.StatusInternalServerError)
+			return
+		}
+		if n <= 1 {
+			s.writeError(w, "Cannot delete the last tenant administrator. Assign another tenant administrator first, or delete the tenant with force=true.", http.StatusConflict)
+			return
+		}
+	}
 
 	// Delete user
 	if err := s.authManager.DeleteUser(r.Context(), userID); err != nil {

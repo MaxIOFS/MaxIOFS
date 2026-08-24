@@ -1023,6 +1023,68 @@ func TestHandleDeleteAccessKey(t *testing.T) {
 	assert.True(t, response.Success)
 }
 
+func TestHandleDeleteUser_PreventsDeletingLastTenantAdmin(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	token := getAdminToken(t, server)
+	globalAdmin, err := server.authManager.ValidateJWT(ctx, token)
+	require.NoError(t, err)
+	require.NotNil(t, globalAdmin)
+
+	tenantID := "tenant-last-admin-delete"
+	require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{
+		ID:              tenantID,
+		Name:            "Tenant Last Admin Delete",
+		Status:          "active",
+		MaxStorageBytes: 1000000000,
+		MaxBuckets:      10,
+		MaxAccessKeys:   10,
+	}))
+
+	createTenantAdmin := func(id string) {
+		require.NoError(t, server.authManager.CreateUser(ctx, &auth.User{
+			ID:          id,
+			Username:    id,
+			Password:    "TempPassword123!",
+			DisplayName: id,
+			Email:       id + "@example.test",
+			Status:      auth.UserStatusActive,
+			TenantID:    tenantID,
+			Roles:       []string{auth.RoleAdmin},
+			CreatedAt:   time.Now().Unix(),
+			UpdatedAt:   time.Now().Unix(),
+		}))
+	}
+
+	createTenantAdmin("tenant-admin-only")
+
+	req := httptest.NewRequest("DELETE", "/api/v1/users/tenant-admin-only", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", globalAdmin))
+	req = mux.SetURLVars(req, map[string]string{"user": "tenant-admin-only"})
+
+	rr := httptest.NewRecorder()
+	server.handleDeleteUser(rr, req)
+
+	assert.Equal(t, http.StatusConflict, rr.Code)
+	_, err = server.authManager.GetUser(ctx, "tenant-admin-only")
+	assert.NoError(t, err)
+
+	createTenantAdmin("tenant-admin-second")
+
+	req = httptest.NewRequest("DELETE", "/api/v1/users/tenant-admin-only", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", globalAdmin))
+	req = mux.SetURLVars(req, map[string]string{"user": "tenant-admin-only"})
+
+	rr = httptest.NewRecorder()
+	server.handleDeleteUser(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+	_, err = server.authManager.GetUser(ctx, "tenant-admin-only")
+	assert.ErrorIs(t, err, auth.ErrUserNotFound)
+}
+
 // TestHandleGetUser tests the GET /users/{user} endpoint
 func TestHandleGetUser(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)
