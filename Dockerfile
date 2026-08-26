@@ -1,7 +1,7 @@
 # Multi-stage build for MaxIOFS
 
 # Stage 1: Build frontend — always runs on the build host (native, no QEMU)
-FROM --platform=$BUILDPLATFORM node:24-alpine AS web-builder
+FROM --platform=$BUILDPLATFORM node:25-alpine AS web-builder
 
 RUN apk add --no-cache python3 make g++
 

@@ -25,14 +25,13 @@ RUN dnf install -y \
     which \
     && dnf clean all
 
-# Install Go 1.25+
-RUN wget https://go.dev/dl/go1.25.8.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.25.8.linux-amd64.tar.gz && \
-    rm go1.25.8.linux-amd64.tar.gz
+# Go must match the toolchain in go.mod (go 1.26.0) or the build is refused.
+RUN wget https://go.dev/dl/go1.26.6.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.26.6.linux-amd64.tar.gz && \
+    rm go1.26.6.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Install Node.js 24+
-RUN curl -fsSL https://rpm.nodesource.com/setup_24.x | bash - && \
+RUN curl -fsSL https://rpm.nodesource.com/setup_25.x | bash - && \
     dnf install -y nodejs && \
     dnf clean all
 
