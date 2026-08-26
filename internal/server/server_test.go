@@ -19,6 +19,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -5548,6 +5549,55 @@ func TestNotificationHubOperations(t *testing.T) {
 
 		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{TenantID: "tenant-a"}))
 		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{}))
+	})
+}
+
+func TestCurrentDiskAlertNotification(t *testing.T) {
+	base := &metrics.DiskStats{
+		UsedBytes:  85_000_000_000,
+		TotalBytes: 100_000_000_000,
+		FreeBytes:  15_000_000_000,
+	}
+
+	t.Run("normal usage clears stale disk alerts", func(t *testing.T) {
+		stats := *base
+		stats.UsedPercent = 50
+
+		notif := currentDiskAlertNotification(&stats, 80, 90, true)
+
+		require.NotNil(t, notif)
+		assert.Equal(t, "disk_resolved", notif.Type)
+	})
+
+	t.Run("warning usage syncs warning to global admin", func(t *testing.T) {
+		stats := *base
+		stats.UsedPercent = 85
+
+		notif := currentDiskAlertNotification(&stats, 80, 90, true)
+
+		require.NotNil(t, notif)
+		assert.Equal(t, "disk_warning", notif.Type)
+		assert.Contains(t, notif.Message, "WARNING")
+	})
+
+	t.Run("critical usage syncs critical to global admin", func(t *testing.T) {
+		stats := *base
+		stats.UsedPercent = 95
+
+		notif := currentDiskAlertNotification(&stats, 80, 90, true)
+
+		require.NotNil(t, notif)
+		assert.Equal(t, "disk_critical", notif.Type)
+		assert.Contains(t, notif.Message, "CRITICAL")
+	})
+
+	t.Run("tenant admins do not receive active global disk alerts on sync", func(t *testing.T) {
+		stats := *base
+		stats.UsedPercent = 95
+
+		notif := currentDiskAlertNotification(&stats, 80, 90, false)
+
+		assert.Nil(t, notif)
 	})
 }
 

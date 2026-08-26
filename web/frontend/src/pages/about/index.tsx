@@ -326,111 +326,68 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-4">
 
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Urgent Fix: Listing Pagination Lost One Object Per Page
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Since the Pebble metadata engine was introduced, every paginated listing (console, S3
-                API, SOSAPI, search) silently skipped exactly one object per page of 1,000 — enough to
-                make backup verification tools like Veeam or Duplicati believe existing files were
-                missing. The pagination marker now follows strict S3 semantics in every listing path,
-                covered by round-trip regression tests. Upgrading is strongly recommended for any
-                deployment with buckets over 1,000 objects.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-amber-500 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Crash Durability & Self-Healing Startup
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                The metadata write-ahead log is now fsynced every second while writes are flowing, and
-                destructive operations (deletes, multipart completion) are synced immediately — a hard
-                kill or power loss can no longer resurrect deleted objects, and loses at most ~1 second
-                of metadata. After an unclean shutdown the server automatically reconciles its metadata
-                against the on-disk object files in the background: entries lost in the crash window are
-                restored from their sidecars, and stale entries pointing at removed files are cleaned up.
-              </p>
-            </div>
-
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">
-              From v1.5.0
-            </h3>
-
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Always-On Envelope Encryption
+                IAM Is the Authorization Model
               </h3>
               <p className="text-sm text-muted-foreground">
-                Server-side encryption is now always active, matching AWS S3's SSE-S3-by-default model.
-                Every object gets its own Data Encryption Key (AES-256-GCM streaming), wrapped by a Key
-                Encryption Key that lives in the database — no configuration needed. Objects written by
-                older versions (plaintext or legacy-encrypted) keep reading correctly and are converted
-                in the background when server load is low.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Recovery Bundle, Key Rotation & Disaster Recovery
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Download a passphrase-encrypted export of all encryption keys from Settings → Security
-                and store it off-server. Rotate the encryption key anytime — object data is never
-                re-encrypted; a background worker re-wraps each object's key. If the metadata database
-                is ever lost, the new{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs recover</code>{' '}
-                command rebuilds it entirely from the object files plus your bundle.
+                Roles, bucket permissions and attached policies are all IAM policies now, evaluated
+                the way AWS does it: default deny, and an explicit <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Deny</code>{' '}
+                always wins. Your existing permissions are converted once, on the boot that upgrades
+                the installation. Permissions are picked from a catalogue and can be granted on
+                individual buckets — nobody edits a policy document by hand.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Ciphertext Cluster Replication
+                AWS STS &amp; IAM Protocols
               </h3>
               <p className="text-sm text-muted-foreground">
-                Cluster nodes now share a cluster-wide encryption key (distributed on join and on
-                rotation), so HA replication ships the stored ciphertext as-is — no decrypt on the
-                source, no re-encrypt on the destination. Also fixed: replication requests had been
-                silently failing against the dedicated cluster port, and replica timestamps no longer
-                diverge from the primary (eliminating perpetual re-sync of multipart objects).
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws sts</code> and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws iam --endpoint-url</code>{' '}
+                now work unmodified against the S3 endpoint. Issue short-lived credentials that
+                project an existing user, narrow them with a session policy, and revoke them from
+                the console. Scripts and backup jobs can trade LDAP or OAuth credentials for S3
+                credentials instead of holding permanent keys.
               </p>
             </div>
 
-            <div className="border-l-4 border-green-600 pl-4">
+            <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Per-Tenant Bandwidth & Per-Bucket Quotas
+                Security Pass Across Both APIs
               </h3>
               <p className="text-sm text-muted-foreground">
-                Cap a tenant's aggregate transfer bandwidth (throttles, never rejects — all of the
-                tenant's transfers share one budget, hot-updatable). Buckets can now carry their own
-                size and object-count quotas — including global buckets like a dedicated Veeam target —
-                exposed to SOSAPI clients through capacity.xml, with SSE and email alerts as usage grows.
+                Forwarded inter-node requests are now signed over the caller's identity, the method,
+                the full URI, the body digest and a recorded nonce, so an observed request can be
+                neither forged nor replayed. Five endpoints that authorized nothing beyond a session
+                now ask for the permission they need, the tenant boundary is enforced in both
+                directions, and an ACL can no longer overrule an explicit policy denial.
               </p>
             </div>
 
-            <div className="border-l-4 border-orange-500 pl-4">
+            <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Data-Safety Fixes
+                Clean Shutdown
               </h3>
               <p className="text-sm text-muted-foreground">
-                A quota-rejected overwrite no longer destroys the object it was replacing; object
-                overwrites are now crash-safe end to end (staged two-phase commit with self-healing
-                repair); a failed metadata save now fails the upload instead of returning a silent
-                success; deletes on Windows survive transient antivirus file locks; and the console's
-                notification stream reconnects automatically. See the full{' '}
-                <a
-                  href="https://github.com/MaxioFS/MaxioFS/blob/main/CHANGELOG.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand-600 dark:text-brand-400 hover:underline"
-                >
-                  CHANGELOG
-                </a>{' '}
-                for details.
+                Stopping the server used to be able to take the process down with it: the metadata
+                store closed while background work was still writing to it. Every component is now
+                stopped and waited for before the stores close.
               </p>
             </div>
+
+            <p className="text-sm text-muted-foreground pt-2">
+              Earlier releases are listed in the{' '}
+              <a
+                href="https://github.com/MaxioFS/MaxioFS/blob/main/CHANGELOG.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand-600 dark:text-brand-400 hover:underline"
+              >
+                CHANGELOG
+              </a>.
+            </p>
 
           </div>
         </div>

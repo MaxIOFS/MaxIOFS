@@ -11,10 +11,25 @@ export interface Notification {
     tenantId?: string;
     nodeId?: string;
     nodeName?: string;
+    bucket?: string;
   };
   timestamp: number;
   tenantId?: string;
   read: boolean;
+}
+
+function notificationFamily(type: string): string {
+  if (type === 'disk_warning' || type === 'disk_critical') return 'disk';
+  if (type === 'quota_warning' || type === 'quota_critical') return 'quota';
+  if (type === 'bucket_quota_warning' || type === 'bucket_quota_critical') return 'bucket_quota';
+  if (type === 'cluster_node_warning' || type === 'cluster_node_critical') return 'cluster_node';
+  return type;
+}
+
+function notificationIdentity(notification: Notification): string {
+  const data = notification.data || {};
+  const scope = data.nodeId || data.bucket || data.tenantId || notification.tenantId || data.userId || '';
+  return `${notificationFamily(notification.type)}:${scope}`;
 }
 
 export function useNotifications(enabled = true) {
@@ -186,7 +201,11 @@ export function useNotifications(enabled = true) {
                   };
 
                   setNotifications((prev) => {
-                    const updated = [notification, ...prev];
+                    const identity = notificationIdentity(notification);
+                    const updated = [
+                      notification,
+                      ...prev.filter((existing) => notificationIdentity(existing) !== identity),
+                    ];
                     // Keep only last 3 notifications
                     const trimmed = updated.slice(0, 3);
                     // Save to localStorage

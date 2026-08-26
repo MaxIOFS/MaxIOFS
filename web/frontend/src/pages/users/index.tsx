@@ -268,16 +268,16 @@ export default function UsersPage() {
     return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
   };
 
-  const getStatusBadgeClasses = (status: string) => {
+  const getStatusActionClasses = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30';
+        return 'text-green-600 hover:bg-green-50 hover:text-green-700 dark:hover:bg-green-500/10';
       case 'suspended':
-        return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30';
+        return 'text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-500/10';
       case 'inactive':
-        return 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/30';
+        return 'text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-500/10';
       default:
-        return 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/20 dark:text-gray-300 dark:border-gray-500/30';
+        return 'text-muted-foreground hover:bg-secondary';
     }
   };
 
@@ -398,9 +398,8 @@ export default function UsersPage() {
                   <TableHead>{t('email')}</TableHead>
                   <TableHead>{t('tenant')}</TableHead>
                   <TableHead>{t('roles')}</TableHead>
-                  <TableHead>{t('status')}</TableHead>
                   <TableHead>{t('authColumn')}</TableHead>
-                  <TableHead>{t('twoFactorColumn')}</TableHead>
+                  <TableHead className="w-12 text-center">{t('twoFactorColumn')}</TableHead>
                   <TableHead>{t('accessKeys')}</TableHead>
                   <TableHead>{t('created')}</TableHead>
                   <TableHead className="text-right">{t('actions')}</TableHead>
@@ -468,23 +467,24 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadgeClasses(user.status)}`}>
-                        {user.status}
-                      </span>
-                    </TableCell>
-                    <TableCell>
                       <IDPStatusBadge authProvider={user.authProvider} />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       {user.twoFactorEnabled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-green-100 text-green-700 border-green-300 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30">
-                          <KeyRound className="h-3 w-3" />
-                          {t('enabled')}
+                        <span
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/20 dark:text-green-300"
+                          title={t('enabled')}
+                          aria-label={t('enabled')}
+                        >
+                          <KeyRound className="h-4 w-4" />
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-300 dark:bg-secondary text-muted-foreground border-border">
-                          <KeyRound className="h-3 w-3" />
-                          {t('disabled')}
+                        <span
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-secondary text-muted-foreground"
+                          title={t('disabled')}
+                          aria-label={t('disabled')}
+                        >
+                          <KeyRound className="h-4 w-4" />
                         </span>
                       )}
                     </TableCell>
@@ -503,15 +503,16 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
                         {isUserLocked(user) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleUnlockUser(user.id)}
                             disabled={unlockUserMutation.isPending}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             title={t('unlockAccount')}
+                            aria-label={t('unlockAccount')}
                           >
                             <Unlock className="h-4 w-4" />
                           </Button>
@@ -521,11 +522,14 @@ export default function UsersPage() {
                           size="sm"
                           onClick={() => handleToggleUserStatus(user.id, user.status)}
                           disabled={updateUserMutation.isPending}
+                          className={`h-8 w-8 p-0 ${getStatusActionClasses(user.status)}`}
+                          title={user.status === 'active' ? t('active') : t(user.status)}
+                          aria-label={user.status === 'active' ? t('active') : t(user.status)}
                         >
                           {user.status === 'active' ? (
-                            <UserX className="h-4 w-4" />
-                          ) : (
                             <UserCheck className="h-4 w-4" />
+                          ) : (
+                            <UserX className="h-4 w-4" />
                           )}
                         </Button>
                         <Button
@@ -533,6 +537,8 @@ export default function UsersPage() {
                           size="sm"
                           onClick={() => navigate(`/users/${user.id}`)}
                           title="User settings"
+                          aria-label="User settings"
+                          className="h-8 w-8 p-0"
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
@@ -541,6 +547,9 @@ export default function UsersPage() {
                           size="sm"
                           onClick={() => handleDeleteUser(user.id)}
                           disabled={deleteUserMutation.isPending}
+                          className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-500/10"
+                          title={t('delete')}
+                          aria-label={t('delete')}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

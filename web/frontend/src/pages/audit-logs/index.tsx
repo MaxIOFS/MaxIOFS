@@ -51,19 +51,10 @@ const formatEventType = (eventType: string | undefined): string => {
     .join(' ');
 };
 
-// Check if event is critical (security-related)
-const isCriticalEvent = (eventType: string | undefined, status: string): boolean => {
-  if (!eventType) return false;
-  const criticalEvents = [
-    'login_failed',
-    'user_blocked',
-    '2fa_disabled',
-    '2fa_verify_failed',
-    'user_deleted',
-    'tenant_deleted',
-    'access_key_deleted',
-  ];
-  return criticalEvents.includes(eventType) || status === 'failed';
+// Audit failures are errors. Successful destructive actions are normal audit
+// records and should not be styled as failed operations.
+const isFailedEvent = (status: string): boolean => {
+  return status === 'failed';
 };
 
 // Format timestamp — ISO-like format with no commas (comma-safe for CSV)
@@ -609,12 +600,12 @@ export default function AuditLogsPage() {
               </TableRow>
             ) : (
               filteredLogs.map((log) => {
-                const isCritical = isCriticalEvent(log.event_type, log.status);
+                const isFailed = isFailedEvent(log.status);
                 return (
                 <React.Fragment key={log.id}>
                   <TableRow className={cn(
                     "hover:bg-secondary transition-colors",
-                    isCritical && "bg-red-50/50 dark:bg-red-900/10 border-l-4 border-red-500"
+                    isFailed && "bg-red-50/50 dark:bg-red-900/10 border-l-4 border-red-500"
                   )}>
                     <TableCell>
                       <div className="flex flex-col">
@@ -636,7 +627,7 @@ export default function AuditLogsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {isCritical && (
+                        {isFailed && (
                           <AlertCircle className="w-4 h-4 text-red-500" />
                         )}
                         <span

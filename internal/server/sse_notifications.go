@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/sirupsen/logrus"
 )
 
@@ -133,8 +134,69 @@ func (h *NotificationHub) SendNotification(notif *Notification) {
 	}
 }
 
-// syncAlertStateToClient sends disk_resolved / quota_resolved events to a newly
-func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher) {
+func isGlobalNotificationAdmin(user *auth.User) bool {
+	if user == nil || user.TenantID != "" {
+		return false
+	}
+	for _, role := range user.Roles {
+		if role == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+func currentDiskAlertNotification(stats *metrics.DiskStats, warnPct, critPct int, includeActive bool) *Notification {
+	if stats == nil {
+		return nil
+	}
+
+	data := map[string]interface{}{
+		"usedPercent": stats.UsedPercent,
+		"usedBytes":   stats.UsedBytes,
+		"totalBytes":  stats.TotalBytes,
+		"freeBytes":   stats.FreeBytes,
+		"warnAt":      warnPct,
+		"criticalAt":  critPct,
+	}
+
+	switch {
+	case stats.UsedPercent >= float64(critPct):
+		if !includeActive {
+			return nil
+		}
+		return &Notification{
+			Type: "disk_critical",
+			Message: fmt.Sprintf("CRITICAL: disk at %.1f%% (%.1f / %.1f GB)",
+				stats.UsedPercent, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9),
+			Data:      data,
+			Timestamp: time.Now().Unix(),
+		}
+	case stats.UsedPercent >= float64(warnPct):
+		if !includeActive {
+			return nil
+		}
+		return &Notification{
+			Type: "disk_warning",
+			Message: fmt.Sprintf("WARNING: disk at %.1f%% (%.1f / %.1f GB)",
+				stats.UsedPercent, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9),
+			Data:      data,
+			Timestamp: time.Now().Unix(),
+		}
+	default:
+		return &Notification{
+			Type:      "disk_resolved",
+			Message:   fmt.Sprintf("Disk space is normal (%.1f%% used)", stats.UsedPercent),
+			Data:      data,
+			Timestamp: time.Now().Unix(),
+		}
+	}
+}
+
+// syncAlertStateToClient sends the current alert state to a newly connected SSE
+// client. Broadcasts are live-only; this catches alerts that fired before the
+// browser connected or while it was reconnecting.
+func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher, user *auth.User) {
 	send := func(n *Notification) {
 		data, err := json.Marshal(n)
 		if err != nil {
@@ -144,7 +206,7 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 		flusher.Flush()
 	}
 
-	// --- Disk: send disk_resolved if current usage is below warning threshold ---
+	// --- Disk: sync active global disk alert, or clear stale disk notifications ---
 	if s.systemMetrics != nil {
 		stats, err := s.systemMetrics.GetDiskUsage()
 		if err == nil {
@@ -152,13 +214,12 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 			if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
 				warnPct = v
 			}
-			if stats.UsedPercent < float64(warnPct) {
-				send(&Notification{
-					Type:      "disk_resolved",
-					Message:   fmt.Sprintf("Disk space is normal (%.1f%% used)", stats.UsedPercent),
-					Data:      map[string]interface{}{"usedPercent": stats.UsedPercent},
-					Timestamp: time.Now().Unix(),
-				})
+			critPct := 90
+			if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
+				critPct = v
+			}
+			if notif := currentDiskAlertNotification(stats, warnPct, critPct, isGlobalNotificationAdmin(user)); notif != nil {
+				send(notif)
 			}
 		}
 	}
@@ -275,7 +336,7 @@ func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	// Sync current alert state to this client so stale localStorage notifications are cleared
-	s.syncAlertStateToClient(w, flusher)
+	s.syncAlertStateToClient(w, flusher, user)
 
 	// Listen for messages or client disconnect
 	ctx := r.Context()

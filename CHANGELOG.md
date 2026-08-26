@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — targets 1.6.0
+## [1.6.0] - 2026-08-26
 
 ### Added
 - **STS temporary S3 credentials** — short-lived credentials (`ASIA…` key, secret, session token) that project an existing user instead of creating a new identity. Sessions are revocable rows in the auth database, replicated across the cluster and swept hourly. Console UI under Access Keys; `security.sts_max_session_duration` (default 12 h). (`internal/auth/sts.go`, `internal/server/sts_handlers.go`)
@@ -51,10 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Shutdown closed the stores while background workers were still writing, panicking Pebble.** All 23 components are stopped and waited for first. (`internal/bgwork/`, `internal/server/server.go`, `internal/server/components.go`, `internal/metadata/pebble_store.go`)
+- **A bucket that ever held a key with `/` could not be deleted over S3** — folder markers are hidden from listings but counted as content. They are now removed with the bucket. (`internal/metadata/pebble_store.go`)
+- **Flat listings returned short pages** — hidden entries (folder markers, delete markers, internal files) consumed the `MaxKeys` budget, so a page could come back with fewer objects than existed. (`internal/object/manager.go`)
+- **S3 jobs that outlive the request were not part of the shutdown wait**: realtime replication on PUT and DELETE, and multipart completion. They now run through the server's worker. (`pkg/s3compat/handler.go`, `pkg/s3compat/multipart.go`)
+- **`max-keys=0` was not honoured** — it now returns an empty listing with `KeyCount` 0, as on AWS. (`pkg/s3compat/handler.go`)
+- **An unparseable `Range` header was silently ignored** and the whole object returned; it now answers `InvalidRange` with `Content-Range`. (`pkg/s3compat/handler.go`)
+- **Deleting a version that was itself a delete marker reported `x-amz-delete-marker: false`.** (`pkg/s3compat/handler.go`)
+- **The cluster TLS listener was replaced while shutdown was reading it**, an unsynchronised field write, and its serve goroutine called `logrus.Fatal` — exiting the process with no shutdown at all. (`internal/server/server.go`)
+- **Deleting the last administrator of a tenant left it with no operator.** Deleting the tenant itself is the way to remove it. (`internal/server/console_api.go`, `internal/server/console_idp.go`)
 - **Four background goroutines wrote to the stores untracked**: bucket quota alerts (on every object write), tenant quota alerts (on every upload), scheduled replication sync, and dead-node catch-up sync. (`internal/bucket/manager_impl.go`, `internal/auth/manager.go`, `internal/replication/manager.go`, `internal/cluster/dead_node_reconciler.go`)
 - **Remote log targets (HTTP, syslog) were never flushed on shutdown** — buffered entries were discarded. (`internal/server/server.go`)
 - **The inter-node object endpoints answered `200 {"success": true}` without storing the object** on their no-object-manager fallback. Removed; they refuse the transfer. (`internal/server/cluster_object_handlers.go`)
 - **Storage-pressure events were emitted from an untracked goroutine** and could arrive out of order with the health check. (`internal/cluster/health.go`)
+- **An alert that fired before the browser connected was never shown** — on connect the server reported only that the disk was back to normal, never an alert still active, and it ignored the critical threshold. It now syncs the current state, and active disk alerts go to global administrators only. (`internal/server/sse_notifications.go`)
+- **Repeated alerts for one condition crowded out every other notification** — each was a new entry in a list of three. A notification now replaces the one it supersedes, matched by condition and by the node, bucket or tenant it concerns. (`web/frontend/src/hooks/useNotifications.ts`)
+- **Successful deletions were styled as failures in the audit log** — removing a user, a tenant or an access key was painted red with an error icon by a hardcoded event list. Only a failed status is. (`web/frontend/src/pages/audit-logs/index.tsx`)
 - **Writes forwarded to the node that owns a bucket escaped the tenant's quota** — one of the two proxy paths dropped the content length, so the body arrived chunked and the quota check read the missing length as nothing to account for. A tenant could exceed its limit indefinitely by writing through any other node. (`internal/cluster/proxy.go`)
 - **Paging through object versions lost some and returned others twice** — versions are ordered newest-first within a key, but resuming compared version ids as text, which is a different order. A client walking the markers saw neither every version nor each one once. (`pkg/s3compat/versioning.go`)
 - **Every delete subtracted from the bucket twice** — the object manager and the S3 handler each adjusted the size, the object count and the tenant's quota. Removing one version of an object took away two versions' worth and hid the object from the bucket's count while it was still there. (`pkg/s3compat/handler.go`)
@@ -132,8 +143,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SOSAPI advertises `IAMSTS=true`** with both endpoints, served on `POST /` of the S3 endpoint so a single URL covers both. Advertised only while `security.iam_api_enabled` is on and a public API URL is configured. (`pkg/s3compat/sosapi.go`)
 - **Presigned URLs are covered by IAM policies** — they bypass the S3 auth middleware, so without this a presigned URL would have been a way around an attached policy. (`pkg/s3compat/presigned.go`)
 - **S3 Select streams the object instead of holding it** — it parsed the whole object into memory and then loaded that into an in-memory database, so one authenticated query could exhaust the node. The loaders now insert rows as they read — the JSON schema grows mid-stream rather than being discovered by buffering — and the query engine is backed by a temporary file. Measured on a 9 MB input: 11 MB at peak, against 217 MB before. (`pkg/s3compat/select.go`)
-- **Dependencies updated** — logrus 1.10.0, testify 1.12.0, the AWS SDK, jsdom 30 and `@testing-library/jest-dom` 7. Built with Go 1.26.6, which closes six standard-library advisories `govulncheck` reported as reachable, including the `encoding/xml` recursion guard and the quadratic `net/url` path resolution.
+- **Dependencies updated** — Pebble v2 2.1.7, logrus 1.10.2, testify 1.12.1, modernc sqlite 1.57.0, the AWS SDK, jsdom 30 and `@testing-library/jest-dom` 7. Built with Go 1.26.6, which closes six standard-library advisories `govulncheck` reported as reachable, including the `encoding/xml` recursion guard and the quadratic `net/url` path resolution.
 - **A test now fails if a `Server` field that can be stopped is not released at shutdown**, through the registry or by name. (`internal/server/lifecycle_coverage_test.go`)
+- **The users table is more compact** — the status column folded into a colour-coded toggle that now shows the current state rather than the action, 2FA reduced to an icon, and uniform icon-only actions carrying `title` and `aria-label`. (`web/frontend/src/pages/users/index.tsx`)
 - **`docs/CLUSTER.md` describes what happens when a node fails** — the re-election among survivors, the rejoin and sync on return, and the partition trade. Documented alongside a constraint worth knowing first: every node must use the same `cluster_listen` port.
 
 ## [1.5.2] - 2026-07-18

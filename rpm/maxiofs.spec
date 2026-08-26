@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.5.2}
+%{!?version: %define version 1.6.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -190,6 +190,33 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Wed Aug 26 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.6.0-1
+- Release v1.6.0 — IAM is the authorization model, AWS IAM/STS protocols, security pass
+- IAM: roles, bucket permissions and attached policies are all IAM policies, evaluated
+  AWS-style (default deny, explicit Deny wins). Permissions are picked from a catalogue
+  and granted per bucket; nobody edits a policy document. Existing permissions are
+  converted once, on the boot that upgrades the installation (migrations 18 and 19)
+- STS: short-lived ASIA credentials that project an existing user, with optional session
+  policies that can only narrow access, and federation so headless clients trade LDAP or
+  OAuth credentials for S3 credentials instead of holding permanent keys
+- The AWS STS and IAM protocols answer on POST / of the S3 endpoint, so `aws sts` and
+  `aws iam --endpoint-url` work unmodified
+- [SECURITY] Forwarded inter-node requests could be forged or replayed: the signature
+  covered neither the caller's identity nor the request. It now covers the method, the
+  full URI, the body digest, the identity and a recorded nonce
+- [SECURITY] Five endpoints performed no authorization beyond requiring a session; the
+  tenant boundary is enforced in both directions; an ACL can no longer overrule an
+  explicit policy denial; a tenant administrator can no longer take over the global
+  administrator account
+- Shutdown no longer risks a Pebble panic: every component is stopped and waited for
+  before the metadata store closes
+- A bucket that ever held a key containing a slash can be deleted over S3 again
+- Alerts that fired before the console connected are no longer lost, repeated alerts for
+  one condition no longer crowd out the rest, and successful deletions are no longer
+  styled as failures in the audit log
+- Dependencies: Pebble v2 2.1.7, logrus 1.10.2, testify 1.12.1, modernc sqlite 1.57.0
+  and the AWS SDK
+
 * Sat Jul 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.5.2-1
 - Release v1.5.2 — Urgent listing-pagination fix + Pebble hard-kill durability
 - NOTE: v1.5.1 was withdrawn shortly after publication and is not available. Its

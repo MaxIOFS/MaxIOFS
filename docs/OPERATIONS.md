@@ -1,7 +1,7 @@
 # MaxIOFS Operations Guide
 
-**Version**: 1.5.2  
-**Last Updated**: July 18, 2026  
+**Version**: 1.6.0  
+**Last Updated**: August 24, 2026  
 **Audience**: SRE / Ops / On-call engineers
 
 This document describes day‑to‑day operations, runbooks, and best practices for running MaxIOFS in production (single node and clusters).

@@ -1,3 +1,35 @@
+maxiofs (1:1.6.0) stable; urgency=high
+
+  * Release v1.6.0 — IAM is the authorization model, AWS IAM/STS protocols,
+    and a large security pass.
+  * IAM: roles, bucket permissions and attached policies are all IAM policies now,
+    evaluated AWS-style (default deny, explicit Deny wins). Permissions are picked
+    from a catalogue and granted per bucket; nobody edits a policy document.
+    Existing permissions are converted once, on the boot that upgrades the
+    installation (migrations 18 and 19).
+  * STS: short-lived ASIA credentials that project an existing user, with optional
+    session policies that can only narrow access, and federation so headless
+    clients trade LDAP or OAuth credentials for S3 credentials instead of holding
+    permanent keys. The AWS STS and IAM protocols answer on POST / of the S3 port,
+    so `aws sts` and `aws iam --endpoint-url` work unmodified.
+  * [SECURITY] Forwarded inter-node requests could be forged or replayed: the
+    signature covered neither the caller's identity nor the request. It now covers
+    the method, the full URI, the body digest, the identity and a recorded nonce.
+  * [SECURITY] Five endpoints performed no authorization beyond requiring a session;
+    the tenant boundary is now enforced in both directions; an ACL can no longer
+    overrule an explicit policy denial; a tenant administrator can no longer take
+    over the global administrator account.
+  * Shutdown no longer risks a Pebble panic — every component is stopped and waited
+    for before the metadata store closes.
+  * A bucket that ever held a key containing a slash can be deleted over S3 again.
+  * Alerts that fired before the console connected are no longer lost, repeated
+    alerts for one condition no longer crowd out the rest, and successful deletions
+    are no longer styled as failures in the audit log.
+  * Dependencies: Pebble v2 2.1.7, logrus 1.10.2, testify 1.12.1, modernc sqlite
+    1.57.0 and the AWS SDK.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 26 Aug 2026 12:00:00 -0300
+
 maxiofs (1:1.5.2) stable; urgency=high
 
   * Release v1.5.2 — Urgent listing-pagination fix + Pebble hard-kill durability.

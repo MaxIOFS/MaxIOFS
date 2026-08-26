@@ -283,6 +283,20 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
+                  <p className="font-medium text-foreground">{t('temporaryCredentials')}</p>
+                  <p className="text-sm text-muted-foreground">{t('temporaryCredentialsDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">{t('awsIamStsApi')}</p>
+                  <p className="text-sm text-muted-foreground">{t('awsIamStsApiDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
                   <p className="font-medium text-foreground">{t('identityProviders')}</p>
                   <p className="text-sm text-muted-foreground">{t('identityProvidersDesc')}</p>
                 </div>

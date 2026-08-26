@@ -14,9 +14,7 @@ authenticated caller.** Everything below was a place the migration had not
 reached, or a defect introduced while doing it. All of it is closed; the list
 stays as the record of what was checked.
 
-Customers are on **1.5.2**. **1.6.0 is an internal development version** that
-has not been released to anyone — whoever uses a nightly build does so at their
-own risk.
+Released in **1.6.0**.
 
 ### Complete authorization bypasses — no check of any kind
 
@@ -448,6 +446,23 @@ Two low-impact items from the full-project review were left as-is on purpose:
 
 - **Bandwidth throttling spends tokens after the read** (`internal/bandwidth`): each 32 KB chunk is delivered, then waited for — transfers can run up to one chunk ahead of budget. Cosmetic smoothing only.
 - **Quota delta computed outside the per-key lock** (`object.PutObject`): two concurrent overwrites of the same key can compute the same delta, causing transient metrics drift. Fixing it would hold the sharded per-key lock across encryption + disk IO, serialising unrelated keys that share a shard — not worth it for a metrics-only drift.
+
+---
+
+## 📁 Pending — Folder markers to the AWS S3 model
+
+MaxIOFS creates a folder marker for every parent on each upload; AWS creates one
+only when a client asks for it explicitly. Three layers do it independently:
+real directories on disk, `.maxiofs-folder` files (`internal/storage/filesystem.go:124`),
+and implicit objects in Pebble (`internal/object/manager.go:2519`).
+
+Deleting a bucket already works — `DeleteBucketIfEmpty` removes the implicit
+markers with it — so this is no longer blocking. What is still divergent:
+
+- `list-object-versions` returns the markers while `list-objects-v2` hides them.
+- A folder survives its last object: the orphan markers keep producing the prefix.
+
+Needs a migration for existing objects, so it goes in a later version.
 
 ---
 
