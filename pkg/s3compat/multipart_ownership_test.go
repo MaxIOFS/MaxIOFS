@@ -171,3 +171,88 @@ func TestListMultipartUploads_HonoursPrefix(t *testing.T) {
 		"only the uploads under the requested prefix")
 	assert.Equal(t, "teamA/", res.Prefix, "AWS echoes the prefix back")
 }
+
+func TestListMultipartUploads_HonoursDelimiter(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	const bucketName = "mpu-delimiter"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	bucketPath := env.tenantID + "/" + bucketName
+
+	for _, key := range []string{"photos/2026/a.dat", "photos/2026/b.dat", "root.dat", "tmp/a.dat"} {
+		_, err := env.objectManager.CreateMultipartUpload(ctx, bucketPath, key, http.Header{})
+		require.NoError(t, err)
+	}
+
+	req, w := env.makeS3Request("GET", "/"+bucketName+"?uploads&delimiter=/", nil)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var res ListMultipartUploadsResult
+	require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &res))
+
+	var uploadKeys []string
+	for _, u := range res.Uploads {
+		uploadKeys = append(uploadKeys, u.Key)
+	}
+	var prefixes []string
+	for _, p := range res.CommonPrefixes {
+		prefixes = append(prefixes, p.Prefix)
+	}
+
+	assert.Equal(t, []string{"root.dat"}, uploadKeys)
+	assert.Equal(t, []string{"photos/", "tmp/"}, prefixes)
+	assert.Equal(t, "/", res.Delimiter)
+}
+
+func TestListMultipartUploads_DelimiterPaginationAcrossCommonPrefixes(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	const bucketName = "mpu-delim-page"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	bucketPath := env.tenantID + "/" + bucketName
+
+	for _, key := range []string{"a/one.dat", "b/two.dat", "c.dat"} {
+		_, err := env.objectManager.CreateMultipartUpload(ctx, bucketPath, key, http.Header{})
+		require.NoError(t, err)
+	}
+
+	keyMarker, uploadIDMarker := "", ""
+	var got []string
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 10, "multipart listing did not terminate")
+
+		url := "/" + bucketName + "?uploads&delimiter=/&max-uploads=1"
+		if keyMarker != "" {
+			url += "&key-marker=" + keyMarker
+			if uploadIDMarker != "" {
+				url += "&upload-id-marker=" + uploadIDMarker
+			}
+		}
+		req, w := env.makeS3Request("GET", url, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		var res ListMultipartUploadsResult
+		require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &res))
+		for _, p := range res.CommonPrefixes {
+			got = append(got, "prefix:"+p.Prefix)
+		}
+		for _, u := range res.Uploads {
+			got = append(got, "upload:"+u.Key)
+		}
+
+		if !res.IsTruncated {
+			break
+		}
+		require.NotEmpty(t, res.NextKeyMarker)
+		require.NotEqual(t, keyMarker+"|"+uploadIDMarker, res.NextKeyMarker+"|"+res.NextUploadIdMarker)
+		keyMarker, uploadIDMarker = res.NextKeyMarker, res.NextUploadIdMarker
+	}
+
+	assert.Equal(t, []string{"prefix:a/", "prefix:b/", "upload:c.dat"}, got)
+}

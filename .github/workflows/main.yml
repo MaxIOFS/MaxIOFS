@@ -77,37 +77,44 @@ jobs:
           exit 0
 
       - name: Set up Go
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
       - name: Set up Node.js
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '26'
 
       - name: Set up Python (for .deb packaging)
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install system deps
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc g++ make upx zip dpkg fakeroot
 
       - name: Install Go dependencies
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "Downloading Go dependencies from scratch (no cache)..."
           go mod download
           go mod verify
 
       - name: Install frontend dependencies
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           cd web/frontend
           npm ci
 
       - name: Run frontend tests
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           cd web/frontend
           echo "Running frontend tests..."
@@ -115,17 +122,20 @@ jobs:
           echo "✅ All frontend tests passed"
 
       - name: Update frontend version
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           cd web/frontend
           npm version ${{ steps.nightly_version.outputs.version }} --no-git-tag-version
           echo "Frontend version updated to ${{ steps.nightly_version.outputs.version }}"
 
       - name: Build frontend
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           cd web/frontend
           npm run build
 
       - name: Run backend tests
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "Running backend tests..."
           PKGS=$(go list ./... | grep -v '/node_modules/')
@@ -140,6 +150,7 @@ jobs:
           echo "✅ All backend tests passed"
 
       - name: Run benchmarks
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "Running performance benchmarks..."
           mkdir -p bench-results
@@ -153,22 +164,26 @@ jobs:
           echo "📊 Results saved to bench-results/benchmarks.txt"
 
       - name: Build backend binaries
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           make clean
           VERSION=${{ steps.nightly_version.outputs.version }} make build-all
 
       - name: Build .deb packages
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           VERSION=${{ steps.nightly_version.outputs.version }} make deb
           VERSION=${{ steps.nightly_version.outputs.version }} make deb-arm64
 
       - name: Build RPM builder Docker image
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "Building Docker image for RPM packaging..."
           docker build -f Dockerfile.rpm-builder -t maxiofs-rpm-builder .
           echo "Docker image built successfully"
 
       - name: Build .rpm packages
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "Building RPM packages (AMD64 + ARM64) using Docker..."
           docker run --rm \
@@ -196,6 +211,7 @@ jobs:
           ls -lah build/*.rpm || echo "Warning: No RPM files found"
 
       - name: Prepare artifacts
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           mkdir -p nightly-artifacts
           # Remove temporary build directories (created by Docker as root, need sudo)
@@ -222,25 +238,31 @@ jobs:
           ls -lah nightly-artifacts/
 
       - name: Save current commit hash
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           echo "${{ steps.nightly_version.outputs.commit_short }}" > nightly-artifacts/LAST_COMMIT
 
       - name: Upload to S3
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: aws s3 sync ./nightly-artifacts s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest --delete
 
       - name: Set up QEMU (for ARM64 Docker cross-build)
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Delete existing nightly tag from DockerHub
+        if: steps.check_skip.outputs.skip_build != 'true'
         run: |
           TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login" \
             -H "Content-Type: application/json" \
@@ -251,6 +273,7 @@ jobs:
             "https://hub.docker.com/v2/repositories/maxiofs/maxiofs/tags/nightly/" || true
 
       - name: Build and push nightly Docker image
+        if: steps.check_skip.outputs.skip_build != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -265,7 +288,7 @@ jobs:
           tags: maxiofs/maxiofs:nightly
 
       - name: Build summary
-        if: success()
+        if: steps.check_skip.outputs.skip_build != 'true' && success()
         run: |
           echo "## ✅ Nightly Build Successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -282,7 +305,7 @@ jobs:
           echo "📍 S3 Location: \`s3://${{ secrets.NIGHTLY_S3_BUCKET }}/nightly/latest/\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Build failure summary
-        if: failure()
+        if: steps.check_skip.outputs.skip_build != 'true' && failure()
         run: |
           echo "## ❌ Nightly Build Failed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

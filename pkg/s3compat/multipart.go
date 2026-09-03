@@ -40,6 +40,7 @@ type ListMultipartUploadsResult struct {
 	MaxUploads         int               `xml:"MaxUploads"`
 	IsTruncated        bool              `xml:"IsTruncated"`
 	Uploads            []MultipartUpload `xml:"Upload,omitempty"`
+	CommonPrefixes     []CommonPrefix    `xml:"CommonPrefixes,omitempty"`
 }
 
 type MultipartUpload struct {
@@ -187,7 +188,8 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		uploads = kept
 	}
 
-	filteredUploads, isTruncated, nextKeyMarker, nextUploadIdMarker := paginateMultipartUploads(uploads, keyMarker, uploadIdMarker, maxUploads)
+	filteredUploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIdMarker :=
+		paginateMultipartUploads(uploads, prefix, delimiter, keyMarker, uploadIdMarker, maxUploads)
 
 	result := ListMultipartUploadsResult{
 		Bucket:             bucketName,
@@ -200,6 +202,7 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		MaxUploads:         maxUploads,
 		IsTruncated:        isTruncated,
 		Uploads:            filteredUploads,
+		CommonPrefixes:     commonPrefixes,
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)
@@ -406,7 +409,70 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
-func paginateMultipartUploads(uploads []object.MultipartUpload, keyMarker, uploadIDMarker string, maxUploads int) ([]MultipartUpload, bool, string, string) {
+type multipartListItem struct {
+	key          string
+	uploadID     string
+	upload       *object.MultipartUpload
+	commonPrefix string
+}
+
+func paginateMultipartUploads(uploads []object.MultipartUpload, prefix, delimiter, keyMarker, uploadIDMarker string, maxUploads int) ([]MultipartUpload, []CommonPrefix, bool, string, string) {
+	items := buildMultipartListItems(uploads, prefix, delimiter)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].key == items[j].key {
+			return items[i].uploadID < items[j].uploadID
+		}
+		return items[i].key < items[j].key
+	})
+
+	filteredUploads := make([]MultipartUpload, 0, maxUploads)
+	commonPrefixes := make([]CommonPrefix, 0)
+	isTruncated := false
+	var lastItem *multipartListItem
+
+	for i := range items {
+		item := &items[i]
+		if !multipartListItemAfterMarker(item, keyMarker, uploadIDMarker) {
+			continue
+		}
+
+		if len(filteredUploads)+len(commonPrefixes) >= maxUploads {
+			isTruncated = true
+			break
+		}
+
+		if item.commonPrefix != "" {
+			commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: item.commonPrefix})
+		} else if item.upload != nil {
+			filteredUploads = append(filteredUploads, MultipartUpload{
+				Key:      item.upload.Key,
+				UploadId: item.upload.UploadID,
+				Initiator: Initiator{
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+				Owner: Owner{
+					ID:          "maxiofs",
+					DisplayName: "MaxIOFS",
+				},
+				StorageClass: storageClassOrStandard(item.upload.StorageClass),
+				Initiated:    item.upload.Initiated,
+			})
+		}
+		lastItem = item
+	}
+
+	nextKeyMarker := ""
+	nextUploadIDMarker := ""
+	if isTruncated && lastItem != nil {
+		nextKeyMarker = lastItem.key
+		nextUploadIDMarker = lastItem.uploadID
+	}
+
+	return filteredUploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIDMarker
+}
+
+func buildMultipartListItems(uploads []object.MultipartUpload, prefix, delimiter string) []multipartListItem {
 	sort.Slice(uploads, func(i, j int) bool {
 		if uploads[i].Key == uploads[j].Key {
 			return uploads[i].UploadID < uploads[j].UploadID
@@ -414,51 +480,50 @@ func paginateMultipartUploads(uploads []object.MultipartUpload, keyMarker, uploa
 		return uploads[i].Key < uploads[j].Key
 	})
 
-	filteredUploads := make([]MultipartUpload, 0, maxUploads)
-	isTruncated := false
+	items := make([]multipartListItem, 0, len(uploads))
+	seenCommonPrefixes := make(map[string]struct{})
 
-	for _, upload := range uploads {
-		if keyMarker != "" {
-			if upload.Key < keyMarker {
-				continue
-			}
-			if upload.Key == keyMarker {
-				if uploadIDMarker == "" || upload.UploadID <= uploadIDMarker {
+	for i := range uploads {
+		upload := &uploads[i]
+		if delimiter != "" {
+			remaining := strings.TrimPrefix(upload.Key, prefix)
+			if idx := strings.Index(remaining, delimiter); idx >= 0 {
+				commonPrefix := prefix + remaining[:idx+len(delimiter)]
+				if _, ok := seenCommonPrefixes[commonPrefix]; ok {
 					continue
 				}
+				seenCommonPrefixes[commonPrefix] = struct{}{}
+				items = append(items, multipartListItem{
+					key:          commonPrefix,
+					commonPrefix: commonPrefix,
+				})
+				continue
 			}
 		}
 
-		if len(filteredUploads) >= maxUploads {
-			isTruncated = true
-			break
-		}
-
-		filteredUploads = append(filteredUploads, MultipartUpload{
-			Key:      upload.Key,
-			UploadId: upload.UploadID,
-			Initiator: Initiator{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			},
-			Owner: Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			},
-			StorageClass: storageClassOrStandard(upload.StorageClass),
-			Initiated:    upload.Initiated,
+		items = append(items, multipartListItem{
+			key:      upload.Key,
+			uploadID: upload.UploadID,
+			upload:   upload,
 		})
 	}
+	return items
+}
 
-	nextKeyMarker := ""
-	nextUploadIDMarker := ""
-	if isTruncated && len(filteredUploads) > 0 {
-		lastUpload := filteredUploads[len(filteredUploads)-1]
-		nextKeyMarker = lastUpload.Key
-		nextUploadIDMarker = lastUpload.UploadId
+func multipartListItemAfterMarker(item *multipartListItem, keyMarker, uploadIDMarker string) bool {
+	if keyMarker == "" {
+		return true
 	}
-
-	return filteredUploads, isTruncated, nextKeyMarker, nextUploadIDMarker
+	if item.key < keyMarker {
+		return false
+	}
+	if item.key > keyMarker {
+		return true
+	}
+	if item.commonPrefix != "" {
+		return false
+	}
+	return uploadIDMarker != "" && item.uploadID > uploadIDMarker
 }
 
 func paginateMultipartParts(parts []object.Part, partNumberMarker, maxParts int) ([]Part, bool, int) {

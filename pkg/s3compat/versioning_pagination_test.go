@@ -114,3 +114,59 @@ func TestListObjectVersions_NextKeyMarkerIsEncodedOnce(t *testing.T) {
 	assert.NotContains(t, res.NextKeyMarker, "%25", "the marker was encoded twice")
 	assert.Contains(t, res.NextKeyMarker, "%20", "the marker should be url-encoded once")
 }
+
+func TestListObjectVersions_WithoutDelimiterPagingCoversEverythingExactlyOnce(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	const bucketName = "versions-no-delimiter"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+
+	bucketPath := env.tenantID + "/" + bucketName
+	for _, key := range []string{"same-key.txt", "second-key.txt"} {
+		for i := 0; i < 3; i++ {
+			_, err := env.objectManager.PutObject(ctx, bucketPath, key,
+				bytes.NewReader([]byte(fmt.Sprintf("%s-%d", key, i))), http.Header{})
+			require.NoError(t, err)
+		}
+	}
+
+	for _, pageSize := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("pageSize=%d", pageSize), func(t *testing.T) {
+			seen := map[string]bool{}
+			keyMarker, versionMarker := "", ""
+
+			for pages := 0; ; pages++ {
+				require.Less(t, pages, 20, "paging did not terminate")
+
+				url := fmt.Sprintf("/%s?versions&max-keys=%d", bucketName, pageSize)
+				if keyMarker != "" {
+					url += "&key-marker=" + keyMarker + "&version-id-marker=" + versionMarker
+				}
+				req, w := env.makeS3Request("GET", url, nil)
+				env.router.ServeHTTP(w, req)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+				var res ListVersionsResult
+				require.NoError(t, xml.Unmarshal(w.Body.Bytes(), &res))
+				for _, v := range res.Versions {
+					id := v.Key + "|" + v.VersionId
+					require.False(t, seen[id], "duplicate version %s", id)
+					seen[id] = true
+				}
+
+				if !res.IsTruncated {
+					break
+				}
+				require.NotEmpty(t, res.NextKeyMarker, "a truncated listing must say where to resume")
+				require.NotEqual(t, keyMarker+"|"+versionMarker, res.NextKeyMarker+"|"+res.NextVersionIdMarker,
+					"the marker did not advance, so paging would loop")
+				keyMarker, versionMarker = res.NextKeyMarker, res.NextVersionIdMarker
+			}
+
+			require.Len(t, seen, 6)
+		})
+	}
+}

@@ -12,9 +12,10 @@ func TestPaginateMultipartUploads_DoesNotTruncateExactPage(t *testing.T) {
 		{Key: "a.txt", UploadID: "upload-1"},
 	}
 
-	page, truncated, nextKey, nextUploadID := paginateMultipartUploads(uploads, "", "", 1)
+	page, prefixes, truncated, nextKey, nextUploadID := paginateMultipartUploads(uploads, "", "", "", "", 1)
 
 	assert.Len(t, page, 1)
+	assert.Empty(t, prefixes)
 	assert.False(t, truncated)
 	assert.Empty(t, nextKey)
 	assert.Empty(t, nextUploadID)
@@ -26,10 +27,11 @@ func TestPaginateMultipartUploads_KeyMarkerIsExclusive(t *testing.T) {
 		{Key: "b.txt", UploadID: "upload-2"},
 	}
 
-	page, truncated, _, _ := paginateMultipartUploads(uploads, "a.txt", "", 1000)
+	page, prefixes, truncated, _, _ := paginateMultipartUploads(uploads, "", "", "a.txt", "", 1000)
 
 	assert.False(t, truncated)
 	assert.Len(t, page, 1)
+	assert.Empty(t, prefixes)
 	assert.Equal(t, "b.txt", page[0].Key)
 }
 
@@ -40,9 +42,10 @@ func TestPaginateMultipartUploads_TruncatesOnlyWhenMoreResultsExist(t *testing.T
 		{Key: "c.txt", UploadID: "upload-3"},
 	}
 
-	page, truncated, nextKey, nextUploadID := paginateMultipartUploads(uploads, "", "", 2)
+	page, prefixes, truncated, nextKey, nextUploadID := paginateMultipartUploads(uploads, "", "", "", "", 2)
 
 	assert.Len(t, page, 2)
+	assert.Empty(t, prefixes)
 	assert.True(t, truncated)
 	assert.Equal(t, "b.txt", nextKey)
 	assert.Equal(t, "upload-2", nextUploadID)

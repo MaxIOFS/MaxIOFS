@@ -319,7 +319,22 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 		}
 	}
 
-	searchPath := fs.getFullPath(prefix)
+	searchPath := fs.rootPath
+	if prefix != "" {
+		searchPath = fs.getFullPath(prefix)
+		if info, err := os.Stat(searchPath); err == nil {
+			if !info.IsDir() {
+				searchPath = filepath.Dir(searchPath)
+			}
+		} else if os.IsNotExist(err) {
+			if strings.HasSuffix(prefix, "/") {
+				return objects, nil
+			}
+			searchPath = filepath.Dir(searchPath)
+		} else {
+			return nil, NewErrorWithCause("StatPrefix", "Failed to stat list prefix", err)
+		}
+	}
 
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
