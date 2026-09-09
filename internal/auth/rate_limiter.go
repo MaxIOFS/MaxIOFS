@@ -42,9 +42,7 @@ func NewLoginRateLimiter(maxAttempts, windowSeconds int) *LoginRateLimiter {
 	return limiter
 }
 
-// AllowLogin checks if login attempt from IP is allowed
-// Note: This only CHECKS the limit, it does NOT increment the counter
-// Use RecordFailedAttempt() to increment after a failed login
+// AllowLogin does not mutate the failure counter.
 func (l *LoginRateLimiter) AllowLogin(ip string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()

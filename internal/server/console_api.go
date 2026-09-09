@@ -1402,7 +1402,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validaciones básicas
 	if req.Name == "" {
 		s.writeError(w, "Bucket name is required", http.StatusBadRequest)
 		return
@@ -1467,13 +1466,11 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Determine the tenant ID for quota checking
 	var targetTenantID string
 	if user.TenantID != "" {
 		targetTenantID = user.TenantID
 	}
 
-	// Check tenant bucket quota before creation
 	if targetTenantID != "" {
 		tenant, err := s.authManager.GetTenant(r.Context(), targetTenantID)
 		if err != nil {
@@ -1524,14 +1521,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Aplicar configuraciones
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, req.Name)
 	if err != nil {
 		s.writeError(w, "Bucket created but failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Aplicar ownership - determinar basado en el usuario autenticado
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	// Tenant admins get buckets assigned to the tenant; regular tenant users own their own buckets
@@ -1561,12 +1556,10 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		bucketInfo.IsPublic = req.IsPublic
 	}
 
-	// Aplicar versionado
 	if req.Versioning != nil {
 		bucketInfo.Versioning = req.Versioning
 	}
 
-	// Aplicar Object Lock
 	if req.ObjectLock != nil && req.ObjectLock.Enabled {
 		objLock := &bucket.ObjectLockConfig{
 			ObjectLockEnabled: true,
@@ -1598,22 +1591,18 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		bucketInfo.Encryption = &bucket.EncryptionConfig{Type: "AES256"}
 	}
 
-	// Aplicar public access block
 	if req.PublicAccessBlock != nil {
 		bucketInfo.PublicAccessBlock = req.PublicAccessBlock
 	}
 
-	// Aplicar lifecycle
 	if req.Lifecycle != nil {
 		bucketInfo.Lifecycle = req.Lifecycle
 	}
 
-	// Aplicar tags
 	if req.Tags != nil {
 		bucketInfo.Tags = req.Tags
 	}
 
-	// Aplicar región
 	if req.Region != "" {
 		bucketInfo.Region = req.Region
 	}
@@ -1795,7 +1784,6 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtener información del bucket antes de eliminarlo para actualizar contadores
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -2262,7 +2250,6 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check tenant storage quota before upload
 	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
 		tenant, err := s.authManager.GetTenant(r.Context(), bucketInfo.OwnerID)
 		if err != nil {
@@ -3363,13 +3350,11 @@ func (s *Server) handleGetHistoricalMetrics(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Parse query parameters
 	metricType := r.URL.Query().Get("type")
 	if metricType == "" {
-		metricType = "system" // Default to system metrics
+		metricType = "system"
 	}
 
-	// Parse time range
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
 
@@ -3565,7 +3550,6 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Helper methods
 // validatePasswordPolicy checks a password against the settings-configured rules.
 // Returns a non-empty error message if validation fails, empty string if the password is valid.
 func (s *Server) validatePasswordPolicy(password string) string {
@@ -3799,13 +3783,11 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tenant admins can only create access keys for users in their own tenant
 	if s.isAdmin(currentUser) && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
-	// Check tenant access keys quota before creation
 	if user.TenantID != "" {
 		tenant, err := s.authManager.GetTenant(r.Context(), user.TenantID)
 		if err != nil {
@@ -6203,7 +6185,6 @@ func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := s.resolveTenantID(r)
 
-	// Construct bucket path
 	var bucketPath string
 	if tenantID != "" {
 		bucketPath = tenantID + "/" + bucketName
@@ -6773,7 +6754,6 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 		bucketPath = bucketName
 	}
 
-	// IMPORTANT: Legal Hold can only be applied if bucket has Object Lock enabled
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -7083,13 +7063,11 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse query parameters
 	filters := &audit.AuditLogFilters{
 		Page:     1,
 		PageSize: 50,
 	}
 
-	// Parse filters from query params
 	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
 		if page, err := strconv.Atoi(pageStr); err == nil && page > 0 {
 			filters.Page = page

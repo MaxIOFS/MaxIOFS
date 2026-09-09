@@ -50,7 +50,7 @@ func TestEncryptionWorkerPass(t *testing.T) {
 			"etag":         hex.EncodeToString(md5sum[:]),
 			"content-type": "text/plain",
 		}
-		require.NoError(t, server.storageBackend.Put(ctx, bucketName+"/"+key, bytes.NewReader(body), sidecar))
+		require.NoError(t, server.storageBackend.Put(ctx, storage.ObjectRef{Bucket: bucketName, Key: key}, bytes.NewReader(body), sidecar))
 		require.NoError(t, server.metadataStore.PutObject(ctx, &metadata.ObjectMetadata{
 			Bucket: bucketName, Key: key,
 			Size: int64(len(body)), ETag: hex.EncodeToString(md5sum[:]), ContentType: "text/plain",
@@ -72,7 +72,7 @@ func TestEncryptionWorkerPass(t *testing.T) {
 
 	// Every seeded object: sidecar is envelope now, content reads back intact.
 	for key, body := range contents {
-		meta, err := server.storageBackend.GetMetadata(ctx, bucketName+"/"+key)
+		meta, err := server.storageBackend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: key})
 		require.NoError(t, err)
 		assert.Equal(t, "true", meta["encrypted"], key)
 		assert.NotEmpty(t, meta["wrapped-dek"], key)
@@ -262,7 +262,7 @@ func TestEncryptionWorkerResumeWithDeletedBucket(t *testing.T) {
 		"etag":         hex.EncodeToString(md5sum[:]),
 		"content-type": "text/plain",
 	}
-	require.NoError(t, backend.Put(ctx, bucketName+"/victim.txt", bytes.NewReader(body), sidecar))
+	require.NoError(t, backend.Put(ctx, storage.ObjectRef{Bucket: bucketName, Key: "victim.txt"}, bytes.NewReader(body), sidecar))
 	require.NoError(t, metaStore.PutObject(ctx, &metadata.ObjectMetadata{
 		Bucket: bucketName, Key: "victim.txt",
 		Size: int64(len(body)), ETag: hex.EncodeToString(md5sum[:]), ContentType: "text/plain",
@@ -281,7 +281,7 @@ func TestEncryptionWorkerResumeWithDeletedBucket(t *testing.T) {
 	assert.Equal(t, "done", state.Status)
 
 	// The full pass must have converted the plaintext object.
-	meta, err := backend.GetMetadata(ctx, bucketName+"/victim.txt")
+	meta, err := backend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: "victim.txt"})
 	require.NoError(t, err)
 	assert.Equal(t, "true", meta["encrypted"], "stale checkpoint must not skip the whole pass")
 	assert.NotEmpty(t, meta["wrapped-dek"])

@@ -28,7 +28,7 @@ func putPlaintextObject(t *testing.T, om *objectManager, metaStore metadata.Stor
 		"etag":         hex.EncodeToString(md5sum[:]),
 		"content-type": "text/plain",
 	}
-	require.NoError(t, om.storage.Put(ctx, om.getObjectPath(bucket, key), bytes.NewReader(content), sidecar))
+	require.NoError(t, om.storage.Put(ctx, om.objectRef(bucket, key), bytes.NewReader(content), sidecar))
 
 	require.NoError(t, metaStore.PutObject(ctx, &metadata.ObjectMetadata{
 		Bucket:      bucket,
@@ -55,13 +55,13 @@ func TestEncryptExistingObject_ConvertsPlaintext(t *testing.T) {
 	assert.Equal(t, 0, skipped)
 
 	// Sidecar now carries the envelope; disk bytes are ciphertext.
-	meta, err := backend.GetMetadata(ctx, om.getObjectPath(bucketName, "legacy.txt"))
+	meta, err := backend.GetMetadata(ctx, om.objectRef(bucketName, "legacy.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "true", meta["encrypted"])
 	assert.NotEmpty(t, meta["wrapped-dek"])
 	assert.Equal(t, fmt.Sprintf("%d", len(content)), meta["original-size"])
 
-	raw, _, err := backend.Get(ctx, om.getObjectPath(bucketName, "legacy.txt"))
+	raw, _, err := backend.Get(ctx, om.objectRef(bucketName, "legacy.txt"))
 	require.NoError(t, err)
 	rawBytes, _ := io.ReadAll(raw)
 	raw.Close()
@@ -137,19 +137,19 @@ func TestEncryptExistingObject_MultipartETagPreserved(t *testing.T) {
 		"etag":         mpETag,
 		"content-type": "application/octet-stream",
 	}
-	require.NoError(t, backend.Put(ctx, om.getObjectPath(bucketName, "multi.bin"), bytes.NewReader(content), sidecar))
+	require.NoError(t, backend.Put(ctx, om.objectRef(bucketName, "multi.bin"), bytes.NewReader(content), sidecar))
 	// filesystem.Put overwrites etag with the content MD5 — force the
 	// multipart-format value back the way completeMultipartUpload does.
-	stored, err := backend.GetMetadata(ctx, om.getObjectPath(bucketName, "multi.bin"))
+	stored, err := backend.GetMetadata(ctx, om.objectRef(bucketName, "multi.bin"))
 	require.NoError(t, err)
 	stored["etag"] = mpETag
-	require.NoError(t, backend.SetMetadata(ctx, om.getObjectPath(bucketName, "multi.bin"), stored))
+	require.NoError(t, backend.SetMetadata(ctx, om.objectRef(bucketName, "multi.bin"), stored))
 
 	converted, _, err := om.EncryptExistingObject(ctx, bucketName, "multi.bin")
 	require.NoError(t, err)
 	assert.Equal(t, 1, converted)
 
-	meta, err := backend.GetMetadata(ctx, om.getObjectPath(bucketName, "multi.bin"))
+	meta, err := backend.GetMetadata(ctx, om.objectRef(bucketName, "multi.bin"))
 	require.NoError(t, err)
 	assert.Equal(t, mpETag, meta["original-etag"], "multipart ETag format must be preserved")
 
@@ -177,7 +177,7 @@ func TestEncryptExistingObject_RewrapsAfterRotation(t *testing.T) {
 	_, err := om.PutObject(ctx, bucketName, "doc.bin", bytes.NewReader(content), http.Header{})
 	require.NoError(t, err)
 
-	objectPath := om.getObjectPath(bucketName, "doc.bin")
+	objectPath := om.objectRef(bucketName, "doc.bin")
 	metaBefore, err := om.storage.GetMetadata(ctx, objectPath)
 	require.NoError(t, err)
 	require.Equal(t, "1", metaBefore["kek-version"])
@@ -254,7 +254,7 @@ func TestEncryptExistingObject_ConvertsLegacyDirectEncrypted(t *testing.T) {
 		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
 		"content-type":                           "application/octet-stream",
 	}
-	objectPath := om.getObjectPath(bucketName, "legacy.bin")
+	objectPath := om.objectRef(bucketName, "legacy.bin")
 	require.NoError(t, om.storage.Put(ctx, objectPath, &ciphertext, legacyMeta))
 	require.NoError(t, metaStore.PutObject(ctx, &metadata.ObjectMetadata{
 		Bucket: bucketName, Key: "legacy.bin",
@@ -297,7 +297,7 @@ func TestEncryptExistingObject_ConvertsAllVersions(t *testing.T) {
 	// Two plaintext versions written directly (pre-envelope deployment).
 	for i, body := range [][]byte{[]byte("version one plaintext"), []byte("version two plaintext")} {
 		versionID := fmt.Sprintf("100000000000000000%d.abcdef1%d", i, i)
-		path := om.getVersionedObjectPath(bucketName, "doc.txt", versionID)
+		path := om.versionRef(bucketName, "doc.txt", versionID)
 		md5sum := md5.Sum(body)
 		sidecar := map[string]string{
 			"size": fmt.Sprintf("%d", len(body)), "etag": hex.EncodeToString(md5sum[:]), "content-type": "text/plain",

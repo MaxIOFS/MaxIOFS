@@ -227,12 +227,9 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	bucketRouter.HandleFunc("", h.s3Handler.HandlePresignedPost).Methods("POST")
 	bucketRouter.HandleFunc("/", h.s3Handler.HandlePresignedPost).Methods("POST")
 
-	// Object operations
 	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
 
-	// IMPORTANT: Register routes with query parameters FIRST (Gorilla Mux matches in order)
-
-	// Multipart upload operations (with query parameters - must be first)
+	// Gorilla Mux matches in registration order.
 	objectRouter.HandleFunc("", h.s3Handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "")
 	objectRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "")
 	objectRouter.HandleFunc("", h.s3Handler.UploadPart).Methods("PUT").Queries("partNumber", "{partNumber}", "uploadId", "{uploadId}")

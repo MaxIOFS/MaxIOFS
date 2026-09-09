@@ -337,19 +337,18 @@ func (g *ReportGenerator) uploadReport(ctx context.Context, config *InventoryCon
 		Metadata:     objMetadata,
 	}
 
-	// Upload to storage
-	storagePath := fmt.Sprintf("%s/%s", destinationBucketPath, reportPath)
+	ref := storage.ObjectRef{Bucket: destinationBucketPath, Key: reportPath}
 	reader := bytes.NewReader(content)
 
-	if err := g.storageBackend.Put(ctx, storagePath, reader, objMetadata); err != nil {
+	if err := g.storageBackend.Put(ctx, ref, reader, objMetadata); err != nil {
 		return fmt.Errorf("failed to upload report to storage: %w", err)
 	}
 
 	// Save metadata after the object is durable. If metadata persistence fails,
 	// remove the uploaded object to avoid orphaned inventory reports.
 	if err := g.metadataStore.PutObject(ctx, obj); err != nil {
-		if deleteErr := g.storageBackend.Delete(ctx, storagePath); deleteErr != nil {
-			g.log.WithError(deleteErr).WithField("path", storagePath).Warn("Failed to remove uploaded inventory report after metadata error")
+		if deleteErr := g.storageBackend.Delete(ctx, ref); deleteErr != nil {
+			g.log.WithError(deleteErr).WithField("key", reportPath).Warn("Failed to remove uploaded inventory report after metadata error")
 		}
 		return fmt.Errorf("failed to save report metadata: %w", err)
 	}

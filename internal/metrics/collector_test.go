@@ -266,9 +266,6 @@ func TestCollector_BackgroundCollectionCancellation(t *testing.T) {
 	assert.True(t, collector.IsHealthy())
 }
 
-// Note: Helper methods like getCPUUsage, getMemoryUsage, etc. are private
-// and tested indirectly through CollectSystemMetrics and CollectRuntimeMetrics
-
 func TestCollector_MultipleCollections(t *testing.T) {
 	collector := NewCollector(os.TempDir())
 

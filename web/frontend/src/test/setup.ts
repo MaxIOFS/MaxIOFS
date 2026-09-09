@@ -61,7 +61,11 @@ const localStorageMock = (() => {
     }),
   };
 })();
-globalThis.localStorage = localStorageMock as any;
+Object.defineProperty(globalThis, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+  configurable: true,
+});
 
 // Mock sessionStorage
 const sessionStorageMock = (() => {
@@ -79,4 +83,8 @@ const sessionStorageMock = (() => {
     }),
   };
 })();
-globalThis.sessionStorage = sessionStorageMock as any;
+Object.defineProperty(globalThis, 'sessionStorage', {
+  value: sessionStorageMock,
+  writable: true,
+  configurable: true,
+});

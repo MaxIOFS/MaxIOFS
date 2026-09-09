@@ -30,6 +30,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
@@ -86,21 +87,17 @@ func addS3CompatHeaders(w http.ResponseWriter) {
 	// Accept ranges for partial content
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Security headers (S3-compatible)
 	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Xss-Protection", "1; mode=block")
 
-	// Vary headers for caching
 	w.Header().Set("Vary", "Origin")
 	w.Header().Add("Vary", "Accept-Encoding")
 
-	// CRITICAL: Rate limit headers - may disable auto-provisioning
 	w.Header().Set("X-Ratelimit-Limit", "18299")
 	w.Header().Set("X-Ratelimit-Remaining", "18299")
 }
 
-// Handler implements S3-compatible API handlers
 type Handler struct {
 	bucketManager bucket.Manager
 	objectManager object.Manager
@@ -681,18 +678,12 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Add S3-compatible headers (CRITICAL for Veeam recognition)
 	addS3CompatHeaders(w)
 
-	// Detect if request is from Veeam client
-	// Detect if request is from Veeam client
 	userAgent := r.Header.Get("User-Agent")
 	isVeeam := isVeeamClient(userAgent)
 
-	// CRITICAL: Block Veeam test bucket creation with MethodNotAllowed
-	// This tells Veeam that bucket creation is NOT supported, disabling auto-provisioning
 	if isVeeam && (strings.HasPrefix(bucketName, "veeamtest-") || strings.HasPrefix(bucketName, "veeam-test-bucket")) {
-		// Build XML response body
 		errorBody := `<?xml version="1.0" encoding="UTF-8"?>
 <Error>
   <Code>MethodNotAllowed</Code>
@@ -701,7 +692,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
   <RequestId>veeam-disable-autoprov</RequestId>
 </Error>`
 
-		// Set all headers before writing status
 		w.Header().Set("Content-Type", "application/xml")
 		w.Header().Set("Content-Length", strconv.Itoa(len(errorBody)))
 		w.Header().Set("x-amz-request-id", "veeam-disable-autoprov")
@@ -710,10 +700,8 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")
 		w.Header().Set("Server", "S3Compatible")
 
-		// Write status code
 		w.WriteHeader(http.StatusMethodNotAllowed)
 
-		// Write body
 		w.Write([]byte(errorBody))
 
 		logrus.WithFields(logrus.Fields{
@@ -734,8 +722,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}).Info("Veeam normal bucket creation - allowing")
 	}
 
-	// CRITICAL: Bucket creation requires authentication
-	// Get authenticated user from context
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if !userExists {
 		logrus.WithFields(logrus.Fields{
@@ -753,7 +739,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := user.TenantID
 
-	// Check tenant bucket quota before creation (for tenant users)
 	if tenantID != "" {
 		tenant, err := h.authManager.GetTenant(r.Context(), tenantID)
 		if err != nil {
@@ -871,14 +856,12 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	// Permission check: Verify user has READ permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 
 	if userExists {
@@ -893,7 +876,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Unauthenticated access - check if bucket is public
 		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
 
 		if !hasPublicAccess {
@@ -917,7 +899,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-amz-bucket-object-lock-enabled", "true")
 	}
 
-	// Log all response headers AFTER they are fully set (for Veeam debugging)
 	userAgent := r.Header.Get("User-Agent")
 	if isVeeamClient(userAgent) {
 		logrus.WithFields(logrus.Fields{
@@ -938,16 +919,13 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjects")
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
-	// Permission check: Verify user has READ permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	// An authenticated request is decided by its policies, and by nothing else.
 	if userExists {
 		if !h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionListBucket, bucketARN(bucketName)) {
 			logrus.WithFields(logrus.Fields{
@@ -958,7 +936,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Unauthenticated access - check if bucket is public
 		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
 
 		if !hasPublicAccess {
@@ -970,7 +947,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse query parameters
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
@@ -989,7 +965,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		maxKeys = 1000
 	}
 
-	// Parse encoding-type — only "url" is valid per the S3 spec.
 	encodingType := r.URL.Query().Get("encoding-type")
 	if encodingType != "" && encodingType != "url" {
 		h.writeError(w, "InvalidArgument", "Invalid Encoding Method specified in Request", bucketName, r)
@@ -1037,7 +1012,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply URL encoding to string fields when requested.
 	encodeStr := func(s string) string {
 		if encodingType == "url" {
 			return s3URLEncode(s)
@@ -1045,7 +1019,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		return s
 	}
 
-	// Convert common prefixes to S3 format.
 	var commonPrefixes []CommonPrefix
 	for _, cp := range listResult.CommonPrefixes {
 		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStr(cp.Prefix)})
@@ -1088,12 +1061,10 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjectsV2")
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
-	// Permission check: identical logic to ListObjects
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
@@ -1116,7 +1087,6 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 
-	// V2-specific parameters
 	continuationToken := q.Get("continuation-token")
 	startAfter := q.Get("start-after")
 	fetchOwner := strings.EqualFold(q.Get("fetch-owner"), "true")
@@ -1336,13 +1306,10 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 		shareTenantID = tenantFromShare
 		allowedByShare = true // access granted via share (shareTenantID may be "" for global bucket)
-		// Override vars for subsequent processing
 		bucketName = realBucket
 		objectKey = realObject
 	}
 
-	// Build bucket path: use shareTenantID if available, otherwise use auth-based tenant
-	// IMPORTANT: Use same logic as PutObject to ensure consistency
 	bucketPath := h.resolveBucketPath(r, bucketName, shareTenantID)
 
 	logrus.WithFields(logrus.Fields{
@@ -1353,8 +1320,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"tenantID":      tenantID,
 	}).Info("GetObject: Using bucketPath")
 
-	// 1. Verificar permiso de BUCKET únicamente (NO verificar ACL de objeto aún)
-	// El objeto puede no existir, así que solo verificamos permisos de bucket
 	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, allowedByShare, shareTenantID, tenantID, bucketName, objectKey) {
 		return
 	}
@@ -1373,8 +1338,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Intentar obtener el objeto
-	// Si el objeto NO existe, devolver NoSuchKey (404) - esto es correcto para S3
 	versionID := r.URL.Query().Get("versionId")
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
@@ -1382,8 +1345,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
 				return
 			}
-			// Objeto no existe - devolver 404 (comportamiento correcto de S3)
-			// VEEAM usa esto para detectar si smart-entity-status.xml existe (primer backup)
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
@@ -1392,19 +1353,15 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
-	// Handle conditional requests (If-Match, If-None-Match, If-Modified-Since, If-Unmodified-Since)
 	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
 		return
 	}
 
-	// 3. El objeto existe - ahora verificar ACL de objeto (solo para cross-tenant)
-	// Parse Range header if present (for parallel/resumable downloads)
 	rangeHeader := r.Header.Get("Range")
 	var rangeStart, rangeEnd int64
 	var isRangeRequest bool
 
 	if rangeHeader != "" {
-		// Parse Range header: "bytes=start-end" or "bytes=start-"
 		var parseErr error
 		rangeStart, rangeEnd, parseErr = parseRangeHeader(rangeHeader, obj.Size)
 		if parseErr != nil {
@@ -1425,26 +1382,20 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			}).Debug("GetObject: Range request detected")
 		}
 	} else {
-		// No range header - send entire object
 		rangeStart = 0
 		rangeEnd = obj.Size - 1
 		isRangeRequest = false
 	}
 
-	// Set common response headers
 	h.setGetObjectResponseHeaders(w, obj)
 
-	// Throttle the download to the owning tenant's aggregate bandwidth budget
-	// (nil = unlimited; only the bytes actually streamed to the client count).
 	dlLimiter := h.tenantBandwidthLimiter(r.Context(), r, bucketName)
 
-	// Handle range request
 	if isRangeRequest {
 		if err := h.sendRangeResponse(r.Context(), w, reader, rangeStart, rangeEnd, obj.Size, dlLimiter); err != nil {
 			return
 		}
 	} else {
-		// Send entire object (no range request)
 		if err := h.sendFullResponse(r.Context(), w, reader, obj.Size, dlLimiter); err != nil {
 			return
 		}
@@ -1456,13 +1407,10 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
-	// IMPORTANT: Detect CopyObject operation by x-amz-copy-source header
-	// AWS CLI sends PUT with this header for copy operations
 	if copySource := r.Header.Get("x-amz-copy-source"); copySource != "" {
 		logrus.WithFields(logrus.Fields{
 			"bucket":      bucketName,
@@ -1486,17 +1434,14 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"content-type":           r.Header.Get("Content-Type"),
 	}).Debug("S3 API: PutObject - Request headers")
 
-	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	// Check tenant storage quota before accepting upload
 	if err := h.validateTenantQuota(r, user, userExists, bucketName, objectKey, decodedContentLength); err != nil {
 		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
 		return
 	}
 
-	// Validate WRITE permission via ACL cascading
 	if !h.validateBucketWritePermission(r, user, userExists, tenantID, bucketName, objectKey) {
 		logrus.WithFields(logrus.Fields{
 			"bucket":        bucketName,
@@ -1515,8 +1460,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CRITICAL: Verify bucket exists before allowing object upload
-	// This prevents implicit bucket creation and ensures metadata consistency
 	_, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -1530,7 +1473,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Conditional write: If-None-Match: * means "write only if the object does not exist"
 	if r.Header.Get("If-None-Match") == "*" {
 		if existing, err := h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey); err == nil && existing != nil {
 			h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", objectKey, r)
@@ -1538,16 +1480,12 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Leer headers de Object Lock si están presentes (para Veeam)
 	lockMode := r.Header.Get("x-amz-object-lock-mode")
 	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
 	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
 
-	// Detect and decode AWS chunked encoding
 	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
 
-	// Throttle the upload to the owning tenant's aggregate bandwidth budget
-	// (no-op when the tenant has no cap / bucket is global).
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
 
 	requestTags, tagErr := parseS3TaggingHeader(r.Header.Get("x-amz-tagging"))
@@ -1586,23 +1524,22 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
 			return
 		}
+		if errors.Is(err, storage.ErrPathConflict) {
+			h.writeError(w, "ObjectExistsAsPrefix", "An object already exists on this key path", objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 
-	// Apply Object Lock retention from headers (Veeam compatibility)
 	retentionApplied := h.applyObjectLockFromHeaders(r, bucketPath, bucketName, objectKey, lockMode, retainUntilDateStr)
 
-	// If no retention was applied from headers, apply default bucket retention
 	if !retentionApplied {
 		h.applyDefaultBucketRetention(r, bucketPath, bucketName, objectKey, tenantID)
 	}
 
-	// Apply legal hold if specified (Veeam compatibility)
 	h.applyLegalHold(r, bucketPath, bucketName, objectKey, legalHoldStatus)
 
-	// Apply canned ACL from x-amz-acl header if present.
-	// Must be done after object is stored so SetObjectACL has something to act on.
 	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
 		h.applyObjectCannedACLHeader(r.Context(), bucketPath, objectKey, cannedACL)
 	}
@@ -1614,16 +1551,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Note: Bucket metrics and tenant storage are updated by objectManager.PutObject()
-	// No need to increment here to avoid double-counting on overwrites
-
 	h.setPutObjectResponseHeaders(w, obj)
 	w.WriteHeader(http.StatusOK)
 
-	// Fire s3:ObjectCreated:Put notification asynchronously.
 	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, "s3:ObjectCreated:Put", obj.ETag, obj.Size)
 
-	// Queue object for realtime replication (async, best-effort)
 	if h.replicationManager != nil {
 		ctx := h.backgroundJobContext(r.Context())
 		if !h.runBackground("S3 realtime replication PUT", func() {
@@ -1652,10 +1584,8 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get versionId if specified (for permanent deletion)
 	versionID := r.URL.Query().Get("versionId")
 
-	// Check for bypass governance retention header
 	bypassGovernance := r.Header.Get("x-amz-bypass-governance-retention") == "true"
 
 	logrus.WithFields(logrus.Fields{
@@ -1665,7 +1595,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		"bypassGovernance": bypassGovernance,
 	}).Debug("S3 API: DeleteObject")
 
-	// Permission check: Verify user has WRITE permission via ACL
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -1682,7 +1611,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If bypass governance is requested, validate user has admin permission
 	if bypassGovernance {
 		if err := h.validateBypassGovernance(r.Context(), user, userExists, tenantID, bucketName, objectKey); err != nil {
 			h.writeError(w, "AccessDenied", err.Error(), objectKey, r)
@@ -1702,19 +1630,15 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set response headers
 	h.setDeleteResponseHeaders(w, deleteMarkerVersionID, versionID, deletedVersionWasDeleteMarker)
 	w.WriteHeader(http.StatusNoContent)
 
-	// Fire notification: permanent version delete → ObjectRemoved:Delete,
-	// delete marker creation → ObjectRemoved:DeleteMarkerCreated.
 	eventName := "s3:ObjectRemoved:Delete"
 	if deleteMarkerVersionID != "" && versionID == "" {
 		eventName = "s3:ObjectRemoved:DeleteMarkerCreated"
 	}
 	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, eventName, "", 0)
 
-	// Queue delete for realtime replication (async, best-effort)
 	if h.replicationManager != nil {
 		ctx := h.backgroundJobContext(r.Context())
 		if !h.runBackground("S3 realtime replication DELETE", func() {
@@ -1743,19 +1667,15 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: HeadObject")
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if h.proxyBucketRequest(w, r, bucketName) {
 		return
 	}
 
-	// Permission check: Verify user has READ permission on BUCKET (not object yet)
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Check if this is a VEEAM SOSAPI virtual object (handle early, no ACL needed)
 	if isVeeamSOSAPIObject(objectKey) {
-		// SOSAPI requires authentication - Veeam sends credentials
 		if !userExists {
 			h.writeError(w, "AccessDenied", "Authentication required", objectKey, r)
 			return
@@ -2009,7 +1929,6 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 
 	logrus.Info("GetObjectLockConfiguration - About to call GetBucketInfo")
 
-	// Obtener bucket metadata
 	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 
 	logrus.WithFields(logrus.Fields{
@@ -2046,19 +1965,16 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		}(),
 	}).Info("GetObjectLockConfiguration - Checking ObjectLock status")
 
-	// Verificar si tiene Object Lock habilitado
 	if bkt.ObjectLock == nil || !bkt.ObjectLock.ObjectLockEnabled {
 		h.writeError(w, "ObjectLockConfigurationNotFoundError",
 			"Object Lock configuration does not exist for this bucket", bucketName, r)
 		return
 	}
 
-	// Construir respuesta XML con configuración real
 	config := ObjectLockConfiguration{
 		ObjectLockEnabled: "Enabled",
 	}
 
-	// Agregar regla de retención por defecto si existe
 	if bkt.ObjectLock.Rule != nil && bkt.ObjectLock.Rule.DefaultRetention != nil {
 		config.Rule = &ObjectLockRule{
 			DefaultRetention: &DefaultRetention{
@@ -2114,7 +2030,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"bucket":   bucketName,
 	}).Info("PutObjectLockConfiguration - Got tenantID")
 
-	// Obtener información del bucket
 	bucketInfo, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err.Error() == "bucket not found" || err == bucket.ErrBucketNotFound {
@@ -2134,7 +2049,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Leer y parsear la nueva configuración del body
 	newConfig, ok := h.parseObjectLockConfigXML(w, r, bucketName)
 	if !ok {
 		return
@@ -2266,19 +2180,16 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "MethodNotAllowed":
 		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
-	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState", "RestoreAlreadyInProgress":
+	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState", "RestoreAlreadyInProgress",
+		"ObjectExistsAsPrefix":
 		statusCode = http.StatusConflict
-	// 412 Precondition Failed
 	case "PreconditionFailed":
 		statusCode = http.StatusPreconditionFailed
-	// 416 Range Not Satisfiable
 	case "InvalidRange":
 		statusCode = http.StatusRequestedRangeNotSatisfiable
-	// 500 Internal Server Error (default)
 	case "InternalError":
 		statusCode = http.StatusInternalServerError
 		// Log the real error internally but never expose server internals to clients.
-		// This prevents filesystem paths, hostnames, and other internal details from leaking.
 		logrus.WithFields(logrus.Fields{
 			"resource": resource,
 			"detail":   message,
@@ -3175,7 +3086,6 @@ func (h *Handler) validateBucketReadPermission(
 		return true
 	}
 
-	// Usuario autenticado
 	if userExists {
 		action := auth.ActionGetObject
 		if r.URL.Query().Get("versionId") != "" {
@@ -3197,7 +3107,6 @@ func (h *Handler) validateBucketReadPermission(
 		return false
 	}
 
-	// Usuario anónimo - solo público
 	if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
 		return true
 	}

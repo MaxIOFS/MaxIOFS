@@ -16,7 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-
 // EncryptExistingObject converts a stored plaintext object (and all its
 func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key string) (converted, skipped int, err error) {
 	// Folder markers carry no data and are intentionally stored unencrypted.
@@ -26,18 +25,18 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 
 	// Collect every physical path this key owns: the current object plus all
 	// stored versions (each version is its own file + sidecar).
-	paths := make(map[string]struct{})
+	refs := make(map[storage.ObjectRef]struct{})
 
 	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
 	if metaErr == nil && metaObj != nil && !isMetadataDeleteMarker(metaObj) {
 		if metaObj.VersionID != "" {
-			paths[om.getVersionedObjectPath(bucket, key, metaObj.VersionID)] = struct{}{}
+			refs[om.versionRef(bucket, key, metaObj.VersionID)] = struct{}{}
 		} else {
-			paths[om.getObjectPath(bucket, key)] = struct{}{}
+			refs[om.objectRef(bucket, key)] = struct{}{}
 		}
 	} else if metaErr != nil {
 		// No metadata entry — fall back to the plain path (sidecar-only objects).
-		paths[om.getObjectPath(bucket, key)] = struct{}{}
+		refs[om.objectRef(bucket, key)] = struct{}{}
 	}
 
 	if versions, vErr := om.metadataStore.GetObjectVersions(ctx, bucket, key); vErr == nil {
@@ -45,12 +44,12 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 			if v.VersionID == "" {
 				continue
 			}
-			paths[om.getVersionedObjectPath(bucket, key, v.VersionID)] = struct{}{}
+			refs[om.versionRef(bucket, key, v.VersionID)] = struct{}{}
 		}
 	}
 
-	for path := range paths {
-		didConvert, cErr := om.convertPathToEnvelope(ctx, bucket, key, path)
+	for ref := range refs {
+		didConvert, cErr := om.convertPathToEnvelope(ctx, bucket, key, ref)
 		if cErr != nil {
 			return converted, skipped, cErr
 		}
@@ -66,13 +65,13 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 // convertPathToEnvelope converts one stored file to envelope encryption.
 // Returns (false, nil) when there is nothing to do (missing file, already
 // encrypted, directory marker).
-func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key, path string) (bool, error) {
+func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key string, ref storage.ObjectRef) (bool, error) {
 	// Cheap pre-checks without the lock.
-	exists, err := om.storage.Exists(ctx, path)
+	exists, err := om.storage.Exists(ctx, ref)
 	if err != nil || !exists {
 		return false, nil
 	}
-	meta, err := om.storage.GetMetadata(ctx, path)
+	meta, err := om.storage.GetMetadata(ctx, ref)
 	if err != nil {
 		return false, nil
 	}
@@ -89,7 +88,7 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 
 	// Re-check under the lock — a client PUT may have replaced the object
 	// (new writes are always current-KEK envelope).
-	meta, err = om.storage.GetMetadata(ctx, path)
+	meta, err = om.storage.GetMetadata(ctx, ref)
 	if err != nil {
 		return false, nil
 	}
@@ -99,13 +98,13 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 	case migrationRewrap:
 		// Envelope wrapped with an old KEK version: only the wrapped DEK
 		// changes — object data is never touched.
-		return om.rewrapPathDEK(ctx, bucket, key, path, meta)
+		return om.rewrapPathDEK(ctx, bucket, key, ref, meta)
 	}
 	// migrationEncrypt: plaintext or legacy direct-encrypted → full envelope
 	// rewrite below.
 	isLegacyEncrypted := meta["encrypted"] == "true"
 
-	reader, _, err := om.storage.Get(ctx, path)
+	reader, _, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
 			return false, nil
@@ -179,17 +178,17 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 		metaCopy[k] = v
 	}
 
-	if err := om.storeEncryptedObject(ctx, path, tempPath, metaCopy, stagedSize, originalETag); err != nil {
+	if err := om.storeEncryptedObject(ctx, ref, tempPath, metaCopy, stagedSize, originalETag); err != nil {
 		return false, fmt.Errorf("failed to rewrite object encrypted: %w", err)
 	}
 	wroteDEK := metaCopy["wrapped-dek"]
 
 	// Verify: read the final file back, decrypt, compare MD5 with the staged
 	// plaintext.
-	if verifyErr := om.verifyConvertedObject(ctx, path, stagedMD5); verifyErr != nil {
+	if verifyErr := om.verifyConvertedObject(ctx, ref, stagedMD5); verifyErr != nil {
 		// Did a concurrent client overwrite win the rename race? Then the
 		// object on disk is theirs (valid, envelope) — leave it alone.
-		if cur, mErr := om.storage.GetMetadata(ctx, path); mErr == nil && cur["wrapped-dek"] != "" && cur["wrapped-dek"] != wroteDEK {
+		if cur, mErr := om.storage.GetMetadata(ctx, ref); mErr == nil && cur["wrapped-dek"] != "" && cur["wrapped-dek"] != wroteDEK {
 			logrus.WithFields(logrus.Fields{"bucket": bucket, "key": key}).
 				Info("Encryption migration: object was overwritten concurrently, leaving client version")
 			return false, nil
@@ -203,7 +202,7 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key,
 			for k, v := range meta {
 				restoreMeta[k] = v
 			}
-			rErr = om.storage.Put(ctx, path, restoreFile, restoreMeta)
+			rErr = om.storage.Put(ctx, ref, restoreFile, restoreMeta)
 			restoreFile.Close()
 		}
 		if rErr != nil {
@@ -246,7 +245,7 @@ func (om *objectManager) migrationActionFor(meta map[string]string) migrationAct
 }
 
 // rewrapPathDEK re-wraps an envelope object's DEK with the current KEK.
-func (om *objectManager) rewrapPathDEK(ctx context.Context, bucket, key, path string, meta map[string]string) (bool, error) {
+func (om *objectManager) rewrapPathDEK(ctx context.Context, bucket, key string, ref storage.ObjectRef, meta map[string]string) (bool, error) {
 	dek, err := om.decryptionKeyFor(meta)
 	if err != nil {
 		return false, fmt.Errorf("failed to unwrap DEK with old KEK: %w", err)
@@ -266,13 +265,13 @@ func (om *objectManager) rewrapPathDEK(ctx context.Context, bucket, key, path st
 	metaCopy["wrapped-dek-iv"] = hex.EncodeToString(wrapped.IV)
 	metaCopy["kek-version"] = strconv.Itoa(kekVersion)
 
-	if err := om.storage.SetMetadata(ctx, path, metaCopy); err != nil {
+	if err := om.storage.SetMetadata(ctx, ref, metaCopy); err != nil {
 		return false, fmt.Errorf("failed to update sidecar with re-wrapped DEK: %w", err)
 	}
 
 	// Verify: re-read the sidecar and unwrap with the current KEK — the DEK
 	// must be byte-identical (the data was never touched).
-	verifyMeta, err := om.storage.GetMetadata(ctx, path)
+	verifyMeta, err := om.storage.GetMetadata(ctx, ref)
 	if err != nil {
 		return false, fmt.Errorf("re-wrap verification read failed: %w", err)
 	}
@@ -313,8 +312,8 @@ func decryptMetaFor(storageMetadata map[string]string) *encryption.EncryptionMet
 
 // verifyConvertedObject decrypts the object at path and compares the
 // plaintext MD5 with the expected value.
-func (om *objectManager) verifyConvertedObject(ctx context.Context, path, expectedMD5 string) error {
-	reader, meta, err := om.storage.Get(ctx, path)
+func (om *objectManager) verifyConvertedObject(ctx context.Context, ref storage.ObjectRef, expectedMD5 string) error {
+	reader, meta, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		return fmt.Errorf("readback failed: %w", err)
 	}

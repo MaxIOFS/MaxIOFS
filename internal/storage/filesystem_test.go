@@ -85,11 +85,11 @@ func TestPutAndGet(t *testing.T) {
 			"custom-meta":  "test-value",
 		}
 
-		err := backend.Put(ctx, "test-file.txt", reader, metadata)
+		err := backend.putAt(ctx, "test-file.txt", reader, metadata)
 		assert.NoError(t, err)
 
 		// Get the object
-		rc, meta, err := backend.Get(ctx, "test-file.txt")
+		rc, meta, err := backend.getAt(ctx, "test-file.txt")
 		assert.NoError(t, err)
 		assert.NotNil(t, rc)
 		defer rc.Close()
@@ -111,17 +111,17 @@ func TestPutAndGet(t *testing.T) {
 		data := []byte("nested content")
 		reader := bytes.NewReader(data)
 
-		err := backend.Put(ctx, "folder1/folder2/nested.txt", reader, nil)
+		err := backend.putAt(ctx, "folder1/folder2/nested.txt", reader, nil)
 		assert.NoError(t, err)
 
 		// Verify file exists
-		exists, err := backend.Exists(ctx, "folder1/folder2/nested.txt")
+		exists, err := backend.existsAt(ctx, "folder1/folder2/nested.txt")
 		assert.NoError(t, err)
 		assert.True(t, exists)
 	})
 
 	t.Run("Get non-existent object", func(t *testing.T) {
-		rc, meta, err := backend.Get(ctx, "does-not-exist.txt")
+		rc, meta, err := backend.getAt(ctx, "does-not-exist.txt")
 		assert.Error(t, err)
 		assert.Equal(t, ErrObjectNotFound, err)
 		assert.Nil(t, rc)
@@ -133,17 +133,17 @@ func TestPutAndGet(t *testing.T) {
 		reader := bytes.NewReader(data)
 
 		// Path traversal attempt
-		err := backend.Put(ctx, "../escape.txt", reader, nil)
+		err := backend.putAt(ctx, "../escape.txt", reader, nil)
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 
 		// Absolute path
-		err = backend.Put(ctx, "/absolute.txt", reader, nil)
+		err = backend.putAt(ctx, "/absolute.txt", reader, nil)
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 
 		// Empty path
-		err = backend.Put(ctx, "", reader, nil)
+		err = backend.putAt(ctx, "", reader, nil)
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 	})
@@ -152,7 +152,7 @@ func TestPutAndGet(t *testing.T) {
 		conflictPath := filepath.Join(tmpDir, "conflict")
 		require.NoError(t, os.MkdirAll(conflictPath, 0755))
 
-		err := backend.Put(ctx, "conflict", bytes.NewReader([]byte("data")), map[string]string{"content-type": "text/plain"})
+		err := backend.putAt(ctx, "conflict", bytes.NewReader([]byte("data")), map[string]string{"content-type": "text/plain"})
 		require.Error(t, err)
 
 		_, statErr := os.Stat(filepath.Join(tmpDir, "conflict.metadata"))
@@ -167,7 +167,7 @@ func TestPutDirectoryMarker(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Create directory marker", func(t *testing.T) {
-		err := backend.Put(ctx, "my-folder/", nil, nil)
+		err := backend.putAt(ctx, "my-folder/", nil, nil)
 		assert.NoError(t, err)
 
 		// Verify directory exists
@@ -182,7 +182,7 @@ func TestPutDirectoryMarker(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify metadata exists
-		meta, err := backend.GetMetadata(ctx, "my-folder/")
+		meta, err := backend.metadataAt(ctx, "my-folder/")
 		assert.NoError(t, err)
 		assert.Equal(t, "0", meta["size"])
 		assert.Equal(t, "d41d8cd98f00b204e9800998ecf8427e", meta["etag"])
@@ -190,7 +190,7 @@ func TestPutDirectoryMarker(t *testing.T) {
 	})
 
 	t.Run("Create nested directory markers", func(t *testing.T) {
-		err := backend.Put(ctx, "level1/level2/level3/", nil, nil)
+		err := backend.putAt(ctx, "level1/level2/level3/", nil, nil)
 		assert.NoError(t, err)
 
 		// Verify all levels exist
@@ -212,26 +212,26 @@ func TestDelete(t *testing.T) {
 	t.Run("Delete existing file", func(t *testing.T) {
 		// Create file
 		data := []byte("delete me")
-		err := backend.Put(ctx, "to-delete.txt", bytes.NewReader(data), nil)
+		err := backend.putAt(ctx, "to-delete.txt", bytes.NewReader(data), nil)
 		require.NoError(t, err)
 
 		// Delete file
-		err = backend.Delete(ctx, "to-delete.txt")
+		err = backend.deleteAt(ctx, "to-delete.txt")
 		assert.NoError(t, err)
 
 		// Verify file is gone
-		exists, err := backend.Exists(ctx, "to-delete.txt")
+		exists, err := backend.existsAt(ctx, "to-delete.txt")
 		assert.NoError(t, err)
 		assert.False(t, exists)
 	})
 
 	t.Run("Delete directory marker", func(t *testing.T) {
 		// Create directory
-		err := backend.Put(ctx, "delete-folder/", nil, nil)
+		err := backend.putAt(ctx, "delete-folder/", nil, nil)
 		require.NoError(t, err)
 
 		// Delete directory
-		err = backend.Delete(ctx, "delete-folder/")
+		err = backend.deleteAt(ctx, "delete-folder/")
 		assert.NoError(t, err)
 
 		// Verify directory is gone
@@ -241,10 +241,10 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("Delete directory marker without trailing slash", func(t *testing.T) {
-		err := backend.Put(ctx, "delete-folder-no-slash/", nil, nil)
+		err := backend.putAt(ctx, "delete-folder-no-slash/", nil, nil)
 		require.NoError(t, err)
 
-		err = backend.Delete(ctx, "delete-folder-no-slash")
+		err = backend.deleteAt(ctx, "delete-folder-no-slash")
 		assert.NoError(t, err)
 
 		fullPath := filepath.Join(tmpDir, "delete-folder-no-slash")
@@ -253,13 +253,13 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("Delete non-existent object", func(t *testing.T) {
-		err := backend.Delete(ctx, "does-not-exist.txt")
+		err := backend.deleteAt(ctx, "does-not-exist.txt")
 		assert.Error(t, err)
 		assert.Equal(t, ErrObjectNotFound, err)
 	})
 
 	t.Run("Delete with invalid path", func(t *testing.T) {
-		err := backend.Delete(ctx, "../escape.txt")
+		err := backend.deleteAt(ctx, "../escape.txt")
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 	})
@@ -274,22 +274,22 @@ func TestExists(t *testing.T) {
 	t.Run("Check existing file", func(t *testing.T) {
 		// Create file
 		data := []byte("exists")
-		err := backend.Put(ctx, "exists.txt", bytes.NewReader(data), nil)
+		err := backend.putAt(ctx, "exists.txt", bytes.NewReader(data), nil)
 		require.NoError(t, err)
 
-		exists, err := backend.Exists(ctx, "exists.txt")
+		exists, err := backend.existsAt(ctx, "exists.txt")
 		assert.NoError(t, err)
 		assert.True(t, exists)
 	})
 
 	t.Run("Check non-existent file", func(t *testing.T) {
-		exists, err := backend.Exists(ctx, "not-exists.txt")
+		exists, err := backend.existsAt(ctx, "not-exists.txt")
 		assert.NoError(t, err)
 		assert.False(t, exists)
 	})
 
 	t.Run("Check with invalid path", func(t *testing.T) {
-		exists, err := backend.Exists(ctx, "../escape.txt")
+		exists, err := backend.existsAt(ctx, "../escape.txt")
 		assert.Error(t, err)
 		assert.Equal(t, ErrInvalidPath, err)
 		assert.False(t, exists)
@@ -302,61 +302,34 @@ func TestList(t *testing.T) {
 	defer cleanup(tmpDir)
 	ctx := context.Background()
 
-	// Setup test files
-	files := []string{
+	keys := []string{
 		"file1.txt",
 		"file2.txt",
 		"folder/file3.txt",
 		"folder/subfolder/file4.txt",
 	}
 
-	for _, file := range files {
-		data := []byte("content of " + file)
-		err := backend.Put(ctx, file, bytes.NewReader(data), nil)
-		require.NoError(t, err)
+	require.NoError(t, backend.CreateBucket(ctx, "listing"))
+	for _, key := range keys {
+		data := []byte("content of " + key)
+		require.NoError(t, backend.Put(ctx, ObjectRef{Bucket: "listing", Key: key}, bytes.NewReader(data), nil))
 	}
+	require.NoError(t, backend.Put(ctx, ObjectRef{Bucket: "elsewhere", Key: "other.txt"}, bytes.NewReader([]byte("x")), nil))
 
-	t.Run("List all objects recursively", func(t *testing.T) {
-		objects, err := backend.List(ctx, "", true)
+	t.Run("Lists every object in the bucket", func(t *testing.T) {
+		objects, err := backend.List(ctx, "listing")
 		assert.NoError(t, err)
-		assert.GreaterOrEqual(t, len(objects), 4)
-
-		// Verify all files are listed
-		paths := make(map[string]bool)
-		for _, obj := range objects {
-			paths[obj.Path] = true
-		}
-		for _, file := range files {
-			assert.True(t, paths[file], "File %s should be in list", file)
-		}
+		assert.Equal(t, keys, listedRefs(objects))
 	})
 
-	t.Run("List with prefix non-recursive", func(t *testing.T) {
-		objects, err := backend.List(ctx, "folder/", false)
+	t.Run("Does not reach into other buckets", func(t *testing.T) {
+		objects, err := backend.List(ctx, "elsewhere")
 		assert.NoError(t, err)
-
-		// Should only contain file3.txt, not file4.txt (which is in subfolder)
-		assert.Len(t, objects, 1)
-		assert.Equal(t, "folder/file3.txt", objects[0].Path)
+		assert.Equal(t, []string{"other.txt"}, listedRefs(objects))
 	})
 
-	t.Run("List with prefix recursive", func(t *testing.T) {
-		objects, err := backend.List(ctx, "folder/", true)
-		assert.NoError(t, err)
-
-		// Should contain both file3.txt and file4.txt
-		assert.GreaterOrEqual(t, len(objects), 2)
-
-		paths := make(map[string]bool)
-		for _, obj := range objects {
-			paths[obj.Path] = true
-		}
-		assert.True(t, paths["folder/file3.txt"])
-		assert.True(t, paths["folder/subfolder/file4.txt"])
-	})
-
-	t.Run("List empty prefix", func(t *testing.T) {
-		objects, err := backend.List(ctx, "nonexistent/", true)
+	t.Run("Absent bucket lists empty", func(t *testing.T) {
+		objects, err := backend.List(ctx, "nonexistent")
 		assert.NoError(t, err)
 		assert.Empty(t, objects)
 	})
@@ -374,10 +347,10 @@ func TestMetadata(t *testing.T) {
 			"custom-key": "custom-value",
 		}
 
-		err := backend.Put(ctx, "meta-test.txt", bytes.NewReader(data), metadata)
+		err := backend.putAt(ctx, "meta-test.txt", bytes.NewReader(data), metadata)
 		require.NoError(t, err)
 
-		meta, err := backend.GetMetadata(ctx, "meta-test.txt")
+		meta, err := backend.metadataAt(ctx, "meta-test.txt")
 		assert.NoError(t, err)
 		assert.Equal(t, "custom-value", meta["custom-key"])
 		assert.NotEmpty(t, meta["size"])
@@ -386,22 +359,22 @@ func TestMetadata(t *testing.T) {
 
 	t.Run("Set metadata for existing object", func(t *testing.T) {
 		data := []byte("set meta test")
-		err := backend.Put(ctx, "set-meta.txt", bytes.NewReader(data), nil)
+		err := backend.putAt(ctx, "set-meta.txt", bytes.NewReader(data), nil)
 		require.NoError(t, err)
 
 		newMeta := map[string]string{
 			"new-key": "new-value",
 		}
-		err = backend.SetMetadata(ctx, "set-meta.txt", newMeta)
+		err = backend.setMetadataAt(ctx, "set-meta.txt", newMeta)
 		assert.NoError(t, err)
 
-		meta, err := backend.GetMetadata(ctx, "set-meta.txt")
+		meta, err := backend.metadataAt(ctx, "set-meta.txt")
 		assert.NoError(t, err)
 		assert.Equal(t, "new-value", meta["new-key"])
 	})
 
 	t.Run("Get metadata for non-existent object", func(t *testing.T) {
-		meta, err := backend.GetMetadata(ctx, "no-meta.txt")
+		meta, err := backend.metadataAt(ctx, "no-meta.txt")
 		assert.Error(t, err)
 		assert.Equal(t, ErrObjectNotFound, err)
 		assert.Nil(t, meta)
@@ -413,7 +386,7 @@ func TestMetadata(t *testing.T) {
 		err := os.WriteFile(fullPath, []byte("direct write"), 0644)
 		require.NoError(t, err)
 
-		meta, err := backend.GetMetadata(ctx, "no-metadata.txt")
+		meta, err := backend.metadataAt(ctx, "no-metadata.txt")
 		assert.NoError(t, err)
 		assert.NotEmpty(t, meta["size"])
 		assert.NotEmpty(t, meta["last_modified"])
@@ -473,7 +446,7 @@ func TestRemoveDirectory(t *testing.T) {
 		}
 		for _, file := range files {
 			data := []byte("content")
-			err := backend.Put(ctx, file, bytes.NewReader(data), nil)
+			err := backend.putAt(ctx, file, bytes.NewReader(data), nil)
 			require.NoError(t, err)
 		}
 
@@ -495,7 +468,7 @@ func TestRemoveDirectory(t *testing.T) {
 	t.Run("Remove file instead of directory", func(t *testing.T) {
 		// Create a file
 		data := []byte("not a dir")
-		err := backend.Put(ctx, "just-file.txt", bytes.NewReader(data), nil)
+		err := backend.putAt(ctx, "just-file.txt", bytes.NewReader(data), nil)
 		require.NoError(t, err)
 
 		// Try to remove as directory
@@ -518,7 +491,7 @@ func TestConcurrentOperations(t *testing.T) {
 			go func(n int) {
 				path := "concurrent/" + string(rune('a'+n)) + ".txt"
 				data := []byte(strings.Repeat("x", n*100))
-				err := backend.Put(ctx, path, bytes.NewReader(data), nil)
+				err := backend.putAt(ctx, path, bytes.NewReader(data), nil)
 				assert.NoError(t, err)
 				done <- true
 			}(i)
@@ -530,7 +503,7 @@ func TestConcurrentOperations(t *testing.T) {
 		}
 
 		// Verify all files exist
-		objects, err := backend.List(ctx, "concurrent/", true)
+		objects, err := backend.List(ctx, "concurrent")
 		assert.NoError(t, err)
 		assert.Equal(t, 10, len(objects))
 	})

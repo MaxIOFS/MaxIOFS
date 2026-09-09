@@ -143,15 +143,15 @@ func TestGetObject_RefusesCiphertextRecordedWithoutADigest(t *testing.T) {
 		strings.NewReader("the real plaintext"), http.Header{})
 	require.NoError(t, err)
 
-	objectPath := om.getObjectPath(bucket, key)
-	onDisk, err := backend.GetMetadata(ctx, objectPath)
+	ref := om.objectRef(bucket, key)
+	onDisk, err := backend.GetMetadata(ctx, ref)
 	require.NoError(t, err)
 	ciphertextSize, err := strconv.ParseInt(onDisk["size"], 10, 64)
 	require.NoError(t, err)
 
 	// Lose the sidecar, then record what recovery would: the ciphertext's size
 	// and no digest.
-	require.NoError(t, os.Remove(filepath.Join(om.config.Root, objectPath+".metadata")))
+	require.NoError(t, os.Remove(filepath.Join(om.config.Root, bucket, key+".metadata")))
 	stored, err := metaStore.GetObject(ctx, bucket, key)
 	require.NoError(t, err)
 	stored.Size = ciphertextSize

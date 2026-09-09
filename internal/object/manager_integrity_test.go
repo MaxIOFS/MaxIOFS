@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -194,7 +195,7 @@ func TestGetObjectMetadata_VersionedEntryDoesNotFallbackToPlainPath(t *testing.T
 
 	// A stale/plain-path artifact must not make HEAD-style metadata look healthy
 	// when Pebble points at a missing versioned data file.
-	require.NoError(t, om.storage.Put(ctx, bucket+"/"+key, bytes.NewReader([]byte("plain fallback")), map[string]string{
+	require.NoError(t, om.storage.Put(ctx, storage.ObjectRef{Bucket: bucket, Key: key}, bytes.NewReader([]byte("plain fallback")), map[string]string{
 		"size":          "14",
 		"etag":          "plain-etag",
 		"last_modified": "1700000000",

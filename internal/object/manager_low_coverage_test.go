@@ -142,7 +142,7 @@ func TestAlwaysEncrypt(t *testing.T) {
 	require.NoError(t, err)
 
 	// Sidecar metadata must carry the envelope fields.
-	storageMeta, err := om.storage.GetMetadata(ctx, om.getObjectPath(bucket, "file.txt"))
+	storageMeta, err := om.storage.GetMetadata(ctx, om.objectRef(bucket, "file.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "true", storageMeta["encrypted"])
 	assert.NotEmpty(t, storageMeta["wrapped-dek"], "envelope must store the wrapped DEK in the sidecar")

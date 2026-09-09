@@ -514,7 +514,6 @@ func TestReplicationEndToEnd_WithInMemoryStores(t *testing.T) {
 		err := manager.CreateRule(ctx, filteredRule)
 		require.NoError(t, err)
 
-		// Queue object matching prefix
 		err = manager.QueueObject(ctx, tenantID, sourceBucket, "dir/file3.txt", "PUT")
 		require.NoError(t, err)
 
@@ -729,7 +728,6 @@ func TestReplicationRetries(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	// Queue object
 	err = manager.QueueObject(ctx, tenantID, sourceBucket, "retry-test.txt", "PUT")
 	require.NoError(t, err)
 

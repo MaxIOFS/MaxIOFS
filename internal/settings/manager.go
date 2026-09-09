@@ -63,7 +63,6 @@ func (m *Manager) initSchema() error {
 	return err
 }
 
-// insertDefaults inserts default settings if they don't exist
 func (m *Manager) insertDefaults() error {
 	defaults := []Setting{
 		// Security Settings
@@ -104,7 +103,7 @@ func (m *Manager) insertDefaults() error {
 			Value:       "true",
 			Type:        string(TypeBool),
 			Category:    string(CategorySecurity),
-			Description: "Serve the AWS IAM protocol on the S3 endpoint so tools such as Veeam can create their own identities, credentials and policies. Every call must be signed with permanent credentials belonging to a user that holds the iam:manage capability. Turning this off also stops IAM/STS from being advertised to Veeam. Default: true.",
+			Description: "Serve the AWS IAM protocol on the S3 endpoint. Every call must be signed with permanent credentials belonging to a user that holds the iam:manage capability. Turning this off also stops IAM/STS from being advertised through SOSAPI. Default: true.",
 			Editable:    true,
 		},
 		{
@@ -492,8 +491,13 @@ func (m *Manager) insertDefaults() error {
 
 	for _, setting := range defaults {
 		_, err := tx.Exec(`
-		INSERT OR IGNORE INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
+		INSERT INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			type        = excluded.type,
+			category    = excluded.category,
+			description = excluded.description,
+			editable    = excluded.editable
 		`, setting.Key, setting.Value, setting.Type, setting.Category, setting.Description, setting.Editable, now, now)
 		if err != nil {
 			return fmt.Errorf("failed to insert default setting %s: %w", setting.Key, err)

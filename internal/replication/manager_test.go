@@ -356,11 +356,9 @@ func TestQueueObject(t *testing.T) {
 	err := manager.CreateRule(ctx, rule)
 	require.NoError(t, err)
 
-	// Queue object
 	err = manager.QueueObject(ctx, "tenant-1", "source-bucket", "file.txt", "PUT")
 	require.NoError(t, err)
 
-	// Verify queue item was created
 	var count int
 	err = manager.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM replication_queue").Scan(&count)
 	require.NoError(t, err)
@@ -371,11 +369,9 @@ func TestQueueObject_NoMatchingRules(t *testing.T) {
 	manager, _ := setupTestManager(t)
 	ctx := context.Background()
 
-	// Queue object without any rules
 	err := manager.QueueObject(ctx, "tenant-1", "source-bucket", "file.txt", "PUT")
 	require.NoError(t, err)
 
-	// Verify no queue items created
 	var count int
 	err = manager.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM replication_queue").Scan(&count)
 	require.NoError(t, err)
@@ -590,7 +586,6 @@ func TestQueueObject_MultipleRules(t *testing.T) {
 	err = manager.CreateRule(ctx, rule2)
 	require.NoError(t, err)
 
-	// Queue object
 	err = manager.QueueObject(ctx, "tenant-1", "source-bucket", "file.txt", "PUT")
 	require.NoError(t, err)
 

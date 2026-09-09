@@ -30,42 +30,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Manager defines the interface for object management
 type Manager interface {
-	// Basic object operations
 	GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
 	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (deleteMarkerVersionID string, err error)
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 	SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error)
 
-	// Metadata operations
 	GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error)
 	UpdateObjectMetadata(ctx context.Context, bucket, key string, metadata map[string]string) error
 
-	// Object Lock operations
 	GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error)
 	SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error
 	GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*LegalHoldConfig, error)
 	SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error
 
-	// Restore operations (S3 Glacier restore)
 	SetRestoreStatus(ctx context.Context, bucket, key string, status string, expiresAt *time.Time, versionID ...string) error
 
-	// Versioning operations
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
 	DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error
 
-	// Tagging operations
 	GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*TagSet, error)
 	SetObjectTagging(ctx context.Context, bucket, key string, tags *TagSet, versionID ...string) error
 	DeleteObjectTagging(ctx context.Context, bucket, key string, versionID ...string) error
 
-	// ACL operations
 	GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*ACL, error)
 	SetObjectACL(ctx context.Context, bucket, key string, acl *ACL, versionID ...string) error
 
-	// Multipart upload operations
 	CreateMultipartUpload(ctx context.Context, bucket, key string, headers http.Header) (*MultipartUpload, error)
 	UploadPart(ctx context.Context, uploadID string, partNumber int, data io.Reader) (*Part, error)
 	ListParts(ctx context.Context, uploadID string) ([]Part, error)
@@ -73,17 +64,14 @@ type Manager interface {
 	AbortMultipartUpload(ctx context.Context, uploadID string) error
 	ListMultipartUploads(ctx context.Context, bucket string) ([]MultipartUpload, error)
 
-	// Integrity verification
 	VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error)
 	VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error)
 
 	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
 
-	// Health check
 	IsReady() bool
 }
 
-// Object represents a stored object
 type Object struct {
 	Key                string            `json:"key"`
 	Bucket             string            `json:"bucket"`
@@ -102,21 +90,16 @@ type Object struct {
 	VersionID          string            `json:"version_id,omitempty"`
 	IsLatest           bool              `json:"is_latest,omitempty"`
 
-	// Object Lock
 	Retention *RetentionConfig `json:"retention,omitempty"`
 	LegalHold *LegalHoldConfig `json:"legal_hold,omitempty"`
 
-	// Tagging
 	Tags *TagSet `json:"tags,omitempty"`
 
-	// ACL
 	ACL *ACL `json:"acl,omitempty"`
 
-	// Restore (S3 Glacier restore)
 	RestoreStatus    string     `json:"restore_status,omitempty"`     // "ongoing" | "restored"
 	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"` // when the restored copy expires
 
-	// Encryption
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"` // "AES256" when server-side encrypted
 }
 
@@ -128,7 +111,6 @@ type completionFuture struct {
 	err  error
 }
 
-// objectManager implements the Manager interface
 type objectManager struct {
 	storage       storage.Backend
 	config        config.StorageConfig
@@ -149,7 +131,6 @@ type objectManager struct {
 
 	muShards [256]sync.Mutex
 
-	// Deduplication for concurrent CompleteMultipartUpload calls with the same uploadID
 	completionMu sync.Mutex
 	completions  map[string]*completionFuture
 }
@@ -167,7 +148,6 @@ func (om *objectManager) lockKey(bucket, key string) func() {
 	return om.muShards[h].Unlock
 }
 
-// Option configures the object manager at construction time.
 type Option func(*objectManager)
 
 // WithKEKProvider supplies the KEK provider used for envelope encryption
@@ -176,7 +156,6 @@ func WithKEKProvider(p kek.Provider) Option {
 	return func(om *objectManager) { om.kekProvider = p }
 }
 
-// NewManager creates a new object manager.
 func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig, opts ...Option) Manager {
 	var aclMgr acl.Manager
 	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
@@ -377,17 +356,17 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	}
 
 	// Determine the correct object path
-	var objectPath string
+	var objectRef storage.ObjectRef
 	if requestedVersionID != "" {
 		// Use versioned path
-		objectPath = om.getVersionedObjectPath(bucket, key, requestedVersionID)
+		objectRef = om.versionRef(bucket, key, requestedVersionID)
 	} else {
 		// Use regular path (for non-versioned objects)
-		objectPath = om.getObjectPath(bucket, key)
+		objectRef = om.objectRef(bucket, key)
 	}
 
 	// Get encrypted object data from storage
-	encryptedReader, storageMetadata, err := om.storage.Get(ctx, objectPath)
+	encryptedReader, storageMetadata, err := om.storage.Get(ctx, objectRef)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
 			return nil, nil, ErrObjectNotFound
@@ -532,7 +511,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Generate versionID if versioning is enabled
 	var versionID string
-	var objectPath string
+	var objectRef storage.ObjectRef
 	if versioningEnabled {
 		if replicatedVersionID, ok := replicatedVersionIDFromContext(ctx); ok {
 			if err := validateReplicatedVersionID(replicatedVersionID); err != nil {
@@ -542,9 +521,9 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		} else {
 			versionID = generateVersionID()
 		}
-		objectPath = om.getVersionedObjectPath(bucket, key, versionID)
+		objectRef = om.versionRef(bucket, key, versionID)
 	} else {
-		objectPath = om.getObjectPath(bucket, key)
+		objectRef = om.objectRef(bucket, key)
 	}
 
 	defer om.lockKey(bucket, key)()
@@ -554,10 +533,9 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath) // Clean up temp file when done
-	defer tempFile.Close()    // Ensure handle is closed on panic
+	defer os.Remove(tempPath)
+	defer tempFile.Close()
 
-	// Extract checksum algorithm requested by client (AWS SDK v3 sends x-amz-checksum-algorithm)
 	checksumAlgo := strings.ToUpper(headers.Get("x-amz-checksum-algorithm"))
 	var checksumHasher hash.Hash
 	switch checksumAlgo {
@@ -571,7 +549,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		checksumHasher = sha256.New()
 	}
 
-	// Write to temp file while calculating MD5 hash (and optional additional checksum)
 	hasher := md5.New()
 	var multiWriter io.Writer
 	if checksumHasher != nil {
@@ -585,14 +562,11 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	}
 	tempFile.Close()
 
-	// Calculate original ETag (MD5 hash)
 	originalETag := hex.EncodeToString(hasher.Sum(nil))
 
-	// Compute additional checksum if requested
 	var checksumValue string
 	if checksumHasher != nil {
 		checksumValue = base64.StdEncoding.EncodeToString(checksumHasher.Sum(nil))
-		// Validate against client-provided value if present
 		clientChecksumHeader := "x-amz-checksum-" + strings.ToLower(checksumAlgo)
 		if clientValue := headers.Get(clientChecksumHeader); clientValue != "" && clientValue != checksumValue {
 			return nil, fmt.Errorf("BadDigest: checksum mismatch for %s: expected %s got %s", checksumAlgo, clientValue, checksumValue)
@@ -610,12 +584,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		var sizeIncrement int64
 		var isNewObject bool
 		if versioningEnabled {
-			// All previous versions are preserved — the new version adds its full size.
 			sizeIncrement = originalSize
 			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
 			isNewObject = existingObj == nil || isMetadataDeleteMarker(existingObj)
 		} else {
-			// Non-versioned: overwriting replaces the old object, so only the delta counts.
 			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
 			if existingObj == nil {
 				sizeIncrement = originalSize
@@ -625,14 +597,12 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			}
 		}
 
-		// Tenant quota (tenant buckets only).
 		if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
 			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
 				return nil, fmt.Errorf("storage quota exceeded: %w", err)
 			}
 		}
 
-		// Per-bucket quota (global and tenant buckets).
 		if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
 			return nil, err
 		}
@@ -640,22 +610,20 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	isFolderMarker := strings.HasSuffix(key, "/")
 	if isFolderMarker {
-		if err := om.storeUnencryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+		if err := om.storeUnencryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := om.storeEncryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+		if err := om.storeEncryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 	}
 
-	// Get final storage metadata (timestamps, etc)
-	finalStorageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	finalStorageMetadata, err := om.storage.GetMetadata(ctx, objectRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
 	}
 
-	// Use ORIGINAL size and ETag (not encrypted ones)
 	size := originalSize
 	lastModified, _ := strconv.ParseInt(finalStorageMetadata["last_modified"], 10, 64)
 	modTime := time.Unix(lastModified, 0)
@@ -668,17 +636,17 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	object := &Object{
 		Key:                key,
 		Bucket:             bucket,
-		Size:               size, // Original size (unencrypted)
+		Size:               size,
 		LastModified:       modTime,
-		ETag:               originalETag, // Original ETag (MD5 of unencrypted data)
+		ETag:               originalETag,
 		ContentType:        finalStorageMetadata["content-type"],
 		ContentDisposition: storageMetadata["content-disposition"],
 		ContentEncoding:    storageMetadata["content-encoding"],
 		CacheControl:       storageMetadata["cache-control"],
 		ContentLanguage:    storageMetadata["content-language"],
-		Metadata:           userMetadata, // User metadata from x-amz-meta-* headers
+		Metadata:           userMetadata,
 		StorageClass:       storageClassOrDefault(storageMetadata["storage-class"]),
-		VersionID:          versionID, // Set versionID (empty string if versioning disabled)
+		VersionID:          versionID,
 		ChecksumAlgorithm:  checksumAlgo,
 		ChecksumValue:      checksumValue,
 	}
@@ -686,19 +654,14 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		object.SSEAlgorithm = "AES256"
 	}
 
-	// Apply default Object Lock retention if bucket has it configured
 	if err := om.applyDefaultRetention(ctx, object); err != nil {
 		logrus.WithError(err).Debug("Failed to apply default retention")
 	}
 
-	// CRITICAL: Get existing object BEFORE overwriting in metadata store
-	// This is needed for correct size calculations in metrics and quotas
 	existingObjBeforeSave, _ := om.metadataStore.GetObject(ctx, bucket, key)
 
-	// If versioning is enabled, store as version
 	if versioningEnabled {
 
-		// Create version entry
 		version := &metadata.ObjectVersion{
 			VersionID:    versionID,
 			IsLatest:     true,
@@ -716,7 +679,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
 	} else {
-		// No versioning - use regular PutObject (same failure contract as above)
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
@@ -917,8 +879,8 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	// size is only decremented when the bytes are actually freed from disk.
 	physicalDeleteOK := true
 	if !isMetadataDeleteMarker(metaObj) {
-		objectPath := om.getVersionedObjectPath(bucket, key, versionID)
-		if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+		objectRef := om.versionRef(bucket, key, versionID)
+		if err := om.storage.Delete(ctx, objectRef); err != nil && err != storage.ErrObjectNotFound {
 			logrus.WithError(err).Error("Failed to delete physical versioned file; bucket size will not be decremented until the file is cleaned up")
 			physicalDeleteOK = false
 		}
@@ -998,7 +960,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 func (om *objectManager) deletePermanently(ctx context.Context, bucket, key string, bypassGovernance bool) error {
 	defer om.lockKey(bucket, key)()
 
-	objectPath := om.getObjectPath(bucket, key)
+	objectRef := om.objectRef(bucket, key)
 
 	// Get metadata
 	metaObj, err := om.metadataStore.GetObject(ctx, bucket, key)
@@ -1012,7 +974,7 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 				"key":    key,
 			}).Debug("Metadata not found, cleaning up orphaned physical file if exists")
 
-			if err := om.storage.Delete(ctx, objectPath); err != nil && err != storage.ErrObjectNotFound {
+			if err := om.storage.Delete(ctx, objectRef); err != nil && err != storage.ErrObjectNotFound {
 				logrus.WithError(err).Warn("Failed to delete orphaned physical file")
 			}
 
@@ -1064,12 +1026,12 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 	}
 
 	// Step 2: Delete physical file (best-effort; orphan cleanup handles failures)
-	if err := om.storage.Delete(ctx, objectPath); err != nil {
+	if err := om.storage.Delete(ctx, objectRef); err != nil {
 		if err != storage.ErrObjectNotFound {
 			logrus.WithFields(logrus.Fields{
 				"bucket": bucket,
 				"key":    key,
-				"path":   objectPath,
+				"path":   objectRef,
 			}).WithError(err).Warn("Failed to delete physical file after metadata removal; file is now an orphan")
 		}
 	}
@@ -1414,18 +1376,18 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 		return nil, err
 	}
 
-	objectPath := om.getObjectPath(bucket, key)
+	objectRef := om.objectRef(bucket, key)
 
 	// Try to load metadata from store first — covers versioned objects where
 	// the physical file is at the versioned path, not the plain path.
 	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
 	if metaErr == nil && metaObj != nil {
 		// Verify the physical file exists at the correct path (versioned or plain)
-		checkPath := objectPath
+		checkRef := objectRef
 		if metaObj.VersionID != "" {
-			checkPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
+			checkRef = om.versionRef(bucket, key, metaObj.VersionID)
 		}
-		exists, err := om.storage.Exists(ctx, checkPath)
+		exists, err := om.storage.Exists(ctx, checkRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check object existence: %w", err)
 		}
@@ -1436,7 +1398,7 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 	}
 
 	// Check if non-versioned file exists in storage (legacy / non-versioned objects)
-	exists, err := om.storage.Exists(ctx, objectPath)
+	exists, err := om.storage.Exists(ctx, objectRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check object existence: %w", err)
 	}
@@ -1445,7 +1407,7 @@ func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key stri
 	}
 
 	// Fallback: create basic object info from storage metadata
-	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	storageMetadata, err := om.storage.GetMetadata(ctx, objectRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get storage metadata: %w", err)
 	}
@@ -1476,13 +1438,13 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 
 	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
 
-	objectPath := om.getObjectPath(bucket, key)
+	objectRef := om.objectRef(bucket, key)
 	if metaErr == nil && metaObj != nil && metaObj.VersionID != "" {
-		objectPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
+		objectRef = om.versionRef(bucket, key, metaObj.VersionID)
 	}
 
 	// Check if object exists at the resolved path
-	exists, err := om.storage.Exists(ctx, objectPath)
+	exists, err := om.storage.Exists(ctx, objectRef)
 	if err != nil {
 		return fmt.Errorf("failed to check object existence: %w", err)
 	}
@@ -1490,7 +1452,7 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		return ErrObjectNotFound
 	}
 
-	existingMeta, err := om.storage.GetMetadata(ctx, objectPath)
+	existingMeta, err := om.storage.GetMetadata(ctx, objectRef)
 	if err != nil {
 		return fmt.Errorf("failed to read existing storage metadata: %w", err)
 	}
@@ -1500,7 +1462,7 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		}
 		existingMeta[k] = v
 	}
-	if err := om.storage.SetMetadata(ctx, objectPath, existingMeta); err != nil {
+	if err := om.storage.SetMetadata(ctx, objectRef, existingMeta); err != nil {
 		return fmt.Errorf("failed to update storage metadata: %w", err)
 	}
 
@@ -1518,17 +1480,13 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 		object.Metadata[k] = v
 	}
 
-	// Update content type if provided
 	if contentType, exists := metadata["content-type"]; exists {
 		object.ContentType = contentType
 	}
 
-	// Save updated metadata to the metadata store.
 	metaObj = toMetadataObject(object)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
-
-// Object Lock operations implementations
 
 func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error) {
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
@@ -1548,7 +1506,6 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	var obj *Object
 
 	if len(versionID) > 0 && versionID[0] != "" {
-		// Specific version requested — fetch directly from metadata store
 		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
 		if err != nil {
 			if err == metadata.ErrObjectNotFound {
@@ -1558,7 +1515,6 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 		}
 		obj = fromMetadataObject(metaObj)
 	} else {
-		// No version — use GetObjectMetadata which includes storage existence check and fallback
 		var err error
 		obj, err = om.GetObjectMetadata(ctx, bucket, key)
 		if err != nil {
@@ -1566,23 +1522,18 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 		}
 	}
 
-	// Check if object is locked and retention is being shortened
 	if obj.Retention != nil {
 		retentionActive := obj.Retention.RetainUntilDate.After(time.Now())
 		if retentionActive && (config == nil || config.RetainUntilDate.Before(obj.Retention.RetainUntilDate)) {
-			// Cannot shorten retention
 			if obj.Retention.Mode == "COMPLIANCE" {
 				return ErrCannotShortenCompliance
 			}
-			// For GOVERNANCE, would need bypass permission (not implemented yet)
 			return ErrCannotShortenGovernance
 		}
 	}
 
-	// Update retention
 	obj.Retention = config
 
-	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1594,7 +1545,6 @@ func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key str
 	}
 
 	if obj.LegalHold == nil {
-		// Return default (OFF)
 		return &LegalHoldConfig{Status: "OFF"}, nil
 	}
 
@@ -1622,10 +1572,8 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 		}
 	}
 
-	// Update legal hold
 	obj.LegalHold = config
 
-	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1660,18 +1608,14 @@ func (om *objectManager) SetRestoreStatus(ctx context.Context, bucket, key strin
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
 
-// Versioning operations (Fase 7.2 - future)
 func (om *objectManager) GetObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error) {
-	// Get versions from metadata store
 	metaVersions, err := om.metadataStore.GetObjectVersions(ctx, bucket, key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert metadata versions to object versions
 	versions := make([]ObjectVersion, 0, len(metaVersions))
 	for _, metaVer := range metaVersions {
-		// Get full object metadata for this version
 		objMeta, err := om.metadataStore.GetObject(ctx, bucket, key, metaVer.VersionID)
 		if err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
@@ -1705,8 +1649,6 @@ func (om *objectManager) DeleteObjectVersion(ctx context.Context, bucket, key, v
 	return om.deleteSpecificVersion(ctx, bucket, key, versionID, false)
 }
 
-// Tagging operations implementations
-
 func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key string, versionID ...string) (*TagSet, error) {
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
 	if err != nil {
@@ -1714,7 +1656,6 @@ func (om *objectManager) GetObjectTagging(ctx context.Context, bucket, key strin
 	}
 
 	if obj.Tags == nil {
-		// Return empty tagset
 		return &TagSet{Tags: []Tag{}}, nil
 	}
 
@@ -1728,15 +1669,12 @@ func (om *objectManager) SetObjectTagging(ctx context.Context, bucket, key strin
 		return err
 	}
 
-	// Validate tags
 	if tags != nil && len(tags.Tags) > 10 {
 		return ErrTooManyTags
 	}
 
-	// Update tags
 	obj.Tags = tags
 
-	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
@@ -1748,15 +1686,11 @@ func (om *objectManager) DeleteObjectTagging(ctx context.Context, bucket, key st
 		return err
 	}
 
-	// Clear tags
 	obj.Tags = &TagSet{Tags: []Tag{}}
 
-	// Save updated metadata to the metadata store.
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
 }
-
-// ACL operations implementations
 
 func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string, versionID ...string) (*ACL, error) {
 	obj, err := om.getObjectMetadataForVersion(ctx, bucket, key, versionID...)
@@ -1771,7 +1705,6 @@ func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string, v
 		return om.convertFromACLManagerType(acl.CreateDefaultACL("maxiofs", "MaxIOFS")), nil
 	}
 
-	// Parse bucket path to extract tenantID and bucketName
 	tenantID, bucketName := om.parseBucketPath(bucket)
 
 	// Get ACL from ACL manager
@@ -1927,7 +1860,6 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	}
 
 	// Create part path
-	partPath := om.getMultipartPartPath(uploadID, partNumber)
 
 	// Store part data
 	partMetadata := map[string]string{
@@ -1936,12 +1868,12 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 		"content-type": "application/octet-stream",
 	}
 
-	if err := om.storage.Put(ctx, partPath, data, partMetadata); err != nil {
+	if err := om.storage.PutPart(ctx, uploadID, partNumber, data, partMetadata); err != nil {
 		return nil, fmt.Errorf("failed to store part: %w", err)
 	}
 
 	// Get part metadata to get size and etag
-	storageMetadata, err := om.storage.GetMetadata(ctx, partPath)
+	storageMetadata, err := om.storage.PartMetadata(ctx, uploadID, partNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get part metadata: %w", err)
 	}
@@ -1959,7 +1891,7 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 
 	// Store part metadata in the metadata store.
 	if err := om.metadataStore.PutPart(ctx, partMeta); err != nil {
-		_ = om.storage.Delete(ctx, partPath)
+		_ = om.storage.DeletePart(ctx, uploadID, partNumber)
 		if err == metadata.ErrUploadNotFound {
 			return nil, ErrUploadNotFound
 		}
@@ -2077,25 +2009,25 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	// storage.Put inside combineMultipartParts already computes etag+size and writes them
 	// to the .metadata sidecar — no need to re-read the data file for MD5.
 	var versionID string
-	var objectPath string
+	var objectRef storage.ObjectRef
 	if versioningEnabled {
 		versionID = generateVersionID()
-		objectPath = om.getVersionedObjectPath(multipart.Bucket, multipart.Key, versionID)
+		objectRef = om.versionRef(multipart.Bucket, multipart.Key, versionID)
 	} else {
-		objectPath = om.getObjectPath(multipart.Bucket, multipart.Key)
+		objectRef = om.objectRef(multipart.Bucket, multipart.Key)
 	}
 
 	var restorePreviousFinal func()
 	var cleanupPreviousFinalBackup func()
 	if !versioningEnabled && existingObj != nil {
-		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectPath)
+		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to backup existing object before multipart completion: %w", err)
 		}
 		defer cleanupPreviousFinalBackup()
 	}
 
-	if err := om.combineMultipartParts(ctx, uploadID, parts, objectPath); err != nil {
+	if err := om.combineMultipartParts(ctx, uploadID, parts, objectRef); err != nil {
 		return nil, fmt.Errorf("failed to combine parts: %w", err)
 	}
 
@@ -2112,14 +2044,14 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 			restorePreviousFinal()
 			return
 		}
-		if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
-			logrus.WithError(delErr).WithField("path", objectPath).Warn("Failed to remove orphaned combined object after error")
+		if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
+			logrus.WithError(delErr).WithField("path", objectRef).Warn("Failed to remove orphaned combined object after error")
 		}
 	}()
 
 	// Retrieve etag+size+last_modified already written by combineMultipartParts.
 	// This reads only the tiny .metadata sidecar file, not the data.
-	storageMetadata, err := om.storage.GetMetadata(ctx, objectPath)
+	storageMetadata, err := om.storage.GetMetadata(ctx, objectRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object metadata after combining parts: %w", err)
 	}
@@ -2130,17 +2062,17 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	// Encryption is always on: re-encrypt the combined object (envelope)
 	// by reading the assembled plaintext → temp → encrypt → write back.
 	{
-		// Buffer plaintext to a temp file so objectPath can be safely overwritten on Windows.
-		tempPath, stageErr := om.stagePlaintextToTemp(ctx, objectPath)
+		// Buffer plaintext to a temp file so objectRef can be safely overwritten on Windows.
+		tempPath, stageErr := om.stagePlaintextToTemp(ctx, objectRef)
 		if stageErr != nil {
 			return nil, stageErr
 		}
 		defer os.Remove(tempPath)
-		if err := om.storeEncryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
+		if err := om.storeEncryptedMultipartObject(ctx, objectRef, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 		// Re-read metadata after encryption (encrypted size differs from plaintext size).
-		if sm, err2 := om.storage.GetMetadata(ctx, objectPath); err2 == nil {
+		if sm, err2 := om.storage.GetMetadata(ctx, objectRef); err2 == nil {
 			lastModified, _ = strconv.ParseInt(sm["last_modified"], 10, 64)
 		}
 	}
@@ -2178,7 +2110,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		if err := om.metadataStore.PutObjectVersion(ctx, metaObj, version); err != nil {
 			logrus.WithError(err).Warn("Failed to save final multipart object version metadata")
 			// Remove the orphaned combined file so it does not consume storage indefinitely.
-			if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+			if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
 				logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
 			}
 			return nil, fmt.Errorf("failed to save final multipart object version metadata: %w", err)
@@ -2187,7 +2119,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		logrus.WithError(err).Warn("Failed to save final multipart object metadata")
 		if restorePreviousFinal != nil {
 			restorePreviousFinal()
-		} else if delErr := om.storage.Delete(ctx, objectPath); delErr != nil {
+		} else if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
 			logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
 		}
 		return nil, fmt.Errorf("failed to save final multipart object metadata: %w", err)
@@ -2205,11 +2137,11 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	return object, nil
 }
 
-// stagePlaintextToTemp copies the combined object at objectPath to a temporary file
-// so that objectPath can be safely overwritten during encryption on Windows
+// stagePlaintextToTemp copies the combined object at objectRef to a temporary file
+// so that objectRef can be safely overwritten during encryption on Windows
 // (os.Open does not set FILE_SHARE_DELETE, preventing os.Rename to an open path).
-func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath string) (string, error) {
-	reader, _, err := om.storage.Get(ctx, objectPath)
+func (om *objectManager) stagePlaintextToTemp(ctx context.Context, ref storage.ObjectRef) (string, error) {
+	reader, _, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		return "", fmt.Errorf("failed to open combined object for encryption staging: %w", err)
 	}
@@ -2230,8 +2162,8 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, objectPath st
 	return tempPath, nil
 }
 
-func (om *objectManager) backupStorageObject(ctx context.Context, objectPath string) (func(), func(), error) {
-	reader, storageMeta, err := om.storage.Get(ctx, objectPath)
+func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.ObjectRef) (func(), func(), error) {
+	reader, storageMeta, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open existing object for backup: %w", err)
 	}
@@ -2261,8 +2193,8 @@ func (om *objectManager) backupStorageObject(ctx context.Context, objectPath str
 		}
 		defer backup.Close()
 
-		if err := om.storage.Put(ctx, objectPath, backup, storageMeta); err != nil {
-			logrus.WithError(err).WithField("path", objectPath).Error("Failed to restore previous object after multipart metadata failure")
+		if err := om.storage.Put(ctx, ref, backup, storageMeta); err != nil {
+			logrus.WithError(err).WithField("path", ref).Error("Failed to restore previous object after multipart metadata failure")
 		}
 	}
 	cleanup := func() {
@@ -2327,15 +2259,11 @@ func (om *objectManager) HasActiveComplianceRetention(ctx context.Context, bucke
 	return om.metadataStore.HasActiveComplianceRetention(ctx, bucket)
 }
 
-// Helper methods
-
-// validateObjectName validates object key according to S3 rules
 func (om *objectManager) validateObjectName(key string) error {
 	if key == "" {
 		return ErrInvalidObjectName
 	}
 
-	// Reject absolute paths
 	if strings.HasPrefix(key, "/") {
 		return ErrInvalidObjectName
 	}
@@ -2348,7 +2276,6 @@ func (om *objectManager) validateObjectName(key string) error {
 		}
 	}
 
-	// Check maximum length (1024 characters for S3)
 	if len(key) > 1024 {
 		return ErrInvalidObjectName
 	}
@@ -2360,26 +2287,17 @@ func (om *objectManager) validateObjectName(key string) error {
 	return nil
 }
 
-// getObjectPath returns the storage path for an object
-func (om *objectManager) getObjectPath(bucket, key string) string {
-	return fmt.Sprintf("%s/%s", bucket, key)
+func (om *objectManager) objectRef(bucket, key string) storage.ObjectRef {
+	return storage.ObjectRef{Bucket: bucket, Key: key}
 }
 
-// getVersionedObjectPath returns the storage path for a versioned object
-// Format: bucket/.versions/key/versionID
-func (om *objectManager) getVersionedObjectPath(bucket, key, versionID string) string {
-	return fmt.Sprintf("%s/.versions/%s/%s", bucket, key, versionID)
+func (om *objectManager) versionRef(bucket, key, versionID string) storage.ObjectRef {
+	return storage.ObjectRef{Bucket: bucket, Key: key, VersionID: versionID}
 }
 
-// Removed: getObjectMetadataPath, saveObjectMetadata, loadObjectMetadata
-// These functions are now backed by metadataStore operations.
-
-// loadBucketMetadata loads bucket metadata to check Object Lock configuration.
 func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (*metadata.BucketMetadata, error) {
-	// Parse bucket path to extract tenantID and bucket name
 	tenantID, actualBucketName := om.parseBucketPath(bucketName)
 
-	// Get bucket metadata from the metadata store.
 	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, actualBucketName)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -2391,28 +2309,22 @@ func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName stri
 	return bucketMeta, nil
 }
 
-// applyDefaultRetention applies bucket's default Object Lock retention to a new object
 func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Object) error {
-	// Load bucket metadata to check for Object Lock configuration
 	bucketMeta, err := om.loadBucketMetadata(ctx, object.Bucket)
 	if err != nil {
-		// Bucket metadata not found or no Object Lock - not an error
 		return nil
 	}
 
-	// Check if Object Lock is enabled
 	if bucketMeta.ObjectLock == nil || !bucketMeta.ObjectLock.Enabled {
 		return nil
 	}
 
-	// Check for default retention rule
 	if bucketMeta.ObjectLock.Rule == nil || bucketMeta.ObjectLock.Rule.DefaultRetention == nil {
 		return nil
 	}
 
 	retention := bucketMeta.ObjectLock.Rule.DefaultRetention
 
-	// Apply retention to object
 	object.Retention = &RetentionConfig{
 		Mode:            retention.Mode,
 		RetainUntilDate: retention.RetainUntilDate,
@@ -2421,9 +2333,6 @@ func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Obje
 	return nil
 }
 
-// Multipart upload helper methods
-
-// generateUploadID generates a unique upload ID
 func (om *objectManager) generateUploadID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
@@ -2432,17 +2341,7 @@ func (om *objectManager) generateUploadID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// getMultipartPartPath returns the path for a multipart part in storage
-func (om *objectManager) getMultipartPartPath(uploadID string, partNumber int) string {
-	return fmt.Sprintf(".maxiofs/multipart/parts/%s/%05d", uploadID, partNumber)
-}
-
-// Removed: getMultipartUploadPath, saveMultipartUpload, loadMultipartUpload, updatePartsList
-// These functions are now backed by metadataStore operations.
-
-// combineMultipartParts combines all parts into the final object
-func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, finalPath string) error {
-	// Create a combined metadata
+func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, ref storage.ObjectRef) error {
 	combinedMetadata := map[string]string{
 		"content-type": "application/octet-stream",
 	}
@@ -2453,8 +2352,7 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 
 	// Get content type from first part if available
 	if len(parts) > 0 {
-		firstPartPath := om.getMultipartPartPath(uploadID, parts[0].PartNumber)
-		metadata, err := om.storage.GetMetadata(ctx, firstPartPath)
+		metadata, err := om.storage.PartMetadata(ctx, uploadID, parts[0].PartNumber)
 		if err == nil {
 			if contentType, exists := metadata["content-type"]; exists {
 				combinedMetadata["content-type"] = contentType
@@ -2465,8 +2363,7 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 	// Create a MultiReader that concatenates all parts in order
 	readers := make([]io.Reader, len(parts))
 	for i, part := range parts {
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		reader, _, err := om.storage.Get(ctx, partPath)
+		reader, _, err := om.storage.GetPart(ctx, uploadID, part.PartNumber)
 		if err != nil {
 			// Close all previously opened readers
 			for j := 0; j < i; j++ {
@@ -2483,7 +2380,7 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 	combinedReader := io.MultiReader(readers...)
 
 	// Store the combined object
-	err := om.storage.Put(ctx, finalPath, combinedReader, combinedMetadata)
+	err := om.storage.Put(ctx, ref, combinedReader, combinedMetadata)
 
 	// Close all readers after Put completes
 	for _, reader := range readers {
@@ -2521,8 +2418,7 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 
 	// Delete all part files from storage
 	for _, part := range metaParts {
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		om.storage.Delete(ctx, partPath) // Ignore errors
+		om.storage.DeletePart(ctx, uploadID, part.PartNumber) // Ignore errors
 	}
 
 	// Delete multipart upload metadata from the metadata store.
@@ -2614,8 +2510,8 @@ func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
 
 	// Get the root path and build the full absolute object path
 	rootPath := fsBackend.GetRootPath()
-	objectPath := filepath.Join(rootPath, om.getObjectPath(bucket, key))
-	dirPath := filepath.Dir(objectPath)
+	objectRef := filepath.Join(rootPath, bucket, key)
+	dirPath := filepath.Dir(objectRef)
 
 	// Walk up the directory tree and remove empty directories
 	for {
@@ -2802,7 +2698,7 @@ func isProtectedStorageMetadataKey(key string) bool {
 // storeEncryptedObject envelope-encrypts and stores an object: a fresh DEK
 // encrypts the data stream; the DEK, wrapped with the current KEK, is stored
 // in the sidecar metadata alongside the original (plaintext) size and ETag.
-func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
+func (om *objectManager) storeEncryptedObject(ctx context.Context, ref storage.ObjectRef, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
 	dek, envelopeMeta, err := om.newEnvelope()
 	if err != nil {
 		return err
@@ -2840,7 +2736,7 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 	}()
 
 	// Store encrypted data (streaming from pipe)
-	if err := om.storage.Put(ctx, objectPath, pipeReader, storageMetadata); err != nil {
+	if err := om.storage.Put(ctx, ref, pipeReader, storageMetadata); err != nil {
 		return fmt.Errorf("failed to store object: %w", err)
 	}
 
@@ -2848,7 +2744,7 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, objectPath, t
 }
 
 // storeUnencryptedObject stores an object without encryption
-func (om *objectManager) storeUnencryptedObject(ctx context.Context, objectPath, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
+func (om *objectManager) storeUnencryptedObject(ctx context.Context, ref storage.ObjectRef, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
 	// Use original size and ETag directly
 	storageMetadata["size"] = fmt.Sprintf("%d", originalSize)
 	storageMetadata["etag"] = originalETag
@@ -2861,26 +2757,22 @@ func (om *objectManager) storeUnencryptedObject(ctx context.Context, objectPath,
 	}
 	defer tempFileRead.Close()
 
-	// Store unencrypted data directly
-	if err := om.storage.Put(ctx, objectPath, tempFileRead, storageMetadata); err != nil {
+	if err := om.storage.Put(ctx, ref, tempFileRead, storageMetadata); err != nil {
 		return fmt.Errorf("failed to store object: %w", err)
 	}
 
 	return nil
 }
 
-// updateBucketMetricsAfterPut updates bucket metrics after a PutObject operation
 func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenantID, bucketName, bucket, key string, size int64, versioningEnabled bool, existingObjBeforeSave *metadata.ObjectMetadata) {
 	if om.bucketManager == nil {
 		return
 	}
 
 	if !versioningEnabled {
-		// Use the existing object we captured BEFORE saving
 		isNewObject := existingObjBeforeSave == nil
 
 		if isNewObject {
-			// New object - increment count and size
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"bucket_path": bucket,
@@ -2891,7 +2783,6 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 				}).Warn("Failed to increment bucket object count")
 			}
 		} else {
-			// Overwrite - adjust size difference only (do NOT increment object count)
 			sizeDiff := size - existingObjBeforeSave.Size
 			if sizeDiff != 0 {
 				if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, sizeDiff); err != nil {
@@ -2919,7 +2810,6 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 	}
 }
 
-// updateTenantQuotaAfterPut updates tenant storage quota after a PutObject operation
 func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID, key string, size int64, versioningEnabled bool, existingObjBeforeSave *metadata.ObjectMetadata) {
 	if om.authManager == nil || tenantID == "" {
 		return
@@ -2927,14 +2817,13 @@ func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID
 
 	var sizeToAdd int64
 	if !versioningEnabled {
-		// Use the existing object we captured BEFORE saving
 		if existingObjBeforeSave == nil {
-			sizeToAdd = size // New object
+			sizeToAdd = size
 		} else {
-			sizeToAdd = size - existingObjBeforeSave.Size // Size difference
+			sizeToAdd = size - existingObjBeforeSave.Size
 		}
 	} else {
-		sizeToAdd = size // Versioned: always add new version size
+		sizeToAdd = size
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -2996,8 +2885,7 @@ func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uplo
 			return 0, ErrInvalidPart
 		}
 
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		exists, err := om.storage.Exists(ctx, partPath)
+		exists, err := om.storage.PartExists(ctx, uploadID, part.PartNumber)
 		if err != nil {
 			return 0, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
 		}
@@ -3117,7 +3005,7 @@ func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket str
 // storeEncryptedMultipartObject envelope-encrypts and stores the assembled
 // multipart object (fresh DEK wrapped by the current KEK, same format as
 // storeEncryptedObject).
-func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, objectPath, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref storage.ObjectRef, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
 	dek, envelopeMeta, err := om.newEnvelope()
 	if err != nil {
 		return err
@@ -3167,7 +3055,7 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, obje
 		}
 	}
 
-	if err := om.storage.Put(ctx, objectPath, pipeReader, encryptionMetadata); err != nil {
+	if err := om.storage.Put(ctx, ref, pipeReader, encryptionMetadata); err != nil {
 		return fmt.Errorf("failed to store encrypted multipart object: %w", err)
 	}
 
@@ -3233,7 +3121,6 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 
 	// Clean up part files from storage
 	for _, part := range parts {
-		partPath := om.getMultipartPartPath(uploadID, part.PartNumber)
-		om.storage.Delete(ctx, partPath) // Ignore errors
+		om.storage.DeletePart(ctx, uploadID, part.PartNumber) // Ignore errors
 	}
 }

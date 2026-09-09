@@ -52,7 +52,6 @@ type DeleteMarker struct {
 	Owner        Owner     `xml:"Owner"`
 }
 
-// ListBucketVersions lists all versions of objects in a bucket
 func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -65,7 +64,6 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Parse query parameters
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	keyMarker := r.URL.Query().Get("key-marker")

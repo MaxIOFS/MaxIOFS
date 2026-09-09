@@ -20,7 +20,7 @@ func TestMultipartUploadMissingUploadDoesNotLeavePartFile(t *testing.T) {
 	_, err := om.UploadPart(ctx, "missing-upload", 1, bytes.NewReader([]byte("orphan")))
 	require.ErrorIs(t, err, ErrUploadNotFound)
 
-	exists, existsErr := om.storage.Exists(ctx, om.getMultipartPartPath("missing-upload", 1))
+	exists, existsErr := om.storage.PartExists(ctx, "missing-upload", 1)
 	require.NoError(t, existsErr)
 	assert.False(t, exists, "UploadPart should reject missing uploads before writing part data")
 }

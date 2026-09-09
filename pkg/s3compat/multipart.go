@@ -133,7 +133,6 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
-// ListMultipartUploads lists in-progress multipart uploads
 func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -146,7 +145,6 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Parse query parameters
 	keyMarker := r.URL.Query().Get("key-marker")
 	uploadIdMarker := r.URL.Query().Get("upload-id-marker")
 	prefix := r.URL.Query().Get("prefix")
@@ -160,12 +158,11 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if parsed > 1000 {
-			parsed = 1000 // S3 spec cap
+			parsed = 1000
 		}
 		maxUploads = parsed
 	}
 
-	// List multipart uploads
 	uploads, err := h.objectManager.ListMultipartUploads(r.Context(), bucketPath)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
@@ -245,8 +242,6 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// IMPORTANT: Detect UploadPartCopy operation
-	// AWS CLI uses this for copying large files (>5MB) between buckets
 	copySource := r.Header.Get("x-amz-copy-source")
 	copySourceRange := r.Header.Get("x-amz-copy-source-range")
 
@@ -269,7 +264,6 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 
 	var bodyReader io.Reader = r.Body
 
-	// Detect AWS chunked by header OR by decoded-content-length presence
 	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
 
 	if isAwsChunked {
@@ -283,7 +277,6 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 
 		bodyReader = NewAwsChunkedReader(r.Body)
 
-		// Update Content-Length from X-Amz-Decoded-Content-Length
 		if decodedContentLength != "" {
 			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
 				r.ContentLength = size
@@ -293,11 +286,8 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del("Content-Encoding")
 	}
 
-	// Throttle the part upload to the owning tenant's aggregate bandwidth budget
-	// (no-op when unlimited); shares the same tenant limiter as other transfers.
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
 
-	// Upload the part
 	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bodyReader)
 	if err != nil {
 		if err == object.ErrUploadNotFound {
@@ -341,7 +331,6 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse query parameters
 	partNumberMarker := 0
 	if markerStr := r.URL.Query().Get("part-number-marker"); markerStr != "" {
 		parsed, err := strconv.Atoi(markerStr)
@@ -733,12 +722,10 @@ done:
 		f.Flush()
 	}
 
-	// Fire s3:ObjectCreated:CompleteMultipartUpload notification asynchronously.
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	h.fireNotifications(bgCtx, bucketName, tenantID, objectKey, "s3:ObjectCreated:CompleteMultipartUpload", res.obj.ETag, res.obj.Size)
 }
 
-// AbortMultipartUpload aborts a multipart upload
 func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]

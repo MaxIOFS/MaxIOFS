@@ -518,47 +518,88 @@ type MockStorageBackend struct {
 	mock.Mock
 }
 
-func (m *MockStorageBackend) Put(ctx context.Context, path string, data io.Reader, meta map[string]string) error {
-	args := m.Called(ctx, path, data, meta)
+func (m *MockStorageBackend) Put(ctx context.Context, ref storage.ObjectRef, data io.Reader, meta map[string]string) error {
+	args := m.Called(ctx, ref, data, meta)
 	return args.Error(0)
 }
 
-func (m *MockStorageBackend) Get(ctx context.Context, path string) (io.ReadCloser, map[string]string, error) {
-	args := m.Called(ctx, path)
+func (m *MockStorageBackend) Get(ctx context.Context, ref storage.ObjectRef) (io.ReadCloser, map[string]string, error) {
+	args := m.Called(ctx, ref)
 	if args.Get(0) == nil {
 		return nil, nil, args.Error(2)
 	}
 	return args.Get(0).(io.ReadCloser), args.Get(1).(map[string]string), args.Error(2)
 }
 
-func (m *MockStorageBackend) Delete(ctx context.Context, path string) error {
-	args := m.Called(ctx, path)
+func (m *MockStorageBackend) Delete(ctx context.Context, ref storage.ObjectRef) error {
+	args := m.Called(ctx, ref)
 	return args.Error(0)
 }
 
-func (m *MockStorageBackend) Exists(ctx context.Context, path string) (bool, error) {
-	args := m.Called(ctx, path)
+func (m *MockStorageBackend) Exists(ctx context.Context, ref storage.ObjectRef) (bool, error) {
+	args := m.Called(ctx, ref)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockStorageBackend) List(ctx context.Context, prefix string, recursive bool) ([]storage.ObjectInfo, error) {
-	args := m.Called(ctx, prefix, recursive)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]storage.ObjectInfo), args.Error(1)
-}
-
-func (m *MockStorageBackend) GetMetadata(ctx context.Context, path string) (map[string]string, error) {
-	args := m.Called(ctx, path)
+func (m *MockStorageBackend) GetMetadata(ctx context.Context, ref storage.ObjectRef) (map[string]string, error) {
+	args := m.Called(ctx, ref)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[string]string), args.Error(1)
 }
 
-func (m *MockStorageBackend) SetMetadata(ctx context.Context, path string, meta map[string]string) error {
-	args := m.Called(ctx, path, meta)
+func (m *MockStorageBackend) SetMetadata(ctx context.Context, ref storage.ObjectRef, meta map[string]string) error {
+	args := m.Called(ctx, ref, meta)
+	return args.Error(0)
+}
+
+func (m *MockStorageBackend) List(ctx context.Context, bucket string) ([]storage.ObjectInfo, error) {
+	args := m.Called(ctx, bucket)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]storage.ObjectInfo), args.Error(1)
+}
+
+func (m *MockStorageBackend) CreateBucket(ctx context.Context, bucket string) error {
+	args := m.Called(ctx, bucket)
+	return args.Error(0)
+}
+
+func (m *MockStorageBackend) DeleteBucket(ctx context.Context, bucket string) error {
+	args := m.Called(ctx, bucket)
+	return args.Error(0)
+}
+
+func (m *MockStorageBackend) PutPart(ctx context.Context, uploadID string, partNumber int, data io.Reader, meta map[string]string) error {
+	args := m.Called(ctx, uploadID, partNumber, data, meta)
+	return args.Error(0)
+}
+
+func (m *MockStorageBackend) GetPart(ctx context.Context, uploadID string, partNumber int) (io.ReadCloser, map[string]string, error) {
+	args := m.Called(ctx, uploadID, partNumber)
+	if args.Get(0) == nil {
+		return nil, nil, args.Error(2)
+	}
+	return args.Get(0).(io.ReadCloser), args.Get(1).(map[string]string), args.Error(2)
+}
+
+func (m *MockStorageBackend) PartMetadata(ctx context.Context, uploadID string, partNumber int) (map[string]string, error) {
+	args := m.Called(ctx, uploadID, partNumber)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]string), args.Error(1)
+}
+
+func (m *MockStorageBackend) PartExists(ctx context.Context, uploadID string, partNumber int) (bool, error) {
+	args := m.Called(ctx, uploadID, partNumber)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockStorageBackend) DeletePart(ctx context.Context, uploadID string, partNumber int) error {
+	args := m.Called(ctx, uploadID, partNumber)
 	return args.Error(0)
 }
 
@@ -674,7 +715,7 @@ func TestGenerateReport_DestinationBucketNoWritePermission(t *testing.T) {
 	}, nil).Once()
 
 	// Mock write permission denied (storage backend returns permission error)
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
 		errors.New("permission denied: write access forbidden"),
 	).Once()
 
@@ -749,7 +790,7 @@ func TestGenerateReport_CSV_Success(t *testing.T) {
 
 	// Mock successful upload
 	var capturedContent []byte
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).
 		Run(func(args mock.Arguments) {
 			reader := args.Get(2).(io.Reader)
 			capturedContent, _ = io.ReadAll(reader)
@@ -835,7 +876,7 @@ func TestGenerateReport_JSON_Success(t *testing.T) {
 
 	// Mock successful upload
 	var capturedContent []byte
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).
 		Run(func(args mock.Arguments) {
 			reader := args.Get(2).(io.Reader)
 			capturedContent, _ = io.ReadAll(reader)
@@ -907,7 +948,7 @@ func TestGenerateReport_EmptyBucket(t *testing.T) {
 
 	// Mock successful upload (empty report)
 	var capturedContent []byte
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).
 		Run(func(args mock.Arguments) {
 			reader := args.Get(2).(io.Reader)
 			capturedContent, _ = io.ReadAll(reader)
@@ -1035,7 +1076,7 @@ func TestGenerateReport_WithEncryptionStatus(t *testing.T) {
 
 	// Mock successful upload
 	var capturedContent []byte
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).
 		Run(func(args mock.Arguments) {
 			reader := args.Get(2).(io.Reader)
 			capturedContent, _ = io.ReadAll(reader)
@@ -1108,8 +1149,8 @@ func TestGenerateReport_MetadataUpdateFailure(t *testing.T) {
 		TenantID: "tenant1",
 	}, nil).Once()
 
-	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
-		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(ref storage.ObjectRef) bool {
+		return ref.Bucket == "tenant1/dest-bucket" && strings.HasPrefix(ref.Key, "reports/inventory-") && strings.HasSuffix(ref.Key, ".csv")
 	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
@@ -1119,8 +1160,8 @@ func TestGenerateReport_MetadataUpdateFailure(t *testing.T) {
 			strings.HasSuffix(obj.Key, ".csv")
 	})).Return(errors.New("database error")).Once()
 
-	mockStorage.On("Delete", ctx, mock.MatchedBy(func(path string) bool {
-		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	mockStorage.On("Delete", ctx, mock.MatchedBy(func(ref storage.ObjectRef) bool {
+		return ref.Bucket == "tenant1/dest-bucket" && strings.HasPrefix(ref.Key, "reports/inventory-") && strings.HasSuffix(ref.Key, ".csv")
 	})).Return(nil).Once()
 
 	// Execute
@@ -1169,8 +1210,8 @@ func TestGenerateReport_UsesTenantScopedPaths(t *testing.T) {
 		TenantID: "tenant1",
 	}, nil).Once()
 
-	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
-		return strings.HasPrefix(path, "tenant1/dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(ref storage.ObjectRef) bool {
+		return ref.Bucket == "tenant1/dest-bucket" && strings.HasPrefix(ref.Key, "reports/inventory-") && strings.HasSuffix(ref.Key, ".csv")
 	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
@@ -1223,8 +1264,8 @@ func TestGenerateReport_GlobalBucketPathsRemainUnscoped(t *testing.T) {
 		Name: "dest-bucket",
 	}, nil).Once()
 
-	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
-		return strings.HasPrefix(path, "dest-bucket/reports/inventory-") && strings.HasSuffix(path, ".csv")
+	mockStorage.On("Put", ctx, mock.MatchedBy(func(ref storage.ObjectRef) bool {
+		return ref.Bucket == "dest-bucket" && strings.HasPrefix(ref.Key, "reports/inventory-") && strings.HasSuffix(ref.Key, ".csv")
 	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {

@@ -8,26 +8,33 @@ import (
 
 // Backend defines the interface for all storage backends
 type Backend interface {
-	// Basic operations
-	Put(ctx context.Context, path string, data io.Reader, metadata map[string]string) error
-	Get(ctx context.Context, path string) (io.ReadCloser, map[string]string, error)
-	Delete(ctx context.Context, path string) error
-	Exists(ctx context.Context, path string) (bool, error)
+	Put(ctx context.Context, ref ObjectRef, data io.Reader, metadata map[string]string) error
+	Get(ctx context.Context, ref ObjectRef) (io.ReadCloser, map[string]string, error)
+	Delete(ctx context.Context, ref ObjectRef) error
+	Exists(ctx context.Context, ref ObjectRef) (bool, error)
+	GetMetadata(ctx context.Context, ref ObjectRef) (map[string]string, error)
+	SetMetadata(ctx context.Context, ref ObjectRef, metadata map[string]string) error
 
-	// Listing
-	List(ctx context.Context, prefix string, recursive bool) ([]ObjectInfo, error)
+	// List returns every object stored under one bucket, versions included.
+	List(ctx context.Context, bucket string) ([]ObjectInfo, error)
 
-	// Metadata
-	GetMetadata(ctx context.Context, path string) (map[string]string, error)
-	SetMetadata(ctx context.Context, path string, metadata map[string]string) error
+	CreateBucket(ctx context.Context, bucket string) error
+	DeleteBucket(ctx context.Context, bucket string) error
 
-	// Lifecycle
+	// Multipart parts are not objects: they live outside any bucket and are
+	// addressed by upload rather than by key.
+	PutPart(ctx context.Context, uploadID string, partNumber int, data io.Reader, metadata map[string]string) error
+	GetPart(ctx context.Context, uploadID string, partNumber int) (io.ReadCloser, map[string]string, error)
+	PartMetadata(ctx context.Context, uploadID string, partNumber int) (map[string]string, error)
+	PartExists(ctx context.Context, uploadID string, partNumber int) (bool, error)
+	DeletePart(ctx context.Context, uploadID string, partNumber int) error
+
 	Close() error
 }
 
 // ObjectInfo represents information about a stored object
 type ObjectInfo struct {
-	Path         string
+	Ref          ObjectRef
 	Size         int64
 	LastModified int64
 	ETag         string

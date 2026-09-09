@@ -129,7 +129,7 @@ beforeEach(async () => {
   vi.mocked(APIClient.getTenant).mockResolvedValue({
     id: 'tenant-1',
     name: 'Tenant One',
-    displayName: 'Tenant One', // Cambiado de display_name a displayName
+    displayName: 'Tenant One',
     status: 'active',
     maxAccessKeys: 5,
     currentAccessKeys: 2,
@@ -137,7 +137,7 @@ beforeEach(async () => {
     currentStorageBytes: 500000000,
     maxBuckets: 10,
     currentBuckets: 5,
-    createdAt: Date.now(), // Cambiado a número
+    createdAt: Date.now(),
     updatedAt: Date.now(),
   });
   vi.mocked(APIClient.updateUserPreferences).mockResolvedValue(undefined);

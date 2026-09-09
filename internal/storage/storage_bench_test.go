@@ -20,7 +20,7 @@ func BenchmarkPut_10KB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := backend.Put(ctx, "bench-10kb", bytes.NewReader(data), nil)
+		err := backend.Put(ctx, benchRef("bench-10kb"), bytes.NewReader(data), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -40,7 +40,7 @@ func BenchmarkPut_1MB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := backend.Put(ctx, "bench-1mb", bytes.NewReader(data), nil)
+		err := backend.Put(ctx, benchRef("bench-1mb"), bytes.NewReader(data), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -60,7 +60,7 @@ func BenchmarkPut_10MB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := backend.Put(ctx, "bench-10mb", bytes.NewReader(data), nil)
+		err := backend.Put(ctx, benchRef("bench-10mb"), bytes.NewReader(data), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func BenchmarkGet_10KB(b *testing.B) {
 	// Setup: write test object
 	data := bytes.Repeat([]byte("a"), 10*1024)
 	ctx := context.Background()
-	err := backend.Put(ctx, "bench-10kb", bytes.NewReader(data), nil)
+	err := backend.Put(ctx, benchRef("bench-10kb"), bytes.NewReader(data), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func BenchmarkGet_10KB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		reader, _, err := backend.Get(ctx, "bench-10kb")
+		reader, _, err := backend.Get(ctx, benchRef("bench-10kb"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func BenchmarkGet_1MB(b *testing.B) {
 	// Setup: write test object
 	data := bytes.Repeat([]byte("a"), 1024*1024)
 	ctx := context.Background()
-	err := backend.Put(ctx, "bench-1mb", bytes.NewReader(data), nil)
+	err := backend.Put(ctx, benchRef("bench-1mb"), bytes.NewReader(data), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func BenchmarkGet_1MB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		reader, _, err := backend.Get(ctx, "bench-1mb")
+		reader, _, err := backend.Get(ctx, benchRef("bench-1mb"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -129,7 +129,7 @@ func BenchmarkGet_10MB(b *testing.B) {
 	// Setup: write test object
 	data := bytes.Repeat([]byte("a"), 10*1024*1024)
 	ctx := context.Background()
-	err := backend.Put(ctx, "bench-10mb", bytes.NewReader(data), nil)
+	err := backend.Put(ctx, benchRef("bench-10mb"), bytes.NewReader(data), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func BenchmarkGet_10MB(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		reader, _, err := backend.Get(ctx, "bench-10mb")
+		reader, _, err := backend.Get(ctx, benchRef("bench-10mb"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -162,14 +162,14 @@ func BenchmarkDelete(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		// Setup: create object to delete
-		err := backend.Put(ctx, "bench-delete", bytes.NewReader(data), nil)
+		err := backend.Put(ctx, benchRef("bench-delete"), bytes.NewReader(data), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
 		b.StartTimer()
 
 		// Benchmark: delete object
-		err = backend.Delete(ctx, "bench-delete")
+		err = backend.Delete(ctx, benchRef("bench-delete"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -184,7 +184,7 @@ func BenchmarkExists(b *testing.B) {
 	// Setup: create test object
 	data := bytes.Repeat([]byte("a"), 10*1024)
 	ctx := context.Background()
-	err := backend.Put(ctx, "bench-exists", bytes.NewReader(data), nil)
+	err := backend.Put(ctx, benchRef("bench-exists"), bytes.NewReader(data), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func BenchmarkExists(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := backend.Exists(ctx, "bench-exists")
+		_, err := backend.Exists(ctx, benchRef("bench-exists"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -209,7 +209,7 @@ func BenchmarkList(b *testing.B) {
 	data := bytes.Repeat([]byte("a"), 1024)
 	ctx := context.Background()
 	for i := 0; i < 100; i++ {
-		err := backend.Put(ctx, "bench-list-"+string(rune('0'+i/10))+string(rune('0'+i%10)), bytes.NewReader(data), nil)
+		err := backend.Put(ctx, benchRef("bench-list-"+string(rune('0'+i/10))+string(rune('0'+i%10))), bytes.NewReader(data), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -219,7 +219,7 @@ func BenchmarkList(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := backend.List(ctx, "bench-list-", false)
+		_, err := backend.List(ctx, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -238,7 +238,7 @@ func BenchmarkGetMetadata(b *testing.B) {
 		"Content-Type": "application/octet-stream",
 		"test-key":     "test-value",
 	}
-	err := backend.Put(ctx, "bench-metadata", bytes.NewReader(data), metadata)
+	err := backend.Put(ctx, benchRef("bench-metadata"), bytes.NewReader(data), metadata)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func BenchmarkGetMetadata(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := backend.GetMetadata(ctx, "bench-metadata")
+		_, err := backend.GetMetadata(ctx, benchRef("bench-metadata"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -270,7 +270,7 @@ func BenchmarkConcurrentPuts(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			path := "bench-concurrent/" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
-			err := backend.Put(ctx, path, bytes.NewReader(data), nil)
+			err := backend.Put(ctx, benchRef(path), bytes.NewReader(data), nil)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -287,7 +287,7 @@ func BenchmarkConcurrentGets(b *testing.B) {
 	// Setup: write test object
 	data := bytes.Repeat([]byte("a"), 10*1024)
 	ctx := context.Background()
-	err := backend.Put(ctx, "bench-concurrent-get", bytes.NewReader(data), nil)
+	err := backend.Put(ctx, benchRef("bench-concurrent-get"), bytes.NewReader(data), nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func BenchmarkConcurrentGets(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			reader, _, err := backend.Get(ctx, "bench-concurrent-get")
+			reader, _, err := backend.Get(ctx, benchRef("bench-concurrent-get"))
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -326,4 +326,8 @@ func setupBenchBackend(b *testing.B) (Backend, func()) {
 	}
 
 	return backend, cleanup
+}
+
+func benchRef(key string) ObjectRef {
+	return ObjectRef{Bucket: "bench", Key: key}
 }

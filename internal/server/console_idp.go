@@ -1147,10 +1147,6 @@ func (s *Server) handleListOAuthProviders(w http.ResponseWriter, r *http.Request
 	s.writeJSON(w, result)
 }
 
-// =============================================================================
-// Helper methods
-// =============================================================================
-
 func (s *Server) getAuthUser(r *http.Request) *auth.User {
 	user, ok := r.Context().Value("user").(*auth.User)
 	if !ok {

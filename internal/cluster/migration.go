@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -648,18 +649,12 @@ func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targ
 		return fmt.Errorf("storage backend not initialized")
 	}
 
-	// Build object path
-	var objectPath string
+	ref := storage.ObjectRef{Bucket: bucket, Key: key}
 	if versionID != "" && versionID != "null" {
-		// Versioned object
-		objectPath = fmt.Sprintf("%s/.versions/%s/%s", bucket, key, versionID)
-	} else {
-		// Regular object
-		objectPath = fmt.Sprintf("%s/%s", bucket, key)
+		ref.VersionID = versionID
 	}
 
-	// Get object data from storage
-	objectReader, _, err := m.storage.Get(ctx, objectPath)
+	objectReader, _, err := m.storage.Get(ctx, ref)
 	if err != nil {
 		return fmt.Errorf("failed to read object from storage: %w", err)
 	}

@@ -36,7 +36,6 @@ func TestRouteOrdering_ClusterNotCapturedByS3(t *testing.T) {
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
-			// CRITICAL ASSERTION: Should return 401 Unauthorized, NOT 403 Forbidden
 			// If S3 routes captured this endpoint, we would get 403 with "Access denied. Object is not shared"
 			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 				"Cluster endpoint should return 401 (missing auth), not 403 (S3 captured it)")
@@ -195,9 +194,6 @@ func TestRouteOrdering_BugReproduction(t *testing.T) {
 	n, _ := resp.Body.Read(buf)
 	body := string(buf[:n])
 
-	// CRITICAL ASSERTIONS - These would FAIL if routes are in wrong order
-
-	// 1. Should NOT be 403 Forbidden (S3 error)
 	assert.NotEqual(t, http.StatusForbidden, resp.StatusCode,
 		"BUG DETECTED: S3 handler captured cluster endpoint! Check route ordering in server.go setupRoutes()")
 

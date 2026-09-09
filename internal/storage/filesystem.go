@@ -54,7 +54,7 @@ func (fs *FilesystemBackend) GetRootPath() string {
 }
 
 // Put stores an object in the filesystem
-func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reader, metadata map[string]string) error {
+func (fs *FilesystemBackend) putAt(ctx context.Context, path string, data io.Reader, metadata map[string]string) error {
 	if err := fs.validatePath(path); err != nil {
 		return err
 	}
@@ -65,7 +65,6 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 	if strings.HasSuffix(path, "/") {
 		logrus.Debugf("Creating directory marker for: %s", path)
 
-		// Convert any files in the path to directories
 		parts := strings.Split(strings.TrimSuffix(fullPath, string(filepath.Separator)), string(filepath.Separator))
 		currentPath := ""
 		for i, part := range parts {
@@ -79,15 +78,9 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 				currentPath = part
 			}
 
-			// Check if this path exists as a file
 			info, err := os.Stat(currentPath)
 			if err == nil && !info.IsDir() {
-				// It's a file, remove it so we can create a directory
-				logrus.Debugf("Converting file to directory: %s", currentPath)
-				os.Remove(currentPath)
-				// Also remove metadata
-				metaPath := currentPath + ".metadata"
-				os.Remove(metaPath)
+				return ErrPathConflict
 			}
 		}
 
@@ -192,7 +185,7 @@ func (fs *FilesystemBackend) Put(ctx context.Context, path string, data io.Reade
 }
 
 // Get retrieves an object from the filesystem
-func (fs *FilesystemBackend) Get(ctx context.Context, path string) (io.ReadCloser, map[string]string, error) {
+func (fs *FilesystemBackend) getAt(ctx context.Context, path string) (io.ReadCloser, map[string]string, error) {
 	if err := fs.validatePath(path); err != nil {
 		return nil, nil, err
 	}
@@ -216,7 +209,7 @@ func (fs *FilesystemBackend) Get(ctx context.Context, path string) (io.ReadClose
 	}
 
 	// Get metadata
-	metadata, err := fs.GetMetadata(ctx, path)
+	metadata, err := fs.metadataAt(ctx, path)
 	if err != nil {
 		file.Close()
 		return nil, nil, err
@@ -226,7 +219,7 @@ func (fs *FilesystemBackend) Get(ctx context.Context, path string) (io.ReadClose
 }
 
 // Delete removes an object from the filesystem
-func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
+func (fs *FilesystemBackend) deleteAt(ctx context.Context, path string) error {
 	if err := fs.validatePath(path); err != nil {
 		return err
 	}
@@ -274,7 +267,7 @@ func (fs *FilesystemBackend) Delete(ctx context.Context, path string) error {
 }
 
 // Exists checks if an object exists in the filesystem
-func (fs *FilesystemBackend) Exists(ctx context.Context, path string) (bool, error) {
+func (fs *FilesystemBackend) existsAt(ctx context.Context, path string) (bool, error) {
 	if err := fs.validatePath(path); err != nil {
 		return false, err
 	}
@@ -306,138 +299,66 @@ func isTransientArtifact(name string) bool {
 	return false
 }
 
-// List lists objects with the given prefix
-func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive bool) ([]ObjectInfo, error) {
+// List returns every object under one bucket, versions included.
+func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectInfo, error) {
+	if err := fs.validatePath(bucket); err != nil {
+		return nil, err
+	}
+
+	root := fs.getFullPath(bucket)
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil, nil
+	}
+
 	var objects []ObjectInfo
 	var walkErr error
 
-	// Validate prefix to prevent directory traversal via crafted prefix values.
-	// An empty prefix is valid (list all); non-empty prefixes must stay within root.
-	if prefix != "" {
-		if err := fs.validatePath(prefix); err != nil {
-			return nil, err
-		}
-	}
-
-	searchPath := fs.rootPath
-	if prefix != "" {
-		searchPath = fs.getFullPath(prefix)
-		if info, err := os.Stat(searchPath); err == nil {
-			if !info.IsDir() {
-				searchPath = filepath.Dir(searchPath)
-			}
-		} else if os.IsNotExist(err) {
-			if strings.HasSuffix(prefix, "/") {
-				return objects, nil
-			}
-			searchPath = filepath.Dir(searchPath)
-		} else {
-			return nil, NewErrorWithCause("StatPrefix", "Failed to stat list prefix", err)
-		}
-	}
-
-	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			if !os.IsNotExist(err) {
 				walkErr = err
 			}
 			return nil
 		}
-
-		// Skip metadata files (final and staged)
-		if strings.HasSuffix(path, ".metadata") || strings.HasSuffix(path, ".metadata"+metadataStagingSuffix) {
-			return nil
-		}
-
-		// Skip MaxIOFS internal folder markers
-		if strings.HasSuffix(path, ".maxiofs-folder") {
-			return nil
-		}
-
-		if isTransientArtifact(filepath.Base(path)) {
-			return nil
-		}
-
-		// Get relative path
-		relPath, err := filepath.Rel(fs.rootPath, path)
-		if err != nil {
-			return nil
-		}
-
-		// Convert to forward slashes for consistency
-		relPath = filepath.ToSlash(relPath)
-
-		// Check if it matches prefix
-		if !strings.HasPrefix(relPath, prefix) {
-			return nil
-		}
-
-		// Handle directories (potential folders)
 		if info.IsDir() {
-			// Check if this directory has a .maxiofs-folder marker
-			markerPath := filepath.Join(path, ".maxiofs-folder")
-			if _, err := os.Stat(markerPath); err == nil {
-				// This is a MaxIOFS folder
-				folderPath := relPath
-				if !strings.HasSuffix(folderPath, "/") {
-					folderPath += "/"
-				}
-
-				// IMPORTANT: Only list folders that were created explicitly (have metadata)
-				// Implicit folders (created by uploading files) should NOT appear in S3 listings
-				metadataPath := filepath.Join(path, ".maxiofs-folder.metadata")
-				if _, err := os.Stat(metadataPath); err == nil {
-					// This folder was created explicitly, include it in listing
-
-					// For non-recursive, check if this folder is at the immediate level
-					if !recursive {
-						remaining := strings.TrimPrefix(folderPath, prefix)
-						// Count slashes - should have exactly one (the trailing one) for immediate level
-						if strings.Count(remaining, "/") > 1 {
-							return nil
-						}
-					}
-
-					// Create object info for the folder
-					obj := ObjectInfo{
-						Path:         folderPath,
-						Size:         0,
-						LastModified: info.ModTime().Unix(),
-						ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
-					}
-
-					// Get metadata
-					if metadata, err := fs.GetMetadata(context.Background(), folderPath); err == nil {
-						obj.Metadata = metadata
-					}
-
-					objects = append(objects, obj)
-				}
-			}
-			return nil // Don't descend into directories when non-recursive
+			return nil
 		}
 
-		// For non-recursive, skip if path contains additional slashes after prefix
-		if !recursive {
-			remaining := strings.TrimPrefix(relPath, prefix)
-			if strings.Contains(remaining, "/") {
+		name := filepath.Base(path)
+		if strings.HasSuffix(name, ".metadata") || strings.HasSuffix(name, ".metadata"+metadataStagingSuffix) {
+			return nil
+		}
+		if isTransientArtifact(name) {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+
+		ref := ObjectRef{Bucket: bucket}
+		if strings.HasPrefix(rel, ".versions/") {
+			trimmed := strings.TrimPrefix(rel, ".versions/")
+			slash := strings.LastIndex(trimmed, "/")
+			if slash <= 0 {
 				return nil
 			}
+			ref.Key = trimmed[:slash]
+			ref.VersionID = trimmed[slash+1:]
+		} else {
+			ref.Key = rel
 		}
 
-		// Create object info for regular files
 		obj := ObjectInfo{
-			Path:         relPath,
+			Ref:          ref,
 			Size:         info.Size(),
 			LastModified: info.ModTime().Unix(),
 		}
-
-		// Try to get ETag from metadata
-		if metadata, err := fs.GetMetadata(context.Background(), relPath); err == nil {
-			if etag, ok := metadata["etag"]; ok {
-				obj.ETag = etag
-			}
-			obj.Metadata = metadata
+		if meta, mErr := fs.metadataAt(ctx, fs.refPath(ref)); mErr == nil {
+			obj.ETag = meta["etag"]
+			obj.Metadata = meta
 		}
 
 		objects = append(objects, obj)
@@ -454,8 +375,7 @@ func (fs *FilesystemBackend) List(ctx context.Context, prefix string, recursive 
 	return objects, nil
 }
 
-// GetMetadata retrieves object metadata
-func (fs *FilesystemBackend) GetMetadata(ctx context.Context, path string) (map[string]string, error) {
+func (fs *FilesystemBackend) metadataAt(ctx context.Context, path string) (map[string]string, error) {
 	if err := fs.validatePath(path); err != nil {
 		return nil, err
 	}
@@ -465,13 +385,10 @@ func (fs *FilesystemBackend) GetMetadata(ctx context.Context, path string) (map[
 
 	metadataPath := fs.getMetadataPath(path)
 
-	// Check if metadata file exists
 	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
-		// Return basic metadata from file stats if metadata file doesn't exist
 		return fs.generateBasicMetadata(path)
 	}
 
-	// Read metadata file
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
 		return nil, NewErrorWithCause("ReadMetadata", "Failed to read metadata file", err)
@@ -485,8 +402,7 @@ func (fs *FilesystemBackend) GetMetadata(ctx context.Context, path string) (map[
 	return metadata, nil
 }
 
-// SetMetadata sets object metadata
-func (fs *FilesystemBackend) SetMetadata(ctx context.Context, path string, metadata map[string]string) error {
+func (fs *FilesystemBackend) setMetadataAt(ctx context.Context, path string, metadata map[string]string) error {
 	if err := fs.validatePath(path); err != nil {
 		return err
 	}
@@ -500,15 +416,10 @@ func (fs *FilesystemBackend) SetMetadata(ctx context.Context, path string, metad
 	return fs.saveMetadata(path, metadata)
 }
 
-// Close closes the filesystem backend
 func (fs *FilesystemBackend) Close() error {
-	// Filesystem backend doesn't need explicit cleanup
 	return nil
 }
 
-// Helper methods
-
-// validatePath validates that the path is safe for filesystem operations
 func (fs *FilesystemBackend) validatePath(path string) error {
 	if path == "" {
 		return ErrInvalidPath
@@ -559,12 +470,10 @@ func isDriveQualifiedPath(path string) bool {
 	return (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
-// getFullPath returns the full filesystem path for a given object path
 func (fs *FilesystemBackend) getFullPath(path string) string {
 	return filepath.Join(fs.rootPath, filepath.FromSlash(path))
 }
 
-// getMetadataPath returns the path for the metadata file
 func (fs *FilesystemBackend) deleteFolderMarker(dir string) error {
 	marker := filepath.Join(dir, folderMarkerName)
 	for _, p := range []string{marker + metadataStagingSuffix, marker + ".metadata", marker} {

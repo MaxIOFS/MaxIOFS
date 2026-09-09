@@ -3,7 +3,6 @@ package bucket
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -93,6 +92,12 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		return err
 	}
 
+	if existing, lookupErr := bm.metadataStore.GetBucketByName(ctx, name); lookupErr != nil && lookupErr != metadata.ErrBucketNotFound {
+		return lookupErr
+	} else if existing != nil {
+		return ErrBucketAlreadyExists
+	}
+
 	// Determine ownership - AWS S3 compatible behavior
 	// Owner is the user who created the bucket (Canonical User ID)
 	ownerType := "user"
@@ -104,16 +109,14 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 
 	// Create bucket metadata
 	bucket := &Bucket{
-		Name:      name,
-		TenantID:  tenantID,
-		OwnerType: ownerType,
-		OwnerID:   ownerID,
-		CreatedAt: time.Now(),
-		Region:    "us-east-1", // Default region
-		Metadata:  make(map[string]string),
-		// Note: Encryption is controlled globally in config.yaml, not per-bucket
-		// Bucket-level encryption metadata is for S3 API compatibility only
-		Encryption: nil, // Will be set by server config, not per-bucket
+		Name:       name,
+		TenantID:   tenantID,
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
+		CreatedAt:  time.Now(),
+		Region:     "us-east-1",
+		Metadata:   make(map[string]string),
+		Encryption: nil,
 	}
 
 	// Store bucket metadata in the active metadata store.
@@ -131,7 +134,6 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		bm.ownerPolicyCb(name, tenantID, ownerID, true)
 	}
 
-	// Solo crear ACL por defecto si no existe uno explícito
 	// AWS S3 compatible: Owner is the user who created the bucket (Canonical User ID)
 	if bm.aclManager != nil {
 		defaultACL := acl.CreateDefaultACL(ownerID, "Bucket Owner")
@@ -147,12 +149,7 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 	}
 
 	// Create bucket directory in storage
-	bucketPath := bm.getTenantBucketPath(tenantID, name) + "/"
-	err := bm.storage.Put(ctx, bucketPath+".maxiofs-bucket",
-		strings.NewReader(""), map[string]string{
-			"bucket-created": bucket.CreatedAt.Format(time.RFC3339),
-			"tenant-id":      tenantID,
-		})
+	err := bm.storage.CreateBucket(ctx, bm.getTenantBucketPath(tenantID, name))
 	if err != nil {
 		if delErr := bm.metadataStore.DeleteBucket(ctx, tenantID, name); delErr != nil && delErr != metadata.ErrBucketNotFound {
 			logrus.WithError(delErr).WithFields(logrus.Fields{
@@ -230,18 +227,10 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 		}
 	}
 
-	// Delete bucket marker from storage
-	bucketPath := bm.getTenantBucketPath(tenantID, name) + "/"
-	if err := bm.storage.Delete(ctx, bucketPath+".maxiofs-bucket"); err != nil {
+	if err := bm.storage.DeleteBucket(ctx, bm.getTenantBucketPath(tenantID, name)); err != nil {
 		if err != storage.ErrObjectNotFound {
 			return err
 		}
-	}
-
-	// Remove physical directory if using filesystem backend
-	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
-		tenantBucketPath := bm.getTenantBucketPath(tenantID, name)
-		_ = fsBackend.RemoveDirectory(tenantBucketPath) // Ignore errors
 	}
 
 	// Drop every policy naming this bucket, so a later bucket of the same name
@@ -288,43 +277,33 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 
 	deletedMetadataCount := bm.deleteAllObjectMetadataForBucket(ctx, bucketPath)
 
-	// List all objects in the bucket
-	prefix := bucketPath + "/"
-	objects, err := bm.storage.List(ctx, prefix, false)
+	objects, err := bm.storage.List(ctx, bucketPath)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list objects for force delete")
 		return err
 	}
 
-	// Delete all objects (both metadata and physical files)
 	deletedCount := 0
 	for _, obj := range objects {
-		// Skip bucket marker and internal files (will be deleted separately)
-		if strings.HasSuffix(obj.Path, ".maxiofs-bucket") || strings.Contains(obj.Path, "/.maxiofs-") {
+		if obj.Ref.Key == "" {
 			continue
 		}
 
-		// Extract object key from path
-		objectKey := strings.TrimPrefix(obj.Path, prefix)
-		if objectKey == "" {
-			continue
-		}
-
-		// Delete object metadata from the active metadata store.
-		if err := bm.metadataStore.DeleteObject(ctx, bucketPath, objectKey); err != nil {
+		if err := bm.metadataStore.DeleteObject(ctx, bucketPath, obj.Ref.Key); err != nil {
 			if err != metadata.ErrObjectNotFound {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"bucket": bucketPath,
-					"key":    objectKey,
+					"key":    obj.Ref.Key,
 				}).Warn("Failed to delete object metadata during force delete")
 			}
 		}
 
-		// Delete physical file from storage
-		if err := bm.storage.Delete(ctx, obj.Path); err != nil {
+		if err := bm.storage.Delete(ctx, obj.Ref); err != nil {
 			if err != storage.ErrObjectNotFound {
 				logrus.WithError(err).WithFields(logrus.Fields{
-					"path": obj.Path,
+					"bucket":    obj.Ref.Bucket,
+					"key":       obj.Ref.Key,
+					"versionID": obj.Ref.VersionID,
 				}).Warn("Failed to delete physical file during force delete")
 			}
 		}
@@ -348,16 +327,8 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 		return err
 	}
 
-	// Delete bucket marker from storage
-	if err := bm.storage.Delete(ctx, prefix+".maxiofs-bucket"); err != nil {
+	if err := bm.storage.DeleteBucket(ctx, bucketPath); err != nil {
 		if err != storage.ErrObjectNotFound {
-			logrus.WithError(err).Warn("Failed to delete bucket marker during force delete")
-		}
-	}
-
-	// Remove physical directory if using filesystem backend
-	if fsBackend, ok := bm.storage.(interface{ RemoveDirectory(string) error }); ok {
-		if err := fsBackend.RemoveDirectory(bucketPath); err != nil {
 			logrus.WithError(err).Warn("Failed to remove bucket directory during force delete")
 		}
 	}

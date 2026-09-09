@@ -87,7 +87,7 @@ func TestRotateKEKEndpoint(t *testing.T) {
 	_, err := server.objectManager.PutObject(ctx, bucketName, "pre-rotate.txt", bytes.NewReader(content), http.Header{})
 	require.NoError(t, err)
 
-	metaBefore, err := server.storageBackend.GetMetadata(ctx, bucketName+"/pre-rotate.txt")
+	metaBefore, err := server.storageBackend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
 	require.NoError(t, err)
 	versionBefore := metaBefore["kek-version"]
 
@@ -129,7 +129,7 @@ func TestRotateKEKEndpoint(t *testing.T) {
 	assert.Equal(t, content, readBack)
 
 	// A worker pass re-wraps it to the new version without touching data.
-	rawBefore, _, err := server.storageBackend.Get(ctx, bucketName+"/pre-rotate.txt")
+	rawBefore, _, err := server.storageBackend.Get(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
 	require.NoError(t, err)
 	dataBefore, _ := io.ReadAll(rawBefore)
 	rawBefore.Close()
@@ -139,11 +139,11 @@ func TestRotateKEKEndpoint(t *testing.T) {
 	var metaAfter map[string]string
 	require.Eventually(t, func() bool {
 		server.runEncryptionPass(ctx) // no-op while the async pass runs
-		metaAfter, err = server.storageBackend.GetMetadata(ctx, bucketName+"/pre-rotate.txt")
+		metaAfter, err = server.storageBackend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
 		return err == nil && metaAfter["kek-version"] != versionBefore
 	}, 15*time.Second, 200*time.Millisecond, "worker must re-wrap to the new KEK version")
 
-	rawAfter, _, err := server.storageBackend.Get(ctx, bucketName+"/pre-rotate.txt")
+	rawAfter, _, err := server.storageBackend.Get(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
 	require.NoError(t, err)
 	dataAfter, _ := io.ReadAll(rawAfter)
 	rawAfter.Close()

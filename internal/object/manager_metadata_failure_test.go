@@ -10,6 +10,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +56,7 @@ func TestPutObjectFailsWhenMetadataSaveFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "metadata")
 
 	// The data file stays on disk (recover-CLI territory, never deleted).
-	exists, err := backend.Exists(ctx, bucketName+"/victim.txt")
+	exists, err := backend.Exists(ctx, storage.ObjectRef{Bucket: bucketName, Key: "victim.txt"})
 	require.NoError(t, err)
 	assert.True(t, exists, "the stored data file must be kept")
 

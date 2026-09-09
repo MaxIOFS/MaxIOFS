@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,21 +94,15 @@ func TestDeleteSpecificVersion(t *testing.T) {
 	assert.Equal(t, obj.Key, retrievedObj.Key)
 }
 
-// TestGetVersionedObjectPath tests generating versioned object path
-func TestGetVersionedObjectPath(t *testing.T) {
+func TestVersionRef(t *testing.T) {
 	om, _, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 
-	bucket := "test-bucket"
-	key := "test-object.txt"
-	versionID := "123456.abcdef12"
+	ref := om.versionRef("test-bucket", "test-object.txt", "123456.abcdef12")
 
-	// Call the private method
-	versionedPath := om.getVersionedObjectPath(bucket, key, versionID)
-
-	// Verify path contains version information
-	assert.NotEmpty(t, versionedPath, "Versioned path should not be empty")
-	assert.Contains(t, versionedPath, versionID, "Versioned path should contain version ID")
+	assert.Equal(t, "test-bucket", ref.Bucket)
+	assert.Equal(t, "test-object.txt", ref.Key)
+	assert.Equal(t, "123456.abcdef12", ref.VersionID)
 }
 
 // TestStoreEncryptedObject tests storing an encrypted object
@@ -134,16 +129,14 @@ func TestStoreEncryptedObject(t *testing.T) {
 	err = os.WriteFile(tempPath, testContent, 0644)
 	require.NoError(t, err)
 
-	// Prepare parameters for storeEncryptedObject
-	objectPath := filepath.Join(bucket, key)
+	ref := storage.ObjectRef{Bucket: bucket, Key: key}
 	storageMetadata := map[string]string{
 		"content-type": "text/plain",
 	}
 	originalSize := int64(len(testContent))
 	originalETag := "test-etag-12345"
 
-	// Call storeEncryptedObject
-	err = om.storeEncryptedObject(ctx, objectPath, tempPath, storageMetadata, originalSize, originalETag)
+	err = om.storeEncryptedObject(ctx, ref, tempPath, storageMetadata, originalSize, originalETag)
 
 	// Should either succeed (if encryption configured) or fail gracefully
 	if err != nil {
@@ -192,13 +185,12 @@ func TestStoreEncryptedMultipartObject(t *testing.T) {
 	require.NoError(t, err)
 
 	// Prepare parameters for storeEncryptedMultipartObject
-	// Signature: storeEncryptedMultipartObject(ctx, objectPath, tempPath, uploadID, multipart, originalSize, originalETag)
-	objectPath := filepath.Join(bucket, key)
+	ref := storage.ObjectRef{Bucket: bucket, Key: key}
 	originalSize := int64(len(testContent))
 	originalETag := "multipart-etag-12345"
 
 	// Call storeEncryptedMultipartObject
-	err = om.storeEncryptedMultipartObject(ctx, objectPath, tempPath, upload.UploadID, upload, originalSize, originalETag)
+	err = om.storeEncryptedMultipartObject(ctx, ref, tempPath, upload.UploadID, upload, originalSize, originalETag)
 
 	// Should either succeed (if encryption configured) or fail gracefully
 	if err != nil {

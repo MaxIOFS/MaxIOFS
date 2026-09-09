@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-
 // RawObjectAccessor is implemented by objectManager and consumed by the HA
 // fanout in internal/cluster (promoted through the HAObjectManager embedding).
 type RawObjectAccessor interface {
@@ -60,12 +59,12 @@ func (om *objectManager) GetObjectRaw(ctx context.Context, bucket, key, versionI
 	if resolvedVersion == "" {
 		resolvedVersion = metaObj.VersionID
 	}
-	objectPath := om.getObjectPath(bucket, key)
+	objectRef := om.objectRef(bucket, key)
 	if resolvedVersion != "" {
-		objectPath = om.getVersionedObjectPath(bucket, key, resolvedVersion)
+		objectRef = om.versionRef(bucket, key, resolvedVersion)
 	}
 
-	reader, sidecar, err := om.storage.Get(ctx, objectPath)
+	reader, sidecar, err := om.storage.Get(ctx, objectRef)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get object data: %w", err)
 	}
@@ -84,16 +83,16 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	tenantID, bucketName := om.parseBucketPath(bucket)
 	versioned := metaObj.VersionID != ""
 
-	objectPath := om.getObjectPath(bucket, key)
+	objectRef := om.objectRef(bucket, key)
 	if versioned {
-		objectPath = om.getVersionedObjectPath(bucket, key, metaObj.VersionID)
+		objectRef = om.versionRef(bucket, key, metaObj.VersionID)
 	}
 
 	sidecarCopy := make(map[string]string, len(sidecar))
 	for k, v := range sidecar {
 		sidecarCopy[k] = v
 	}
-	if err := om.storage.Put(ctx, objectPath, data, sidecarCopy); err != nil {
+	if err := om.storage.Put(ctx, objectRef, data, sidecarCopy); err != nil {
 		return fmt.Errorf("failed to store raw replica: %w", err)
 	}
 

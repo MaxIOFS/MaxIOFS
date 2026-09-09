@@ -359,13 +359,9 @@ func TestQuotaAggregator_TenantStorageInfo_EmptyNodeInfo(t *testing.T) {
 // Helper function to create a mock storage server
 func createMockStorageServer(t *testing.T, storageInfo TenantStorageInfo) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request method and path
 		assert.Equal(t, "GET", r.Method)
 		assert.Contains(t, r.URL.Path, "/api/internal/cluster/tenant/")
 		assert.Contains(t, r.URL.Path, "/storage")
-
-		// Note: HMAC authentication headers are tested in ProxyClient tests
-		// Here we just verify the request structure and return the expected data
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

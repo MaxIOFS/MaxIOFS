@@ -1601,10 +1601,6 @@ func (am *authManager) ListUserBucketPermissions(ctx context.Context, userID str
 	return am.store.ListUserBucketPermissions(userID)
 }
 
-// Helper methods
-
-// generateAccessKeyID generates an AWS-compatible access key ID
-// Format: AKIA + 16 random uppercase alphanumeric characters (total 20 chars)
 func (am *authManager) generateAccessKeyID() (string, error) {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	const randomLength = 16
@@ -2249,8 +2245,6 @@ func (am *authManager) IsAccountLocked(ctx context.Context, userID string) (bool
 		return false, 0, nil
 	}
 
-	// Note: Account locking due to failed attempts is now handled in RecordFailedLogin
-	// to ensure accurate attempt counting
 	_ = failedAttempts // Silence unused variable warning
 
 	return false, 0, nil
@@ -2477,9 +2471,6 @@ func (am *authManager) RecordSuccessfulLogin(ctx context.Context, userID string)
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 	}).Info("Successful login - failed attempts reset")
-
-	// Note: Audit logging is now handled by the HTTP handler (console_api.go)
-	// which has access to IP address and User Agent from the HTTP request
 
 	return nil
 }

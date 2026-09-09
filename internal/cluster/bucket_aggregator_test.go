@@ -302,17 +302,11 @@ func TestBucketAggregator_BucketWithLocation_JSON(t *testing.T) {
 	assert.Equal(t, bucket.NodeStatus, decoded.NodeStatus)
 }
 
-// Helper function to create a mock bucket server
 func createMockBucketServer(t *testing.T, buckets []BucketWithLocation) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request method and path
 		assert.Equal(t, "GET", r.Method)
 		assert.Contains(t, r.URL.Path, "/api/internal/cluster/buckets")
 
-		// Note: HMAC authentication headers are tested in ProxyClient tests
-		// Here we just verify the request structure and return the expected data
-
-		// Return bucket list
 		response := map[string]interface{}{
 			"buckets": buckets,
 		}

@@ -49,10 +49,10 @@ func TestPut_SurvivesAndReadsBack(t *testing.T) {
 	ctx := context.Background()
 	payload := bytes.Repeat([]byte("durable"), 512)
 
-	require.NoError(t, backend.Put(ctx, "bucket/object.bin",
+	require.NoError(t, backend.putAt(ctx, "bucket/object.bin",
 		bytes.NewReader(payload), map[string]string{"content-type": "application/octet-stream"}))
 
-	reader, metadata, err := backend.Get(ctx, "bucket/object.bin")
+	reader, metadata, err := backend.getAt(ctx, "bucket/object.bin")
 	require.NoError(t, err)
 	defer reader.Close()
 
@@ -79,17 +79,17 @@ func TestGeneratedMetadata_IsMarked(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
-	require.NoError(t, backend.Put(ctx, "bucket/plain.txt",
+	require.NoError(t, backend.putAt(ctx, "bucket/plain.txt",
 		bytes.NewReader([]byte("hello")), nil))
 
-	withSidecar, err := backend.GetMetadata(ctx, "bucket/plain.txt")
+	withSidecar, err := backend.metadataAt(ctx, "bucket/plain.txt")
 	require.NoError(t, err)
 	assert.NotEqual(t, "true", withSidecar[MetadataGeneratedKey],
 		"a real sidecar is not a derived map")
 
 	require.NoError(t, os.Remove(filepath.Join(root, "bucket", "plain.txt.metadata")))
 
-	derived, err := backend.GetMetadata(ctx, "bucket/plain.txt")
+	derived, err := backend.metadataAt(ctx, "bucket/plain.txt")
 	require.NoError(t, err)
 	assert.Equal(t, "true", derived[MetadataGeneratedKey],
 		"without a sidecar the map is derived, and must admit it")

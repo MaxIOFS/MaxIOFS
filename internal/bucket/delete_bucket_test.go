@@ -16,8 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDeleteBucket_WithObjects tests that DeleteBucket fails when bucket has objects
-// CRITICAL: Prevents accidental data loss
 func TestDeleteBucket_WithObjects(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-delete-test-*")
 	require.NoError(t, err)
@@ -53,8 +51,8 @@ func TestDeleteBucket_WithObjects(t *testing.T) {
 	objectData := strings.NewReader("test data content")
 
 	// Put physical file in storage
-	objectPath := bucketPath + "/" + objectKey
-	err = storageBackend.Put(ctx, objectPath, objectData, map[string]string{
+	objectRef := storage.ObjectRef{Bucket: bucketPath, Key: objectKey}
+	err = storageBackend.Put(ctx, objectRef, objectData, map[string]string{
 		"Content-Type": "text/plain",
 	})
 	require.NoError(t, err)
@@ -84,8 +82,6 @@ func TestDeleteBucket_WithObjects(t *testing.T) {
 	assert.True(t, exists, "Bucket should still exist after failed delete")
 }
 
-// TestDeleteBucket_CleansStorage tests that DeleteBucket removes physical storage
-// CRITICAL: Prevents storage leaks
 func TestDeleteBucket_CleansStorage(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-delete-test-*")
 	require.NoError(t, err)
@@ -133,8 +129,6 @@ func TestDeleteBucket_CleansStorage(t *testing.T) {
 	assert.False(t, exists, "Bucket should not exist in metadata after deletion")
 }
 
-// TestForceDeleteBucket_DeletesAllObjects tests that ForceDeleteBucket removes all objects
-// CRITICAL: Prevents storage leaks and orphaned data
 func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-force-delete-test-*")
 	require.NoError(t, err)
@@ -169,11 +163,11 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	// Use simple names without subdirectories to ensure they get created
 	objects := []string{"object1.txt", "object2.txt", "object3.txt", "object4.txt", "object5.txt"}
 	for _, objectKey := range objects {
-		objectPath := bucketPath + "/" + objectKey
+		objectRef := storage.ObjectRef{Bucket: bucketPath, Key: objectKey}
 		objectData := strings.NewReader("test data for " + objectKey)
 
 		// Put physical file in storage
-		err = storageBackend.Put(ctx, objectPath, objectData, map[string]string{
+		err = storageBackend.Put(ctx, objectRef, objectData, map[string]string{
 			"Content-Type": "text/plain",
 		})
 		require.NoError(t, err, "Should create physical file: "+objectKey)
@@ -194,14 +188,9 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	}
 
 	// Verify objects exist in storage before ForceDelete
-	objectsInBucket, err := storageBackend.List(ctx, bucketPath+"/", false)
+	objectsInBucket, err := storageBackend.List(ctx, bucketPath)
 	require.NoError(t, err)
-	actualObjectCount := 0
-	for _, obj := range objectsInBucket {
-		if !strings.HasSuffix(obj.Path, ".maxiofs-bucket") && !strings.Contains(obj.Path, "/.maxiofs-") {
-			actualObjectCount++
-		}
-	}
+	actualObjectCount := len(objectsInBucket)
 	assert.Equal(t, len(objects), actualObjectCount, "All objects should exist before ForceDelete")
 
 	// Force delete bucket with all objects
@@ -219,8 +208,6 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "Bucket directory should be completely removed")
 }
 
-// TestForceDeleteBucket_CleansMetadata tests that ForceDeleteBucket removes all metadata
-// CRITICAL: Prevents metadata corruption and orphaned entries
 func TestForceDeleteBucket_CleansMetadata(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-force-delete-metadata-test-*")
 	require.NoError(t, err)

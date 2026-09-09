@@ -35,6 +35,37 @@ func TestNewManager(t *testing.T) {
 	assert.NotNil(t, manager)
 }
 
+func TestInsertDefaultsRefreshesDescriptionKeepsValue(t *testing.T) {
+	db, _ := setupTestDB(t)
+	defer db.Close()
+
+	_, err := NewManager(db, logrus.New())
+	require.NoError(t, err)
+
+	const key = "security.iam_api_enabled"
+
+	var want string
+	require.NoError(t, db.QueryRow(`SELECT description FROM system_settings WHERE key = ?`, key).Scan(&want))
+	require.NotEmpty(t, want)
+
+	_, err = db.Exec(`UPDATE system_settings SET value = ?, description = ?, updated_at = ? WHERE key = ?`,
+		"false", "description written by an older release", 12345, key)
+	require.NoError(t, err)
+
+	_, err = NewManager(db, logrus.New())
+	require.NoError(t, err)
+
+	var value, description string
+	var updatedAt int64
+	require.NoError(t, db.QueryRow(
+		`SELECT value, description, updated_at FROM system_settings WHERE key = ?`, key).
+		Scan(&value, &description, &updatedAt))
+
+	assert.Equal(t, "false", value)
+	assert.Equal(t, want, description)
+	assert.Equal(t, int64(12345), updatedAt)
+}
+
 func TestGet(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()

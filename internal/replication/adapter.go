@@ -60,9 +60,6 @@ func (a *RealObjectAdapter) DeleteObject(ctx context.Context, bucket, key, tenan
 		"key":       key,
 	}).Info("Marking object for delete replication")
 
-	// Note: The actual deletion on remote S3 is handled by the worker
-	// This method just validates that the operation can be performed
-
 	return nil
 }
 

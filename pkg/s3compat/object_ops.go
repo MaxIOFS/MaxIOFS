@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -862,7 +864,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		if sourceObj.ContentLanguage != "" {
 			headers.Set("Content-Language", sourceObj.ContentLanguage)
 		}
-		// Propagate user-defined metadata
 		for k, v := range sourceObj.Metadata {
 			headers.Set("X-Amz-Meta-"+k, v)
 		}
@@ -875,11 +876,14 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)
 			return
 		}
+		if errors.Is(err, storage.ErrPathConflict) {
+			h.writeError(w, "ObjectExistsAsPrefix", "An object already exists on this key path", destKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), destKey, r)
 		return
 	}
 
-	// Apply canned ACL from x-amz-acl header if present (e.g. --acl public-read on copy).
 	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
 		h.applyObjectCannedACLHeader(r.Context(), destBucketPath, destKey, cannedACL)
 	}
@@ -901,17 +905,13 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set version ID response headers before writing XML body
-	// x-amz-version-id: version ID of the newly created destination object
 	if destObj.VersionID != "" {
 		w.Header().Set("x-amz-version-id", destObj.VersionID)
 	}
-	// x-amz-copy-source-version-id: version ID of the source object that was copied
 	if sourceObj.VersionID != "" {
 		w.Header().Set("x-amz-copy-source-version-id", sourceObj.VersionID)
 	}
 
-	// Return copy result
 	type CopyObjectResult struct {
 		XMLName      xml.Name  `xml:"CopyObjectResult"`
 		LastModified time.Time `xml:"LastModified"`
@@ -925,7 +925,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 
 	h.writeXMLResponse(w, http.StatusOK, result)
 
-	// Fire s3:ObjectCreated:Copy notification asynchronously.
 	h.fireNotifications(r.Context(), destBucket, destTenantID, destKey, "s3:ObjectCreated:Copy", destObj.ETag, destObj.Size)
 }
 

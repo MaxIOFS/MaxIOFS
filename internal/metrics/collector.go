@@ -309,12 +309,7 @@ func (c *collector) collectAndReport(ctx context.Context, manager Manager) {
 	}
 }
 
-// Helper methods for system metrics collection
-// Note: These are simplified implementations. In production, you'd use
-// system-specific calls or libraries like gopsutil for accurate metrics
-
 func (c *collector) getCPUUsage() float64 {
-	// Get CPU usage percentage
 	percentages, err := cpu.Percent(time.Second, false)
 	if err != nil || len(percentages) == 0 {
 		return 0.0

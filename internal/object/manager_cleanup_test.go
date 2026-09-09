@@ -18,25 +18,41 @@ import (
 // so cleanupEmptyDirectories should return immediately without touching the FS.
 type nonFSBackend struct{}
 
-func (n *nonFSBackend) Put(_ context.Context, _ string, _ io.Reader, _ map[string]string) error {
+func (n *nonFSBackend) Put(_ context.Context, _ storage.ObjectRef, _ io.Reader, _ map[string]string) error {
 	return nil
 }
-func (n *nonFSBackend) Get(_ context.Context, _ string) (io.ReadCloser, map[string]string, error) {
+func (n *nonFSBackend) Get(_ context.Context, _ storage.ObjectRef) (io.ReadCloser, map[string]string, error) {
 	return nil, nil, nil
 }
-func (n *nonFSBackend) Delete(_ context.Context, _ string) error         { return nil }
-func (n *nonFSBackend) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (n *nonFSBackend) List(_ context.Context, _ string, _ bool) ([]storage.ObjectInfo, error) {
+func (n *nonFSBackend) Delete(_ context.Context, _ storage.ObjectRef) error { return nil }
+func (n *nonFSBackend) Exists(_ context.Context, _ storage.ObjectRef) (bool, error) {
+	return false, nil
+}
+func (n *nonFSBackend) GetMetadata(_ context.Context, _ storage.ObjectRef) (map[string]string, error) {
 	return nil, nil
 }
-func (n *nonFSBackend) GetMetadata(_ context.Context, _ string) (map[string]string, error) {
-	return nil, nil
-}
-func (n *nonFSBackend) SetMetadata(_ context.Context, _ string, _ map[string]string) error {
+func (n *nonFSBackend) SetMetadata(_ context.Context, _ storage.ObjectRef, _ map[string]string) error {
 	return nil
 }
-func (n *nonFSBackend) Close() error { return nil }
-
+func (n *nonFSBackend) List(_ context.Context, _ string) ([]storage.ObjectInfo, error) {
+	return nil, nil
+}
+func (n *nonFSBackend) CreateBucket(_ context.Context, _ string) error { return nil }
+func (n *nonFSBackend) DeleteBucket(_ context.Context, _ string) error { return nil }
+func (n *nonFSBackend) PutPart(_ context.Context, _ string, _ int, _ io.Reader, _ map[string]string) error {
+	return nil
+}
+func (n *nonFSBackend) GetPart(_ context.Context, _ string, _ int) (io.ReadCloser, map[string]string, error) {
+	return nil, nil, nil
+}
+func (n *nonFSBackend) PartMetadata(_ context.Context, _ string, _ int) (map[string]string, error) {
+	return nil, nil
+}
+func (n *nonFSBackend) PartExists(_ context.Context, _ string, _ int) (bool, error) {
+	return false, nil
+}
+func (n *nonFSBackend) DeletePart(_ context.Context, _ string, _ int) error { return nil }
+func (n *nonFSBackend) Close() error                                        { return nil }
 
 // makeDir creates a directory (and all parents) inside the given root.
 func makeDir(t *testing.T, root string, parts ...string) string {

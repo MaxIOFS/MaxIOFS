@@ -82,7 +82,7 @@ func TestLegacyDirectEncryptedObjectStillDecrypts(t *testing.T) {
 		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
 		"content-type":                           "text/plain",
 	}
-	objectPath := om.getObjectPath(bucketName, key)
+	objectPath := om.objectRef(bucketName, key)
 	require.NoError(t, backend.Put(ctx, objectPath, &ciphertext, legacyMeta))
 
 	// Sanity: the sidecar must NOT contain a wrapped DEK (legacy format).
@@ -122,7 +122,7 @@ func TestPlaintextObjectStillServed(t *testing.T) {
 		"etag":         hex.EncodeToString(md5sum[:]),
 		"content-type": "text/plain",
 	}
-	objectPath := om.getObjectPath(bucketName, key)
+	objectPath := om.objectRef(bucketName, key)
 	require.NoError(t, backend.Put(ctx, objectPath, bytes.NewReader(content), plainMeta))
 
 	_, reader, err := om.GetObject(ctx, bucketName, key)
@@ -153,7 +153,7 @@ func TestEnvelopeRoundtripWithConfigKey(t *testing.T) {
 	assert.Equal(t, "AES256", obj.SSEAlgorithm)
 
 	// Envelope fields must be present in the sidecar.
-	objectPath := om.getObjectPath(bucketName, key)
+	objectPath := om.objectRef(bucketName, key)
 	storedMeta, err := backend.GetMetadata(ctx, objectPath)
 	require.NoError(t, err)
 	assert.Equal(t, "true", storedMeta["encrypted"])
@@ -208,7 +208,7 @@ func TestFolderMarkerIsNotEncrypted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, obj.SSEAlgorithm)
 
-	storedMeta, err := backend.GetMetadata(ctx, om.getObjectPath(bucketName, "my-folder/"))
+	storedMeta, err := backend.GetMetadata(ctx, om.objectRef(bucketName, "my-folder/"))
 	require.NoError(t, err)
 	assert.NotEqual(t, "true", storedMeta["encrypted"])
 	assert.Empty(t, storedMeta["wrapped-dek"])
@@ -242,7 +242,7 @@ func TestUpdateObjectMetadataPreservesEnvelope(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	storedMeta, err := backend.GetMetadata(ctx, om.getObjectPath(bucketName, key))
+	storedMeta, err := backend.GetMetadata(ctx, om.objectRef(bucketName, key))
 	require.NoError(t, err)
 	assert.Equal(t, "true", storedMeta["encrypted"], "system key must survive metadata update")
 	assert.NotEmpty(t, storedMeta["wrapped-dek"], "wrapped DEK must survive metadata update")

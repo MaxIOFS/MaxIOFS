@@ -131,20 +131,13 @@ func cleanupTestData(t *testing.T, tenantID string, buckets ...string) {
 					server.objectManager.DeleteObject(ctx, tenantID+"/"+bucketName, obj.Key, false)
 				}
 			}
-			// Delete bucket
 			server.bucketManager.DeleteBucket(ctx, tenantID, bucketName)
 		}
 
-		// Note: We don't delete tenants to avoid breaking other concurrent tests
-		// Tenants are lightweight and reusable across tests
 	})
 }
 
-// DEPRECATED: This function is kept for backwards compatibility but should not be used
-// Use getSharedServer() instead to avoid creating multiple server instances
 func createTestConfig(t *testing.T) *config.Config {
-	// For tests that still use this, just return the shared server's config
-	// This prevents creating new servers
 	return sharedServer.config
 }
 
@@ -153,7 +146,6 @@ func TestServerNew(t *testing.T) {
 		server := getSharedServer()
 		require.NotNil(t, server, "Server should not be nil")
 
-		// Verify server components are initialized
 		assert.NotNil(t, server.config, "Config should be set")
 		assert.NotNil(t, server.storageBackend, "Storage backend should be initialized")
 		assert.NotNil(t, server.metadataStore, "Metadata store should be initialized")
@@ -165,15 +157,12 @@ func TestServerNew(t *testing.T) {
 	t.Run("should initialize all managers", func(t *testing.T) {
 		server := getSharedServer()
 
-		// Verify all critical managers are initialized
 		assert.NotNil(t, server.metricsManager, "Metrics manager should be initialized")
 		assert.NotNil(t, server.settingsManager, "Settings manager should be initialized")
 		assert.NotNil(t, server.shareManager, "Share manager should be initialized")
 		assert.NotNil(t, server.notificationManager, "Notification manager should be initialized")
 		assert.NotNil(t, server.lifecycleWorker, "Lifecycle worker should be initialized")
 	})
-
-	// Removed: Data directory creation is tested implicitly by shared server in TestMain
 }
 
 func TestServerNewRegistersManagedComponents(t *testing.T) {
@@ -282,12 +271,8 @@ func TestServerErrorHandling(t *testing.T) {
 		assert.Error(t, err, "Should reject invalid storage backend")
 		assert.Contains(t, err.Error(), "unsupported storage backend")
 	})
-
-	// Removed: Duplicate server creation test - not applicable with shared server approach
-	// Removed: Context cancellation test - not applicable with shared server approach
 }
 
-// TestServerComponentInitialization tests that all components are properly initialized and connected
 func TestServerComponentInitialization(t *testing.T) {
 	server := getSharedServer()
 

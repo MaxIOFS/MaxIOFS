@@ -5,6 +5,18 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - Unreleased
+
+### Changed
+- Vitest 4 -> 5 for the frontend test suite, with `@vitest/ui` and `@vitest/coverage-v8` on the same major. `engines.node` now excludes Node 25, which the toolchain does not support.
+
+### Fixed
+- Bucket names are now rejected when already used in another tenant. `GetBucketByName` resolves by name alone, so a duplicate left one of the two buckets unreachable over S3. (`internal/bucket/manager_impl.go`)
+- **Data loss: a folder marker destroyed a same-named object.** `PUT key/` deleted any file occupying a component of that path, along with its metadata sidecar and the wrapped DEK, then created a directory there. Listings and GET kept reporting the original size and ETag while the body read empty. Non-versioned buckets only. The write is now refused with 409 `ObjectExistsAsPrefix`. (`internal/storage/filesystem.go`)
+- Test setup assigned `globalThis.localStorage` and `globalThis.sessionStorage` directly; under Vitest 5 those are getter-only and every suite failed to load. Installed with `Object.defineProperty`. (`web/frontend/src/test/setup.ts`)
+- Setting descriptions, types and categories are refreshed on startup instead of being written only on first boot, so an upgraded install no longer shows the text of the release it was first installed with. Values are untouched. (`internal/settings/manager.go`)
+- `security.iam_api_enabled` description said Veeam creates its own identities and credentials, and that disabling it stops the advertisement "to Veeam". Veeam signs with the key it is given, and `system.xml` is served on the object key with no User-Agent check.
+
 ## [1.6.0] - 2026-08-26
 
 ### Added

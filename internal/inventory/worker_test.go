@@ -94,7 +94,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 
 	// Mock successful storage operations
 	mockMetadata.On("PutObject", ctx, mock.AnythingOfType("*metadata.ObjectMetadata")).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	// Execute
 	err := worker.processInventoryConfig(ctx, config)
@@ -307,7 +307,7 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	).Once()
 
 	// Mock storage failure
-	mockStorage.On("Put", ctx, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
 		errors.New("storage write failed"),
 	).Once()
 
@@ -423,9 +423,7 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
 		return obj.Bucket == "tenant1/dest-1"
 	})).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
-		return true
-	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	// Mock for config2
 	mockBucketMgr.On("GetBucketInfo", ctx, "tenant1", "bucket-2").Return(&bucket.Bucket{
@@ -445,9 +443,7 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
 		return obj.Bucket == "tenant1/dest-2"
 	})).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.MatchedBy(func(path string) bool {
-		return true
-	}), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
 
 	// Execute
 	worker.processInventories(ctx)

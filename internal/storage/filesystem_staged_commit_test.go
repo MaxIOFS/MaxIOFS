@@ -39,13 +39,13 @@ func TestStagedCommit_NormalPutAndOverwrite(t *testing.T) {
 	ctx := context.Background()
 	path := "bucket/obj.txt"
 
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader([]byte("v1")), map[string]string{"content-type": "text/plain"}))
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader([]byte("v1")), map[string]string{"content-type": "text/plain"}))
 	_, err := os.Stat(backend.getStagingMetadataPath(path))
 	assert.True(t, os.IsNotExist(err), "staging file must be consumed by the commit")
 
 	// Overwrite.
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader([]byte("version-two")), map[string]string{"content-type": "text/plain"}))
-	reader, meta, err := backend.Get(ctx, path)
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader([]byte("version-two")), map[string]string{"content-type": "text/plain"}))
+	reader, meta, err := backend.getAt(ctx, path)
 	require.NoError(t, err)
 	defer reader.Close()
 	got, err := io.ReadAll(reader)
@@ -65,7 +65,7 @@ func TestStagedCommit_RollForwardAfterDataCommit(t *testing.T) {
 	path := "bucket/obj.txt"
 
 	// Old pair on disk.
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader([]byte("old data")), map[string]string{"x-old": "yes"}))
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader([]byte("old data")), map[string]string{"x-old": "yes"}))
 
 	// Simulate the crashed Put: NEW data already renamed into place, staged
 	// sidecar present, final sidecar still the old one.
@@ -79,7 +79,7 @@ func TestStagedCommit_RollForwardAfterDataCommit(t *testing.T) {
 	})
 
 	// Any read triggers the repair.
-	meta, err := backend.GetMetadata(ctx, path)
+	meta, err := backend.metadataAt(ctx, path)
 	require.NoError(t, err)
 	assert.Equal(t, "yes", meta["x-new"], "repair must roll the staged sidecar forward")
 	assert.Empty(t, meta["x-old"])
@@ -87,7 +87,7 @@ func TestStagedCommit_RollForwardAfterDataCommit(t *testing.T) {
 	_, err = os.Stat(backend.getStagingMetadataPath(path))
 	assert.True(t, os.IsNotExist(err), "stage must be consumed by the roll-forward")
 
-	reader, meta2, err := backend.Get(ctx, path)
+	reader, meta2, err := backend.getAt(ctx, path)
 	require.NoError(t, err)
 	defer reader.Close()
 	got, err := io.ReadAll(reader)
@@ -105,7 +105,7 @@ func TestStagedCommit_RollBackWhenDataCommitNeverHappened(t *testing.T) {
 	path := "bucket/obj.txt"
 
 	oldData := []byte("old data")
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader(oldData), map[string]string{"x-old": "yes"}))
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader(oldData), map[string]string{"x-old": "yes"}))
 
 	// Simulate the crashed Put: staged sidecar written, data commit never ran.
 	writeStagedSidecar(t, backend, path, map[string]string{
@@ -114,7 +114,7 @@ func TestStagedCommit_RollBackWhenDataCommitNeverHappened(t *testing.T) {
 		"x-new": "yes",
 	})
 
-	reader, meta, err := backend.Get(ctx, path)
+	reader, meta, err := backend.getAt(ctx, path)
 	require.NoError(t, err)
 	defer reader.Close()
 	got, err := io.ReadAll(reader)
@@ -136,7 +136,7 @@ func TestStagedCommit_StageWithoutDataIsDiscarded(t *testing.T) {
 
 	writeStagedSidecar(t, backend, path, map[string]string{"etag": "abc", "size": "3"})
 
-	_, _, err := backend.Get(ctx, path)
+	_, _, err := backend.getAt(ctx, path)
 	assert.ErrorIs(t, err, ErrObjectNotFound)
 
 	_, err = os.Stat(backend.getStagingMetadataPath(path))
@@ -151,11 +151,11 @@ func TestStagedCommit_CorruptStageIsDiscarded(t *testing.T) {
 	ctx := context.Background()
 	path := "bucket/obj.txt"
 
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader([]byte("data")), nil))
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader([]byte("data")), nil))
 	stagingPath := backend.getStagingMetadataPath(path)
 	require.NoError(t, os.WriteFile(stagingPath, []byte("not json"), 0o640))
 
-	_, err := backend.GetMetadata(ctx, path)
+	_, err := backend.metadataAt(ctx, path)
 	require.NoError(t, err)
 	_, err = os.Stat(stagingPath)
 	assert.True(t, os.IsNotExist(err))
@@ -167,10 +167,10 @@ func TestStagedCommit_DeleteRemovesStage(t *testing.T) {
 	ctx := context.Background()
 	path := "bucket/obj.txt"
 
-	require.NoError(t, backend.Put(ctx, path, bytes.NewReader([]byte("data")), nil))
+	require.NoError(t, backend.putAt(ctx, path, bytes.NewReader([]byte("data")), nil))
 	writeStagedSidecar(t, backend, path, map[string]string{"etag": "zz", "size": "1"})
 
-	require.NoError(t, backend.Delete(ctx, path))
+	require.NoError(t, backend.deleteAt(ctx, path))
 	_, err := os.Stat(backend.getStagingMetadataPath(path))
 	assert.True(t, os.IsNotExist(err))
 }
@@ -180,12 +180,12 @@ func TestStagedCommit_ListSkipsStagedSidecars(t *testing.T) {
 	backend, _ := newStagedTestBackend(t)
 	ctx := context.Background()
 
-	require.NoError(t, backend.Put(ctx, "bucket/a.txt", bytes.NewReader([]byte("a")), nil))
+	require.NoError(t, backend.putAt(ctx, "bucket/a.txt", bytes.NewReader([]byte("a")), nil))
 	writeStagedSidecar(t, backend, "bucket/b.txt", map[string]string{"etag": "zz", "size": "1"})
 
-	objects, err := backend.List(ctx, "bucket/", true)
+	objects, err := backend.List(ctx, "bucket")
 	require.NoError(t, err)
 	for _, o := range objects {
-		assert.NotContains(t, o.Path, ".metadata", "sidecar/staging files must not be listed: %s", o.Path)
+		assert.NotContains(t, o.Ref.Key, ".metadata", "sidecar/staging files must not be listed: %s", o.Ref.Key)
 	}
 }

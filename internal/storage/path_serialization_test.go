@@ -17,25 +17,37 @@ import (
 // new mutating method that is not covered here fails the completeness check
 // below rather than passing silently.
 var readOnlyBackendMethods = map[string]bool{
-	"Get":         true,
-	"GetMetadata": true,
-	"Exists":      true,
-	"List":        true,
-	"Close":       true,
-	"GetRootPath": true,
+	"Get":          true,
+	"GetMetadata":  true,
+	"Exists":       true,
+	"List":         true,
+	"Close":        true,
+	"GetRootPath":  true,
+	"GetPart":      true,
+	"PartMetadata": true,
+	"PartExists":   true,
+}
+
+// Mutators outside an object's path unit: bucket directories, and parts, which
+// reach the lock through Put and Delete on a path of their own.
+var nonObjectPathBackendMethods = map[string]bool{
+	"CreateBucket": true,
+	"DeleteBucket": true,
+	"PutPart":      true,
+	"DeletePart":   true,
 }
 
 func mutatingBackendCalls(fs *FilesystemBackend, path string) map[string]func() {
 	ctx := context.Background()
 	return map[string]func(){
 		"Put": func() {
-			_ = fs.Put(ctx, path, strings.NewReader("payload"), nil)
+			_ = fs.putAt(ctx, path, strings.NewReader("payload"), nil)
 		},
 		"Delete": func() {
-			_ = fs.Delete(ctx, path)
+			_ = fs.deleteAt(ctx, path)
 		},
 		"SetMetadata": func() {
-			_ = fs.SetMetadata(ctx, path, map[string]string{"k": "v"})
+			_ = fs.setMetadataAt(ctx, path, map[string]string{"k": "v"})
 		},
 	}
 }
@@ -46,7 +58,7 @@ func TestBackendMutatorsAreAllCovered(t *testing.T) {
 
 	for i := 0; i < iface.NumMethod(); i++ {
 		name := iface.Method(i).Name
-		if readOnlyBackendMethods[name] {
+		if readOnlyBackendMethods[name] || nonObjectPathBackendMethods[name] {
 			continue
 		}
 		if _, ok := covered[name]; !ok {
@@ -69,7 +81,7 @@ func TestBackendMutatorsSerializeOnThePathLock(t *testing.T) {
 	}
 
 	const path = "b1/serialized.txt"
-	if err := fs.Put(context.Background(), path, strings.NewReader("initial"), nil); err != nil {
+	if err := fs.putAt(context.Background(), path, strings.NewReader("initial"), nil); err != nil {
 		t.Fatal(err)
 	}
 

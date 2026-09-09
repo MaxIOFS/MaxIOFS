@@ -209,7 +209,6 @@ func toMetadataMultipartUpload(mu *MultipartUpload) *metadata.MultipartUploadMet
 		Metadata:     mu.Metadata,
 	}
 
-	// Note: parts are stored separately in the metadata store, not in the upload metadata.
 	return metaMU
 }
 

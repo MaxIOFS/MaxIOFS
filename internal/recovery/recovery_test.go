@@ -83,8 +83,7 @@ func buildTestDeployment(t *testing.T) (string, string, string) {
 		Name: "versioned-bucket", OwnerID: "admin",
 		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
-	require.NoError(t, backend.Put(ctx, "versioned-bucket/.maxiofs-bucket", bytes.NewReader(nil),
-		map[string]string{"tenant-id": ""}))
+	require.NoError(t, backend.CreateBucket(ctx, "versioned-bucket"))
 	_, err = objMgr.PutObject(ctx, "versioned-bucket", "doc.txt", bytes.NewReader([]byte("version one")), http.Header{})
 	require.NoError(t, err)
 	_, err = objMgr.PutObject(ctx, "versioned-bucket", "doc.txt", bytes.NewReader([]byte("version two — latest")), http.Header{})

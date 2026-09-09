@@ -16,9 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Note: We use bucket.Policy directly instead of defining our own structures
-
-// GetBucketPolicy retrieves the bucket policy
 func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]

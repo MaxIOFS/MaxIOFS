@@ -479,7 +479,6 @@ export default function BucketSettingsPage() {
   const [websiteIndexDoc, setWebsiteIndexDoc] = useState<string>('index.html');
   const [websiteErrorDoc, setWebsiteErrorDoc] = useState<string>('');
 
-  // Server config (para saber si website_hostname está configurado)
   const { data: serverConfig } = useQuery({
     queryKey: ['serverConfig'],
     queryFn: APIClient.getServerConfig,

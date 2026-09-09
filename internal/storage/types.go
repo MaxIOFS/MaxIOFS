@@ -10,12 +10,22 @@ const MetadataGeneratedKey = "maxiofs-metadata-generated"
 
 // Common storage errors
 var (
-	ErrObjectNotFound    = NewError("ObjectNotFound", "The specified object does not exist")
-	ErrObjectExists      = NewError("ObjectExists", "The specified object already exists")
-	ErrInvalidPath       = NewError("InvalidPath", "The specified path is invalid")
-	ErrPermissionDenied  = NewError("PermissionDenied", "Permission denied")
-	ErrStorageNotReady   = NewError("StorageNotReady", "Storage backend is not ready")
+	ErrObjectNotFound   = NewError("ObjectNotFound", "The specified object does not exist")
+	ErrObjectExists     = NewError("ObjectExists", "The specified object already exists")
+	ErrInvalidPath      = NewError("InvalidPath", "The specified path is invalid")
+	ErrPermissionDenied = NewError("PermissionDenied", "Permission denied")
+	ErrStorageNotReady  = NewError("StorageNotReady", "Storage backend is not ready")
+	ErrPathConflict     = NewError("PathConflict", "An object already occupies this path")
 )
+
+// ObjectRef identifies an object independently of how a backend lays it out.
+type ObjectRef struct {
+	// Bucket is the logical bucket path: "<tenantID>/<name>", or "<name>" when
+	// the bucket belongs to no tenant.
+	Bucket    string
+	Key       string
+	VersionID string
+}
 
 // StorageError represents a storage-specific error
 type StorageError struct {

@@ -29,7 +29,6 @@ export function ObjectLockConfigModal({
 }: ObjectLockConfigModalProps) {
   const { t } = useTranslation('bucketSettings');
 
-  // Calcular valores iniciales desde las props (se ejecuta una sola vez por montaje)
   const initialValue = currentYears ? currentYears.toString() : (currentDays?.toString() || '');
   const initialUnit: 'days' | 'years' = currentYears ? 'years' : 'days';
 
@@ -43,7 +42,6 @@ export function ObjectLockConfigModal({
     setRetentionUnit(currentYears ? 'years' : 'days');
   }, [isOpen, currentDays, currentYears]);
 
-  // Calcular días totales actuales
   const currentTotalDays = currentYears ? currentYears * 365 : (currentDays || 0);
 
   const updateMutation = useMutation({

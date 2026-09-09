@@ -169,13 +169,10 @@ func isConsoleRequest(r *http.Request) bool {
 	return len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/"
 }
 
-// mapS3Operation maps S3 request to operation type
 func mapS3Operation(r *http.Request) string {
-	// Get route vars (bucket, object)
-	// Note: The S3 handler uses "object" not "key" for the path variable
 	vars := mux.Vars(r)
 	bucket := vars["bucket"]
-	object := vars["object"] // Changed from "key" to "object"
+	object := vars["object"]
 
 	// Determine operation based on method and path
 	switch r.Method {

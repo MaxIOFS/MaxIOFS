@@ -359,13 +359,11 @@ func (m *Manager) QueueRealtimeObject(ctx context.Context, tenantID, bucket, obj
 }
 
 func (m *Manager) queueObjectForModes(ctx context.Context, tenantID, bucket, objectKey, action, modeFilter string) error {
-	// Find matching rules
 	rules, err := m.findMatchingRules(ctx, tenantID, bucket, objectKey, modeFilter)
 	if err != nil {
 		return err
 	}
 
-	// Queue object for each matching rule
 	for _, rule := range rules {
 		item := &QueueItem{
 			RuleID:      rule.ID,

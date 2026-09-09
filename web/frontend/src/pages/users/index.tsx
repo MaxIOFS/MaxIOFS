@@ -243,7 +243,6 @@ export default function UsersPage() {
   };
 
   const formatDate = (dateValue: string | number) => {
-    // Si es un número, convertirlo de timestamp Unix (segundos) a milisegundos
     const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
     return date.toLocaleDateString(activeLocale(), {
       year: 'numeric',

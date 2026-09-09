@@ -109,7 +109,7 @@ func TestRawReplicationRoundtrip(t *testing.T) {
 	assert.Equal(t, objA.Size, objB.Size)
 
 	// The replica's sidecar preserved the envelope.
-	sidecarB, err := nodeB.storage.GetMetadata(ctx, nodeB.getObjectPath(bucketName, "doc.bin"))
+	sidecarB, err := nodeB.storage.GetMetadata(ctx, nodeB.objectRef(bucketName, "doc.bin"))
 	require.NoError(t, err)
 	assert.Equal(t, sidecar["wrapped-dek"], sidecarB["wrapped-dek"])
 	assert.Equal(t, sidecar["original-etag"], sidecarB["original-etag"])

@@ -21,14 +21,14 @@ func TestDeleteFolderMarker_LeavesTheObjectsUnderItAlone(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := fs.Put(ctx, "b1/photos/", strings.NewReader(""), nil); err != nil {
+	if err := fs.putAt(ctx, "b1/photos/", strings.NewReader(""), nil); err != nil {
 		t.Fatalf("could not create the folder marker: %v", err)
 	}
-	if err := fs.Put(ctx, "b1/photos/cat.jpg", strings.NewReader("the bytes"), nil); err != nil {
+	if err := fs.putAt(ctx, "b1/photos/cat.jpg", strings.NewReader("the bytes"), nil); err != nil {
 		t.Fatalf("could not write the object: %v", err)
 	}
 
-	if err := fs.Delete(ctx, "b1/photos/"); err != nil {
+	if err := fs.deleteAt(ctx, "b1/photos/"); err != nil {
 		t.Fatalf("deleting the folder marker failed: %v", err)
 	}
 
@@ -54,10 +54,10 @@ func TestDeleteFolderMarker_RemovesAnEmptyFolder(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := fs.Put(ctx, "b1/empty/", strings.NewReader(""), nil); err != nil {
+	if err := fs.putAt(ctx, "b1/empty/", strings.NewReader(""), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := fs.Delete(ctx, "b1/empty/"); err != nil {
+	if err := fs.deleteAt(ctx, "b1/empty/"); err != nil {
 		t.Fatal(err)
 	}
 

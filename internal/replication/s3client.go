@@ -156,7 +156,6 @@ func (c *S3RemoteClient) PutObject(ctx context.Context, bucket, key string, data
 		"size":     size,
 	}).Debug("Uploading object to remote S3")
 
-	// Convert metadata to AWS format
 	awsMetadata := make(map[string]string)
 	for k, v := range metadata {
 		awsMetadata[k] = v
