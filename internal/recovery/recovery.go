@@ -17,6 +17,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/maxiofs/maxiofs/pkg/encryption"
 	"github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
@@ -151,29 +152,44 @@ func discoverBuckets(objectsRoot string) ([]*bucketEntry, error) {
 
 	appendIfBucket := func(dirPath, tenantHint string) (bool, error) {
 		markerPath := filepath.Join(dirPath, ".maxiofs-bucket")
-		if _, err := os.Stat(markerPath); err != nil {
+		info, statErr := os.Stat(markerPath)
+		if statErr != nil {
 			return false, nil
 		}
 
 		name := filepath.Base(dirPath)
 		tenantID := tenantHint
-		createdAt := time.Now()
+		createdAt := info.ModTime()
+		bucketPath := ""
 
-		// The marker sidecar records the owning tenant and creation time.
-		if sidecar, err := readSidecar(markerPath); err == nil {
-			if tid, ok := sidecar["tenant-id"]; ok {
-				tenantID = tid
-			}
-			if created, ok := sidecar["bucket-created"]; ok {
-				if ts, err := time.Parse(time.RFC3339, created); err == nil {
-					createdAt = ts
+		// The current layout writes the tenant-qualified path into the marker;
+		// the previous one left it empty and recorded the tenant in a sidecar.
+		if content, err := os.ReadFile(markerPath); err == nil {
+			if recorded := strings.TrimSpace(string(content)); recorded != "" {
+				bucketPath = recorded
+				name = recorded
+				tenantID = ""
+				if i := strings.LastIndex(recorded, "/"); i >= 0 {
+					tenantID, name = recorded[:i], recorded[i+1:]
 				}
 			}
 		}
 
-		bucketPath := name
-		if tenantID != "" {
-			bucketPath = tenantID + "/" + name
+		if bucketPath == "" {
+			if sidecar, err := readSidecar(markerPath); err == nil {
+				if tid, ok := sidecar["tenant-id"]; ok {
+					tenantID = tid
+				}
+				if created, ok := sidecar["bucket-created"]; ok {
+					if ts, err := time.Parse(time.RFC3339, created); err == nil {
+						createdAt = ts
+					}
+				}
+			}
+			bucketPath = name
+			if tenantID != "" {
+				bucketPath = tenantID + "/" + name
+			}
 		}
 		buckets = append(buckets, &bucketEntry{
 			dirPath:    dirPath,
@@ -236,31 +252,23 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 			return nil
 		}
 
-		rel, err := filepath.Rel(bkt.dirPath, path)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
+		sidecar, _ := readSidecar(path)
 
-		var key, versionID string
-		if strings.HasPrefix(rel, ".versions/") {
-			// bucket/.versions/<key...>/<versionID>
-			trimmed := strings.TrimPrefix(rel, ".versions/")
-			slash := strings.LastIndex(trimmed, "/")
-			if slash <= 0 {
+		bucketPath, key, versionID := identityFromSidecar(sidecar, bkt.bucketPath)
+		if key == "" {
+			var ok bool
+			if key, versionID, ok = keyFromRelPath(bkt.dirPath, path); !ok {
 				report.Skipped++
 				return nil
 			}
-			key = trimmed[:slash]
-			versionID = trimmed[slash+1:]
+		}
+		if versionID != "" {
 			bkt.versioned = true
-		} else {
-			key = rel
 		}
 
-		obj, class, oErr := objectFromSidecar(path, bkt.bucketPath, key, versionID, encryptor, keys)
+		obj, class, oErr := objectFromSidecar(path, bucketPath, key, versionID, sidecar, encryptor, keys)
 		if oErr != nil {
-			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bkt.bucketPath, key, oErr))
+			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bucketPath, key, oErr))
 			if obj == nil {
 				return nil
 			}
@@ -320,9 +328,23 @@ const (
 
 // objectFromSidecar builds the Pebble entry for one stored file from its
 // sidecar (or from file stats when the sidecar is missing).
-func objectFromSidecar(path, bucketPath, key, versionID string, encryptor encryption.Encryptor, keys map[int][]byte) (*metadata.ObjectMetadata, objectClass, error) {
-	sidecar, err := readSidecar(path)
-	if err != nil {
+// identityFromSidecar returns the identity the storage layer stamped on write.
+// A sidecar written before that carries none and key comes back empty, leaving
+// the caller to derive it from the path.
+func identityFromSidecar(sidecar map[string]string, fallbackBucket string) (bucket, key, versionID string) {
+	key = sidecar[storage.MetadataKeyField]
+	if key == "" {
+		return fallbackBucket, "", ""
+	}
+	bucket = sidecar[storage.MetadataBucketField]
+	if bucket == "" {
+		bucket = fallbackBucket
+	}
+	return bucket, key, sidecar[storage.MetadataVersionField]
+}
+
+func objectFromSidecar(path, bucketPath, key, versionID string, sidecar map[string]string, encryptor encryption.Encryptor, keys map[int][]byte) (*metadata.ObjectMetadata, objectClass, error) {
+	if sidecar == nil {
 		// No sidecar: best-effort entry from file stats (plaintext assumed —
 		// an encrypted object without its sidecar has lost its DEK anyway).
 		info, sErr := os.Stat(path)

@@ -73,8 +73,8 @@ func TestStagedCommit_RollForwardAfterDataCommit(t *testing.T) {
 	sum := md5.Sum(newData)
 	require.NoError(t, os.WriteFile(backend.getFullPath(path), newData, 0o640))
 	writeStagedSidecar(t, backend, path, map[string]string{
-		"etag": hex.EncodeToString(sum[:]),
-		"size": fmt.Sprintf("%d", len(newData)),
+		"etag":  hex.EncodeToString(sum[:]),
+		"size":  fmt.Sprintf("%d", len(newData)),
 		"x-new": "yes",
 	})
 
@@ -109,8 +109,8 @@ func TestStagedCommit_RollBackWhenDataCommitNeverHappened(t *testing.T) {
 
 	// Simulate the crashed Put: staged sidecar written, data commit never ran.
 	writeStagedSidecar(t, backend, path, map[string]string{
-		"etag": "00000000000000000000000000000000", // matches nothing
-		"size": "999",
+		"etag":  "00000000000000000000000000000000", // matches nothing
+		"size":  "999",
 		"x-new": "yes",
 	})
 

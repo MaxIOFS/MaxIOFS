@@ -11,7 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-
 // CreateMultipartUpload initiates a new multipart upload.
 func (s *PebbleStore) CreateMultipartUpload(ctx context.Context, upload *MultipartUploadMetadata) error {
 	if upload == nil {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -164,8 +163,7 @@ func TestRecovery_FullRebuild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(len("global object content")), obj.Size)
 
-	sidecar, err := readSidecar(filepath.Join(dataDir, "objects", "global-bucket", "hello.txt"))
-	require.NoError(t, err)
+	_, _, sidecar := objectSidecar(t, dataDir, "global-bucket", "hello.txt")
 	sidecarLM, err := strconv.ParseInt(sidecar["last_modified"], 10, 64)
 	require.NoError(t, err)
 	assert.Equal(t, sidecarLM, obj.LastModified.Unix(),
@@ -290,11 +288,7 @@ func TestRecovery_UnverifiableDEKStillIndexed(t *testing.T) {
 
 	// Corrupt hello.txt's wrapped DEK: same length, different material — the
 	// unwrap with the bundle key will fail authentication.
-	sidecarPath := filepath.Join(dataDir, "objects", "global-bucket", "hello.txt.metadata")
-	raw, err := os.ReadFile(sidecarPath)
-	require.NoError(t, err)
-	var sidecar map[string]string
-	require.NoError(t, json.Unmarshal(raw, &sidecar))
+	backend, ref, sidecar := objectSidecar(t, dataDir, "global-bucket", "hello.txt")
 	wrapped := sidecar["wrapped-dek"]
 	require.NotEmpty(t, wrapped)
 	corrupted := []byte(wrapped)
@@ -306,9 +300,7 @@ func TestRecovery_UnverifiableDEKStillIndexed(t *testing.T) {
 		}
 	}
 	sidecar["wrapped-dek"] = string(corrupted)
-	updated, err := json.Marshal(sidecar)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(sidecarPath, updated, 0o640))
+	require.NoError(t, backend.SetMetadata(ctx, ref, sidecar))
 
 	report, err := Run(Options{
 		DataDir:    dataDir,
@@ -327,4 +319,16 @@ func TestRecovery_UnverifiableDEKStillIndexed(t *testing.T) {
 	obj, err := store.GetObject(ctx, "global-bucket", "hello.txt")
 	require.NoError(t, err, "the object must still be listed despite the unverifiable DEK")
 	assert.Equal(t, int64(len("global object content")), obj.Size)
+}
+
+// objectSidecar reaches an object's sidecar through the storage layout instead
+// of assuming where on disk it sits.
+func objectSidecar(t *testing.T, dataDir, bucket, key string) (*storage.FilesystemBackend, storage.ObjectRef, map[string]string) {
+	t.Helper()
+	backend, err := storage.NewFilesystemBackend(storage.Config{Root: filepath.Join(dataDir, "objects")})
+	require.NoError(t, err)
+	ref := storage.ObjectRef{Bucket: bucket, Key: key}
+	meta, err := backend.GetMetadata(context.Background(), ref)
+	require.NoError(t, err)
+	return backend, ref, meta
 }

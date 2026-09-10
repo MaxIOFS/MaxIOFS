@@ -181,10 +181,8 @@ func (s *Server) componentRegistry() *registry {
 
 // New creates a new MaxIOFS server
 func New(cfg *config.Config) (*Server, error) {
-	// Initialize storage backend
-	storageBackend, err := storage.NewBackend(cfg.Storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create storage backend: %w", err)
+	if err := storage.ValidateBackend(cfg.Storage); err != nil {
+		return nil, err
 	}
 
 	// Migrate Pebble v1 → Pebble v2 if the on-disk format is from an older release
@@ -201,6 +199,23 @@ func New(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata store: %w", err)
 	}
+
+	// The storage layout migration reads the index, so it runs after the store
+	// is open and before the backend, which refuses an older layout.
+	if err := migrateStorageLayout(cfg, metadataStore); err != nil {
+		metadataStore.Close() //nolint:errcheck
+		return nil, err
+	}
+
+	// Initialize storage backend
+	storageBackend, err := storage.NewBackend(cfg.Storage)
+	if err != nil {
+		metadataStore.Close() //nolint:errcheck
+		return nil, fmt.Errorf("failed to create storage backend: %w", err)
+	}
+
+	sweepOrphanedUploads(context.Background(), storageBackend, metadataStore)
+	finishPendingBucketRemovals(context.Background(), storageBackend, metadataStore)
 
 	// Initialize managers
 	bucketManager := bucket.NewManager(storageBackend, metadataStore)
@@ -371,6 +386,13 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize lifecycle worker
 	lifecycleWorker := supervise(reg, "lifecycle", lifecycle.NewWorker(bucketManager, objectManager, metadataStore))
+	lifecycleWorker.SetDefaultAbortIncompleteDays(func() int {
+		days, err := settingsManager.GetInt("storage.abort_incomplete_multipart_days")
+		if err != nil {
+			return 0
+		}
+		return days
+	})
 
 	// Initialize inventory manager and worker
 	inventoryManager := inventory.NewManager(db)

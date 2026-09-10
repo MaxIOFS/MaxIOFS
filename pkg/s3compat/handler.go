@@ -30,7 +30,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
-	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
@@ -1524,10 +1523,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
 			return
 		}
-		if errors.Is(err, storage.ErrPathConflict) {
-			h.writeError(w, "ObjectExistsAsPrefix", "An object already exists on this key path", objectKey, r)
-			return
-		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -2180,8 +2175,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "MethodNotAllowed":
 		statusCode = http.StatusMethodNotAllowed
 	// 409 Conflict
-	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState", "RestoreAlreadyInProgress",
-		"ObjectExistsAsPrefix":
+	case "BucketAlreadyExists", "BucketAlreadyOwnedByYou", "BucketNotEmpty", "OperationAborted", "InvalidBucketState", "RestoreAlreadyInProgress":
 		statusCode = http.StatusConflict
 	case "PreconditionFailed":
 		statusCode = http.StatusPreconditionFailed
@@ -3188,6 +3182,15 @@ func normalizeETag(etag string) string {
 }
 
 // setGetObjectResponseHeaders sets all response headers for GetObject operation
+// setUserMetadataHeaders writes x-amz-meta-* with the key as stored. Header.Set
+// would canonicalise it to X-Amz-Meta-Proyecto, and the client reads the case
+// back off the wire.
+func setUserMetadataHeaders(w http.ResponseWriter, metadata map[string]string) {
+	for k, v := range metadata {
+		w.Header()["x-amz-meta-"+strings.ToLower(k)] = []string{v}
+	}
+}
+
 func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("ETag", obj.ETag)
@@ -3210,10 +3213,7 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 		w.Header().Set("Content-Language", obj.ContentLanguage)
 	}
 
-	// User-defined metadata (x-amz-meta-*)
-	for k, v := range obj.Metadata {
-		w.Header().Set("x-amz-meta-"+k, v)
-	}
+	setUserMetadataHeaders(w, obj.Metadata)
 
 	// Tag count — returned when object has tags
 	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
@@ -3651,10 +3651,7 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 		w.Header().Set("Content-Language", obj.ContentLanguage)
 	}
 
-	// User-defined metadata (x-amz-meta-*)
-	for k, v := range obj.Metadata {
-		w.Header().Set("x-amz-meta-"+k, v)
-	}
+	setUserMetadataHeaders(w, obj.Metadata)
 
 	// Tag count — returned when object has tags
 	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {

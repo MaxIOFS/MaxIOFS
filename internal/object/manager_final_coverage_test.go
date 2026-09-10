@@ -96,107 +96,6 @@ func TestValidateObjectName_AllCases(t *testing.T) {
 }
 
 // TestCleanupEmptyDirectories_WithFilesystem tests directory cleanup after deletions
-func TestCleanupEmptyDirectories_WithFilesystem(t *testing.T) {
-	ctx := context.Background()
-	om, metaStore, cleanup := setupTestManagerWithStore(t)
-	defer cleanup()
-
-	bucketName := "cleanup-dirs-bucket"
-	tenantID := "tenant-1"
-	bucket := tenantID + "/" + bucketName
-
-	// Create bucket
-	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucketName,
-		TenantID: tenantID,
-		OwnerID:  "user-1",
-	})
-	require.NoError(t, err)
-
-	// Create nested folder structure
-	key1 := "level1/level2/level3/file1.txt"
-	key2 := "level1/level2/file2.txt"
-	key3 := "level1/file3.txt"
-
-	// Upload files
-	for _, key := range []string{key1, key2, key3} {
-		content := bytes.NewReader([]byte("test content"))
-		headers := http.Header{"Content-Type": []string{"text/plain"}}
-		_, err = om.PutObject(ctx, bucket, key, content, headers)
-		require.NoError(t, err)
-	}
-
-	// Delete the deepest file (level3/file1.txt)
-	_, err = om.DeleteObject(ctx, bucket, key1, false)
-	require.NoError(t, err)
-
-	// After deletion, level3 directory should be cleaned up if empty
-	// Call cleanup explicitly
-	om.cleanupEmptyDirectories(bucket, key1)
-
-	// Verify the file is deleted
-	_, err = om.GetObjectMetadata(ctx, bucket, key1)
-	assert.Error(t, err, "File should be deleted")
-
-	// Other files should still exist
-	_, err = om.GetObjectMetadata(ctx, bucket, key2)
-	assert.NoError(t, err, "File 2 should still exist")
-	_, err = om.GetObjectMetadata(ctx, bucket, key3)
-	assert.NoError(t, err, "File 3 should still exist")
-
-	// Delete file2 - level2 should NOT be cleaned up because it still has file1 in parent
-	_, err = om.DeleteObject(ctx, bucket, key2, false)
-	require.NoError(t, err)
-	om.cleanupEmptyDirectories(bucket, key2)
-
-	// Delete file3 - now level1 should be cleaned up entirely
-	_, err = om.DeleteObject(ctx, bucket, key3, false)
-	require.NoError(t, err)
-	om.cleanupEmptyDirectories(bucket, key3)
-
-	t.Log("Directory cleanup test completed successfully")
-}
-
-// TestCleanupEmptyDirectories_WithNonFilesystemBackend tests no-op for non-filesystem backends
-func TestCleanupEmptyDirectories_WithNonFilesystemBackend(t *testing.T) {
-	om := &objectManager{
-		storage: nil, // Non-filesystem backend
-	}
-
-	// Should not panic, just return early
-	om.cleanupEmptyDirectories("bucket", "key")
-	t.Log("Non-filesystem backend handled correctly")
-}
-
-// mockMetricsBucketManager for testing bucket metrics
-type mockMetricsBucketManager struct {
-	incrementCalled bool
-	decrementCalled bool
-	adjustCalled    bool
-	incrementCount  int
-	lastSize        int64
-}
-
-func (m *mockMetricsBucketManager) IncrementObjectCount(ctx context.Context, tenantID, bucketName string, sizeBytes int64) error {
-	m.incrementCalled = true
-	m.incrementCount++
-	m.lastSize = sizeBytes
-	return nil
-}
-
-func (m *mockMetricsBucketManager) DecrementObjectCount(ctx context.Context, tenantID, bucketName string, sizeBytes int64) error {
-	m.decrementCalled = true
-	m.lastSize = -sizeBytes
-	return nil
-}
-
-func (m *mockMetricsBucketManager) AdjustBucketSize(ctx context.Context, tenantID, bucketName string, sizeDelta int64) error {
-	m.adjustCalled = true
-	m.lastSize = sizeDelta
-	return nil
-}
-
-// TestUpdateBucketMetricsAfterPut_NonVersioned_NewObject tests metrics for new object in non-versioned bucket
 func TestUpdateBucketMetricsAfterPut_NonVersioned_NewObject(t *testing.T) {
 	ctx := context.Background()
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
@@ -533,4 +432,32 @@ func TestUpdateMetricsAndCleanupMultipart_NoManagers(t *testing.T) {
 	// Call cleanup - should not panic
 	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, 1024, true, nil, []Part{})
 	t.Log("No managers handled correctly")
+}
+
+// mockMetricsBucketManager for testing bucket metrics
+type mockMetricsBucketManager struct {
+	incrementCalled bool
+	decrementCalled bool
+	adjustCalled    bool
+	incrementCount  int
+	lastSize        int64
+}
+
+func (m *mockMetricsBucketManager) IncrementObjectCount(ctx context.Context, tenantID, bucketName string, sizeBytes int64) error {
+	m.incrementCalled = true
+	m.incrementCount++
+	m.lastSize = sizeBytes
+	return nil
+}
+
+func (m *mockMetricsBucketManager) DecrementObjectCount(ctx context.Context, tenantID, bucketName string, sizeBytes int64) error {
+	m.decrementCalled = true
+	m.lastSize = -sizeBytes
+	return nil
+}
+
+func (m *mockMetricsBucketManager) AdjustBucketSize(ctx context.Context, tenantID, bucketName string, sizeDelta int64) error {
+	m.adjustCalled = true
+	m.lastSize = sizeDelta
+	return nil
 }

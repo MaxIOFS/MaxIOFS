@@ -689,7 +689,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Create implicit parent folders in the metadata store.
 	// This ensures folders are listable even when created implicitly by S3 clients
-	om.ensureImplicitFolders(ctx, bucket, key)
 
 	// Update bucket metrics using helper function
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
@@ -979,7 +978,6 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 			}
 
 			// Clean up empty directories
-			om.cleanupEmptyDirectories(bucket, key)
 
 			// Return success - object is gone (idempotent delete per S3 spec)
 			return nil
@@ -1037,7 +1035,6 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 	}
 
 	// Clean up empty parent directories
-	om.cleanupEmptyDirectories(bucket, key)
 
 	// Update bucket metrics (best effort - don't fail if this errors)
 	if om.bucketManager != nil {
@@ -2280,10 +2277,6 @@ func (om *objectManager) validateObjectName(key string) error {
 		return ErrInvalidObjectName
 	}
 
-	if strings.HasSuffix(key, ".metadata") || strings.HasSuffix(key, ".metadata-staging") {
-		return ErrInvalidObjectName
-	}
-
 	return nil
 }
 
@@ -2416,21 +2409,61 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 		return nil
 	}
 
-	// Delete all part files from storage
-	for _, part := range metaParts {
-		om.storage.DeletePart(ctx, uploadID, part.PartNumber) // Ignore errors
+	// The upload record is the only way back to these files, so it outlives any
+	// part that could not be removed.
+	if failed := om.deletePartFiles(ctx, uploadID, partNumbersOfMeta(metaParts)); failed > 0 {
+		if returnError {
+			return fmt.Errorf("%d part file(s) could not be deleted; the upload is kept so the cleanup can be retried", failed)
+		}
+		return nil
 	}
 
-	// Delete multipart upload metadata from the metadata store.
 	err = om.metadataStore.AbortMultipartUpload(ctx, uploadID)
-	if err != nil && err != metadata.ErrUploadNotFound && returnError {
-		return fmt.Errorf("failed to delete multipart upload metadata: %w", err)
+	if err != nil && err != metadata.ErrUploadNotFound {
+		if returnError {
+			return fmt.Errorf("failed to delete multipart upload metadata: %w", err)
+		}
+		return nil
 	}
 
+	if err := om.storage.DeleteUpload(ctx, uploadID); err != nil {
+		logrus.WithError(err).WithField("uploadID", uploadID).Warn("Left the multipart upload directory behind")
+	}
 	return nil
 }
 
-// ensureImplicitFolders creates folder objects in the metadata store for all parent directories.
+func partNumbersOfMeta(parts []*metadata.PartMetadata) []int {
+	numbers := make([]int, 0, len(parts))
+	for _, p := range parts {
+		numbers = append(numbers, p.PartNumber)
+	}
+	return numbers
+}
+
+func partNumbersOf(parts []Part) []int {
+	numbers := make([]int, 0, len(parts))
+	for _, p := range parts {
+		numbers = append(numbers, p.PartNumber)
+	}
+	return numbers
+}
+
+// deletePartFiles removes an upload's stored parts and reports how many refused
+// to go.
+func (om *objectManager) deletePartFiles(ctx context.Context, uploadID string, partNumbers []int) int {
+	failed := 0
+	for _, number := range partNumbers {
+		if err := om.storage.DeletePart(ctx, uploadID, number); err != nil && err != storage.ErrObjectNotFound {
+			failed++
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"uploadID": uploadID,
+				"part":     number,
+			}).Warn("Could not delete a multipart part file")
+		}
+	}
+	return failed
+}
+
 func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key string) {
 	// Skip if key ends with / (it's already a folder)
 	if strings.HasSuffix(key, "/") {
@@ -2500,7 +2533,6 @@ func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key 
 	}
 }
 
-// cleanupEmptyDirectories removes empty parent directories after object deletion
 func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
 	// Get the filesystem backend to work with directories
 	fsBackend, ok := om.storage.(*storage.FilesystemBackend)
@@ -3114,13 +3146,20 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 		}
 	}
 
-	// Clean up multipart upload state from metadata store
-	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
-		logrus.WithError(err).Warn("Failed to delete multipart upload state after completion")
+	if failed := om.deletePartFiles(ctx, uploadID, partNumbersOf(parts)); failed > 0 {
+		logrus.WithFields(logrus.Fields{
+			"uploadID": uploadID,
+			"parts":    failed,
+		}).Warn("Keeping the multipart upload record: its part files are still on disk")
+		return
 	}
 
-	// Clean up part files from storage
-	for _, part := range parts {
-		om.storage.DeletePart(ctx, uploadID, part.PartNumber) // Ignore errors
+	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
+		logrus.WithError(err).Warn("Failed to delete multipart upload state after completion")
+		return
+	}
+
+	if err := om.storage.DeleteUpload(ctx, uploadID); err != nil {
+		logrus.WithError(err).WithField("uploadID", uploadID).Warn("Left the multipart upload directory behind")
 	}
 }

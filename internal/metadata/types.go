@@ -5,19 +5,19 @@ import "time"
 // ObjectMetadata represents metadata for a stored object
 type ObjectMetadata struct {
 	// Basic properties
-	Bucket       string    `json:"bucket"`
-	Key          string    `json:"key"`
-	VersionID    string    `json:"version_id,omitempty"`
-	IsLatest     bool      `json:"is_latest,omitempty"`
-	Size         int64     `json:"size"`
-	LastModified time.Time `json:"last_modified"`
-	ETag         string    `json:"etag"`
-	ContentType        string `json:"content_type"`
-	StorageClass       string `json:"storage_class,omitempty"`
-	ContentDisposition string `json:"content_disposition,omitempty"`
-	ContentEncoding    string `json:"content_encoding,omitempty"`
-	CacheControl       string `json:"cache_control,omitempty"`
-	ContentLanguage    string `json:"content_language,omitempty"`
+	Bucket             string    `json:"bucket"`
+	Key                string    `json:"key"`
+	VersionID          string    `json:"version_id,omitempty"`
+	IsLatest           bool      `json:"is_latest,omitempty"`
+	Size               int64     `json:"size"`
+	LastModified       time.Time `json:"last_modified"`
+	ETag               string    `json:"etag"`
+	ContentType        string    `json:"content_type"`
+	StorageClass       string    `json:"storage_class,omitempty"`
+	ContentDisposition string    `json:"content_disposition,omitempty"`
+	ContentEncoding    string    `json:"content_encoding,omitempty"`
+	CacheControl       string    `json:"cache_control,omitempty"`
+	ContentLanguage    string    `json:"content_language,omitempty"`
 
 	// Custom metadata (user-defined headers)
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -106,9 +106,9 @@ type BucketHA struct {
 
 // HAReplicaNode tracks the state of one HA replica on a given cluster node.
 type HAReplicaNode struct {
-	NodeID   string    `json:"node_id"`
+	NodeID string `json:"node_id"`
 	// Status values: "syncing" | "ready" | "stale" | "pending_removal" | "storage_pressure"
-	Status   string    `json:"status"`
+	Status string `json:"status"`
 	// Progress is 0-100 and only meaningful when Status == "syncing"
 	Progress int       `json:"progress,omitempty"`
 	SyncedAt time.Time `json:"synced_at,omitempty"`
@@ -155,10 +155,10 @@ type NotificationMetadata struct {
 
 // NotificationTargetMetadata represents a single notification target with its event filters.
 type NotificationTargetMetadata struct {
-	ID       string                        `json:"id,omitempty"`
-	Endpoint string                        `json:"endpoint"` // webhook URL (from Topic/Queue/Lambda ARN)
-	Events   []string                      `json:"events"`
-	Filter   *NotificationFilterMetadata   `json:"filter,omitempty"`
+	ID       string                      `json:"id,omitempty"`
+	Endpoint string                      `json:"endpoint"` // webhook URL (from Topic/Queue/Lambda ARN)
+	Events   []string                    `json:"events"`
+	Filter   *NotificationFilterMetadata `json:"filter,omitempty"`
 }
 
 // NotificationFilterMetadata holds key-based filter rules.

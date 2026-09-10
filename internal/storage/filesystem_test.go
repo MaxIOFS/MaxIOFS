@@ -161,46 +161,30 @@ func TestPutAndGet(t *testing.T) {
 }
 
 // TestPutDirectoryMarker tests directory marker creation
-func TestPutDirectoryMarker(t *testing.T) {
+// A key ending in "/" is an ordinary object: no directory is created for it.
+func TestPutFolderMarkerKey(t *testing.T) {
 	backend, tmpDir := createTestBackend(t)
 	defer cleanup(tmpDir)
 	ctx := context.Background()
 
-	t.Run("Create directory marker", func(t *testing.T) {
-		err := backend.putAt(ctx, "my-folder/", nil, nil)
-		assert.NoError(t, err)
+	ref := ObjectRef{Bucket: "bucket", Key: "my-folder/"}
+	require.NoError(t, backend.Put(ctx, ref, strings.NewReader(""), nil))
 
-		// Verify directory exists
-		fullPath := filepath.Join(tmpDir, "my-folder")
-		info, err := os.Stat(fullPath)
-		assert.NoError(t, err)
-		assert.True(t, info.IsDir())
+	meta, err := backend.GetMetadata(ctx, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "0", meta["size"])
+	assert.Equal(t, "my-folder/", meta[MetadataKeyField])
 
-		// Verify marker file exists
-		markerPath := filepath.Join(fullPath, ".maxiofs-folder")
-		_, err = os.Stat(markerPath)
-		assert.NoError(t, err)
+	_, err = os.Stat(filepath.Join(tmpDir, "bucket", "my-folder"))
+	assert.True(t, os.IsNotExist(err), "no directory is created for a folder-marker key")
 
-		// Verify metadata exists
-		meta, err := backend.metadataAt(ctx, "my-folder/")
-		assert.NoError(t, err)
-		assert.Equal(t, "0", meta["size"])
-		assert.Equal(t, "d41d8cd98f00b204e9800998ecf8427e", meta["etag"])
-		assert.Equal(t, "application/x-directory", meta["content-type"])
-	})
+	nested := ObjectRef{Bucket: "bucket", Key: "level1/level2/level3/"}
+	require.NoError(t, backend.Put(ctx, nested, strings.NewReader(""), nil))
 
-	t.Run("Create nested directory markers", func(t *testing.T) {
-		err := backend.putAt(ctx, "level1/level2/level3/", nil, nil)
-		assert.NoError(t, err)
-
-		// Verify all levels exist
-		for _, path := range []string{"level1", "level1/level2", "level1/level2/level3"} {
-			fullPath := filepath.Join(tmpDir, path)
-			info, err := os.Stat(fullPath)
-			assert.NoError(t, err)
-			assert.True(t, info.IsDir())
-		}
-	})
+	for _, name := range []string{"level1", filepath.Join("level1", "level2")} {
+		_, err := os.Stat(filepath.Join(tmpDir, "bucket", name))
+		assert.True(t, os.IsNotExist(err), "no directory is created for %s", name)
+	}
 }
 
 // TestDelete tests object deletion
@@ -225,31 +209,27 @@ func TestDelete(t *testing.T) {
 		assert.False(t, exists)
 	})
 
-	t.Run("Delete directory marker", func(t *testing.T) {
-		// Create directory
-		err := backend.putAt(ctx, "delete-folder/", nil, nil)
+	t.Run("Delete a folder-marker key", func(t *testing.T) {
+		ref := ObjectRef{Bucket: "bucket", Key: "delete-folder/"}
+		require.NoError(t, backend.Put(ctx, ref, strings.NewReader(""), nil))
+		require.NoError(t, backend.Delete(ctx, ref))
+
+		exists, err := backend.Exists(ctx, ref)
 		require.NoError(t, err)
-
-		// Delete directory
-		err = backend.deleteAt(ctx, "delete-folder/")
-		assert.NoError(t, err)
-
-		// Verify directory is gone
-		fullPath := filepath.Join(tmpDir, "delete-folder")
-		_, err = os.Stat(fullPath)
-		assert.True(t, os.IsNotExist(err))
+		assert.False(t, exists)
 	})
 
-	t.Run("Delete directory marker without trailing slash", func(t *testing.T) {
-		err := backend.putAt(ctx, "delete-folder-no-slash/", nil, nil)
+	t.Run("A folder-marker key and the same name without the slash are different objects", func(t *testing.T) {
+		marker := ObjectRef{Bucket: "bucket", Key: "both/"}
+		plain := ObjectRef{Bucket: "bucket", Key: "both"}
+		require.NoError(t, backend.Put(ctx, marker, strings.NewReader(""), nil))
+		require.NoError(t, backend.Put(ctx, plain, strings.NewReader("data"), nil))
+
+		require.NoError(t, backend.Delete(ctx, marker))
+
+		exists, err := backend.Exists(ctx, plain)
 		require.NoError(t, err)
-
-		err = backend.deleteAt(ctx, "delete-folder-no-slash")
-		assert.NoError(t, err)
-
-		fullPath := filepath.Join(tmpDir, "delete-folder-no-slash")
-		_, err = os.Stat(fullPath)
-		assert.True(t, os.IsNotExist(err))
+		assert.True(t, exists, "deleting the marker must not touch the object")
 	})
 
 	t.Run("Delete non-existent object", func(t *testing.T) {
@@ -489,9 +469,9 @@ func TestConcurrentOperations(t *testing.T) {
 
 		for i := 0; i < 10; i++ {
 			go func(n int) {
-				path := "concurrent/" + string(rune('a'+n)) + ".txt"
+				ref := ObjectRef{Bucket: "concurrent", Key: string(rune('a'+n)) + ".txt"}
 				data := []byte(strings.Repeat("x", n*100))
-				err := backend.putAt(ctx, path, bytes.NewReader(data), nil)
+				err := backend.Put(ctx, ref, bytes.NewReader(data), nil)
 				assert.NoError(t, err)
 				done <- true
 			}(i)

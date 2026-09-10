@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPutFolderMarkerOverObjectReturnsConflict(t *testing.T) {
+func TestPutFolderMarkerOverSameNamedObjectSucceeds(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 
 	ctx := context.Background()
-	bucketName := "folder-conflict"
+	bucketName := "folder-coexist"
 	bucketPath := env.tenantID + "/" + bucketName
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
@@ -39,8 +39,7 @@ func TestPutFolderMarkerOverObjectReturnsConflict(t *testing.T) {
 
 	env.handler.PutObject(w, req)
 
-	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "ObjectExistsAsPrefix")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	obj, err := env.objectManager.GetObjectMetadata(ctx, bucketPath, "report")
 	require.NoError(t, err)

@@ -458,6 +458,9 @@ func (s *PebbleStore) DeleteBucketIfEmpty(ctx context.Context, tenantID, name st
 	if err := batch.Delete(key, nil); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
+	if err := batch.Set(bucketDeletedKey(bucketPath), []byte(time.Now().UTC().Format(time.RFC3339)), nil); err != nil {
+		return fmt.Errorf("failed to record the bucket removal: %w", err)
+	}
 	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit bucket deletion: %w", err)
 	}
@@ -513,6 +516,25 @@ func (s *PebbleStore) ListBuckets(ctx context.Context, tenantID string) ([]*Buck
 }
 
 // GetBucketByName finds a bucket by name across all tenants.
+func (s *PebbleStore) PendingBucketRemovals(ctx context.Context) ([]string, error) {
+	var pending []string
+	err := s.RawScan(ctx, BucketDeletedPrefix, "", func(key string, _ []byte) bool {
+		pending = append(pending, strings.TrimPrefix(key, BucketDeletedPrefix))
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pending, nil
+}
+
+func (s *PebbleStore) ClearBucketRemoval(ctx context.Context, bucketPath string) error {
+	if err := s.db.Delete(bucketDeletedKey(bucketPath), pebble.Sync); err != nil {
+		return fmt.Errorf("failed to clear the bucket removal record: %w", err)
+	}
+	return nil
+}
+
 func (s *PebbleStore) GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error) {
 	iter, err := s.pebbleIter([]byte("bucket:"))
 	if err != nil {

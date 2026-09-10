@@ -110,10 +110,15 @@ func TestDeleteBucket_CleansStorage(t *testing.T) {
 	err = manager.CreateBucket(ctx, "tenant-1", "storage-test-bucket", "")
 	require.NoError(t, err)
 
-	// Verify bucket directory was created
-	bucketDir := filepath.Join(storageDir, "tenant-1", "storage-test-bucket")
+	// Buckets live at the storage root: the name is globally unique and the
+	// tenant is recorded in the marker.
+	bucketDir := filepath.Join(storageDir, "storage-test-bucket")
 	_, err = os.Stat(bucketDir)
 	assert.NoError(t, err, "Bucket directory should exist after creation")
+
+	marker, err := os.ReadFile(filepath.Join(bucketDir, ".maxiofs-bucket"))
+	require.NoError(t, err)
+	assert.Equal(t, "tenant-1/storage-test-bucket", string(marker))
 
 	// Delete empty bucket
 	err = manager.DeleteBucket(ctx, "tenant-1", "storage-test-bucket")

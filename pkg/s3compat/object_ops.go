@@ -2,7 +2,6 @@ package s3compat
 
 import (
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
-	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -874,10 +872,6 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)
-			return
-		}
-		if errors.Is(err, storage.ErrPathConflict) {
-			h.writeError(w, "ObjectExistsAsPrefix", "An object already exists on this key path", destKey, r)
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), destKey, r)

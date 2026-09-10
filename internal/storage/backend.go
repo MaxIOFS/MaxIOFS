@@ -29,6 +29,11 @@ type Backend interface {
 	PartExists(ctx context.Context, uploadID string, partNumber int) (bool, error)
 	DeletePart(ctx context.Context, uploadID string, partNumber int) error
 
+	// ListUploads returns every upload with something still stored for it, and
+	// DeleteUpload discards an upload's stored parts wholesale.
+	ListUploads(ctx context.Context) ([]string, error)
+	DeleteUpload(ctx context.Context, uploadID string) error
+
 	Close() error
 }
 
@@ -41,13 +46,21 @@ type ObjectInfo struct {
 	Metadata     map[string]string
 }
 
-// NewBackend creates a new storage backend based on configuration
-func NewBackend(config Config) (Backend, error) {
+// ValidateBackend reports whether the configuration names a backend this build
+// implements, without opening anything.
+func ValidateBackend(config Config) error {
 	switch config.Backend {
 	case "filesystem", "":
-		// Empty string defaults to filesystem
-		return NewFilesystemBackend(config)
+		return nil
 	default:
-		return nil, fmt.Errorf("unsupported storage backend: %s (only 'filesystem' is currently supported)", config.Backend)
+		return fmt.Errorf("unsupported storage backend: %s (only 'filesystem' is currently supported)", config.Backend)
 	}
+}
+
+// NewBackend creates a new storage backend based on configuration
+func NewBackend(config Config) (Backend, error) {
+	if err := ValidateBackend(config); err != nil {
+		return nil, err
+	}
+	return NewFilesystemBackend(config)
 }

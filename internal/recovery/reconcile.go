@@ -116,17 +116,22 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 			return nil
 		}
 
-		key, versionID, ok := keyFromRelPath(bkt.dirPath, path)
-		if !ok {
-			return nil
+		sidecar, _ := readSidecar(path)
+
+		bucketPath, key, versionID := identityFromSidecar(sidecar, bkt.bucketPath)
+		if key == "" {
+			var ok bool
+			if key, versionID, ok = keyFromRelPath(bkt.dirPath, path); !ok {
+				return nil
+			}
 		}
 
-		_, gErr := store.GetObject(ctx, bkt.bucketPath, key, versionID)
+		_, gErr := store.GetObject(ctx, bucketPath, key, versionID)
 		if gErr == nil {
 			return nil // entry present — live store is authoritative
 		}
 		if gErr != metadata.ErrObjectNotFound && gErr != metadata.ErrVersionNotFound {
-			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bkt.bucketPath, key, gErr))
+			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bucketPath, key, gErr))
 			return nil
 		}
 
@@ -136,16 +141,16 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 			return nil
 		}
 
-		obj, _, oErr := objectFromSidecar(path, bkt.bucketPath, key, versionID, nil, nil)
+		obj, _, oErr := objectFromSidecar(path, bucketPath, key, versionID, sidecar, nil, nil)
 		if obj == nil {
-			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bkt.bucketPath, key, oErr))
+			report.Failures = append(report.Failures, fmt.Sprintf("%s/%s: %v", bucketPath, key, oErr))
 			return nil
 		}
 
 		if versionID != "" {
-			existing, vErr := store.GetObjectVersions(ctx, bkt.bucketPath, key)
+			existing, vErr := store.GetObjectVersions(ctx, bucketPath, key)
 			if vErr != nil && vErr != metadata.ErrObjectNotFound {
-				report.Failures = append(report.Failures, fmt.Sprintf("%s/%s@%s: %v", bkt.bucketPath, key, versionID, vErr))
+				report.Failures = append(report.Failures, fmt.Sprintf("%s/%s@%s: %v", bucketPath, key, versionID, vErr))
 				return nil
 			}
 			// Version IDs are nanosecond-timestamp-prefixed: lexicographic
@@ -161,20 +166,20 @@ func reconcileBucket(ctx context.Context, bkt *bucketEntry, store metadata.Store
 				StorageClass: obj.StorageClass,
 			}
 			if pErr := store.PutObjectVersion(ctx, obj, version); pErr != nil {
-				report.Failures = append(report.Failures, fmt.Sprintf("restore version %s/%s@%s: %v", bkt.bucketPath, key, versionID, pErr))
+				report.Failures = append(report.Failures, fmt.Sprintf("restore version %s/%s@%s: %v", bucketPath, key, versionID, pErr))
 				return nil
 			}
 			report.VersionsRestored++
 		} else {
 			if pErr := store.PutObject(ctx, obj); pErr != nil {
-				report.Failures = append(report.Failures, fmt.Sprintf("restore %s/%s: %v", bkt.bucketPath, key, pErr))
+				report.Failures = append(report.Failures, fmt.Sprintf("restore %s/%s: %v", bucketPath, key, pErr))
 				return nil
 			}
 			report.EntriesRestored++
 		}
 		changed = true
 		logger.WithFields(logrus.Fields{
-			"bucket": bkt.bucketPath, "key": key, "version": versionID,
+			"bucket": bucketPath, "key": key, "version": versionID,
 		}).Info("Reconcile: restored metadata entry lost in unclean shutdown")
 		return nil
 	})

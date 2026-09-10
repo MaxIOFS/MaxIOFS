@@ -40,6 +40,25 @@ func NewFilesystemBackend(config Config) (*FilesystemBackend, error) {
 		return nil, NewErrorWithCause("CreateRootDir", "Failed to create root directory", err)
 	}
 
+	version, fresh, err := ReadLayoutVersion(config.Root)
+	if err != nil {
+		return nil, NewErrorWithCause("ReadLayout", "Failed to read the storage layout marker", err)
+	}
+	switch {
+	case fresh:
+		if err := WriteLayoutVersion(config.Root, LayoutVersion); err != nil {
+			return nil, NewErrorWithCause("WriteLayout", "Failed to write the storage layout marker", err)
+		}
+	case version < LayoutVersion:
+		return nil, NewError("LayoutTooOld", fmt.Sprintf(
+			"storage layout v%d found at %s; this build reads v%d — run the migration",
+			version, config.Root, LayoutVersion))
+	case version > LayoutVersion:
+		return nil, NewError("LayoutTooNew", fmt.Sprintf(
+			"storage layout v%d found at %s; this build reads v%d — upgrade MaxIOFS",
+			version, config.Root, LayoutVersion))
+	}
+
 	backend := &FilesystemBackend{
 		rootPath: config.Root,
 		config:   config,
@@ -61,60 +80,11 @@ func (fs *FilesystemBackend) putAt(ctx context.Context, path string, data io.Rea
 
 	fullPath := fs.getFullPath(path)
 
-	// Special handling for directory markers (objects ending with /)
-	if strings.HasSuffix(path, "/") {
-		logrus.Debugf("Creating directory marker for: %s", path)
-
-		parts := strings.Split(strings.TrimSuffix(fullPath, string(filepath.Separator)), string(filepath.Separator))
-		currentPath := ""
-		for i, part := range parts {
-			if i == 0 && filepath.IsAbs(fullPath) {
-				currentPath = part + string(filepath.Separator)
-				continue
-			}
-			if currentPath != "" {
-				currentPath = filepath.Join(currentPath, part)
-			} else {
-				currentPath = part
-			}
-
-			info, err := os.Stat(currentPath)
-			if err == nil && !info.IsDir() {
-				return ErrPathConflict
-			}
-		}
-
-		// Now create the directory
-		if err := os.MkdirAll(fullPath, 0750); err != nil {
-			return NewErrorWithCause("CreateDirectory", "Failed to create directory marker", err)
-		}
-
-		// Create the .maxiofs-folder marker file inside the directory
-		markerPath := filepath.Join(fullPath, ".maxiofs-folder")
-		markerFile, err := os.Create(markerPath)
-		if err != nil {
-			return NewErrorWithCause("CreateFolderMarker", "Failed to create folder marker file", err)
-		}
-		markerFile.Close()
-
-		// Save metadata for the directory
-		if metadata == nil {
-			metadata = make(map[string]string)
-		}
-		metadata["size"] = "0"
-		metadata["etag"] = "d41d8cd98f00b204e9800998ecf8427e" // MD5 of empty string
-		metadata["last_modified"] = fmt.Sprintf("%d", time.Now().Unix())
-		metadata["content-type"] = "application/x-directory"
-		return fs.saveMetadata(path, metadata)
-	}
-
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return NewErrorWithCause("CreateDirectory", "Failed to create directory", err)
 	}
-
-	fs.ensureFolderMarkersInPath(dir)
 
 	// Create temporary file
 	tempFile, err := os.CreateTemp(dir, ".tmp_")
@@ -237,23 +207,20 @@ func (fs *FilesystemBackend) deleteAt(ctx context.Context, path string) error {
 		return NewErrorWithCause("StatFile", "Failed to stat file", err)
 	}
 
-	// A directory is a folder marker, not object data: it may hold other objects.
 	if info.IsDir() {
-		if err := fs.deleteFolderMarker(fullPath); err != nil {
-			return err
+		return ErrObjectNotFound
+	}
+
+	// On Windows a just-written file may be briefly held by an external
+	var rmErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if rmErr = os.Remove(fullPath); rmErr == nil {
+			break
 		}
-	} else {
-		// On Windows a just-written file may be briefly held by an external
-		var rmErr error
-		for attempt := 0; attempt < 5; attempt++ {
-			if rmErr = os.Remove(fullPath); rmErr == nil {
-				break
-			}
-			time.Sleep(time.Duration(10*(attempt+1)) * time.Millisecond)
-		}
-		if rmErr != nil {
-			return NewErrorWithCause("DeleteFile", "Failed to delete file", rmErr)
-		}
+		time.Sleep(time.Duration(10*(attempt+1)) * time.Millisecond)
+	}
+	if rmErr != nil {
+		return NewErrorWithCause("DeleteFile", "Failed to delete file", rmErr)
 	}
 
 	// Delete metadata (and any staged sidecar from a crashed Put)
@@ -299,13 +266,15 @@ func isTransientArtifact(name string) bool {
 	return false
 }
 
-// List returns every object under one bucket, versions included.
+// List returns every object under one bucket, versions included. The identity
+// comes from each sidecar; a data file whose sidecar is missing cannot be named
+// and is left out.
 func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectInfo, error) {
-	if err := fs.validatePath(bucket); err != nil {
+	if err := validateBucket(bucket); err != nil {
 		return nil, err
 	}
 
-	root := fs.getFullPath(bucket)
+	root := fs.getFullPath(BucketDirName(bucket))
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -332,36 +301,27 @@ func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectI
 			return nil
 		}
 
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
+		sidecar, mErr := fs.readSidecarAt(path)
+		if mErr != nil || sidecar[MetadataKeyField] == "" {
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
 
-		ref := ObjectRef{Bucket: bucket}
-		if strings.HasPrefix(rel, ".versions/") {
-			trimmed := strings.TrimPrefix(rel, ".versions/")
-			slash := strings.LastIndex(trimmed, "/")
-			if slash <= 0 {
-				return nil
-			}
-			ref.Key = trimmed[:slash]
-			ref.VersionID = trimmed[slash+1:]
-		} else {
-			ref.Key = rel
+		ref := ObjectRef{
+			Bucket:    sidecar[MetadataBucketField],
+			Key:       sidecar[MetadataKeyField],
+			VersionID: sidecar[MetadataVersionField],
+		}
+		if ref.Bucket == "" {
+			ref.Bucket = bucket
 		}
 
-		obj := ObjectInfo{
+		objects = append(objects, ObjectInfo{
 			Ref:          ref,
 			Size:         info.Size(),
 			LastModified: info.ModTime().Unix(),
-		}
-		if meta, mErr := fs.metadataAt(ctx, fs.refPath(ref)); mErr == nil {
-			obj.ETag = meta["etag"]
-			obj.Metadata = meta
-		}
-
-		objects = append(objects, obj)
+			ETag:         sidecar["etag"],
+			Metadata:     sidecar,
+		})
 		return nil
 	})
 
@@ -373,6 +333,19 @@ func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectI
 	}
 
 	return objects, nil
+}
+
+// readSidecarAt reads the sidecar next to an absolute data-file path.
+func (fs *FilesystemBackend) readSidecarAt(dataPath string) (map[string]string, error) {
+	data, err := os.ReadFile(dataPath + ".metadata")
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (fs *FilesystemBackend) metadataAt(ctx context.Context, path string) (map[string]string, error) {
@@ -472,21 +445,6 @@ func isDriveQualifiedPath(path string) bool {
 
 func (fs *FilesystemBackend) getFullPath(path string) string {
 	return filepath.Join(fs.rootPath, filepath.FromSlash(path))
-}
-
-func (fs *FilesystemBackend) deleteFolderMarker(dir string) error {
-	marker := filepath.Join(dir, folderMarkerName)
-	for _, p := range []string{marker + metadataStagingSuffix, marker + ".metadata", marker} {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return NewErrorWithCause("DeleteFolderMarker", "Failed to delete folder marker", err)
-		}
-	}
-
-	// Fails while objects remain under the prefix, which is when it must stay.
-	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
-		logrus.WithField("path", dir).Debug("Folder still holds objects; keeping the directory")
-	}
-	return nil
 }
 
 func (fs *FilesystemBackend) getMetadataPath(path string) string {
@@ -687,10 +645,13 @@ func (fs *FilesystemBackend) RemoveDirectory(path string) error {
 		return fmt.Errorf("path is not a directory: %s", path)
 	}
 
-	// Remove directory and all contents
-	if err := os.RemoveAll(fullPath); err != nil {
-		return NewErrorWithCause("RemoveDirectory", "Failed to remove directory", err)
+	// On Windows a file another process still holds open refuses to go.
+	var rmErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if rmErr = os.RemoveAll(fullPath); rmErr == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(10*(attempt+1)) * time.Millisecond)
 	}
-
-	return nil
+	return NewErrorWithCause("RemoveDirectory", "Failed to remove directory", rmErr)
 }

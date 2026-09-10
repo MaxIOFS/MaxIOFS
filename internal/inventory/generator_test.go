@@ -513,6 +513,19 @@ func (m *MockMetadataStore) HasActiveComplianceRetention(ctx context.Context, bu
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockMetadataStore) PendingBucketRemovals(ctx context.Context) ([]string, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockMetadataStore) ClearBucketRemoval(ctx context.Context, bucketPath string) error {
+	args := m.Called(ctx, bucketPath)
+	return args.Error(0)
+}
+
 // Mock StorageBackend
 type MockStorageBackend struct {
 	mock.Mock
@@ -600,6 +613,19 @@ func (m *MockStorageBackend) PartExists(ctx context.Context, uploadID string, pa
 
 func (m *MockStorageBackend) DeletePart(ctx context.Context, uploadID string, partNumber int) error {
 	args := m.Called(ctx, uploadID, partNumber)
+	return args.Error(0)
+}
+
+func (m *MockStorageBackend) ListUploads(ctx context.Context) ([]string, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockStorageBackend) DeleteUpload(ctx context.Context, uploadID string) error {
+	args := m.Called(ctx, uploadID)
 	return args.Error(0)
 }
 

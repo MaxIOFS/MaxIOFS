@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -283,5 +284,90 @@ func TestReconcileSkipsBucketMissingFromStore(t *testing.T) {
 	}
 	if len(report.Failures) != 1 {
 		t.Errorf("expected exactly one recorded failure for the stray bucket, got %v", report.Failures)
+	}
+}
+
+// writeObjectPairWithIdentity writes the pair at relPath while the sidecar
+// claims a different key, so only the sidecar can name the object.
+func writeObjectPairWithIdentity(t *testing.T, dataDir, relPath, bucket, key, versionID, content string, lastModified int64) {
+	t.Helper()
+	full := filepath.Join(dataDir, "objects", "bkt", filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sidecar := map[string]string{
+		"size":                       strconv.Itoa(len(content)),
+		"etag":                       "identity-etag",
+		"last_modified":              strconv.FormatInt(lastModified, 10),
+		"content-type":               "text/plain",
+		storage.MetadataBucketField:  bucket,
+		storage.MetadataKeyField:     key,
+		storage.MetadataVersionField: versionID,
+	}
+	if versionID == "" {
+		delete(sidecar, storage.MetadataVersionField)
+	}
+	data, err := json.Marshal(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full+".metadata", data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReconcileTakesTheIdentityFromTheSidecarNotThePath(t *testing.T) {
+	dataDir, store, cleanup := setupReconcileTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	const lastModified = int64(1700000000)
+	writeObjectPairWithIdentity(t, dataDir, "0a/f3/9c21e5", "bkt", "reports/2026/informe.pdf", "", "hello", lastModified)
+
+	report, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v (failures: %v)", err, report.Failures)
+	}
+	if report.EntriesRestored != 1 {
+		t.Fatalf("EntriesRestored = %d, want 1 (failures: %v)", report.EntriesRestored, report.Failures)
+	}
+
+	obj, err := store.GetObject(ctx, "bkt", "reports/2026/informe.pdf")
+	if err != nil {
+		t.Fatalf("object not restored under the key recorded in the sidecar: %v", err)
+	}
+	if obj.ETag != "identity-etag" || obj.Size != 5 {
+		t.Errorf("restored entry: size=%d etag=%q, want 5/identity-etag", obj.Size, obj.ETag)
+	}
+
+	if _, err := store.GetObject(ctx, "bkt", "0a/f3/9c21e5"); err == nil {
+		t.Error("object was also restored under its path, which is no longer its identity")
+	}
+}
+
+func TestReconcileVersionIdentityComesFromTheSidecar(t *testing.T) {
+	dataDir, store, cleanup := setupReconcileTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	writeObjectPairWithIdentity(t, dataDir, "b1/77/aa0912", "bkt", "doc.txt", "1700000000.abcd1234", "v", int64(1700000000))
+
+	report, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v (failures: %v)", err, report.Failures)
+	}
+	if report.VersionsRestored != 1 {
+		t.Fatalf("VersionsRestored = %d, want 1 (failures: %v)", report.VersionsRestored, report.Failures)
+	}
+
+	versions, err := store.GetObjectVersions(ctx, "bkt", "doc.txt")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("versions = %+v, err = %v", versions, err)
+	}
+	if versions[0].VersionID != "1700000000.abcd1234" {
+		t.Errorf("VersionID = %q, want the one recorded in the sidecar", versions[0].VersionID)
 	}
 }

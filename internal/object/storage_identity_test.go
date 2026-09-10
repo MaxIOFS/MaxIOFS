@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -151,7 +150,7 @@ func TestGetObject_RefusesCiphertextRecordedWithoutADigest(t *testing.T) {
 
 	// Lose the sidecar, then record what recovery would: the ciphertext's size
 	// and no digest.
-	require.NoError(t, os.Remove(filepath.Join(om.config.Root, bucket, key+".metadata")))
+	require.NoError(t, os.Remove(objectFilePath(t, om, bucket, key)+".metadata"))
 	stored, err := metaStore.GetObject(ctx, bucket, key)
 	require.NoError(t, err)
 	stored.Size = ciphertextSize

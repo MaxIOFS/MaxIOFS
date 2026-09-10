@@ -207,6 +207,14 @@ func (m *Manager) insertDefaults() error {
 			Editable:    true,
 		},
 		{
+			Key:         "storage.abort_incomplete_multipart_days",
+			Value:       "0",
+			Type:        string(TypeInt),
+			Category:    string(CategoryStorage),
+			Description: "Abort multipart uploads left incomplete for this many days, in buckets with no AbortIncompleteMultipartUpload lifecycle rule of their own. 0 disables it and nothing is aborted, which is the AWS behaviour. Default: 0.",
+			Editable:    true,
+		},
+		{
 			Key:         "storage.default_object_lock_days",
 			Value:       "7",
 			Type:        string(TypeInt),

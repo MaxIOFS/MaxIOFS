@@ -635,13 +635,21 @@ func removeStoredObjectDataFile(t *testing.T, root, objectKey string) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || d.Name() != filepath.Base(objectKey) {
+		if d.IsDir() || !strings.HasSuffix(path, ".metadata") {
 			return nil
 		}
-		if strings.HasSuffix(path, ".metadata") || strings.HasSuffix(path, ".metadata-staging") {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		var sidecar map[string]string
+		if json.Unmarshal(raw, &sidecar) != nil {
 			return nil
 		}
-		if err := os.Remove(path); err != nil {
+		if sidecar[storage.MetadataKeyField] != objectKey {
+			return nil
+		}
+		if err := os.Remove(strings.TrimSuffix(path, ".metadata")); err != nil {
 			return err
 		}
 		found = true
@@ -1162,9 +1170,6 @@ func TestS3DeleteObjects(t *testing.T) {
 		_, err := env.objectManager.PutObject(ctx, bucketPath, "s3-browser-folder/", bytes.NewReader(nil), headers)
 		require.NoError(t, err)
 
-		folderPath := filepath.Join(env.tempDir, bucketPath, "s3-browser-folder")
-		require.DirExists(t, folderPath)
-
 		deleteXML := `<Delete>
 			<Object><Key>s3-browser-folder</Key></Object>
 		</Delete>`
@@ -1174,7 +1179,6 @@ func TestS3DeleteObjects(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code, "Should delete folder marker sent without trailing slash")
-		assert.NoDirExists(t, folderPath)
 		_, _, err = env.objectManager.GetObject(ctx, bucketPath, "s3-browser-folder/")
 		assert.Error(t, err, "Folder marker metadata should be removed")
 	})

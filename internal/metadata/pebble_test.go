@@ -181,4 +181,3 @@ func TestPebbleStoreDeleteBucketIfEmptyRejectsLateObjectWrite(t *testing.T) {
 		ContentType: "text/plain",
 	}))
 }
-

@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFolderMarkerDoesNotDestroySameNamedObject(t *testing.T) {
+func TestFolderMarkerAndSameNamedObjectCoexist(t *testing.T) {
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	const bucket = "folder-conflict"
+	const bucket = "folder-coexist"
 	const payload = "PAYLOAD-THAT-MATTERS"
 
 	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucket, OwnerID: "u"}))
@@ -25,14 +25,25 @@ func TestFolderMarkerDoesNotDestroySameNamedObject(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = om.PutObject(ctx, bucket, "report/", bytes.NewReader(nil), http.Header{})
-	require.Error(t, err)
+	require.NoError(t, err)
+
+	_, err = om.PutObject(ctx, bucket, "report/inside.txt", bytes.NewReader([]byte("child")), http.Header{})
+	require.NoError(t, err)
 
 	obj, rc, err := om.GetObject(ctx, bucket, "report")
 	require.NoError(t, err)
 	defer rc.Close()
 
-	got, err := io.ReadAll(rc)
+	body, err := io.ReadAll(rc)
 	require.NoError(t, err)
-	require.Equal(t, payload, string(got))
+	require.Equal(t, payload, string(body))
 	require.Equal(t, int64(len(payload)), obj.Size)
+
+	res, err := om.ListObjects(ctx, bucket, "", "", "", 100)
+	require.NoError(t, err)
+	keys := make([]string, 0, len(res.Objects))
+	for _, o := range res.Objects {
+		keys = append(keys, o.Key)
+	}
+	require.ElementsMatch(t, []string{"report", "report/", "report/inside.txt"}, keys)
 }

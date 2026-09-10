@@ -15,11 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// removeSidecar deletes an object's `.metadata` file, leaving its bytes intact.
-func removeSidecar(t *testing.T, root, bucket, key string) {
+// objectFilePath resolves where an object's bytes sit under the storage root.
+func objectFilePath(t *testing.T, om *objectManager, bucket, key string) string {
 	t.Helper()
-	path := filepath.Join(root, bucket, key+".metadata")
-	require.NoError(t, os.Remove(path), "the sidecar must exist to be removed")
+	fs, ok := om.storage.(*storage.FilesystemBackend)
+	require.True(t, ok, "these tests manipulate files, so they need the filesystem backend")
+	rel := fs.ObjectPath(storage.ObjectRef{Bucket: bucket, Key: key})
+	return filepath.Join(fs.GetRootPath(), filepath.FromSlash(rel))
+}
+
+// removeSidecar deletes an object's `.metadata` file, leaving its bytes intact.
+func removeSidecar(t *testing.T, om *objectManager, bucket, key string) {
+	t.Helper()
+	require.NoError(t, os.Remove(objectFilePath(t, om, bucket, key)+".metadata"),
+		"the sidecar must exist to be removed")
 }
 
 func TestSidecarLoss_CiphertextIsNotServedAsTheObject(t *testing.T) {
@@ -48,7 +57,7 @@ func TestSidecarLoss_CiphertextIsNotServedAsTheObject(t *testing.T) {
 	recordedSize := obj.Size
 
 	// Now lose the sidecar, exactly as a failed roll-forward would.
-	removeSidecar(t, storageRootOf(t, manager), bucket, key)
+	removeSidecar(t, manager, bucket, key)
 
 	_, reader, err = manager.GetObject(ctx, bucket, key)
 	if err == nil {
@@ -78,12 +87,10 @@ func TestSidecarLoss_PlaintextLegacyObjectsStillRead(t *testing.T) {
 	_, err := manager.PutObject(ctx, bucket, key, bytes.NewReader(payload), nil)
 	require.NoError(t, err)
 
-	root := storageRootOf(t, manager)
-
 	// Replace the stored bytes with the plaintext and drop the sidecar, which
 	// is what an object from before encryption looks like on disk.
-	require.NoError(t, os.WriteFile(filepath.Join(root, bucket, key), payload, 0o644))
-	removeSidecar(t, root, bucket, key)
+	require.NoError(t, os.WriteFile(objectFilePath(t, manager, bucket, key), payload, 0o644))
+	removeSidecar(t, manager, bucket, key)
 
 	// The metadata store still records the plaintext size and ETag, so the
 	// bytes match and the object is served.

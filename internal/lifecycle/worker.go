@@ -14,13 +14,14 @@ import (
 
 // Worker handles lifecycle policy execution
 type Worker struct {
-	bucketManager bucket.Manager
-	objectManager object.Manager
-	metadataStore metadata.Store
-	ticker        *time.Ticker
-	stopChan      chan struct{}
-	stopOnce      sync.Once
-	wg            sync.WaitGroup
+	bucketManager    bucket.Manager
+	objectManager    object.Manager
+	metadataStore    metadata.Store
+	defaultAbortDays func() int
+	ticker           *time.Ticker
+	stopChan         chan struct{}
+	stopOnce         sync.Once
+	wg               sync.WaitGroup
 }
 
 // NewWorker creates a new lifecycle worker
@@ -31,6 +32,46 @@ func NewWorker(bucketManager bucket.Manager, objectManager object.Manager, metad
 		metadataStore: metadataStore,
 		stopChan:      make(chan struct{}),
 	}
+}
+
+// SetDefaultAbortIncompleteDays supplies the server-wide fallback applied to
+// buckets that carry no AbortIncompleteMultipartUpload rule of their own.
+func (w *Worker) SetDefaultAbortIncompleteDays(days func() int) {
+	w.defaultAbortDays = days
+}
+
+// bucketAbortsIncompleteUploads reports whether the bucket already decides for
+// itself when to abort an incomplete upload.
+func (w *Worker) bucketAbortsIncompleteUploads(info *bucket.Bucket) bool {
+	if info.Lifecycle == nil {
+		return false
+	}
+	for _, rule := range info.Lifecycle.Rules {
+		if rule.Status == "Enabled" && rule.AbortIncompleteMultipartUpload != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Worker) applyDefaultAbortIncomplete(ctx context.Context, tenantID, name string) {
+	if w.defaultAbortDays == nil {
+		return
+	}
+	days := w.defaultAbortDays()
+	if days <= 0 {
+		return
+	}
+	w.processAbortIncompleteMultipartUploads(ctx, bucketPathOf(tenantID, name), bucket.LifecycleRule{
+		AbortIncompleteMultipartUpload: &bucket.LifecycleAbortIncompleteMultipartUpload{DaysAfterInitiation: days},
+	})
+}
+
+func bucketPathOf(tenantID, name string) string {
+	if tenantID == "" {
+		return name
+	}
+	return tenantID + "/" + name
 }
 
 // Start begins the lifecycle worker
@@ -85,6 +126,10 @@ func (w *Worker) processLifecyclePolicies(ctx context.Context) {
 		if err != nil {
 			logrus.WithError(err).WithField("bucket", bkt.Name).Warn("Failed to get bucket info")
 			continue
+		}
+
+		if !w.bucketAbortsIncompleteUploads(bucketInfo) {
+			w.applyDefaultAbortIncomplete(ctx, bkt.TenantID, bkt.Name)
 		}
 
 		// Skip if no lifecycle configuration

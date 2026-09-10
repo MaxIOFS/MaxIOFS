@@ -26,6 +26,7 @@ var readOnlyBackendMethods = map[string]bool{
 	"GetPart":      true,
 	"PartMetadata": true,
 	"PartExists":   true,
+	"ListUploads":  true,
 }
 
 // Mutators outside an object's path unit: bucket directories, and parts, which
@@ -35,6 +36,7 @@ var nonObjectPathBackendMethods = map[string]bool{
 	"DeleteBucket": true,
 	"PutPart":      true,
 	"DeletePart":   true,
+	"DeleteUpload": true,
 }
 
 func mutatingBackendCalls(fs *FilesystemBackend, path string) map[string]func() {

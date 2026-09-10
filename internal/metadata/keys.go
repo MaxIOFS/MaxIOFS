@@ -17,6 +17,15 @@ func bucketListPrefix(tenantID string) []byte {
 	return []byte(fmt.Sprintf("bucket:%s:", tenantID))
 }
 
+// bucketDeletedKey records that a bucket's removal was ordered, so a directory
+// that outlives it can be finished off without guessing.
+func bucketDeletedKey(bucketPath string) []byte {
+	return []byte("bucket_deleted:" + bucketPath)
+}
+
+// BucketDeletedPrefix is the scan prefix for pending bucket removals.
+const BucketDeletedPrefix = "bucket_deleted:"
+
 func objectKey(bucket, key string) []byte {
 	return []byte(fmt.Sprintf("obj:%s:%s", bucket, key))
 }

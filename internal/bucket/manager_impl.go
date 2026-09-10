@@ -92,12 +92,6 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 		return err
 	}
 
-	if existing, lookupErr := bm.metadataStore.GetBucketByName(ctx, name); lookupErr != nil && lookupErr != metadata.ErrBucketNotFound {
-		return lookupErr
-	} else if existing != nil {
-		return ErrBucketAlreadyExists
-	}
-
 	// Determine ownership - AWS S3 compatible behavior
 	// Owner is the user who created the bucket (Canonical User ID)
 	ownerType := "user"
@@ -227,11 +221,14 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 		}
 	}
 
-	if err := bm.storage.DeleteBucket(ctx, bm.getTenantBucketPath(tenantID, name)); err != nil {
+	bucketPath := bm.getTenantBucketPath(tenantID, name)
+	if err := bm.storage.DeleteBucket(ctx, bucketPath); err != nil {
 		if err != storage.ErrObjectNotFound {
+			// The removal record stays: a sweep finishes the job later.
 			return err
 		}
 	}
+	bm.metadataStore.ClearBucketRemoval(ctx, bucketPath) //nolint:errcheck
 
 	// Drop every policy naming this bucket, so a later bucket of the same name
 	// does not inherit grants nobody meant to give it.
@@ -331,6 +328,8 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 		if err != storage.ErrObjectNotFound {
 			logrus.WithError(err).Warn("Failed to remove bucket directory during force delete")
 		}
+	} else {
+		bm.metadataStore.ClearBucketRemoval(ctx, bucketPath) //nolint:errcheck
 	}
 
 	// Log audit event for force deleted bucket

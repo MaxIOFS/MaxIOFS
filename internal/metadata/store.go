@@ -49,6 +49,11 @@ type Store interface {
 	// ListBuckets lists all buckets for a tenant (empty tenantID = global)
 	ListBuckets(ctx context.Context, tenantID string) ([]*BucketMetadata, error)
 
+	// PendingBucketRemovals lists buckets whose deletion was ordered but whose
+	// stored objects may still be on disk, and ClearBucketRemoval closes one out.
+	PendingBucketRemovals(ctx context.Context) ([]string, error)
+	ClearBucketRemoval(ctx context.Context, bucketPath string) error
+
 	// GetBucketByName finds a bucket by name across all tenants (for globally unique buckets)
 	GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error)
 

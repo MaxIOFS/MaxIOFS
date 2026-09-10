@@ -41,8 +41,8 @@ func setupPaginationStore(t *testing.T) (*PebbleStore, []string, func()) {
 	}
 
 	return store, keys, func() {
-		store.Close()      //nolint:errcheck
-		os.RemoveAll(dir)  //nolint:errcheck
+		store.Close()     //nolint:errcheck
+		os.RemoveAll(dir) //nolint:errcheck
 	}
 }
 

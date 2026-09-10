@@ -3,65 +3,34 @@ package storage
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestDeleteFolderMarker_LeavesTheObjectsUnderItAlone(t *testing.T) {
+func TestDeletingAFolderMarkerLeavesTheObjectsUnderItAlone(t *testing.T) {
 	root, err := os.MkdirTemp("", "maxiofs-folder-delete-*")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer os.RemoveAll(root)
 
 	fs, err := NewFilesystemBackend(Config{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx := context.Background()
 
-	if err := fs.putAt(ctx, "b1/photos/", strings.NewReader(""), nil); err != nil {
-		t.Fatalf("could not create the folder marker: %v", err)
-	}
-	if err := fs.putAt(ctx, "b1/photos/cat.jpg", strings.NewReader("the bytes"), nil); err != nil {
-		t.Fatalf("could not write the object: %v", err)
-	}
+	marker := ObjectRef{Bucket: "b1", Key: "photos/"}
+	object := ObjectRef{Bucket: "b1", Key: "photos/cat.jpg"}
 
-	if err := fs.deleteAt(ctx, "b1/photos/"); err != nil {
-		t.Fatalf("deleting the folder marker failed: %v", err)
-	}
+	require.NoError(t, fs.Put(ctx, marker, strings.NewReader(""), nil))
+	require.NoError(t, fs.Put(ctx, object, strings.NewReader("the bytes"), nil))
 
-	if _, err := os.Stat(filepath.Join(root, "b1", "photos", "cat.jpg")); err != nil {
-		t.Fatalf("deleting the folder marker destroyed the object under it: %v", err)
-	}
+	require.NoError(t, fs.Delete(ctx, marker))
 
-	if _, err := os.Stat(filepath.Join(root, "b1", "photos", ".maxiofs-folder")); !os.IsNotExist(err) {
-		t.Fatal("the folder marker itself should be gone")
-	}
-}
+	exists, err := fs.Exists(ctx, object)
+	require.NoError(t, err)
+	require.True(t, exists, "deleting the folder marker destroyed the object under it")
 
-func TestDeleteFolderMarker_RemovesAnEmptyFolder(t *testing.T) {
-	root, err := os.MkdirTemp("", "maxiofs-folder-delete-empty-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(root)
-
-	fs, err := NewFilesystemBackend(Config{Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-
-	if err := fs.putAt(ctx, "b1/empty/", strings.NewReader(""), nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := fs.deleteAt(ctx, "b1/empty/"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := os.Stat(filepath.Join(root, "b1", "empty")); !os.IsNotExist(err) {
-		t.Fatal("an emptied folder should not be left behind")
-	}
+	exists, err = fs.Exists(ctx, marker)
+	require.NoError(t, err)
+	require.False(t, exists)
 }

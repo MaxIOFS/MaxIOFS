@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Bucket names are unique across tenants: the S3 layer resolves a bucket by
+// name alone, so a duplicate would make one of the two unreachable.
 func TestCreateBucketRejectsNameTakenInAnotherTenant(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "maxiofs-bucket-unique-*")
 	require.NoError(t, err)
