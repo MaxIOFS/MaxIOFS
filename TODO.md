@@ -2,10 +2,6 @@
 
 Pending work only. Completed work belongs in `CHANGELOG.md`.
 
-## 1.7.0
-
-- [ ] Turn the current AWS CLI battery into a repeatable script.
-
 ## IAM / STS
 
 - [ ] Test LDAP against a real directory.

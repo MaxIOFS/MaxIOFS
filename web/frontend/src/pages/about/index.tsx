@@ -328,52 +328,53 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                IAM Is the Authorization Model
+                New Storage Layout
               </h3>
               <p className="text-sm text-muted-foreground">
-                Roles, bucket permissions and attached policies are all IAM policies now, evaluated
-                the way AWS does it: default deny, and an explicit <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Deny</code>{' '}
-                always wins. Your existing permissions are converted once, on the boot that upgrades
-                the installation. Permissions are picked from a catalogue and can be granted on
-                individual buckets — nobody edits a policy document by hand.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-purple-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                AWS STS &amp; IAM Protocols
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws sts</code> and{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">aws iam --endpoint-url</code>{' '}
-                now work unmodified against the S3 endpoint. Issue short-lived credentials that
-                project an existing user, narrow them with a session policy, and revoke them from
-                the console. Scripts and backup jobs can trade LDAP or OAuth credentials for S3
-                credentials instead of holding permanent keys.
+                An object is now one file named by a digest of its key, and buckets sit at the
+                storage root. No directory is built out of the parts of a key, so a key can be
+                anything S3 allows: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">2026</code>{' '}
+                and <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">2026/</code>{' '}
+                are two objects, as are two keys that differ only in case. An existing
+                installation is migrated on the first start of this release.
               </p>
             </div>
 
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security Pass Across Both APIs
+                Two Ways Objects Could Be Destroyed
               </h3>
               <p className="text-sm text-muted-foreground">
-                Forwarded inter-node requests are now signed over the caller's identity, the method,
-                the full URI, the body digest and a recorded nonce, so an observed request can be
-                neither forged nor replayed. Five endpoints that authorized nothing beyond a session
-                now ask for the permission they need, the tenant boundary is enforced in both
-                directions, and an ACL can no longer overrule an explicit policy denial.
+                Creating a folder whose name matched an existing object replaced that object, and
+                listings kept reporting its original size while a download returned nothing. On
+                Windows and macOS two keys differing only in case shared one file, so the second
+                upload overwrote the first and a download returned the other key's bytes. The
+                layout makes both impossible.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-purple-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Folders Are Not Invented
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Uploading{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">logs/2026/app.log</code>{' '}
+                used to write an object for every level above it. Those folders showed up in a
+                version listing as objects nobody created. Only the key you upload is stored, and
+                the hierarchy is derived from the keys, the way S3 does it.
               </p>
             </div>
 
             <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Clean Shutdown
+                Deletions Finish
               </h3>
               <p className="text-sm text-muted-foreground">
-                Stopping the server used to be able to take the process down with it: the metadata
-                store closed while background work was still writing to it. Every component is now
-                stopped and waited for before the stores close.
+                Deleting a bucket or cleaning up a multipart upload used to drop the record even
+                when the files could not be removed, leaving objects on disk that nothing could
+                reach. The record now outlives the files, and a removal that could not finish is
+                completed at the next start.
               </p>
             </div>
 

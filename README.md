@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.6.0)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.7.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -269,13 +269,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.6.0_amd64.deb
+sudo dpkg -i maxiofs_1.7.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.6.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.7.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -350,7 +350,8 @@ cd web/frontend && npm run test        # 106 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.6.0** *(stable)* | **IAM is the authorization model** — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins); existing permissions are converted once on upgrade. **AWS STS and IAM protocols** on `POST /` of the S3 endpoint, so `aws sts` and `aws iam --endpoint-url` work unmodified; short-lived `ASIA` credentials with optional session policies and federation for headless clients. **Large security pass**: inter-node request forgery and replay, five endpoints that authorized nothing, tenant-boundary escapes, ACLs overruling policies. Shutdown no longer risks a Pebble panic. |
+| **v1.7.0** *(stable)* | **New storage layout** — an object is one file named by a digest of its key, buckets sit at the storage root, and no directory is built out of the parts of a key. Existing installations are migrated on first start, non-destructively and resumably. **Two ways stored objects could be destroyed are gone**: a folder marker replacing a same-named object (listings kept reporting the original size while downloads returned nothing), and two keys differing only in case sharing one file on Windows and macOS. **Folders are no longer invented** for the parent prefixes of an uploaded key. Bucket and multipart cleanup keep their index record when the files could not be removed, and finish the job at the next start. |
+| **v1.6.0** | **IAM is the authorization model** — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins); existing permissions are converted once on upgrade. **AWS STS and IAM protocols** on `POST /` of the S3 endpoint, so `aws sts` and `aws iam --endpoint-url` work unmodified; short-lived `ASIA` credentials with optional session policies and federation for headless clients. **Large security pass**: inter-node request forgery and replay, five endpoints that authorized nothing, tenant-boundary escapes, ACLs overruling policies. Shutdown no longer risks a Pebble panic. |
 | **v1.5.2** | **Urgent fix: listing pagination lost one object per page of 1,000** (present since the Pebble migration; made backup verify/repair tools see existing files as missing — critical for Veeam/Duplicati targets); **Pebble hard-kill durability** (per-second WAL fsync, synchronous deletes, non-destructive metadata re-indexing after unclean shutdown); `maxiofs repair-pointers` recovery tool; dead-code sweep across backend and frontend. *(v1.5.1 was withdrawn shortly after publication and is not available.)* |
 | **v1.5.0** | **Always-on envelope encryption** (per-object DEK + database KEK, AWS SSE-S3 model, multi-format reader for full backward compatibility); encryption **recovery bundle** + `maxiofs recover` offline disaster-recovery CLI (rebuilds metadata from the object files alone); **KEK rotation** without re-encrypting data (background re-wrap worker); **ciphertext HA replication** with a cluster-shared KEK (no decrypt/re-encrypt per hop); **per-tenant bandwidth throttling**; **per-bucket storage quotas** with Veeam SOSAPI capacity exposure; major data-safety fixes (quota-rejected overwrites destroyed the original object, crash window in overwrites, HA replication silently 404ing, falsified replica timestamps causing perpetual anti-entropy churn, silent 200 on failed metadata saves, Windows AV-lock delete orphans); console SSE auto-reconnect |
 | **v1.4.2** | Bug fixes & hardening: web console bucket inventory can now be disabled/deleted once enabled; rate-limiter goroutine-leak fix; concurrency & correctness fixes from code audit (quota TOCTOU, versioning metrics race, refresh-token validation, object-name path-traversal, proxy memory use); security hardening (PBKDF2-SHA256 key derivation, access secrets encrypted at rest, CSP/HSTS, request-body caps); dependency updates (Go minor/patch + frontend npm within semver ranges) |

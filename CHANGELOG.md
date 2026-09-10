@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.7.0] - Unreleased
 
+### Added
+- `scripts/s3-battery.sh` — an S3 acceptance battery over a running server: keys that collide on a filesystem, versioning under shared prefixes, multipart integrity and metadata round-trips. It creates its own bucket and access key and removes both afterwards.
+
 ### Changed
 - **Storage layout v2.** Objects are stored one file per object under `<bucket>/<aa>/<bb>/<sha256 of the key>`, with no directories built from key components and no folder markers on disk. Buckets sit at the storage root; the tenant-qualified path is recorded in `.maxiofs-bucket` and in every sidecar. The root carries a `.maxiofs-layout` marker and the server refuses to start on a layout it does not read. (`internal/storage/filesystem_layout.go`)
 - No object is created for the parent prefixes of an uploaded key. Every upload wrote a folder object per level into the index, which `ListObjectsV2` hid but `ListObjectVersions` returned, so clients saw folders they never created. Entries from earlier releases are kept out of both listings. (`internal/object/manager.go`, `internal/metadata/pebble_objects.go`)
