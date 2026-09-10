@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -1161,11 +1160,6 @@ func hiddenFromFlatListing(metaObj *metadata.ObjectMetadata) bool {
 	if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
 		return true
 	}
-	if metaObj.Metadata != nil {
-		if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-			return true
-		}
-	}
 	return metaObj.Size == 0 && metaObj.ETag == ""
 }
 
@@ -1185,15 +1179,6 @@ func (om *objectManager) listObjectsDelimited(ctx context.Context, bucket, prefi
 		// Skip internal MaxIOFS files
 		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
 			continue
-		}
-
-		// Skip implicit folder markers that are self-referential
-		if metaObj.Metadata != nil {
-			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-				if key == prefix {
-					continue
-				}
-			}
 		}
 
 		// Skip Delete Markers
@@ -1281,14 +1266,6 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 		// Skip internal MaxIOFS files
 		if strings.HasPrefix(key, ".maxiofs-") || strings.Contains(key, "/.maxiofs-") {
 			continue
-		}
-
-		if metaObj.Metadata != nil {
-			if implicit, ok := metaObj.Metadata["x-maxiofs-implicit-folder"]; ok && implicit == "true" {
-				if delimiter == "" || key == prefix {
-					continue
-				}
-			}
 		}
 
 		// Skip Delete Markers
@@ -2464,132 +2441,6 @@ func (om *objectManager) deletePartFiles(ctx context.Context, uploadID string, p
 	return failed
 }
 
-func (om *objectManager) ensureImplicitFolders(ctx context.Context, bucket, key string) {
-	// Skip if key ends with / (it's already a folder)
-	if strings.HasSuffix(key, "/") {
-		return
-	}
-
-	// Extract all parent directories from the key
-	parts := strings.Split(key, "/")
-	if len(parts) <= 1 {
-		return // No parent directories
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket": bucket,
-		"key":    key,
-		"parts":  len(parts) - 1,
-	}).Debug("ensureImplicitFolders called")
-
-	// Create folder objects for each parent directory
-	currentPath := ""
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "" {
-			continue
-		}
-
-		if currentPath != "" {
-			currentPath += "/"
-		}
-		currentPath += parts[i]
-		folderKey := currentPath + "/"
-
-		// Check if folder object already exists in the metadata store.
-		_, err := om.metadataStore.GetObject(ctx, bucket, folderKey)
-		if err == nil {
-			// Folder already exists, skip
-			logrus.WithField("folder_key", folderKey).Debug("Folder already exists, skipping")
-			continue
-		}
-
-		// Create folder object in the metadata store.
-		now := time.Now()
-		folderMetadata := make(map[string]string)
-		folderMetadata["x-maxiofs-implicit-folder"] = "true" // Mark as implicit
-		folderObj := &metadata.ObjectMetadata{
-			Bucket:       bucket,
-			Key:          folderKey,
-			Size:         0,
-			LastModified: now,
-			ETag:         "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty string
-			ContentType:  "application/x-directory",
-			Metadata:     folderMetadata,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		}
-
-		if err := om.metadataStore.PutObject(ctx, folderObj); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket":     bucket,
-				"folder_key": folderKey,
-			}).Debug("Failed to create implicit folder object in metadata store")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"bucket":     bucket,
-				"folder_key": folderKey,
-			}).Debug("Created implicit folder object in metadata store")
-		}
-	}
-}
-
-func (om *objectManager) cleanupEmptyDirectories(bucket, key string) {
-	// Get the filesystem backend to work with directories
-	fsBackend, ok := om.storage.(*storage.FilesystemBackend)
-	if !ok {
-		return
-	}
-
-	// Get the root path and build the full absolute object path
-	rootPath := fsBackend.GetRootPath()
-	objectRef := filepath.Join(rootPath, bucket, key)
-	dirPath := filepath.Dir(objectRef)
-
-	// Walk up the directory tree and remove empty directories
-	for {
-		// Don't go above the root path
-		if !strings.HasPrefix(dirPath, rootPath) || dirPath == rootPath {
-			break
-		}
-
-		// Check if directory is empty (only .maxiofs-folder marker or completely empty)
-		entries, err := os.ReadDir(dirPath)
-		if err != nil {
-			break
-		}
-
-		// Count non-system files
-		nonSystemFiles := 0
-		for _, entry := range entries {
-			if entry.Name() != ".maxiofs-folder" && !strings.HasSuffix(entry.Name(), ".metadata") {
-				nonSystemFiles++
-			}
-		}
-
-		// If directory only has system files or is empty, remove it
-		if nonSystemFiles == 0 {
-			if err := os.RemoveAll(dirPath); err != nil {
-				logrus.WithError(err).WithField("path", dirPath).Debug("Failed to remove empty directory")
-				break
-			}
-			logrus.WithField("path", dirPath).Debug("Removed empty directory")
-
-			// Move to parent directory
-			parentDir := filepath.Dir(dirPath)
-			if parentDir == dirPath {
-				break
-			}
-			dirPath = parentDir
-		} else {
-			// Directory has files, stop cleanup
-			break
-		}
-	}
-}
-
-// ========== PutObject Helper Functions (Refactoring for Complexity Reduction) ==========
-
-// extractMetadataFromHeaders extracts storage and user metadata from HTTP headers
 func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storageMetadata, userMetadata map[string]string) {
 	storageMetadata = make(map[string]string)
 	userMetadata = make(map[string]string)

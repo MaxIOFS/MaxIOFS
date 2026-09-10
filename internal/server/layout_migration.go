@@ -20,6 +20,10 @@ func migrateStorageLayout(cfg *config.Config, store metadata.Store) error {
 		return fmt.Errorf("storage layout migration failed: %w", err)
 	}
 	if report.AlreadyCurrent {
+		if report.FoldersPurged > 0 {
+			logrus.WithField("folders", report.FoldersPurged).
+				Info("Removed folder objects earlier releases invented for parent prefixes")
+		}
 		return nil
 	}
 
@@ -29,6 +33,7 @@ func migrateStorageLayout(cfg *config.Config, store metadata.Store) error {
 		"objects":         report.ObjectsMoved,
 		"versions":        report.VersionsMoved,
 		"markers_created": report.MarkersCreated,
+		"folders_purged":  report.FoldersPurged,
 		"bytes":           report.BytesMoved,
 	}).Info("Storage layout migrated")
 

@@ -42,6 +42,7 @@ type Report struct {
 	ObjectsMoved   int
 	VersionsMoved  int
 	MarkersCreated int
+	FoldersPurged  int
 	BytesMoved     int64
 	MissingData    []string
 	Stranded       []string
@@ -87,6 +88,7 @@ func Migrate(ctx context.Context, opts Options) (*Report, error) {
 	// not know is stranded whether or not anything moved today.
 	if fresh || version == storage.LayoutVersion {
 		report.AlreadyCurrent = true
+		purgeImplicitFolders(ctx, opts, buckets, report)
 		findStranded(opts.Root, buckets, report)
 		return report, nil
 	}
@@ -117,6 +119,7 @@ func Migrate(ctx context.Context, opts Options) (*Report, error) {
 		}
 	}
 
+	purgeImplicitFolders(ctx, opts, buckets, report)
 	findStranded(opts.Root, buckets, report)
 
 	if !opts.DryRun {
@@ -298,6 +301,12 @@ func reconcileIndex(ctx context.Context, opts Options, bkt bucketRef, report *Re
 }
 
 func reconcileEntry(opts Options, bkt bucketRef, obj metadata.ObjectMetadata, report *Report) error {
+	// A folder the client never asked for. Giving it a file would turn an entry
+	// nobody sees into a real object; purgeImplicitFolders takes it out instead.
+	if isImplicitFolder(&obj) {
+		return nil
+	}
+
 	ref := storage.ObjectRef{Bucket: bkt.path, Key: obj.Key, VersionID: obj.VersionID}
 
 	newFull := filepath.Join(opts.Root, filepath.FromSlash(storage.RefPath(ref)))
@@ -352,4 +361,43 @@ func dropFolderMarkers(dir string) {
 		}
 		return nil
 	})
+}
+
+// isImplicitFolder reports an index entry that earlier releases wrote for every
+// parent prefix of an uploaded key.
+func isImplicitFolder(obj *metadata.ObjectMetadata) bool {
+	return strings.HasSuffix(obj.Key, "/") && obj.Size == 0 &&
+		obj.ContentType == "application/x-directory" &&
+		obj.Metadata != nil && obj.Metadata["x-maxiofs-implicit-folder"] == "true"
+}
+
+// purgeImplicitFolders drops those entries. They are invisible to clients only
+// because every listing filters them; removing them is what lets the filters go.
+func purgeImplicitFolders(ctx context.Context, opts Options, buckets []bucketRef, report *Report) {
+	raw, ok := opts.Store.(metadata.RawKVStore)
+	if !ok {
+		return
+	}
+
+	for _, bkt := range buckets {
+		var doomed []string
+		err := raw.RawScan(ctx, "obj:"+bkt.path+":", "", func(key string, val []byte) bool {
+			var obj metadata.ObjectMetadata
+			if json.Unmarshal(val, &obj) == nil && isImplicitFolder(&obj) {
+				doomed = append(doomed, key)
+			}
+			return true
+		})
+		if err != nil {
+			report.Failures = append(report.Failures, fmt.Sprintf("%s: scanning for implicit folders failed: %v", bkt.path, err))
+			continue
+		}
+		report.FoldersPurged += len(doomed)
+		if len(doomed) == 0 || opts.DryRun {
+			continue
+		}
+		if err := raw.RawBatch(ctx, nil, doomed); err != nil {
+			report.Failures = append(report.Failures, fmt.Sprintf("%s: removing implicit folders failed: %v", bkt.path, err))
+		}
+	}
 }

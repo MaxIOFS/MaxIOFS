@@ -307,7 +307,6 @@ func TestCobraCommand_VersionOutput(t *testing.T) {
 	assert.Contains(t, buf.String(), "v1.0.0")
 }
 
-
 // newTestCommand creates a cobra.Command with all required flags for runServer tests.
 // Flags are explicitly Set() so viper's BindPFlag recognizes them as "changed"
 // instead of falling back to viper's own defaults.

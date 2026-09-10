@@ -114,6 +114,19 @@ func (tr *v1Tree) bucketRaw(bucketPath, tenantID, name string) {
 	require.NoError(tr.t, raw.PutRaw(context.Background(), "bucket:"+tenantID+":"+name, value))
 }
 
+// implicitFolder writes the folder object earlier releases created for a parent
+// prefix of an uploaded key.
+func (tr *v1Tree) implicitFolder(bucketPath, key string) {
+	tr.t.Helper()
+	require.NoError(tr.t, tr.store.PutObject(context.Background(), &metadata.ObjectMetadata{
+		Bucket: bucketPath, Key: key, Size: 0,
+		ContentType:  "application/x-directory",
+		ETag:         "d41d8cd98f00b204e9800998ecf8427e",
+		LastModified: time.Now(),
+		Metadata:     map[string]string{"x-maxiofs-implicit-folder": "true"},
+	}))
+}
+
 func (tr *v1Tree) migrate(dryRun bool) (*Report, error) {
 	return Migrate(context.Background(), Options{
 		Root: tr.root, Store: tr.store, Logger: logrus.StandardLogger(), DryRun: dryRun,
@@ -441,4 +454,54 @@ func TestMigrateClearsTheOldLayoutArtifacts(t *testing.T) {
 	marker, err := os.ReadFile(filepath.Join(tr.root, "global", ".maxiofs-bucket"))
 	require.NoError(t, err)
 	require.Equal(t, "global", string(marker))
+}
+
+// Earlier releases wrote an object for every parent prefix. The migration must
+// not give those a file, and must take them out of the index.
+func TestMigratePurgesImplicitFolderObjects(t *testing.T) {
+	tr, cleanup := newV1Tree(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	tr.bucket("global", "", "global", false)
+	tr.object("global", "logs/2026/app.log", "", "entry")
+	tr.implicitFolder("global", "logs/")
+	tr.implicitFolder("global", "logs/2026/")
+
+	report, err := tr.migrate(false)
+	require.NoError(t, err)
+	require.Equal(t, 2, report.FoldersPurged)
+	require.Zero(t, report.MarkersCreated, "an invented folder must not become a real object")
+	require.Empty(t, report.MissingData)
+
+	for _, key := range []string{"logs/", "logs/2026/"} {
+		_, err := tr.store.GetObject(ctx, "global", key)
+		require.Error(t, err, "%s should be gone from the index", key)
+	}
+
+	fs := tr.backend()
+	require.Equal(t, "entry", readObject(t, fs, storage.ObjectRef{Bucket: "global", Key: "logs/2026/app.log"}))
+}
+
+// A root that needs no move still gets the purge: those entries outlive the
+// layout they were written under.
+func TestMigratePurgesImplicitFoldersOnACurrentRoot(t *testing.T) {
+	tr, cleanup := newV1Tree(t)
+	defer cleanup()
+
+	tr.bucket("global", "", "global", false)
+	tr.object("global", "a.txt", "", "content")
+
+	_, err := tr.migrate(false)
+	require.NoError(t, err)
+
+	tr.implicitFolder("global", "left/")
+
+	report, err := tr.migrate(false)
+	require.NoError(t, err)
+	require.True(t, report.AlreadyCurrent)
+	require.Equal(t, 1, report.FoldersPurged)
+
+	_, err = tr.store.GetObject(context.Background(), "global", "left/")
+	require.Error(t, err)
 }

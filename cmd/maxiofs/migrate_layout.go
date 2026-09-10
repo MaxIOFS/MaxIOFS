@@ -79,6 +79,9 @@ func printLayoutReport(report *layout.Report) {
 	fmt.Println("=== Storage layout migration ===")
 	if report.AlreadyCurrent {
 		fmt.Println("Already on the current layout — nothing to move.")
+		if report.FoldersPurged > 0 {
+			fmt.Printf("Invented folders:   %d removed\n", report.FoldersPurged)
+		}
 		printLayoutList("Bucket directories the index does not know (left untouched)", report.Stranded)
 		return
 	}
@@ -90,6 +93,7 @@ func printLayoutReport(report *layout.Report) {
 	fmt.Printf("Objects moved:      %d\n", report.ObjectsMoved)
 	fmt.Printf("Versions moved:     %d\n", report.VersionsMoved)
 	fmt.Printf("Folder markers:     %d\n", report.MarkersCreated)
+	fmt.Printf("Invented folders:   %d removed\n", report.FoldersPurged)
 	fmt.Printf("Bytes moved:        %d\n", report.BytesMoved)
 
 	printLayoutList("Bucket directories the index does not know (left untouched)", report.Stranded)

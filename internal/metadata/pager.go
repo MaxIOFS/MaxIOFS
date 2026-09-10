@@ -43,5 +43,3 @@ func (p *pager) nextMarker() string {
 	}
 	return p.lastKey
 }
-
-func (p *pager) isTruncated() bool { return p.truncated }

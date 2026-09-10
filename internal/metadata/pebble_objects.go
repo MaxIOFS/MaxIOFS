@@ -586,11 +586,6 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 		if prefix != "" && !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
-		// Older installs hold a folder object per parent prefix; the client
-		// never created them and must not be shown them.
-		if isImplicitFolderObject(&obj) {
-			continue
-		}
 		allVersions = append(allVersions, &ObjectVersion{
 			VersionID:    obj.VersionID,
 			IsLatest:     obj.IsLatest,
@@ -632,9 +627,6 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 				continue
 			}
 			if prefix != "" && !strings.HasPrefix(obj.Key, prefix) {
-				continue
-			}
-			if isImplicitFolderObject(&obj) {
 				continue
 			}
 			allVersions = append(allVersions, &ObjectVersion{

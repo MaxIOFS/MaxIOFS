@@ -101,11 +101,3 @@ func TestSidecarLoss_PlaintextLegacyObjectsStillRead(t *testing.T) {
 	reader.Close()
 	assert.Equal(t, payload, got)
 }
-
-// storageRootOf reaches the directory the filesystem backend writes into.
-func storageRootOf(t *testing.T, om *objectManager) string {
-	t.Helper()
-	fs, ok := om.storage.(*storage.FilesystemBackend)
-	require.True(t, ok, "these tests manipulate files, so they need the filesystem backend")
-	return fs.GetRootPath()
-}

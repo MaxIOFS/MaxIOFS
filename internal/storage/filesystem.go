@@ -21,8 +21,6 @@ import (
 // metadataStagingSuffix is appended to a sidecar path to form the STAGED
 const metadataStagingSuffix = "-staging" // full staged name: <object>.metadata-staging
 
-const folderMarkerName = ".maxiofs-folder"
-
 // pathLockShards is the number of striped mutexes serialising per-path
 // commit/repair sections. Collisions only serialise unrelated paths briefly.
 const pathLockShards = 256

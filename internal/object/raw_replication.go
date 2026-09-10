@@ -128,7 +128,6 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 		}
 	}
 
-	om.ensureImplicitFolders(ctx, bucket, key)
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, metaObj.Size, versioned, existingObjBeforeSave)
 	om.updateTenantQuotaAfterPut(ctx, tenantID, key, metaObj.Size, versioned, existingObjBeforeSave)
 

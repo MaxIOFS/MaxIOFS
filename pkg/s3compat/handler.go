@@ -2850,18 +2850,6 @@ func (h *Handler) validateBypassGovernance(ctx context.Context, user *auth.User,
 	return nil
 }
 
-func (h *Handler) getObjectSizeBeforeDeletion(ctx context.Context, bucketPath, objectKey, versionID string) int64 {
-	var objectSize int64
-	objInfo, reader, err := h.objectManager.GetObject(ctx, bucketPath, objectKey, versionID)
-	if err == nil && objInfo != nil {
-		objectSize = objInfo.Size
-		if reader != nil {
-			reader.Close() // Close immediately, we only need the size
-		}
-	}
-	return objectSize
-}
-
 // handleDeleteObjectErrors handles specific delete errors and writes appropriate response
 func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey, versionID string) bool {
 	if err == nil {
@@ -2908,30 +2896,6 @@ func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Reques
 
 	h.writeError(w, "InternalError", err.Error(), objectKey, r)
 	return true
-}
-
-func (h *Handler) updateMetricsAfterDeletion(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName string, objectSize int64, deleteMarkerVersionID string) {
-	// Update bucket metrics after successful deletion
-	// Only decrement if we actually deleted an object (not just created delete marker)
-	if objectSize > 0 && deleteMarkerVersionID == "" {
-		if err := h.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, objectSize); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"bucket":   bucketName,
-				"size":     objectSize,
-				"tenantID": tenantID,
-			}).Warn("Failed to update bucket metrics after DeleteObject")
-		}
-	}
-
-	// Update tenant storage usage for quota tracking
-	if userExists && user.TenantID != "" && objectSize > 0 && deleteMarkerVersionID == "" {
-		if err := h.authManager.DecrementTenantStorage(ctx, user.TenantID, objectSize); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"tenantID": user.TenantID,
-				"size":     objectSize,
-			}).Warn("Failed to decrement tenant storage usage")
-		}
-	}
 }
 
 // setDeleteResponseHeaders sets appropriate response headers for delete operation
