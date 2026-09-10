@@ -262,6 +262,8 @@
   "copyLink": "Copy Link",
   "unshare": "Unshare",
   "unshareObject": "Unshare Object?",
+  "stopSharing": "Stop sharing",
+  "sharedLinkOptions": "Shared link options",
   "unshareObjectText": "This will delete the share link. The file itself will not be deleted.",
   "yesUnshare": "Yes, unshare",
   "shareObject": "Share Object",

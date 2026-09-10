@@ -12,6 +12,7 @@ import {
   Check,
   Link as LinkIcon,
   Share2 as Share2Icon,
+  Link2Off as LinkOffIcon,
   Pencil as PencilIcon,
   Tag as TagIcon,
   Shield as ShieldIcon,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
+import { DropdownPanel } from '@/components/ui/DropdownPanel';
 import { Loading } from '@/components/ui/Loading';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -51,6 +53,8 @@ type Props = ObjectViewCallbacks & {
   isReadOnly?:       boolean;
   objectLockEnabled?: boolean;
   tenantId?:         string;
+  isShared?:         boolean;
+  onUnshare?:        (key: string) => void;
   onBack:            () => void;
 };
 
@@ -131,6 +135,8 @@ function CopyRow({ label, value, mono = false }: { label: string; value: string;
 // ─── Actions dropdown ────────────────────────────────────────────────────────
 
 type ActionsMenuProps = ObjectViewCallbacks & {
+  onUnshare?:        (key: string) => void;
+  isShared?:         boolean;
   objectKey:          string;
   isReadOnly?:        boolean;
   objectLockEnabled?: boolean;
@@ -140,21 +146,12 @@ type ActionsMenuProps = ObjectViewCallbacks & {
 
 function ActionsMenu({
   objectKey, isReadOnly, objectLockEnabled, legalHoldOn,
-  onCopyUrl, onCopyS3Uri, onShare, onPresignedUrl,
+  onCopyUrl, onCopyS3Uri, onShare, onUnshare, isShared, onPresignedUrl,
   onRename, onEditTags, onDelete, onToggleLegalHold,
 }: ActionsMenuProps) {
   const { t } = useTranslation('buckets');
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const item = (
     icon: React.ReactNode,
@@ -183,7 +180,7 @@ function ActionsMenu({
   const sep = <div className="my-1 border-t border-border" />;
 
   return (
-    <div className="relative" ref={ref}>
+    <div ref={triggerRef}>
       <Button
         variant="outline"
         size="sm"
@@ -195,13 +192,19 @@ function ActionsMenu({
         <ChevronDownIcon className="h-4 w-4" />
       </Button>
 
-      {open && (
-        <div className="absolute right-0 mt-1 w-56 rounded-md shadow-lg bg-card border border-border z-50">
+      <DropdownPanel anchorRef={triggerRef} open={open} onClose={() => setOpen(false)}>
           <div className="py-1">
             {item(<Copy className="h-4 w-4" />,       t('copyS3Uri'),            () => onCopyS3Uri(objectKey))}
             {item(<LinkIcon className="h-4 w-4" />,   t('copyObjectUrl'),        () => onCopyUrl(objectKey))}
             {sep}
-            {item(<Share2Icon className="h-4 w-4" />, t('sharePublicLink'),      () => onShare(objectKey),        isReadOnly)}
+            {item(<Share2Icon className="h-4 w-4" />, isShared ? t('sharedLinkOptions') : t('sharePublicLink'), () => onShare(objectKey), isReadOnly)}
+            {isShared && onUnshare && item(
+              <LinkOffIcon className="h-4 w-4" />,
+              t('stopSharing'),
+              () => onUnshare(objectKey),
+              isReadOnly,
+              true,
+            )}
             {item(<LinkIcon className="h-4 w-4" />,   t('generatePresignedUrl'), () => onPresignedUrl(objectKey), isReadOnly)}
             {objectLockEnabled && onToggleLegalHold && (
               item(
@@ -225,8 +228,7 @@ function ActionsMenu({
               true,
             )}
           </div>
-        </div>
-      )}
+      </DropdownPanel>
     </div>
   );
 }
@@ -235,7 +237,7 @@ function ActionsMenu({
 
 export function ObjectDetailsView({
   bucketName, bucketPath: _bucketPath, currentPrefix, objectKey,
-  objectData, bucketData, isReadOnly, objectLockEnabled, tenantId, onBack,
+  objectData, bucketData, isReadOnly, objectLockEnabled, tenantId, isShared, onUnshare, onBack,
   onDownload, onCopyUrl, onCopyS3Uri, onShare, onPresignedUrl,
   onRename, onEditTags, onDelete, onToggleLegalHold, onNavigateToPrefix,
 }: Props) {
@@ -381,6 +383,8 @@ export function ObjectDetailsView({
             onCopyUrl={onCopyUrl}
             onCopyS3Uri={onCopyS3Uri}
             onShare={onShare}
+            onUnshare={onUnshare}
+            isShared={isShared}
             onPresignedUrl={onPresignedUrl}
             onRename={onRename}
             onEditTags={onEditTags}

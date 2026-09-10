@@ -262,6 +262,8 @@
   "copyLink": "Copier le lien",
   "unshare": "Annuler le partage",
   "unshareObject": "Annuler le partage de l'objet ?",
+  "stopSharing": "Ne plus partager",
+  "sharedLinkOptions": "Options du lien partagé",
   "unshareObjectText": "Cela supprimera le lien de partage. Le fichier lui-même ne sera pas supprimé.",
   "yesUnshare": "Oui, annuler le partage",
   "shareObject": "Partager l'objet",

@@ -31,6 +31,7 @@ be rebuilt without changing anything.`,
 		RunE: runRepairPointers,
 	}
 	cmd.Flags().Bool("dry-run", false, "Scan and report without writing anything")
+	cmd.Flags().Bool("drop-orphans", false, "Also remove version entries that name no bucket")
 	return cmd
 }
 
@@ -40,8 +41,9 @@ func runRepairPointers(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--data-dir is required")
 	}
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	dropOrphans, _ := cmd.Flags().GetBool("drop-orphans")
 
-	report, err := recovery.RepairLatestPointers(dataDir, dryRun, logrus.StandardLogger())
+	report, err := recovery.RepairLatestPointers(dataDir, dryRun, dropOrphans, logrus.StandardLogger())
 	if err != nil {
 		if report != nil {
 			printRepairReport(report, dryRun)
@@ -67,6 +69,17 @@ func printRepairReport(report *recovery.RepairReport, dryRun bool) {
 		fmt.Printf("Pointers rebuilt:          %d\n", report.PointersRebuilt)
 	}
 	fmt.Printf("Latest = delete marker (left absent): %d\n", report.DeleteMarkerLatest)
+	if len(report.Orphans) > 0 {
+		fmt.Printf("\nVersion entries naming no bucket (%d): unreachable, and no pointer can be\n", len(report.Orphans))
+		if report.OrphansDropped > 0 {
+			fmt.Printf("rebuilt from them. Removed %d.\n", report.OrphansDropped)
+		} else {
+			fmt.Println("rebuilt from them. Remove them with --drop-orphans.")
+		}
+		for _, o := range report.Orphans {
+			fmt.Printf("  %s\n", o)
+		}
+	}
 	if len(report.Failures) > 0 {
 		fmt.Printf("FAILURES (%d):\n", len(report.Failures))
 		max := len(report.Failures)

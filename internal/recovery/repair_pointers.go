@@ -17,7 +17,13 @@ type RepairReport struct {
 	PointersPresent    int // obj: pointer already existed — left untouched
 	PointersRebuilt    int // obj: pointer was missing — rebuilt from latest version
 	DeleteMarkerLatest int // latest surviving version is a delete marker (pointer left absent)
-	Failures           []string
+
+	// Orphans are version entries that name no bucket. Nothing can reach them,
+	// and no pointer can be rebuilt from them, so they are reported rather than
+	// counted as a failure of the repair.
+	Orphans        []string
+	OrphansDropped int
+	Failures       []string
 }
 
 // versionRecord is one surviving version entry for a key.
@@ -29,7 +35,7 @@ type versionRecord struct {
 
 // RepairLatestPointers scans version: entries and rebuilds any missing obj:
 // pointer from the latest surviving version. dryRun reports without writing.
-func RepairLatestPointers(dataDir string, dryRun bool, logger *logrus.Logger) (*RepairReport, error) {
+func RepairLatestPointers(dataDir string, dryRun, dropOrphans bool, logger *logrus.Logger) (*RepairReport, error) {
 	if logger == nil {
 		logger = logrus.StandardLogger()
 	}
@@ -66,7 +72,7 @@ func RepairLatestPointers(dataDir string, dryRun bool, logger *logrus.Logger) (*
 		report.VersionKeysScanned++
 		bucket, key, versionID, ok := parseVersionKey(rawKey)
 		if !ok {
-			report.Failures = append(report.Failures, fmt.Sprintf("unparseable version key: %q", rawKey))
+			report.Orphans = append(report.Orphans, rawKey)
 			return true
 		}
 
@@ -86,6 +92,16 @@ func RepairLatestPointers(dataDir string, dryRun bool, logger *logrus.Logger) (*
 	flush()
 	if scanErr != nil {
 		return report, fmt.Errorf("version keyspace scan failed: %w", scanErr)
+	}
+
+	if dropOrphans && !dryRun && len(report.Orphans) > 0 {
+		if err := store.RawBatch(ctx, nil, report.Orphans); err != nil {
+			report.Failures = append(report.Failures, fmt.Sprintf("removing orphan version entries: %v", err))
+		} else {
+			report.OrphansDropped = len(report.Orphans)
+			logger.WithField("entries", report.OrphansDropped).
+				Info("Repair: removed version entries that name no bucket")
+		}
 	}
 
 	return report, nil

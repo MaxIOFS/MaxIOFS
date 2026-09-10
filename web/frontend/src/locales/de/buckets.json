@@ -262,6 +262,8 @@
   "copyLink": "Link kopieren",
   "unshare": "Freigabe aufheben",
   "unshareObject": "Objektfreigabe aufheben?",
+  "stopSharing": "Freigabe aufheben",
+  "sharedLinkOptions": "Optionen des geteilten Links",
   "unshareObjectText": "Der Freigabelink wird gelöscht. Die Datei selbst wird nicht gelöscht.",
   "yesUnshare": "Ja, Freigabe aufheben",
   "shareObject": "Objekt teilen",

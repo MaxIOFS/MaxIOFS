@@ -262,6 +262,8 @@
   "copyLink": "复制链接",
   "unshare": "取消共享",
   "unshareObject": "取消共享对象？",
+  "stopSharing": "停止共享",
+  "sharedLinkOptions": "共享链接选项",
   "unshareObjectText": "这将删除共享链接，文件本身不会被删除。",
   "yesUnshare": "是的，取消共享",
   "shareObject": "共享对象",

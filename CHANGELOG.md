@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.7.0] - Unreleased
 
 ### Added
+- `maxiofs reconcile` restores the metadata entry of any object that is on disk but missing from the index, reading its identity from the sidecar. The server already did this after an unclean shutdown; there was no way to ask for it. (`cmd/maxiofs/reconcile.go`)
+- `maxiofs repair-pointers --drop-orphans` removes version entries that name no bucket. They were reported as failures, which made a successful repair exit non-zero; nothing can reach them and no pointer can be rebuilt from them. (`internal/recovery/repair_pointers.go`)
 - `scripts/s3-battery.sh` — an S3 acceptance battery over a running server: keys that collide on a filesystem, versioning under shared prefixes, multipart integrity and metadata round-trips. It creates its own bucket and access key and removes both afterwards.
 
 ### Changed
@@ -28,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vitest 4 -> 5 for the frontend test suite, with `@vitest/ui` and `@vitest/coverage-v8` on the same major. `engines.node` now excludes Node 25, which the toolchain does not support.
 
 ### Fixed
+- **Stop sharing** is an item of the object actions menu. It only existed as a secondary button inside the dialog that opens from Share public link, so revoking a link meant guessing where to look. (`web/frontend/src/components/ObjectDetailsView.tsx`)
+- The object actions menu and the bucket actions menu are rendered outside the page's scroll container. Both were positioned inside it, so the menu was clipped by it and could not open over the bar above — leaving actions such as revoking a share unreachable for rows near the top. (`web/frontend/src/components/ui/DropdownPanel.tsx`)
+- Restoring a delete marker is refused when no earlier version is behind it. Removing the marker left no object at all, which read as the restore having deleted it. (`internal/server/object_extra_handlers.go`)
 - **Data loss: a folder marker destroyed a same-named object.** `PUT key/` deleted any file occupying a component of that path, along with its metadata sidecar and the wrapped DEK, then created a directory there. Listings and GET kept reporting the original size and ETag while the body read empty. Non-versioned buckets only.
 - **Data loss on Windows and macOS: two keys differing only in case shared one file.** `Report` and `report` are distinct S3 keys, but the key was the filename, so the second write replaced the first and a GET returned the other key's bytes under the original's `Content-Length`.
 - Both collisions are gone with layout v2: the filename is a digest of the key, so `2026` and `2026/`, `Report` and `report`, and a key ending in `.metadata` are all distinct files. Key length and Windows path limits stop applying too.

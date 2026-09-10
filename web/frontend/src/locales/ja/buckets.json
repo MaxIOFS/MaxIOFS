@@ -262,6 +262,8 @@
   "copyLink": "リンクをコピー",
   "unshare": "共有を解除",
   "unshareObject": "共有を解除しますか？",
+  "stopSharing": "共有を停止",
+  "sharedLinkOptions": "共有リンクのオプション",
   "unshareObjectText": "共有リンクが削除されます。ファイル自体は削除されません。",
   "yesUnshare": "はい、共有を解除する",
   "shareObject": "オブジェクトを共有",

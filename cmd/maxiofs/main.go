@@ -43,6 +43,7 @@ built in Go with an embedded React web interface.`,
 	rootCmd.AddCommand(newRecoverCmd())
 	rootCmd.AddCommand(newRepairPointersCmd())
 	rootCmd.AddCommand(newMigrateLayoutCmd())
+	rootCmd.AddCommand(newReconcileCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

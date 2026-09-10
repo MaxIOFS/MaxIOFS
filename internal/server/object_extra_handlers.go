@@ -392,7 +392,25 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
 	if req.IsDeleteMarker {
-		// Removing a delete marker exposes the previous real version as the latest
+		// Removing the marker is only a restore if a real version is behind it.
+		// With none, the object would simply stop existing.
+		versions, vErr := s.objectManager.GetObjectVersions(r.Context(), bucketPath, objectKey)
+		if vErr != nil {
+			s.writeError(w, fmt.Sprintf("Failed to read object versions: %v", vErr), http.StatusInternalServerError)
+			return
+		}
+		restorable := false
+		for _, v := range versions {
+			if v.VersionID != req.VersionID && !v.IsDeleteMarker {
+				restorable = true
+				break
+			}
+		}
+		if !restorable {
+			s.writeError(w, "Nothing to restore: no earlier version exists behind this delete marker. Removing it would leave no object at all.", http.StatusConflict)
+			return
+		}
+
 		if err := s.objectManager.DeleteObjectVersion(r.Context(), bucketPath, objectKey, req.VersionID); err != nil {
 			s.writeError(w, fmt.Sprintf("Failed to remove delete marker: %v", err), http.StatusInternalServerError)
 			return

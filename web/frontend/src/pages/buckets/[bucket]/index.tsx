@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
+import { DropdownPanel } from '@/components/ui/DropdownPanel';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Loading } from '@/components/ui/Loading';
@@ -27,6 +28,7 @@ import { HardDrive as HardDriveIcon } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 import { Shield as ShieldIcon } from 'lucide-react';
 import { Share2 as Share2Icon } from 'lucide-react';
+import { Link2Off as Link2OffIcon } from 'lucide-react';
 import { History as HistoryIcon } from 'lucide-react';
 import { Link as LinkIcon } from 'lucide-react';
 import { Filter as FilterIcon } from 'lucide-react';
@@ -92,7 +94,6 @@ export default function BucketDetailsPage() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [actionsDropUp, setActionsDropUp] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [renameKey, setRenameKey] = useState('');
@@ -102,16 +103,6 @@ export default function BucketDetailsPage() {
   const [editTags, setEditTags] = useState<Array<{ key: string; value: string }>>([]);
   const [showVersions, setShowVersions] = useState(false);
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
-        setActionsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
 
   // Keep ref in sync so mutation callbacks (closures) can read current value
   useEffect(() => { detailsObjectKeyRef.current = detailsObjectKey; }, [detailsObjectKey]);
@@ -1223,6 +1214,21 @@ export default function BucketDetailsPage() {
     setDetailsObjectData({});
   };
 
+  const handleUnshare = async (key: string) => {
+    const confirmed = await ModalManager.fire({
+      icon: 'warning',
+      title: t('unshareObject'),
+      text: t('unshareObjectText'),
+      showCancelButton: true,
+      confirmButtonText: t('yesUnshare'),
+      cancelButtonText: t('cancel'),
+      confirmButtonColor: '#dc2626',
+    });
+    if (confirmed.isConfirmed) {
+      deleteShareMutation.mutate({ bucket: bucketName, key });
+    }
+  };
+
   // Callbacks passed to ObjectDetailsView
   const objectViewCallbacks: ObjectViewCallbacks = {
     onDownload:           (key) => handleDownloadObject(key),
@@ -1257,6 +1263,8 @@ export default function BucketDetailsPage() {
           objectLockEnabled={!!bucketData?.objectLock?.objectLockEnabled}
           tenantId={tenantId}
           onBack={closeObjectDetails}
+          isShared={!!sharesMap[detailsObjectKey]}
+          onUnshare={handleUnshare}
           {...objectViewCallbacks}
         />
       )}
@@ -1491,25 +1499,18 @@ export default function BucketDetailsPage() {
                 <span className="hidden sm:inline">{showVersions ? t('hideVersions') : t('showVersions')}</span>
               </Button>
             )}
-            <div className="relative" ref={actionsRef}>
+            <div ref={actionsRef}>
                 <Button
                   variant="outline"
                   size="sm"
                   className="gap-1"
-                  onClick={() => {
-                    if (!actionsOpen && actionsRef.current) {
-                      const rect = actionsRef.current.getBoundingClientRect();
-                      setActionsDropUp(window.innerHeight - rect.bottom < 520);
-                    }
-                    setActionsOpen(o => !o);
-                  }}
+                  onClick={() => setActionsOpen(o => !o)}
                   disabled={isGlobalAdminInTenantBucket || showVersions}
                 >
                   {t('actions')}
                   <ChevronDownIcon className="h-4 w-4" />
                 </Button>
-                {actionsOpen && (
-                  <div className={`absolute right-0 w-64 rounded-md shadow-lg bg-card border border-border z-50 ${actionsDropUp ? 'bottom-full mb-1' : 'mt-1'}`}>
+                <DropdownPanel anchorRef={actionsRef} open={actionsOpen} onClose={() => setActionsOpen(false)} width={256}>
                     <div className="py-1">
                       {selectedObjects.size === 0 ? (
                         /* ── No selection: show bucket info ── */
@@ -1614,8 +1615,18 @@ export default function BucketDetailsPage() {
                             onClick={() => { if (singleItem) { handleShareObject(singleItem.key); setActionsOpen(false); } }}
                           >
                             <Share2Icon className="h-4 w-4" />
-                            {t('sharePublicLink')}
+                            {singleItem && sharesMap[singleItem.key] ? t('sharedLinkOptions') : t('sharePublicLink')}
                           </button>
+                          {singleItem && sharesMap[singleItem.key] && (
+                            <button
+                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                              disabled={isGlobalAdminInTenantBucket}
+                              onClick={() => { handleUnshare(singleItem.key); setActionsOpen(false); }}
+                            >
+                              <Link2OffIcon className="h-4 w-4" />
+                              {t('stopSharing')}
+                            </button>
+                          )}
                           <button
                             className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
                             disabled={!singleIsFile || isGlobalAdminInTenantBucket}
@@ -1678,8 +1689,7 @@ export default function BucketDetailsPage() {
                         </>
                       )}
                     </div>
-                  </div>
-                )}
+                </DropdownPanel>
               </div>
           </div>
         </div>
