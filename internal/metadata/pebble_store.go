@@ -373,8 +373,18 @@ func (s *PebbleStore) DeleteBucket(ctx context.Context, tenantID, name string) e
 		_ = closer.Close()
 	}
 
-	if err := s.db.Delete(key, pebble.Sync); err != nil {
+	// The removal record outlives the entry, so a directory that survives the
+	// delete is finished off at the next start instead of being stranded.
+	batch := s.db.NewBatch()
+	defer batch.Close() //nolint:errcheck
+	if err := batch.Delete(key, nil); err != nil {
 		return fmt.Errorf("failed to delete bucket: %w", err)
+	}
+	if err := batch.Set(bucketDeletedKey(bucketPath), []byte(time.Now().UTC().Format(time.RFC3339)), nil); err != nil {
+		return fmt.Errorf("failed to record the bucket removal: %w", err)
+	}
+	if err := batch.Commit(pebble.Sync); err != nil {
+		return fmt.Errorf("failed to commit bucket deletion: %w", err)
 	}
 	s.deletedBuckets.Store(bucketPath, struct{}{})
 

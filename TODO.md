@@ -8,6 +8,7 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 
 ## IAM / STS
 
+- [ ] Decide whether a tenant is an AWS account. Role and policy names are unique across the deployment and ARNs carry no account (`arn:aws:iam:::policy/X`), so two tenants cannot reuse a name. Making them per-tenant means rebuilding both primary keys, rewriting stored ARNs and rekeying the cluster tombstones.
 - [ ] Test LDAP against a real directory.
 - [ ] Test OAuth against a real identity provider.
 - [ ] Validate errors when LDAP/OAuth are configured but unavailable.

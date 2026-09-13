@@ -60,10 +60,10 @@ func (s *Server) applyIAMPolicies(ctx context.Context, policies []*cluster.IAMPo
 
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT OR REPLACE INTO iam_policies
-			(name, arn, path, description, default_version_id, is_builtin, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			(name, arn, path, description, default_version_id, is_builtin, tenant_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, p.Name, p.ARN, p.Path, nullableString(p.Description), p.DefaultVersionID,
-			boolToInt(p.IsBuiltin), p.CreatedAt, p.UpdatedAt); err != nil {
+			boolToInt(p.IsBuiltin), nullableString(p.TenantID), p.CreatedAt, p.UpdatedAt); err != nil {
 			logrus.WithError(err).WithField("policy", p.Name).Error("Failed to store synchronized IAM policy")
 			continue
 		}

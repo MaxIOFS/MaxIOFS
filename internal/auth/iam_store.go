@@ -32,10 +32,11 @@ func (s *SQLiteStore) CreateIAMPolicy(policy *IAMPolicy, document string) error 
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO iam_policies (name, arn, path, description, default_version_id, is_builtin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO iam_policies (name, arn, path, description, default_version_id, is_builtin, tenant_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, policy.Name, policy.ARN, policy.Path, nullString(policy.Description),
-		policy.DefaultVersionID, boolToInt(policy.IsBuiltin), policy.CreatedAt, policy.UpdatedAt); err != nil {
+		policy.DefaultVersionID, boolToInt(policy.IsBuiltin), nullString(policy.TenantID),
+		policy.CreatedAt, policy.UpdatedAt); err != nil {
 		return fmt.Errorf("failed to create iam policy: %w", err)
 	}
 
@@ -55,17 +56,17 @@ func (s *SQLiteStore) GetIAMPolicy(name string) (*IAMPolicy, error) {
 	var p IAMPolicy
 	var description sql.NullString
 	var isBuiltin int
-	var document sql.NullString
+	var document, tenantID sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT p.name, p.arn, p.path, p.description, p.default_version_id, p.is_builtin,
-		       p.created_at, p.updated_at, v.document
+		       p.tenant_id, p.created_at, p.updated_at, v.document
 		FROM iam_policies p
 		LEFT JOIN iam_policy_versions v
 		  ON v.policy_name = p.name AND v.version_id = p.default_version_id
 		WHERE p.name = ?
 	`, name).Scan(&p.Name, &p.ARN, &p.Path, &description, &p.DefaultVersionID, &isBuiltin,
-		&p.CreatedAt, &p.UpdatedAt, &document)
+		&tenantID, &p.CreatedAt, &p.UpdatedAt, &document)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: policy %q", ErrIAMNoSuchEntity, name)
 	}
@@ -75,6 +76,9 @@ func (s *SQLiteStore) GetIAMPolicy(name string) (*IAMPolicy, error) {
 
 	if description.Valid {
 		p.Description = description.String
+	}
+	if tenantID.Valid {
+		p.TenantID = tenantID.String
 	}
 	p.IsBuiltin = isBuiltin == 1
 
@@ -118,7 +122,7 @@ func (s *SQLiteStore) repairDefaultVersion(p *IAMPolicy) error {
 func (s *SQLiteStore) ListIAMPolicies() ([]*IAMPolicy, error) {
 	rows, err := s.db.Query(`
 		SELECT p.name, p.arn, p.path, p.description, p.default_version_id, p.is_builtin,
-		       p.created_at, p.updated_at, v.document
+		       p.tenant_id, p.created_at, p.updated_at, v.document
 		FROM iam_policies p
 		LEFT JOIN iam_policy_versions v
 		  ON v.policy_name = p.name AND v.version_id = p.default_version_id
@@ -132,14 +136,17 @@ func (s *SQLiteStore) ListIAMPolicies() ([]*IAMPolicy, error) {
 	var out []*IAMPolicy
 	for rows.Next() {
 		var p IAMPolicy
-		var description, document sql.NullString
+		var description, document, tenantID sql.NullString
 		var isBuiltin int
 		if err := rows.Scan(&p.Name, &p.ARN, &p.Path, &description, &p.DefaultVersionID,
-			&isBuiltin, &p.CreatedAt, &p.UpdatedAt, &document); err != nil {
+			&isBuiltin, &tenantID, &p.CreatedAt, &p.UpdatedAt, &document); err != nil {
 			return nil, err
 		}
 		if description.Valid {
 			p.Description = description.String
+		}
+		if tenantID.Valid {
+			p.TenantID = tenantID.String
 		}
 		p.IsBuiltin = isBuiltin == 1
 		if document.Valid {

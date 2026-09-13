@@ -23,6 +23,7 @@ type IAMPolicyData struct {
 	Description      string                 `json:"description,omitempty"`
 	DefaultVersionID string                 `json:"default_version_id"`
 	IsBuiltin        bool                   `json:"is_builtin"`
+	TenantID         string                 `json:"tenant_id,omitempty"`
 	CreatedAt        int64                  `json:"created_at"`
 	UpdatedAt        int64                  `json:"updated_at"`
 	Versions         []*IAMPolicyVersionRow `json:"versions"`
@@ -227,7 +228,7 @@ func (m *IAMSyncManager) buildPayload(ctx context.Context) (*IAMSyncPayload, err
 
 func (m *IAMSyncManager) listPolicies(ctx context.Context) ([]*IAMPolicyData, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT name, arn, path, description, default_version_id, is_builtin, created_at, updated_at
+		SELECT name, arn, path, description, default_version_id, is_builtin, tenant_id, created_at, updated_at
 		FROM iam_policies
 	`)
 	if err != nil {
@@ -238,14 +239,17 @@ func (m *IAMSyncManager) listPolicies(ctx context.Context) ([]*IAMPolicyData, er
 	var policies []*IAMPolicyData
 	for rows.Next() {
 		var p IAMPolicyData
-		var description sql.NullString
+		var description, tenantID sql.NullString
 		var isBuiltin int
 		if err := rows.Scan(&p.Name, &p.ARN, &p.Path, &description, &p.DefaultVersionID,
-			&isBuiltin, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&isBuiltin, &tenantID, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if description.Valid {
 			p.Description = description.String
+		}
+		if tenantID.Valid {
+			p.TenantID = tenantID.String
 		}
 		p.IsBuiltin = isBuiltin == 1
 		policies = append(policies, &p)

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -200,25 +201,25 @@ func (s *Server) handleAWSIAMRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Managed policies
 	case "CreatePolicy":
-		s.iamCreatePolicy(w, r, iamManager)
+		s.iamCreatePolicy(w, r, iamManager, caller)
 	case "DeletePolicy":
-		s.iamDeletePolicy(w, r, iamManager)
+		s.iamDeletePolicy(w, r, iamManager, caller)
 	case "GetPolicy":
-		s.iamGetPolicy(w, r, iamManager)
+		s.iamGetPolicy(w, r, iamManager, caller)
 	case "ListPolicies":
-		s.iamListPolicies(w, r, iamManager)
+		s.iamListPolicies(w, r, iamManager, caller)
 
 	// Policy versions
 	case "CreatePolicyVersion":
-		s.iamCreatePolicyVersion(w, r, iamManager)
+		s.iamCreatePolicyVersion(w, r, iamManager, caller)
 	case "GetPolicyVersion":
-		s.iamGetPolicyVersion(w, r, iamManager)
+		s.iamGetPolicyVersion(w, r, iamManager, caller)
 	case "ListPolicyVersions":
-		s.iamListPolicyVersions(w, r, iamManager)
+		s.iamListPolicyVersions(w, r, iamManager, caller)
 	case "DeletePolicyVersion":
-		s.iamDeletePolicyVersion(w, r, iamManager)
+		s.iamDeletePolicyVersion(w, r, iamManager, caller)
 	case "SetDefaultPolicyVersion":
-		s.iamSetDefaultPolicyVersion(w, r, iamManager)
+		s.iamSetDefaultPolicyVersion(w, r, iamManager, caller)
 
 	// Inline policies, one implementation for each kind of target
 	case "PutUserPolicy", "PutRolePolicy", "PutGroupPolicy":
@@ -232,9 +233,9 @@ func (s *Server) handleAWSIAMRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Attachments, likewise
 	case "AttachUserPolicy", "AttachRolePolicy", "AttachGroupPolicy":
-		s.iamAttachPolicy(w, r, iamManager, action, true)
+		s.iamAttachPolicy(w, r, iamManager, caller, action, true)
 	case "DetachUserPolicy", "DetachRolePolicy", "DetachGroupPolicy":
-		s.iamAttachPolicy(w, r, iamManager, action, false)
+		s.iamAttachPolicy(w, r, iamManager, caller, action, false)
 	case "ListAttachedUserPolicies", "ListAttachedRolePolicies", "ListAttachedGroupPolicies":
 		s.iamListAttachedPolicies(w, r, iamManager, action)
 
@@ -242,13 +243,13 @@ func (s *Server) handleAWSIAMRequest(w http.ResponseWriter, r *http.Request) {
 	case "CreateRole":
 		s.iamCreateRole(w, r, iamManager, caller)
 	case "GetRole":
-		s.iamGetRole(w, r, iamManager)
+		s.iamGetRole(w, r, iamManager, caller)
 	case "ListRoles":
-		s.iamListRoles(w, r, iamManager)
+		s.iamListRoles(w, r, iamManager, caller)
 	case "DeleteRole":
-		s.iamDeleteRole(w, r, iamManager)
+		s.iamDeleteRole(w, r, iamManager, caller)
 	case "UpdateAssumeRolePolicy":
-		s.iamUpdateAssumeRolePolicy(w, r, iamManager)
+		s.iamUpdateAssumeRolePolicy(w, r, iamManager, caller)
 
 	default:
 		writeIAMError(w, r, http.StatusBadRequest, "InvalidAction",
@@ -482,10 +483,10 @@ func (s *Server) iamListAccessKeys(w http.ResponseWriter, r *http.Request, im au
 
 // --- managed policies ---
 
-func (s *Server) iamCreatePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamCreatePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	policy, err := im.CreateIAMPolicy(r.Context(),
 		r.PostForm.Get("PolicyName"), r.PostForm.Get("Path"),
-		r.PostForm.Get("Description"), r.PostForm.Get("PolicyDocument"))
+		r.PostForm.Get("Description"), r.PostForm.Get("PolicyDocument"), caller.TenantID)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -494,8 +495,8 @@ func (s *Server) iamCreatePolicy(w http.ResponseWriter, r *http.Request, im auth
 	writeIAMXML(w, r, "CreatePolicy", iamPolicyDocOf(policy, 0))
 }
 
-func (s *Server) iamGetPolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamGetPolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -503,7 +504,7 @@ func (s *Server) iamGetPolicy(w http.ResponseWriter, r *http.Request, im auth.IA
 	writeIAMXML(w, r, "GetPolicy", iamPolicyDocOf(policy, im.CountIAMPolicyAttachments(r.Context(), policy.Name)))
 }
 
-func (s *Server) iamListPolicies(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamListPolicies(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	policies, err := im.ListIAMPolicies(r.Context())
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
@@ -517,13 +518,16 @@ func (s *Server) iamListPolicies(w http.ResponseWriter, r *http.Request, im auth
 	}
 	out := &result{XMLName: xml.Name{Local: "ListPoliciesResult"}}
 	for _, p := range policies {
+		if !iamVisibleToCaller(caller, p.TenantID) {
+			continue
+		}
 		out.Policies = append(out.Policies, *iamPolicyDocOf(p, im.CountIAMPolicyAttachments(r.Context(), p.Name)))
 	}
 	writeIAMResult(w, r, "ListPolicies", out)
 }
 
-func (s *Server) iamDeletePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamDeletePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -539,8 +543,8 @@ func (s *Server) iamDeletePolicy(w http.ResponseWriter, r *http.Request, im auth
 
 // --- policy versions ---
 
-func (s *Server) iamCreatePolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamCreatePolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -556,8 +560,8 @@ func (s *Server) iamCreatePolicyVersion(w http.ResponseWriter, r *http.Request, 
 	writeIAMXML(w, r, "CreatePolicyVersion", iamPolicyVersionDocOf(version))
 }
 
-func (s *Server) iamGetPolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamGetPolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -570,8 +574,8 @@ func (s *Server) iamGetPolicyVersion(w http.ResponseWriter, r *http.Request, im 
 	writeIAMXML(w, r, "GetPolicyVersion", iamPolicyVersionDocOf(version))
 }
 
-func (s *Server) iamListPolicyVersions(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamListPolicyVersions(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -594,8 +598,8 @@ func (s *Server) iamListPolicyVersions(w http.ResponseWriter, r *http.Request, i
 	writeIAMResult(w, r, "ListPolicyVersions", out)
 }
 
-func (s *Server) iamDeletePolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamDeletePolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -608,8 +612,8 @@ func (s *Server) iamDeletePolicyVersion(w http.ResponseWriter, r *http.Request, 
 	writeIAMEmpty(w, r, "DeletePolicyVersion")
 }
 
-func (s *Server) iamSetDefaultPolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	policy, err := s.iamPolicyFromRequest(r, im)
+func (s *Server) iamSetDefaultPolicyVersion(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	policy, err := s.iamPolicyFromRequest(r, im, caller, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -625,7 +629,7 @@ func (s *Server) iamSetDefaultPolicyVersion(w http.ResponseWriter, r *http.Reque
 // --- inline policies ---
 
 func (s *Server) iamPutInlinePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -640,7 +644,7 @@ func (s *Server) iamPutInlinePolicy(w http.ResponseWriter, r *http.Request, im a
 }
 
 func (s *Server) iamGetInlinePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -669,7 +673,7 @@ func (s *Server) iamGetInlinePolicy(w http.ResponseWriter, r *http.Request, im a
 }
 
 func (s *Server) iamDeleteInlinePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -686,7 +690,7 @@ func (s *Server) iamDeleteInlinePolicy(w http.ResponseWriter, r *http.Request, i
 }
 
 func (s *Server) iamListInlinePolicies(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -711,8 +715,8 @@ func (s *Server) iamListInlinePolicies(w http.ResponseWriter, r *http.Request, i
 
 // --- attachments ---
 
-func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string, attach bool) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User, action string, attach bool) {
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -720,6 +724,12 @@ func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth
 
 	policyName, err := iamPolicyNameFromARN(r.PostForm.Get("PolicyArn"))
 	if err != nil {
+		writeIAMErrorFor(w, r, err)
+		return
+	}
+	// Attaching is a read of the policy and a write to the target: a tenant may
+	// hand its own identities a deployment-wide policy, never another tenant's.
+	if _, err := s.iamPolicyForCaller(r, im, caller, policyName, iamRead); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
@@ -745,7 +755,7 @@ func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth
 }
 
 func (s *Server) iamListAttachedPolicies(w http.ResponseWriter, r *http.Request, im auth.IAMManager, action string) {
-	targetType, targetID, err := s.iamResolveTarget(r, im, action)
+	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -794,8 +804,8 @@ func (s *Server) iamCreateRole(w http.ResponseWriter, r *http.Request, im auth.I
 	writeIAMXML(w, r, "CreateRole", iamRoleDocOf(role))
 }
 
-func (s *Server) iamGetRole(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	role, err := im.GetIAMRole(r.Context(), r.PostForm.Get("RoleName"))
+func (s *Server) iamGetRole(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	role, err := s.iamRoleForCaller(r, im, caller, r.PostForm.Get("RoleName"), iamRead)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -803,7 +813,7 @@ func (s *Server) iamGetRole(w http.ResponseWriter, r *http.Request, im auth.IAMM
 	writeIAMXML(w, r, "GetRole", iamRoleDocOf(role))
 }
 
-func (s *Server) iamListRoles(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamListRoles(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	roles, err := im.ListIAMRoles(r.Context())
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
@@ -817,13 +827,20 @@ func (s *Server) iamListRoles(w http.ResponseWriter, r *http.Request, im auth.IA
 	}
 	out := &result{XMLName: xml.Name{Local: "ListRolesResult"}}
 	for _, role := range roles {
+		if !iamVisibleToCaller(caller, role.TenantID) {
+			continue
+		}
 		out.Roles = append(out.Roles, *iamRoleDocOf(role))
 	}
 	writeIAMResult(w, r, "ListRoles", out)
 }
 
-func (s *Server) iamDeleteRole(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
+func (s *Server) iamDeleteRole(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
 	roleName := r.PostForm.Get("RoleName")
+	if _, err := s.iamRoleForCaller(r, im, caller, roleName, iamWrite); err != nil {
+		writeIAMErrorFor(w, r, err)
+		return
+	}
 	inlineNames := s.iamInlinePolicyNames(r.Context(), im, auth.IAMTargetRole, roleName)
 	attachedNames := s.iamAttachedPolicyNames(r.Context(), im, auth.IAMTargetRole, roleName)
 
@@ -846,9 +863,13 @@ func (s *Server) iamDeleteRole(w http.ResponseWriter, r *http.Request, im auth.I
 	writeIAMEmpty(w, r, "DeleteRole")
 }
 
-func (s *Server) iamUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager) {
-	if err := im.UpdateIAMRoleTrustPolicy(r.Context(),
-		r.PostForm.Get("RoleName"), r.PostForm.Get("PolicyDocument")); err != nil {
+func (s *Server) iamUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Request, im auth.IAMManager, caller *auth.User) {
+	roleName := r.PostForm.Get("RoleName")
+	if _, err := s.iamRoleForCaller(r, im, caller, roleName, iamWrite); err != nil {
+		writeIAMErrorFor(w, r, err)
+		return
+	}
+	if err := im.UpdateIAMRoleTrustPolicy(r.Context(), roleName, r.PostForm.Get("PolicyDocument")); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
@@ -858,9 +879,19 @@ func (s *Server) iamUpdateAssumeRolePolicy(w http.ResponseWriter, r *http.Reques
 
 // --- helpers ---
 
+// iamScope says whether the caller is about to read an entity or change it.
+// A tenant reads the deployment-wide entities — it can assume those roles and
+// attach those policies — but changes only its own.
+type iamScope bool
+
+const (
+	iamRead  iamScope = false
+	iamWrite iamScope = true
+)
+
 // iamResolveTarget works out which entity a policy action applies to from the
 // action name and the UserName / RoleName / GroupName parameter that goes with it.
-func (s *Server) iamResolveTarget(r *http.Request, im auth.IAMManager, action string) (string, string, error) {
+func (s *Server) iamResolveTarget(r *http.Request, im auth.IAMManager, action string, scope iamScope) (string, string, error) {
 	caller, _ := auth.GetUserFromContext(r.Context())
 	switch {
 	case strings.Contains(action, "User"):
@@ -873,21 +904,73 @@ func (s *Server) iamResolveTarget(r *http.Request, im auth.IAMManager, action st
 
 	case strings.Contains(action, "Role"):
 		name := r.PostForm.Get("RoleName")
-		if _, err := im.GetIAMRole(r.Context(), name); err != nil {
+		if _, err := s.iamRoleForCaller(r, im, caller, name, scope); err != nil {
 			return "", "", err
 		}
 		// Roles key on their name: it is their primary key and their ARN.
 		return auth.IAMTargetRole, name, nil
 
 	case strings.Contains(action, "Group"):
-		name := r.PostForm.Get("GroupName")
-		group, err := s.authManager.GetGroupByName(r.Context(), name, "")
-		if err != nil || group == nil {
-			return "", "", auth.ErrIAMNoSuchEntity
+		group, err := s.iamGroupForCaller(r, caller, r.PostForm.Get("GroupName"))
+		if err != nil {
+			return "", "", err
 		}
 		return auth.IAMTargetGroup, group.ID, nil
 	}
 	return "", "", auth.ErrIAMInvalidInput
+}
+
+// iamGroupForCaller resolves GroupName inside the caller's namespace. A tenant
+// never reaches the deployment-wide groups: their members belong to other
+// tenants, so a policy attached there would act outside the tenant. A global
+// administrator resolves the deployment-wide groups, and names a tenant's own
+// with TenantId — an extension to the protocol, since AWS has no tenants.
+func (s *Server) iamGroupForCaller(r *http.Request, caller *auth.User, name string) (*auth.Group, error) {
+	if caller == nil {
+		return nil, auth.ErrAccessDenied
+	}
+	tenantID := caller.TenantID
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(r.PostForm.Get("TenantId"))
+	}
+
+	group, err := s.authManager.GetGroupByName(r.Context(), name, tenantID)
+	if err != nil || group == nil {
+		return nil, fmt.Errorf("%w: group %q", auth.ErrIAMNoSuchEntity, name)
+	}
+	return group, nil
+}
+
+// iamVisibleToCaller reports whether an entity owned by ownerTenant belongs in
+// a listing the caller asked for: its own, plus the deployment-wide ones.
+func iamVisibleToCaller(caller *auth.User, ownerTenant string) bool {
+	if caller == nil {
+		return false
+	}
+	return caller.TenantID == "" || ownerTenant == "" || ownerTenant == caller.TenantID
+}
+
+// iamRoleForCaller resolves RoleName within the caller's namespace. A role of
+// another tenant answers as if it did not exist, the way AWS answers for an
+// entity of another account.
+func (s *Server) iamRoleForCaller(r *http.Request, im auth.IAMManager, caller *auth.User, name string, scope iamScope) (*auth.IAMRole, error) {
+	if caller == nil {
+		return nil, auth.ErrAccessDenied
+	}
+	role, err := im.GetIAMRole(r.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case caller.TenantID == "", role.TenantID == caller.TenantID:
+		return role, nil
+	case role.TenantID == "" && scope == iamRead:
+		return role, nil
+	case role.TenantID == "":
+		return nil, fmt.Errorf("%w: role %q belongs to the deployment", auth.ErrAccessDenied, name)
+	}
+	return nil, fmt.Errorf("%w: role %q", auth.ErrIAMNoSuchEntity, name)
 }
 
 func (s *Server) iamGetUserForCaller(r *http.Request, im auth.IAMManager, caller *auth.User, userName string) (*auth.User, error) {
@@ -905,8 +988,9 @@ func (s *Server) iamGetUserForCaller(r *http.Request, im auth.IAMManager, caller
 }
 
 // iamPolicyFromRequest resolves the policy an action names, accepting either
-// PolicyArn (what AWS sends) or PolicyName (what a person typing by hand sends).
-func (s *Server) iamPolicyFromRequest(r *http.Request, im auth.IAMManager) (*auth.IAMPolicy, error) {
+// PolicyArn (what AWS sends) or PolicyName (what a person typing by hand sends),
+// within what the caller's tenant may reach.
+func (s *Server) iamPolicyFromRequest(r *http.Request, im auth.IAMManager, caller *auth.User, scope iamScope) (*auth.IAMPolicy, error) {
 	name := r.PostForm.Get("PolicyName")
 	if arn := r.PostForm.Get("PolicyArn"); arn != "" {
 		parsed, err := iamPolicyNameFromARN(arn)
@@ -918,7 +1002,30 @@ func (s *Server) iamPolicyFromRequest(r *http.Request, im auth.IAMManager) (*aut
 	if name == "" {
 		return nil, auth.ErrIAMInvalidInput
 	}
-	return im.GetIAMPolicy(r.Context(), name)
+	return s.iamPolicyForCaller(r, im, caller, name, scope)
+}
+
+// iamPolicyForCaller resolves a managed policy within the caller's namespace.
+// The deployment-wide policies — the built-in ones among them — are attachable
+// by every tenant, so they read; only a global administrator changes them.
+func (s *Server) iamPolicyForCaller(r *http.Request, im auth.IAMManager, caller *auth.User, name string, scope iamScope) (*auth.IAMPolicy, error) {
+	if caller == nil {
+		return nil, auth.ErrAccessDenied
+	}
+	policy, err := im.GetIAMPolicy(r.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case caller.TenantID == "", policy.TenantID == caller.TenantID:
+		return policy, nil
+	case policy.TenantID == "" && scope == iamRead:
+		return policy, nil
+	case policy.TenantID == "":
+		return nil, fmt.Errorf("%w: policy %q belongs to the deployment", auth.ErrAccessDenied, name)
+	}
+	return nil, fmt.Errorf("%w: policy %q", auth.ErrIAMNoSuchEntity, name)
 }
 
 func iamPolicyNameFromARN(arn string) (string, error) {

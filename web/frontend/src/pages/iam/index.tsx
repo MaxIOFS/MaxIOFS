@@ -332,6 +332,11 @@ export default function IAMPage() {
                               {t('iamBuiltin')}
                             </span>
                           )}
+                          {policy.tenantId && (
+                            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                              {t('tenant')}: {policy.tenantId}
+                            </span>
+                          )}
                         </div>
                         {policy.description && (
                           <p className="text-xs text-muted-foreground">{policy.description}</p>

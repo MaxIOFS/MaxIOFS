@@ -74,6 +74,7 @@ export interface IAMPolicy {
   document: string;
   versionId: string;
   isBuiltin: boolean;
+  tenantId?: string;
   attachedTo: number;
   createdAt: number;
   updatedAt: number;

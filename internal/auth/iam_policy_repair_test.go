@@ -13,7 +13,7 @@ func TestPolicy_OrphanedDefaultVersionIsRepaired(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	_, err := am.CreateIAMPolicy(ctx, "Orphaned", "/", "", readOnlyBucketDocument)
+	_, err := am.CreateIAMPolicy(ctx, "Orphaned", "/", "", readOnlyBucketDocument, "")
 	require.NoError(t, err)
 
 	// Point the policy at a version that does not exist, which is what a failed
@@ -43,7 +43,7 @@ func TestPolicy_NoVersionsAtAllIsAnError(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	_, err := am.CreateIAMPolicy(ctx, "Empty", "/", "", readOnlyBucketDocument)
+	_, err := am.CreateIAMPolicy(ctx, "Empty", "/", "", readOnlyBucketDocument, "")
 	require.NoError(t, err)
 
 	_, err = am.store.db.Exec(`DELETE FROM iam_policy_versions WHERE policy_name = 'Empty'`)

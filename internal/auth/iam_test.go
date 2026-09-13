@@ -99,7 +99,7 @@ func TestIAMPolicyLifecycle(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	policy, err := am.CreateIAMPolicy(ctx, "BackupsReadOnly", "/", "read backups", readOnlyBucketDocument)
+	policy, err := am.CreateIAMPolicy(ctx, "BackupsReadOnly", "/", "read backups", readOnlyBucketDocument, "")
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam:::policy/BackupsReadOnly", policy.ARN)
 	assert.Equal(t, "v1", policy.DefaultVersionID)
@@ -136,7 +136,7 @@ func TestIAMPolicy_AttachedPolicyCannotBeDeleted(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	_, err := am.CreateIAMPolicy(ctx, "Attached", "/", "", readWriteAllDocument)
+	_, err := am.CreateIAMPolicy(ctx, "Attached", "/", "", readWriteAllDocument, "")
 	require.NoError(t, err)
 	require.NoError(t, am.AttachIAMPolicy(ctx, "Attached", IAMTargetUser, user.ID))
 

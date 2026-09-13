@@ -2,6 +2,9 @@ package migrations
 
 import (
 	"database/sql"
+	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // getAllMigrations returns all available migrations
@@ -27,7 +30,61 @@ func getAllMigrations() []Migration {
 		migration17_v150_ClusterSharedKEK(),
 		migration18_v160_IAMSTS(),
 		migration19_v160_ForcedPasswordChange(),
+		migration20_v170_IAMPolicyTenant(),
 	}
+}
+
+// migration20_v170_IAMPolicyTenant gives a managed policy an owning tenant, so
+// the IAM API can keep one tenant out of another's policies.
+func migration20_v170_IAMPolicyTenant() Migration {
+	return Migration{
+		Version:     20,
+		Description: "v1.7.0 - Add tenant_id to iam_policies",
+		Up: func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`ALTER TABLE iam_policies ADD COLUMN tenant_id TEXT`); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(
+				`CREATE INDEX IF NOT EXISTS idx_iam_policies_tenant ON iam_policies(tenant_id)`); err != nil {
+				return err
+			}
+			return reportPoliciesLeftDeploymentWide(tx)
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
+	}
+}
+
+// reportPoliciesLeftDeploymentWide names the custom policies the migration
+// cannot assign. Nothing records who created a policy, so every existing one
+// stays deployment-wide; a policy that belonged to a tenant has to be recreated
+// there by hand.
+func reportPoliciesLeftDeploymentWide(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT name FROM iam_policies WHERE is_builtin = 0 ORDER BY name`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return nil
+	}
+
+	logrus.WithField("policies", strings.Join(names, ", ")).
+		Warn("IAM policies kept as deployment-wide: every tenant can attach them. Recreate inside a tenant any that should not be shared")
+	return nil
 }
 
 // migration19_v160_ForcedPasswordChange lets an administrator hand out a

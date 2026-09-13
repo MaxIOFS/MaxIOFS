@@ -66,7 +66,7 @@ export function ObjectVersionsModal({
       html: isDeleteMarker
         ? `<p>Deleting this Delete Marker will <strong>restore</strong> the previous version of the object.</p>`
         : isLatest
-          ? `<p>This will create a <strong>Delete Marker</strong> for this object.</p><p class="text-gray-600 mt-2">The version will still exist and can be recovered</p>`
+          ? `<p>This will create a <strong>Delete Marker</strong> for this object.</p><p class="text-muted-foreground mt-2">The version will still exist and can be recovered</p>`
           : `<p>This will <strong>permanently</strong> delete this version.</p><p class="text-red-600 mt-2">This action cannot be undone</p>`,
       showCancelButton: true,
       confirmButtonText: isDeleteMarker ? 'Yes, restore object' : isLatest ? 'Yes, mark as deleted' : 'Yes, delete permanently',

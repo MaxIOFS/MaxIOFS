@@ -47,8 +47,11 @@ type IAMPolicy struct {
 	DefaultVersionID string `json:"default_version_id"`
 	IsBuiltin        bool   `json:"is_builtin"`
 	Document         string `json:"document,omitempty"`
-	CreatedAt        int64  `json:"created_at"`
-	UpdatedAt        int64  `json:"updated_at"`
+	// TenantID is the tenant that owns the policy. Empty means the policy
+	// belongs to the deployment and every tenant may attach it.
+	TenantID  string `json:"tenant_id,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // IAMPolicyVersion is one immutable revision of a managed policy's document.

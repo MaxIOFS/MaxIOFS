@@ -120,12 +120,12 @@ func TestCluster_ConcurrentPolicyWrites(t *testing.T) {
 	readOnly := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["*"]}]}`
 	readWrite := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["*"]}]}`
 
-	_, err := nodeA.CreateIAMPolicy(ctx, "Contended", "/", "written on A", readOnly)
+	_, err := nodeA.CreateIAMPolicy(ctx, "Contended", "/", "written on A", readOnly, "")
 	require.NoError(t, err)
 
 	// A second later, so the timestamps can order the two writes.
 	time.Sleep(1100 * time.Millisecond)
-	_, err = nodeB.CreateIAMPolicy(ctx, "Contended", "/", "written on B", readWrite)
+	_, err = nodeB.CreateIAMPolicy(ctx, "Contended", "/", "written on B", readWrite, "")
 	require.NoError(t, err)
 
 	onA, err := nodeA.GetIAMPolicy(ctx, "Contended")
@@ -153,9 +153,9 @@ func TestCluster_ConcurrentWritesInTheSameSecond(t *testing.T) {
 	docB := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::b/*"]}]}`
 
 	// No sleep: both land in the same second, as two admins clicking at once.
-	_, err := nodeA.CreateIAMPolicy(ctx, "SameSecond", "/", "", docA)
+	_, err := nodeA.CreateIAMPolicy(ctx, "SameSecond", "/", "", docA, "")
 	require.NoError(t, err)
-	_, err = nodeB.CreateIAMPolicy(ctx, "SameSecond", "/", "", docB)
+	_, err = nodeB.CreateIAMPolicy(ctx, "SameSecond", "/", "", docB, "")
 	require.NoError(t, err)
 
 	onA, err := nodeA.GetIAMPolicy(ctx, "SameSecond")

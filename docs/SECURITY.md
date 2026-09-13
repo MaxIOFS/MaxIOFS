@@ -235,8 +235,15 @@ managing identities. The namespace is not a division between kinds of user: it
 exists because a policy has to be able to name every operation, and without it
 the operations outside S3 would need a second mechanism.
 
-Tenant scoping always applies: an identity created through the IAM API belongs
-to its creator's tenant.
+Tenant scoping always applies. An entity created through the IAM API belongs to
+its creator's tenant, and a caller reaches only what its own tenant owns: a role,
+policy or group of another tenant answers as if it did not exist. A group name
+resolves inside the caller's tenant.
+
+A role or managed policy with no tenant belongs to the deployment. Every tenant
+reads those — the built-in policies to attach them, the roles to assume them —
+and only a global administrator changes them. A global administrator reaches
+every tenant.
 
 ### Roles
 

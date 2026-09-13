@@ -19,6 +19,7 @@ type iamPolicyView struct {
 	Document    string `json:"document"`
 	VersionID   string `json:"versionId"`
 	IsBuiltin   bool   `json:"isBuiltin"`
+	TenantID    string `json:"tenantId,omitempty"`
 	AttachedTo  int    `json:"attachedTo"`
 	CreatedAt   int64  `json:"createdAt"`
 	UpdatedAt   int64  `json:"updatedAt"`
@@ -91,6 +92,7 @@ func (s *Server) handleListIAMPolicies(w http.ResponseWriter, r *http.Request) {
 			Document:    p.Document,
 			VersionID:   p.DefaultVersionID,
 			IsBuiltin:   p.IsBuiltin,
+			TenantID:    p.TenantID,
 			CreatedAt:   p.CreatedAt,
 			UpdatedAt:   p.UpdatedAt,
 		})
@@ -130,7 +132,9 @@ func (s *Server) handleCreateIAMPolicy(w http.ResponseWriter, r *http.Request) {
 			s.writeIAMConsoleError(w, err)
 			return
 		}
-	} else if _, err := im.CreateIAMPolicy(r.Context(), req.Name, "/", req.Description, document); err != nil {
+		// The console is global-admin only, so a policy created here belongs to
+		// the deployment and every tenant may attach it.
+	} else if _, err := im.CreateIAMPolicy(r.Context(), req.Name, "/", req.Description, document, ""); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
 	}

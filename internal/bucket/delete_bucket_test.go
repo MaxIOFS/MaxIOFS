@@ -198,6 +198,12 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	actualObjectCount := len(objectsInBucket)
 	assert.Equal(t, len(objects), actualObjectCount, "All objects should exist before ForceDelete")
 
+	// Pin the directory before deleting: without this the check below would pass
+	// against a path that never existed.
+	bucketDir := filepath.Join(storageDir, "force-delete-bucket")
+	_, err = os.Stat(bucketDir)
+	require.NoError(t, err, "the bucket directory must exist before ForceDelete")
+
 	// Force delete bucket with all objects
 	err = manager.ForceDeleteBucket(ctx, "tenant-1", "force-delete-bucket")
 	require.NoError(t, err, "ForceDeleteBucket should succeed")
@@ -207,10 +213,21 @@ func TestForceDeleteBucket_DeletesAllObjects(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists, "Bucket should not exist in metadata after ForceDelete")
 
-	// Verify all objects are deleted from storage
-	bucketDir := filepath.Join(storageDir, "tenant-1", "force-delete-bucket")
 	_, err = os.Stat(bucketDir)
 	assert.True(t, os.IsNotExist(err), "Bucket directory should be completely removed")
+
+	// Nothing of the bucket is left anywhere under the root.
+	var leftovers []string
+	require.NoError(t, filepath.Walk(storageDir, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return nil //nolint:nilerr
+		}
+		if strings.Contains(filepath.ToSlash(p), "force-delete-bucket") {
+			leftovers = append(leftovers, p)
+		}
+		return nil
+	}))
+	assert.Empty(t, leftovers, "no file of the deleted bucket should survive")
 }
 
 func TestForceDeleteBucket_CleansMetadata(t *testing.T) {

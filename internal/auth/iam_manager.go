@@ -21,7 +21,7 @@ type IAMManager interface {
 	ListIAMUsers(ctx context.Context) ([]*User, error)
 
 	// Managed policies
-	CreateIAMPolicy(ctx context.Context, name, path, description, document string) (*IAMPolicy, error)
+	CreateIAMPolicy(ctx context.Context, name, path, description, document, tenantID string) (*IAMPolicy, error)
 	GetIAMPolicy(ctx context.Context, name string) (*IAMPolicy, error)
 	ListIAMPolicies(ctx context.Context) ([]*IAMPolicy, error)
 	DeleteIAMPolicy(ctx context.Context, name string) error
@@ -168,7 +168,7 @@ func (am *authManager) ResolveIAMUserID(ctx context.Context, username string) (s
 
 // --- managed policies ---
 
-func (am *authManager) CreateIAMPolicy(ctx context.Context, name, path, description, document string) (*IAMPolicy, error) {
+func (am *authManager) CreateIAMPolicy(ctx context.Context, name, path, description, document, tenantID string) (*IAMPolicy, error) {
 	if err := ValidateIAMName(name); err != nil {
 		return nil, err
 	}
@@ -183,6 +183,7 @@ func (am *authManager) CreateIAMPolicy(ctx context.Context, name, path, descript
 		Path:             normalizeIAMPath(path),
 		Description:      description,
 		DefaultVersionID: "v1",
+		TenantID:         tenantID,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		Document:         document,

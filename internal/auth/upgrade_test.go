@@ -96,9 +96,10 @@ func TestUpgrade_FromPreIAMDeployment(t *testing.T) {
 	store := openUpgradedStore(t, dataDir)
 	defer store.db.Close()
 
-	version, err := migrations.NewMigrationManager(store.db, logrus.StandardLogger()).GetCurrentVersion()
+	manager := migrations.NewMigrationManager(store.db, logrus.StandardLogger())
+	version, err := manager.GetCurrentVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 19, version, "the upgrade applies every v1.6.0 migration")
+	assert.Equal(t, manager.GetTargetVersion(), version, "the upgrade applies every migration")
 
 	allows := func(userID string, roles []string, action, resource string) bool {
 		documents, err := store.EffectivePolicyDocuments(userID, roles)

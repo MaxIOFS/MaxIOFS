@@ -686,9 +686,6 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		}
 	}
 
-	// Create implicit parent folders in the metadata store.
-	// This ensures folders are listable even when created implicitly by S3 clients
-
 	// Update bucket metrics using helper function
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
 

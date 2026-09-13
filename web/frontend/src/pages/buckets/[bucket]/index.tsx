@@ -683,14 +683,14 @@ export default function BucketDetailsPage() {
           title: 'Object Already Shared',
           html: `
             <div class="text-left space-y-4">
-              <p class="text-gray-700">This object is already shared. You can:</p>
+              <p class="text-muted-foreground">This object is already shared. You can:</p>
               <div>
                 <p class="text-sm font-medium mb-2">Share this link:</p>
-                <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                <div class="bg-secondary p-3 rounded border border-border">
                   <code class="text-xs break-all">${escapeHtml(shareData.url)}</code>
                 </div>
               </div>
-              <div class="text-sm text-gray-600">
+              <div class="text-sm text-muted-foreground">
                 ${expirationInfo}
                 <p><strong>Created:</strong> ${escapeHtml(new Date(shareData.createdAt).toLocaleString())}</p>
               </div>
@@ -734,7 +734,7 @@ export default function BucketDetailsPage() {
           <p class="mb-4">Generate a shareable link for <strong>"${escapeHtml(key.split('/').pop() ?? '')}"</strong></p>
           <div class="text-left">
             <label for="expiresIn" class="block text-sm font-medium mb-2">${t('linkExpiresIn')}</label>
-            <select id="expiresIn" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+            <select id="expiresIn" class="w-full px-3 py-2 border border-border rounded-md bg-card text-foreground">
               <option value="0">${t('never')}</option>
               <option value="3600">1 hour</option>
               <option value="21600">6 hours</option>
@@ -800,15 +800,15 @@ export default function BucketDetailsPage() {
             </div>
             <div>
               <p class="text-sm font-medium mb-2">${t('shareThisLink')}</p>
-              <div class="bg-gray-50 p-3 rounded border border-gray-200">
+              <div class="bg-secondary p-3 rounded border border-border">
                 <code class="text-xs break-all">${escapeHtml(shareData.url)}</code>
               </div>
             </div>
-            <div class="text-sm text-gray-600">
+            <div class="text-sm text-muted-foreground">
               ${expirationInfo}
               <p><strong>Created:</strong> ${escapeHtml(new Date(shareData.createdAt).toLocaleString())}</p>
             </div>
-            <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+            <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded p-3 text-sm text-blue-800 dark:text-blue-200">
               <strong>ℹ️ Note:</strong> ${t('noteAnyone', { expiry: shareData.expiresAt ? t('noteExpiry') : t('noteNoExpiry') })}
             </div>
           </div>
