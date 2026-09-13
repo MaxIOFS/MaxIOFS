@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -358,6 +359,69 @@ func fileMD5(path string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
+// pruneMovedDirs removes the directories the old layout built out of key
+// components. It works from the moved files' own parents, deepest first, so
+// each directory is read exactly once. Pruning from every file instead re-read
+// the whole subtree below it once per object, which on a bucket with a deep
+// tree and many objects is most of the migration's running time.
+func pruneMovedDirs(oldDir string, files []string, log *logrus.Logger) {
+	seen := make(map[string]struct{}, len(files))
+	var dirs []string
+	for _, rel := range files {
+		dir := filepath.Dir(filepath.Join(oldDir, filepath.FromSlash(rel)))
+		for dir != oldDir && strings.HasPrefix(dir, oldDir) {
+			if _, done := seen[dir]; done {
+				break // its ancestors came in with it
+			}
+			seen[dir] = struct{}{}
+			dirs = append(dirs, dir)
+			dir = filepath.Dir(dir)
+		}
+	}
+
+	// A child's path is always longer than its parent's, so this orders every
+	// directory after the ones below it.
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+
+	left := 0
+	for _, dir := range dirs {
+		if !removeIfChildless(dir) {
+			left++
+		}
+	}
+	if left > 0 {
+		log.WithFields(logrus.Fields{"bucket": oldDir, "directories": left}).
+			Debug("Directories left behind: they still hold something")
+	}
+}
+
+// dirReads counts the directory reads the prune makes, so a test can pin that
+// each directory is decided once. Reading one per moved object instead is what
+// made a large bucket look stuck.
+var dirReads atomic.Int64
+
+// removeIfChildless removes dir when nothing but the old layout's own artifacts
+// is left in it. It does not descend: deepest-first order means a directory
+// that could go is already gone by the time its parent is read.
+func removeIfChildless(dir string) bool {
+	dirReads.Add(1)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !isInternalName(e.Name()) {
+			return false
+		}
+	}
+	for _, e := range entries {
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			return false
+		}
+	}
+	return os.Remove(dir) == nil
+}
+
 // pruneEmpty removes the emptied bucket directory, and the tenant directory
 // above it once its last bucket is gone.
 func pruneEmpty(dir, root string, log *logrus.Logger) {
@@ -374,6 +438,7 @@ func pruneEmpty(dir, root string, log *logrus.Logger) {
 // left under it, subdirectories included. It decides before it deletes, and only
 // ever calls os.Remove, which refuses a directory that still holds anything.
 func removeIfEmpty(dir string) bool {
+	dirReads.Add(1)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false

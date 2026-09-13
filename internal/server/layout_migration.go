@@ -23,9 +23,11 @@ func migrateStorageLayout(cfg *config.Config, store metadata.Store) error {
 		if report.FoldersPurged > 0 {
 			logrus.WithField("folders", report.FoldersPurged).
 				Info("Removed folder objects earlier releases invented for parent prefixes")
+			recountBuckets(store)
 		}
 		return nil
 	}
+	recountBuckets(store)
 
 	logrus.WithFields(logrus.Fields{
 		"buckets":         report.Buckets,
@@ -50,4 +52,24 @@ func migrateStorageLayout(cfg *config.Config, store metadata.Store) error {
 		logrus.WithField("detail", entry).Error("Storage layout migration: failure")
 	}
 	return nil
+}
+
+// recountBuckets rebuilds the cached object count and size of every bucket. The
+// migration writes index entries directly — it removes the invented folder
+// objects and adds the marker files — so the counters the console reads are out
+// by whatever it changed until something recalculates them.
+func recountBuckets(store metadata.Store) {
+	ctx := context.Background()
+	buckets, err := store.ListBuckets(ctx, "")
+	if err != nil {
+		logrus.WithError(err).Warn("Could not list buckets to rebuild their counters after the layout migration")
+		return
+	}
+	for _, b := range buckets {
+		if err := store.RecalculateBucketStats(ctx, b.TenantID, b.Name); err != nil {
+			logrus.WithError(err).WithField("bucket", b.Name).
+				Warn("Could not rebuild the bucket counters after the layout migration")
+		}
+	}
+	logrus.WithField("buckets", len(buckets)).Info("Bucket counters rebuilt after the layout migration")
 }

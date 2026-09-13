@@ -34,6 +34,10 @@ RestartSec=5s
 StartLimitInterval=300s
 StartLimitBurst=5
 
+# Shutdown. A large index takes longer than the 90s systemd allows by default,
+# and a SIGKILL there costs a WAL replay on the next start.
+TimeoutStopSec=600
+
 # Logging
 StandardOutput=append:/var/log/maxiofs/maxiofs.log
 StandardError=append:/var/log/maxiofs/maxiofs.log

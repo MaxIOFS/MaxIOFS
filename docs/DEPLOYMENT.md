@@ -122,6 +122,8 @@ Group=maxiofs
 ExecStart=/usr/local/bin/maxiofs --config /etc/maxiofs/config.yaml
 Restart=on-failure
 RestartSec=5s
+# A large index takes longer to close than the 90s systemd allows by default.
+TimeoutStopSec=600
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

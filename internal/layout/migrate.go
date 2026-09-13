@@ -251,9 +251,7 @@ func migrateBucket(ctx context.Context, opts Options, bkt bucketRef, report *Rep
 	}
 
 	// The directories the old layout built out of key components are empty now.
-	for _, rel := range files {
-		pruneEmpty(filepath.Dir(filepath.Join(oldDir, filepath.FromSlash(rel))), oldDir, log)
-	}
+	pruneMovedDirs(oldDir, files, log)
 
 	if err := storage.WriteBucketMarker(opts.Root, bkt.path); err != nil {
 		return fmt.Errorf("%s: could not write the bucket marker: %w", bkt.path, err)

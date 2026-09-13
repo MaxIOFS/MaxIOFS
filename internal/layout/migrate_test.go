@@ -505,3 +505,34 @@ func TestMigratePurgesImplicitFoldersOnACurrentRoot(t *testing.T) {
 	_, err = tr.store.GetObject(context.Background(), "global", "left/")
 	require.Error(t, err)
 }
+
+// The prune decides each directory once. Pruning from every moved file instead
+// re-read the subtree below it per object, so a bucket holding a backup
+// repository spent the migration rescanning the same directories.
+func TestMigratePrunesEachDirectoryOnce(t *testing.T) {
+	tr, cleanup := newV1Tree(t)
+	defer cleanup()
+
+	tr.bucket("repo", "", "repo", false)
+	const objects = 300
+	for i := 0; i < objects; i++ {
+		tr.object("repo", "a/b/c/d/"+strconv.Itoa(i)+".bin", "", "x")
+	}
+
+	dirReads.Store(0)
+	report, err := tr.migrate(false)
+	require.NoError(t, err)
+	require.Empty(t, report.Failures)
+	require.Equal(t, objects, report.ObjectsMoved)
+
+	// Four directories came out of the key. The bound is the budget, not the
+	// count: what it rules out is a read per object.
+	require.LessOrEqual(t, dirReads.Load(), int64(16),
+		"the prune read directories again and again instead of deciding each one once")
+
+	_, err = os.Stat(filepath.Join(tr.root, "repo", "a"))
+	require.True(t, os.IsNotExist(err), "the directories built out of the key should be gone")
+
+	fs := tr.backend()
+	require.Equal(t, "x", readObject(t, fs, storage.ObjectRef{Bucket: "repo", Key: "a/b/c/d/7.bin"}))
+}
