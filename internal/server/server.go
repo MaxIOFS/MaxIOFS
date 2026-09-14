@@ -845,7 +845,7 @@ func (s *Server) reconcileBucketStats(ctx context.Context) {
 		}
 	}
 
-	logrus.WithField("buckets", len(buckets)).Debug("Stats reconciler: completed pass")
+	logrus.WithField("buckets", len(buckets)).Info("Stats reconciler: completed pass")
 }
 
 func (s *Server) startAPIServer() error {

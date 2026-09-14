@@ -102,6 +102,11 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	// Deliberately not requireConsoleBucketS3Action: a quota is a ceiling the
+	// operator imposes on a tenant, so a global administrator sets it on a
+	// tenant's bucket — the one mutation that rule must not forbid. A tenant
+	// caller is still confined, because the quota is written under its own
+	// tenant and another tenant's bucket does not exist there.
 	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}
@@ -206,6 +211,11 @@ func (s *Server) handleDeleteBucketQuota(w http.ResponseWriter, r *http.Request)
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
+	// Deliberately not requireConsoleBucketS3Action: a quota is a ceiling the
+	// operator imposes on a tenant, so a global administrator sets it on a
+	// tenant's bucket — the one mutation that rule must not forbid. A tenant
+	// caller is still confined, because the quota is written under its own
+	// tenant and another tenant's bucket does not exist there.
 	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
 		return
 	}

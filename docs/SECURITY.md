@@ -225,6 +225,14 @@ since goes straight to a policy.
 A user is a user. Their access keys carry their permissions — a request is the
 same request whether it arrived on a console session or signed with a key.
 
+**The account boundary is not a policy.** A principal that belongs to a tenant
+never leaves it, whatever its own policies say. A global administrator reaches
+another tenant to read — the audit view — and not to write: on a tenant's bucket
+the console refuses to change lifecycle, tagging, CORS, ACL, policy, versioning,
+object lock, notifications, encryption, public access block, website and
+inventory. The exception is the bucket quota, which is the ceiling the operator
+imposes on the tenant and therefore theirs to set.
+
 **Roles** are named permission sets. A role is assigned to users; if it also
 carries a trust policy it can be assumed through `AssumeRole`, and a role with
 no trust policy cannot be assumed by anyone. There is one role concept, not two.

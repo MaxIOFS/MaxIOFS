@@ -67,7 +67,8 @@ func (s *Server) handlePutBucketWebsite(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketWebsite,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -137,7 +138,8 @@ func (s *Server) handleDeleteBucketWebsite(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketWebsite,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 

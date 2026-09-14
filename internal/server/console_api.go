@@ -5548,7 +5548,8 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketLifecycle,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -5650,7 +5651,8 @@ func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketLifecycle,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -5751,7 +5753,8 @@ func (s *Server) handlePutBucketTagging(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketTagging,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -5822,7 +5825,8 @@ func (s *Server) handleDeleteBucketTagging(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketTagging,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -5942,7 +5946,8 @@ func (s *Server) handlePutBucketCors(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketCORS,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -6043,7 +6048,8 @@ func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketCORS,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -6113,7 +6119,8 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketAcl,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -6347,7 +6354,8 @@ func (s *Server) handlePutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketManagePolicy, "You do not have permission to manage bucket policies") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketPolicy,
+		"You do not have permission to manage this bucket's policy") {
 		return
 	}
 
@@ -6415,7 +6423,8 @@ func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketManagePolicy, "You do not have permission to manage bucket policies") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucketPolicy,
+		"You do not have permission to manage this bucket's policy") {
 		return
 	}
 
@@ -6487,7 +6496,8 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketVersioning,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -6556,7 +6566,8 @@ func (s *Server) handlePutObjectLockConfiguration(w http.ResponseWriter, r *http
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -7685,7 +7696,8 @@ func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketNotification,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -7747,7 +7759,8 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketNotification,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -7834,7 +7847,8 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketEncryption,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -7916,7 +7930,8 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketEncryption,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -8034,7 +8049,8 @@ func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketPublicAccess,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
@@ -8097,7 +8113,8 @@ func (s *Server) handleDeletePublicAccessBlock(w http.ResponseWriter, r *http.Re
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketPublicAccess,
+		"You do not have permission to configure this bucket") {
 		return
 	}
 
