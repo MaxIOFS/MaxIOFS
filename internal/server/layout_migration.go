@@ -29,9 +29,6 @@ func migrateStorageLayout(cfg *config.Config, store metadata.Store) error {
 	}
 	recountBuckets(store)
 
-	// Counted by where the file was, not by what it is: a versioned bucket kept
-	// its objects under .versions/, so its objects land in from_versions_dir.
-	// Neither number is the bucket's object count.
 	logrus.WithFields(logrus.Fields{
 		"buckets":           report.Buckets,
 		"buckets_skipped":   report.BucketsSkipped,

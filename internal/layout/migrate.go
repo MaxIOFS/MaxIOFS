@@ -39,9 +39,6 @@ type Report struct {
 	AlreadyCurrent bool
 	Buckets        int
 	BucketsSkipped int
-	// Files moved, split by where they were in the old layout. A versioned
-	// bucket kept its objects under .versions/, so its objects are counted in
-	// VersionsMoved: neither field is a count of objects in a bucket.
 	ObjectsMoved   int
 	VersionsMoved  int
 	MarkersCreated int

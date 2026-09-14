@@ -259,10 +259,10 @@ func (m *Manager) insertDefaults() error {
 		},
 		{
 			Key:         "security.ratelimit_api_per_second",
-			Value:       "100",
+			Value:       "1000",
 			Type:        string(TypeInt),
 			Category:    string(CategorySecurity),
-			Description: "Maximum API requests per second per user",
+			Description: "Maximum S3 API requests per second per access key, 0 for no limit. Over it the server answers SlowDown and the client retries",
 			Editable:    true,
 		},
 

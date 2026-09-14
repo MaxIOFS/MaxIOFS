@@ -8,6 +8,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// DefaultAPIRatePerSecond is the per-access-key ceiling when the setting is
+// unreadable. Zero or less in the setting means no limit.
+const DefaultAPIRatePerSecond = 1000
+
 // apiRateBucket holds a sliding-window token bucket for a single key (user/IP).
 type apiRateBucket struct {
 	tokens   float64
@@ -105,8 +109,8 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Ha
 				return
 			}
 
-			ratePerSecond := 100 // default
-			if v, err := sm.GetInt("security.ratelimit_api_per_second"); err == nil && v > 0 {
+			ratePerSecond := DefaultAPIRatePerSecond
+			if v, err := sm.GetInt("security.ratelimit_api_per_second"); err == nil {
 				ratePerSecond = v
 			}
 
@@ -125,8 +129,11 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Ha
 					"key":  key[:min(len(key), 20)],
 					"rate": ratePerSecond,
 				}).Warn("S3 API rate limit exceeded")
+				// SlowDown is what an S3 client retries with backoff. A bare 429
+				// is not an S3 error and aborts the transfer instead.
 				w.Header().Set("Retry-After", "1")
-				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+				writeS3Error(w, r, "SlowDown",
+					"Please reduce your request rate.", http.StatusServiceUnavailable)
 				return
 			}
 

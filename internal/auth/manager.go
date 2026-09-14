@@ -2103,19 +2103,19 @@ func GetUserFromContext(ctx context.Context) (*User, bool) {
 	return user, ok
 }
 
-// GetUserIDFromContext extracts the user ID from the request context
-// IsAdminUser checks if the user in context has admin role
 func IsAdminUser(ctx context.Context) bool {
 	user, ok := GetUserFromContext(ctx)
 	if !ok || user == nil {
 		return false
 	}
 	for _, role := range user.Roles {
-		if role == "admin" {
+		if role == RoleAdmin {
 			return true
 		}
 	}
-	return false
+
+	set, ok := PolicySetFromContext(ctx)
+	return ok && set != nil && set.UserID == user.ID && set.AllowsAnywhere(ActionSuperAdmin)
 }
 
 // writeS3Error writes an S3-compatible XML error response and sets

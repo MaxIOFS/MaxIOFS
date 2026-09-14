@@ -1,9 +1,5 @@
 package server
 
-// A global administrator reads a tenant's buckets and does not change them.
-// The console mutation routes used to ask only for the bucket:configure
-// capability, which says nothing about whose bucket it is.
-
 import (
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tenantOwnedBucket creates a tenant and one bucket of its own.
 func tenantOwnedBucket(t *testing.T, tenantID, bucketName string) {
 	t.Helper()
 	server := getSharedServer()
@@ -30,7 +25,6 @@ func tenantOwnedBucket(t *testing.T, tenantID, bucketName string) {
 	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
 }
 
-// consoleMutation is one console route that changes a bucket's configuration.
 type consoleMutation struct {
 	name    string
 	body    string
@@ -60,7 +54,6 @@ func TestConsole_GlobalAdminCannotChangeATenantsBucket(t *testing.T) {
 
 	for _, m := range consoleMutations() {
 		t.Run(m.name, func(t *testing.T) {
-			// No tenant of its own, and the admin role: a global administrator.
 			req := createAuthenticatedRequest("PUT", "/api/v1/buckets/"+bucketName+"/"+m.name,
 				strings.NewReader(m.body), "", "global-admin-1", true)
 			req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
@@ -74,9 +67,6 @@ func TestConsole_GlobalAdminCannotChangeATenantsBucket(t *testing.T) {
 	}
 }
 
-// The same routes, for the tenant that owns the bucket: anything but a refusal.
-// Tying the routes to an S3 action would take the owner's access away with it if
-// the action were not one the tenant administrator holds.
 func TestConsole_TenantAdminStillConfiguresItsOwnBucket(t *testing.T) {
 	server := getSharedServer()
 	tenantID := "tenant-boundary-b"
@@ -98,7 +88,6 @@ func TestConsole_TenantAdminStillConfiguresItsOwnBucket(t *testing.T) {
 	}
 }
 
-// A global bucket belongs to the deployment, so the global administrator owns it.
 func TestConsole_GlobalAdminStillConfiguresAGlobalBucket(t *testing.T) {
 	server := getSharedServer()
 	bucketName := "boundary-bucket-global"
