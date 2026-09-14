@@ -223,10 +223,7 @@ func (am *authManager) buildPolicySetFor(userID string, roles []string, tenantID
 	if err != nil {
 		return nil, err
 	}
-	actions, err := am.store.EffectiveActionsInTenant(userID, roles, tenantID)
-	if err != nil {
-		return nil, err
-	}
+	actions := ActionsFromDocuments(documents)
 
 	// tenantID is the principal's account, taken as given: a caller holding the
 	// user knows it, and an empty value means the shared namespace rather than

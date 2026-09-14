@@ -293,7 +293,11 @@ func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, te
 	if err != nil {
 		return nil, err
 	}
+	return ActionsFromDocuments(documents), nil
+}
 
+// ActionsFromDocuments reduces policy documents to the actions they permit.
+func ActionsFromDocuments(documents []string) []string {
 	var allowed, denied []string
 	for _, raw := range documents {
 		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
@@ -310,7 +314,7 @@ func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, te
 	}
 
 	if len(denied) == 0 {
-		return allowed, nil
+		return allowed
 	}
 
 	// A Deny removes the action even from a wildcard: an administrator whose
@@ -329,7 +333,7 @@ func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, te
 			kept = append(kept, action)
 		}
 	}
-	return kept, nil
+	return kept
 }
 
 // actionMatchesAny reports whether any pattern covers the action.
