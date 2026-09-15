@@ -363,7 +363,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Derive encryption key used by multiple subsystems (IDP, replication, share)
-	cryptoSecret := cfg.Auth.SecretKey
+	cryptoSecret := cfg.Auth.EncryptionSecret
 	if cryptoSecret == "" {
 		cryptoSecret = cfg.Auth.JWTSecret // fallback
 	}

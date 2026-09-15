@@ -134,9 +134,6 @@ func TestAlwaysEncrypt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Even with the deprecated flag off, writes are encrypted.
-	om.config.EnableEncryption = false
-
 	content := []byte("always encrypted content")
 	_, err = om.PutObject(ctx, bucket, "file.txt", bytes.NewReader(content), http.Header{})
 	require.NoError(t, err)

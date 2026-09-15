@@ -202,10 +202,6 @@ func NewManager(storage storage.Backend, metadataStore metadata.Store, config co
 		}
 	}
 
-	if !config.EnableEncryption {
-		logrus.Info("Encryption is now always enabled (envelope, AES-256-GCM); storage.enable_encryption is deprecated and ignored")
-	}
-
 	return om
 }
 

@@ -53,14 +53,12 @@ func TestMain(m *testing.M) {
 		Storage: config.StorageConfig{
 			Backend:          "filesystem",
 			Root:             filepath.Join(sharedTempDir, "storage"),
-			EnableEncryption: false,
 			EnableObjectLock: false,
 		},
 		Auth: config.AuthConfig{
-			EnableAuth: true,
-			JWTSecret:  "test-jwt-secret-shared",
-			AccessKey:  "test-access-key",
-			SecretKey:  "test-secret-key",
+			EnableAuth:       true,
+			JWTSecret:        "test-jwt-secret-shared",
+			EncryptionSecret: "test-secret-key",
 		},
 		Audit: config.AuditConfig{
 			Enable:        false,

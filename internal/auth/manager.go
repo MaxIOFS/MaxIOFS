@@ -393,16 +393,22 @@ func (am *authManager) SetJWTSecret(secret string) {
 	}
 }
 
+// administratorWithoutAuth answers who the caller is when authentication is
+// turned off. It is a real row, not a made-up identity: everything downstream
+// reads the user back from the database — 2FA status, policies, keys — and a
+// user that exists nowhere fails all of it.
+func (am *authManager) administratorWithoutAuth() (*User, error) {
+	user, err := am.store.GetUserByUsername("admin")
+	if err != nil {
+		return nil, fmt.Errorf("authentication is disabled and the admin user is missing: %w", err)
+	}
+	return user, nil
+}
+
 // ValidateCredentials validates access/secret key credentials (S3 API)
 func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secretKey string) (*User, error) {
 	if !am.config.EnableAuth {
-		// Return default user when auth is disabled
-		return &User{
-			ID:          "anonymous",
-			DisplayName: "Anonymous User",
-			Status:      "active",
-			Roles:       []string{"admin"},
-		}, nil
+		return am.administratorWithoutAuth()
 	}
 
 	// Get access key from database (GetAccessKey decrypts the stored secret)
@@ -441,14 +447,7 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 // ValidateConsoleCredentials validates username/password for console login
 func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username, password string) (*User, error) {
 	if !am.config.EnableAuth {
-		// Return default user when auth is disabled
-		return &User{
-			ID:          "anonymous",
-			Username:    "anonymous",
-			DisplayName: "Anonymous User",
-			Status:      "active",
-			Roles:       []string{"admin"},
-		}, nil
+		return am.administratorWithoutAuth()
 	}
 
 	// Get user by username from database

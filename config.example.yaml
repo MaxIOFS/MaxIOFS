@@ -1,677 +1,102 @@
-# MaxIOFS Configuration File Example
-# Copy this file to config.yaml and customize for your environment
-# Usage: ./maxiofs --config config.yaml
+# MaxIOFS configuration.
+#
+# Everything here is read once, at startup. The rest of the settings — quotas,
+# rate limits, email, retention, alerts — live in the database and are changed
+# from the console under Settings, without restarting.
+#
+# Every key can also be set as an environment variable: MAXIOFS_ prefix, upper
+# case, nested keys joined with an underscore. MAXIOFS_STORAGE_ROOT, for
+# instance.
 
-# =============================================================================
-# CONFIGURATION ARCHITECTURE (v0.4.0+)
-# =============================================================================
-#
-# MaxIOFS uses a dual-configuration system:
-#
-# 1. STATIC CONFIGURATION (this file - config.yaml)
-#    - Infrastructure settings that require server restart
-#    - Server ports, data directories, TLS certificates
-#    - Storage backend selection, encryption keys
-#    - Cannot be changed at runtime
-#    - Set via: config.yaml, environment variables, or CLI flags
-#
-# 2. DYNAMIC CONFIGURATION (Database - SQLite)
-#    - Runtime settings that take effect immediately
-#    - Security policies, audit settings, metrics intervals
-#    - Password requirements, session timeouts, rate limits
-#    - Editable via Web Console (Settings page)
-#    - No server restart required
-#    - Stored in: {data_dir}/auth.db (same DB as authentication)
-#
-# This separation ensures:
-# - Infrastructure changes are deliberate (require restart)
-# - Security policies can be adjusted on-the-fly
-# - Settings are version-controlled (config.yaml) or user-managed (DB)
-#
-# =============================================================================
-# STATIC SETTINGS (config.yaml)
-# =============================================================================
-# These settings are defined below in this file and require server restart.
-#
-# Categories:
-# - Server: listen addresses, ports, log level, data directory
-# - Public URLs: external URLs for reverse proxy scenarios
-# - TLS/SSL: certificates and encryption for HTTPS
-# - Storage: backend type, compression, encryption keys, object locking
-# - Authentication: JWT secrets (initial setup)
-# - Metrics: enable/disable, endpoint path, collection interval (initial)
-# - Audit: enable/disable, retention days (initial), database path
-#
-# =============================================================================
-# DYNAMIC SETTINGS (Web Console > Settings)
-# =============================================================================
-# These settings are editable at runtime via the Web Console.
-# Access: http://localhost:8081/settings (global admins only)
-#
-# Security (9 settings):
-# - session_timeout: JWT session duration (default: 24 hours)
-# - max_failed_attempts: Login lockout threshold (default: 5)
-# - lockout_duration: Account lockout time (default: 15 minutes)
-# - require_2fa_admin: Force 2FA for all admins (default: false)
-# - password_min_length: Minimum password length (default: 8)
-# - password_require_uppercase: Require uppercase letters (default: true)
-# - password_require_numbers: Require numbers (default: true)
-# - password_require_special: Require special characters (default: false)
-# - ratelimit_enabled: Enable rate limiting (default: true)
-# - ratelimit_login_per_minute: Login attempts limit (default: 5)
-# - ratelimit_api_per_second: API requests limit (default: 100)
-#
-# Audit (4 settings):
-# - enabled: Enable audit logging (default: true)
-# - retention_days: Log retention period (default: 90 days)
-# - log_s3_operations: Log S3 API operations (default: true)
-# - log_console_operations: Log Console API operations (default: true)
-#
-# Storage (2 settings):
-# - default_bucket_versioning: Auto-enable versioning (default: false)
-# - default_object_lock_days: Default object lock period (default: 7 days)
-#
-# Metrics (2 settings):
-# - enabled: Enable metrics collection (default: true)
-# - collection_interval: Collection frequency in seconds (default: 10)
-#
-# System (2 settings):
-# - maintenance_mode: Read-only mode (default: false)
-# - max_upload_size_mb: Maximum upload size (default: 5120 MB / 5GB)
-#
-# NOTE: Initial values for dynamic settings can be influenced by this config file
-#       on first startup, but subsequent changes are made via the Web Console.
-#
-# =============================================================================
-# SERVER CONFIGURATION (Static)
-# =============================================================================
-
-# API Server listen address (S3-compatible API)
-# This is the address where the server will bind and listen for connections
-# Use ":8080" to listen on all interfaces, or "localhost:8080" for local only
-# Default: :8080
+# S3 API.
 listen: ":8080"
 
-# Web Console listen address (Web UI)
-# This is the address where the web console will bind and listen
-# Use ":8081" to listen on all interfaces, or "localhost:8081" for local only
-# Default: :8081
+# Web console.
 console_listen: ":8081"
 
-# Cluster inter-node listen address
-# Default: :8082
-# cluster_listen: ":8082"
+# Inter-node traffic. Only reached by other nodes of the cluster.
+cluster_listen: ":8082"
 
-# Cluster advertise address
-# The external IP that other cluster nodes should use to reach this node.
-# Required in Docker/Kubernetes where the container's internal IP differs
-# from the host IP. Leave empty for auto-detection (bare-metal/VM).
-# Example: "10.200.1.135"
-# cluster_advertise_address: ""
+# Address the other nodes should reach this one at. Set it when the node cannot
+# work it out itself, which is most of the time under Docker or Kubernetes.
+cluster_advertise_address: ""
 
-# Data directory path (REQUIRED)
-# This is where all data will be stored (buckets, objects, metadata, etc.)
-# Default: ./data
+# Objects, metadata and the database. Packages use /var/lib/maxiofs; the
+# container image uses /data.
 data_dir: "./data"
 
-# Log level (debug, info, warn, error)
-# Default: info
+# debug, info, warn, error
 log_level: "info"
 
-# =============================================================================
-# PUBLIC URLs (for reverse proxy scenarios)
-# =============================================================================
-# IMPORTANT: These URLs are ONLY used for generating external links, NOT for binding!
-#
-# Use cases:
-# - Generating presigned URLs for object access
-# - Creating share links
-# - CORS configuration
-# - Redirects in the web console
-# - S3 client endpoint configuration
-#
-# Reverse Proxy Example:
-# If you run MaxIOFS behind nginx:
-#   - listen: "localhost:8080"          (server binds to localhost)
-#   - public_api_url: "https://s3.mydomain.com"  (public URL users will use)
-#
-# This way:
-# - Server listens on localhost:8080 (not exposed to internet)
-# - Nginx proxies https://s3.mydomain.com to localhost:8080
-# - Generated URLs use https://s3.mydomain.com (working publicly)
-
-# Public API URL (S3 endpoint)
-# This is the external URL that users and clients will use to access the S3 API
-# Examples:
-#   - http://localhost:8080 (development, direct access)
-#   - https://s3.example.com (production with reverse proxy)
-#   - https://s3.mydomain.com:8080 (production with custom port)
+# The addresses clients reach this server at. They go into presigned URLs,
+# redirects and the endpoint advertised to Veeam, so a wrong value breaks those
+# and nothing else.
 public_api_url: "http://localhost:8080"
-
-# Public Console URL (Web UI)
-# This is the external URL that users will use to access the web interface
-# Examples:
-#   - http://localhost:8081 (development, direct access)
-#   - https://console.example.com (production with reverse proxy)
-#   - https://s3.mydomain.com/ui (production, same domain with path)
 public_console_url: "http://localhost:8081"
 
-# Static Website Hosting Hostname (optional)
-# When set, requests whose Host header matches "{bucket}.{website_hostname}" are
-# served as static websites — no S3 authentication required.
-# The bucket must have a WebsiteConfiguration (PUT /?website) with an IndexDocument.
-#
-# This is a SEPARATE hostname from the S3 API endpoint, just as AWS uses:
-#   - S3 API:      mybucket.s3.example.com       (SigV4 required)
-#   - Website:     mybucket.s3-website.example.com (public HTML serving)
-#
-# Example — pointing a wildcard DNS entry to your MaxIOFS server:
-#   *.s3-website.example.com  →  <MaxIOFS IP>:8080
-#   website_hostname: "s3-website.example.com"
-#
-# Disable by leaving empty (default):
-# website_hostname: ""
+# Domain serving buckets as static websites, as <bucket>.<website_hostname>.
+website_hostname: ""
 
-# =============================================================================
-# TLS/SSL CONFIGURATION
-# =============================================================================
-# Enable TLS/SSL for secure connections (HTTPS)
-# When enabled, both cert_file and key_file must be provided
+# TLS. Both files are required when it is on.
 enable_tls: false
-
-# TLS certificate file path
-# Required if enable_tls is true
-# Example: /etc/ssl/certs/maxiofs.crt
 cert_file: ""
-
-# TLS private key file path
-# Required if enable_tls is true
-# Example: /etc/ssl/private/maxiofs.key
 key_file: ""
 
-# TLS Configuration Examples:
-#
-# Self-signed certificate (development):
-#   enable_tls: true
-#   cert_file: "./selfsigned.crt"
-#   key_file: "./selfsigned.key"
-#
-# Let's Encrypt (production):
-#   enable_tls: true
-#   cert_file: "/etc/letsencrypt/live/s3.example.com/fullchain.pem"
-#   key_file: "/etc/letsencrypt/live/s3.example.com/privkey.pem"
-
-# =============================================================================
-# TRUSTED PROXIES (Rate Limiting & IP Detection)
-# =============================================================================
-# MaxIOFS automatically trusts connections from private/internal networks
-# (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8) to read the
-# real client IP from X-Forwarded-For and X-Real-IP headers.
-#
-# This means:
-#   - Behind nginx, HAProxy, Docker, Kubernetes → works automatically
-#   - Direct connections from public IPs → headers are ignored (secure by default)
-#
-# You ONLY need to configure trusted_proxies if your proxy has a PUBLIC IP,
-# for example when using Cloudflare, AWS ALB/ELB, or any external CDN/proxy.
-# Add the public IP or IP range of the proxy so MaxIOFS trusts its headers.
-#
-# Without this, all requests through a public proxy will appear to come from
-# the proxy's IP instead of the real client, causing all users to share the
-# same rate limit.
-#
-# Examples:
-#   trusted_proxies:
-#     - "104.16.0.0/12"      # Cloudflare IPv4 range
-#     - "198.41.128.0/17"    # Cloudflare IPv4 range
-#     - "52.0.0.1"           # Specific AWS ALB IP
-#
-# Cloudflare full IP ranges: https://www.cloudflare.com/ips/
-# AWS IP ranges: https://ip-ranges.amazonaws.com/ip-ranges.json
-#
-# Environment variable: MAXIOFS_TRUSTED_PROXIES="104.16.0.0/12,198.41.128.0/17"
+# Public addresses of proxies in front of this server, so the client IP in logs
+# and rate limits is the real one. Private ranges are trusted already.
 trusted_proxies: []
 
-# =============================================================================
-# REPLICATION CONFIGURATION
-# =============================================================================
-replication:
-  # Allow replication to internal/private endpoints (10.x, 172.16.x, 192.168.x)
-  # Enable this when replicating between MaxIOFS instances on the same private
-  # network (e.g., Kubernetes cluster, LAN, Docker network).
-  # WARNING: Disables SSRF protection for replication destinations.
-  # Default: false
-  allow_internal_endpoints: false
-
-# =============================================================================
-# STORAGE CONFIGURATION
-# =============================================================================
 storage:
-  # Storage backend type
-  # Supported: filesystem (more backends coming soon: s3, gcs, azure)
-  # Default: filesystem
+  # Only "filesystem" today.
   backend: "filesystem"
 
-  # Storage root directory (for filesystem backend)
-  # If empty, will be set to {data_dir}/objects
-  # Default: {data_dir}/objects
+  # Where objects go. Empty means <data_dir>/objects.
   root: ""
 
-  # --- ENCRYPTION SETTINGS ---
-  # Enable automatic object encryption at rest (AES-256-CTR)
-  # Controls whether NEW objects will be encrypted when uploaded
-  # IMPORTANT BEHAVIOR:
-  #   - enable_encryption: true  → New uploads will be encrypted
-  #   - enable_encryption: false → New uploads will NOT be encrypted
-  #   - Existing encrypted objects ALWAYS remain accessible (regardless of this setting)
-  #   - Decryption happens automatically if encryption_key is configured
-  # Default: false (for backward compatibility with existing deployments)
-  # Recommended: true (for new deployments and maximum security)
-  enable_encryption: false
-
-  # Master Encryption Key (AES-256)
-  # ⚠️  CRITICAL SECURITY REQUIREMENTS:
-  #   1. Must be EXACTLY 64 hexadecimal characters (32 bytes for AES-256)
-  #   2. Generate with: openssl rand -hex 32
-  #   3. NEVER commit this key to version control
-  #   4. BACKUP this key securely (password manager, vault, encrypted storage)
-  #   5. Store in environment variable: MAXIOFS_STORAGE_ENCRYPTION_KEY
+  # Seeds the master key (KEK) on the FIRST start of an empty deployment, and is
+  # ignored on every start after that: the key lives in the database from then
+  # on, and rotating it is done from the console.
   #
-  # ⚠️  DATA LOSS WARNING:
-  #   - If you LOSE this key, encrypted data is PERMANENTLY UNRECOVERABLE
-  #   - If you CHANGE this key, all previously encrypted objects become UNREADABLE
-  #   - This key is used for the ENTIRE LIFETIME of your MaxIOFS deployment
-  #   - There is NO way to recover data without this exact key
-  #
-  # 📋 Setup Instructions:
-  #   1. Generate key:    openssl rand -hex 32
-  #   2. Set in config:   encryption_key: "your-generated-64-character-hex-key"
-  #   3. Enable:          enable_encryption: true
-  #   4. Backup key:      Store in secure location (vault, password manager)
-  #   5. Test:            Upload and download a file to verify encryption works
-  #
-  # Example (DO NOT USE THIS KEY - GENERATE YOUR OWN):
-  #   encryption_key: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
-  #
+  # Leave it empty and the first start generates one. Back up the database —
+  # that is where the key is. 64 hex characters, openssl rand -hex 32.
   encryption_key: ""
 
-  # --- OBJECT LOCKING ---
-  # Enable S3 Object Lock and Retention features
-  # Prevents objects from being deleted or modified for a specified retention period
-  # Required for compliance and WORM (Write Once Read Many) scenarios
-  # Default: true
-  enable_object_lock: true
+  # Allow buckets to be created with S3 Object Lock, which makes their objects
+  # undeletable until their retention expires. It cannot be turned off for a
+  # bucket once created.
+  enable_object_lock: false
 
-  # Pebble metadata store block cache size in MB.
-  # A larger cache keeps recently-accessed object and bucket metadata in RAM,
-  # dramatically reducing first-access latency when browsing large buckets
-  # (e.g. Veeam backups with tens of thousands of objects).
-  # Increase this value if your server has available RAM:
-  #   256  MB → default, suitable for small deployments
-  #   512  MB → recommended for medium workloads (5k–20k objects per bucket)
-  #   1024 MB → recommended for heavy workloads (Veeam B&R, 20k+ objects)
-  #   2048 MB → large deployments with multiple high-volume buckets
-  # Can also be set via environment variable: MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB
-  # Default: 256
+  # Pebble block cache. Raise it on servers with many objects and spare memory.
   metadata_cache_size_mb: 256
 
-# =============================================================================
-# AUTHENTICATION CONFIGURATION
-# =============================================================================
 auth:
-  # Enable authentication (strongly recommended for production)
-  # When false, all requests are allowed without credentials
-  # Default: true
+  # Off means the S3 API accepts ANY credentials and the console lets anyone in
+  # as the administrator. For a server nobody else can reach.
   enable_auth: true
 
-  # JWT Secret for token signing
-  # Will be auto-generated if not provided
-  # For production, set a strong random string
-  # In cluster mode, jwt_secret MUST be identical across all nodes
-  # Example: openssl rand -base64 32
+  # Signs console sessions. Generated and stored in the database on first start
+  # if left empty. Changing it logs everyone out.
   jwt_secret: ""
 
-  # NOTE: Default admin user is created automatically on first startup
-  #       Username: admin, Password: admin
-  #       Please change the password after first login!
-  #
-  # NOTE: S3 Access Keys must be created manually via the web console
-  #       No default access keys are created for security reasons
+  # Encrypts the secrets of identity providers, replication targets and share
+  # links before they are stored. Not an S3 credential. Falls back to
+  # jwt_secret when empty, and changing it makes what was stored with the
+  # previous value unreadable.
+  encryption_secret: ""
 
-# =============================================================================
-# METRICS CONFIGURATION
-# =============================================================================
-metrics:
-  # Enable metrics collection
-  # Collects system metrics (CPU, memory, disk, requests, etc.)
-  # Default: true
-  enable: true
-
-  # Metrics endpoint path
-  # Accessible at: http://{listen}{path}
-  # Example: http://localhost:8080/metrics
-  # Default: /metrics
-  path: "/metrics"
-
-  # Metrics collection interval (seconds)
-  # How often to collect and store metrics
-  # Default: 60 (1 minute)
-  interval: 60
-
-# =============================================================================
-# AUDIT LOGGING CONFIGURATION (v0.4.0+)
-# =============================================================================
 audit:
-  # Enable audit logging
-  # Tracks all critical system events (authentication, user management, buckets, 2FA, etc.)
-  # Default: true
   enable: true
-
-  # Audit log retention period (days)
-  # Logs older than this will be automatically purged
-  # Default: 90
   retention_days: 90
-
-  # Audit database path
-  # If empty, will be set to {data_dir}/audit.db
-  # Default: {data_dir}/audit.db
+  # Empty means <data_dir>/db/audit.db
   db_path: ""
 
-  # NOTE: Audit logs are accessible via the web console at /audit-logs
-  #       Only global admins and tenant admins can view audit logs
-  #       Tracked events include:
-  #       - Authentication: login (success/failed), logout, user blocked/unblocked
-  #       - User Management: user created/deleted/updated, password changed
-  #       - 2FA Events: enabled, disabled, verification (success/failed)
-  #       - Bucket Operations: bucket created/deleted (Console + S3 API)
-  #       - Access Keys: created, deleted, status changed
-  #       - Tenant Management: created, deleted, updated (global admin only)
+metrics:
+  enable: true
+  path: "/metrics"
+  # Seconds between collections.
+  interval: 30
 
-# =============================================================================
-# ENVIRONMENT VARIABLES
-# =============================================================================
-# You can also set configuration using environment variables with MAXIOFS_ prefix
-# Examples:
-#   export MAXIOFS_LISTEN=":8080"
-#   export MAXIOFS_DATA_DIR="/var/lib/maxiofs"
-#   export MAXIOFS_PUBLIC_API_URL="https://s3.example.com"
-#   export MAXIOFS_ENABLE_TLS=true
-#   export MAXIOFS_CERT_FILE="/etc/ssl/certs/maxiofs.crt"
-#   export MAXIOFS_KEY_FILE="/etc/ssl/private/maxiofs.key"
-#   export MAXIOFS_AUTH_ACCESS_KEY="myadmin"
-#   export MAXIOFS_AUTH_SECRET_KEY="mysecret"
-#   export MAXIOFS_STORAGE_ENABLE_COMPRESSION=true
-#   export MAXIOFS_STORAGE_ENABLE_ENCRYPTION=true
-#   export MAXIOFS_STORAGE_ENCRYPTION_KEY="your-secret-key"
-#   export MAXIOFS_AUDIT_ENABLE=true
-#   export MAXIOFS_AUDIT_RETENTION_DAYS=90
-#   export MAXIOFS_AUDIT_DB_PATH="/var/lib/maxiofs/audit.db"
-
-# =============================================================================
-# COMMAND LINE FLAGS
-# =============================================================================
-# Configuration can also be set via command line flags:
-#   --config, -c             Configuration file path
-#   --data-dir, -d          Data directory path (required)
-#   --listen, -l            API server listen address
-#   --console-listen        Web console listen address
-#   --log-level             Log level (debug, info, warn, error)
-#   --tls-cert              TLS certificate file
-#   --tls-key               TLS private key file
-#
-# Example:
-#   ./maxiofs --data-dir /var/lib/maxiofs --listen :8080 --log-level debug
-
-# =============================================================================
-# CONFIGURATION PRIORITY (highest to lowest)
-# =============================================================================
-# 1. Command line flags (--flag value)
-# 2. Environment variables (MAXIOFS_*)
-# 3. Configuration file (config.yaml)
-# 4. Default values
-
-# =============================================================================
-# PRODUCTION DEPLOYMENT EXAMPLES
-# =============================================================================
-
-# --- Example 1: Direct TLS (no reverse proxy) ---
-# listen: ":8080"
-# console_listen: ":8081"
-# data_dir: "/var/lib/maxiofs"
-# log_level: "info"
-#
-# public_api_url: "https://s3.mydomain.com"
-# public_console_url: "https://console.mydomain.com"
-#
-# enable_tls: true
-# cert_file: "/etc/letsencrypt/live/s3.mydomain.com/fullchain.pem"
-# key_file: "/etc/letsencrypt/live/s3.mydomain.com/privkey.pem"
-#
-# storage:
-#   backend: "filesystem"
-#   enable_encryption: true
-#   encryption_key: "change-this-to-a-secure-32-char-key"
-#   enable_object_lock: true
-#
-# auth:
-#   enable_auth: true
-#   jwt_secret: "your-secure-random-jwt-secret"
-#   # NOTE: Access keys must be created via web console
-#
-# metrics:
-#   enable: true
-#   path: "/metrics"
-#   interval: 10
-
-# --- Example 2: Behind Nginx Reverse Proxy (RECOMMENDED) ---
-# In this setup MaxIOFS listens on localhost only; nginx handles TLS and routing.
-# The /ui/ path is forwarded to the console (8081), everything else to the S3 API (8080).
-#
-# listen: "localhost:8080"
-# console_listen: "localhost:8081"
-# data_dir: "/var/lib/maxiofs"
-# log_level: "info"
-#
-# # Public URLs must match your nginx server_name / domain
-# public_api_url: "https://s3.example.com"
-# public_console_url: "https://s3.example.com/ui"
-#
-# enable_tls: false  # nginx handles TLS
-#
-# storage:
-#   backend: "filesystem"
-#   enable_encryption: true
-#   encryption_key: "change-this-to-a-secure-32-char-key"
-#
-# auth:
-#   enable_auth: true
-#
-# # --------------------------------------------------------------------------
-# # Nginx configuration (/etc/nginx/sites-available/maxiofs)
-# # --------------------------------------------------------------------------
-# #
-# # -- HTTP (port 80) --
-# #
-# # upstream api {
-# #     least_conn;
-# #     server localhost:8080;
-# # }
-# #
-# # upstream console {
-# #     least_conn;
-# #     server localhost:8081;
-# # }
-# #
-# # server {
-# #     listen 80;
-# #     server_name s3.example.com *.s3-website.example.com;
-# #
-# #     # Required for S3: allow special characters in headers
-# #     ignore_invalid_headers off;
-# #     # Allow unlimited upload size (set to e.g. 1000m to cap it)
-# #     client_max_body_size 0;
-# #     # Disable buffering — required for streaming uploads and downloads
-# #     proxy_buffering off;
-# #     proxy_request_buffering off;
-# #
-# #     # Web Console — matched before the catch-all /
-# #     location /ui/ {
-# #         proxy_pass            http://console;
-# #         proxy_set_header      Host              $host;
-# #         proxy_set_header      X-Real-IP         $remote_addr;
-# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
-# #         proxy_set_header      X-Forwarded-Proto $scheme;
-# #         proxy_http_version    1.1;
-# #         proxy_set_header      Connection        "";
-# #         proxy_connect_timeout 300;
-# #         proxy_pass_header     Server;
-# #     }
-# #
-# #     # S3 API — catch-all
-# #     location / {
-# #         proxy_pass            http://api;
-# #         proxy_set_header      Host              $host;
-# #         proxy_set_header      X-Real-IP         $remote_addr;
-# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
-# #         proxy_set_header      X-Forwarded-Proto $scheme;
-# #         proxy_http_version    1.1;
-# #         proxy_set_header      Connection        "";
-# #         proxy_connect_timeout 300;
-# #         proxy_pass_header     Server;
-# #     }
-# # }
-# #
-# # -- HTTPS (port 443) — add after obtaining a TLS certificate --
-# # The upstream blocks above are reused; add them only once per nginx config.
-# #
-# # server {
-# #     listen 80;
-# #     server_name s3.example.com *.s3-website.example.com;
-# #     return 301 https://$host$request_uri;
-# # }
-# #
-# # server {
-# #     listen 443 ssl http2;
-# #     server_name s3.example.com *.s3-website.example.com;
-# #
-# #     ssl_certificate     /etc/letsencrypt/live/s3.example.com/fullchain.pem;
-# #     ssl_certificate_key /etc/letsencrypt/live/s3.example.com/privkey.pem;
-# #
-# #     ignore_invalid_headers off;
-# #     client_max_body_size 0;
-# #     proxy_buffering off;
-# #     proxy_request_buffering off;
-# #
-# #     location /ui/ {
-# #         proxy_pass            http://console;
-# #         proxy_set_header      Host              $host;
-# #         proxy_set_header      X-Real-IP         $remote_addr;
-# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
-# #         proxy_set_header      X-Forwarded-Proto $scheme;
-# #         proxy_http_version    1.1;
-# #         proxy_set_header      Connection        "";
-# #         proxy_connect_timeout 300;
-# #         proxy_pass_header     Server;
-# #     }
-# #
-# #     location / {
-# #         proxy_pass            http://api;
-# #         proxy_set_header      Host              $host;
-# #         proxy_set_header      X-Real-IP         $remote_addr;
-# #         proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
-# #         proxy_set_header      X-Forwarded-Proto $scheme;
-# #         proxy_http_version    1.1;
-# #         proxy_set_header      Connection        "";
-# #         proxy_connect_timeout 300;
-# #         proxy_pass_header     Server;
-# #     }
-# # }
-
-# =============================================================================
-# DEVELOPMENT/TESTING EXAMPLE
-# =============================================================================
-# listen: ":8080"
-# console_listen: ":8081"
-# data_dir: "./data"
-# log_level: "debug"
-# 
-# public_api_url: "http://localhost:8080"
-# public_console_url: "http://localhost:8081"
-# 
-# enable_tls: false
-# 
-# storage:
-#   backend: "filesystem"
-#   enable_encryption: false
-#   enable_object_lock: true
-# 
-# auth:
-#   enable_auth: true
-#   # NOTE: Create access keys via web console
-# 
-# metrics:
-#   enable: true
-#   interval: 10
-
-# =============================================================================
-# AWS CLI CONFIGURATION
-# =============================================================================
-# To use MaxIOFS with AWS CLI, configure your credentials:
-#
-# 1. First, create an access key via the web console (http://localhost:8081)
-#    - Login with admin/admin
-#    - Go to Users section
-#    - Create an access key for your user
-#
-# 2. Configure AWS CLI with your created credentials:
-#    aws configure --profile maxiofs
-#      AWS Access Key ID: [your-generated-access-key]
-#      AWS Secret Access Key: [your-generated-secret-key]
-#      Default region name: us-east-1
-#      Default output format: json
-#
-# 3. Use AWS CLI:
-#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 ls
-#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 mb s3://mybucket
-#   aws s3 --profile maxiofs --endpoint-url http://localhost:8080 cp file.txt s3://mybucket/
-
-# =============================================================================
-# VEEAM BACKUP COMPATIBILITY
-# =============================================================================
-# MaxIOFS is compatible with Veeam Backup & Replication
-# Configure Veeam to use MaxIOFS as S3 object storage:
-#   1. In Veeam, add a new Object Storage Repository
-#   2. Select "S3 Compatible"
-#   3. Enter your MaxIOFS endpoint URL
-#   4. Use your access_key and secret_key for authentication
-#   5. Veeam will detect MaxIOFS as S3-compatible storage
-
-# =============================================================================
-# DOCKER DEPLOYMENT
-# =============================================================================
-# Example docker-compose.yml:
-#
-# services:
-#   maxiofs:
-#     image: maxiofs:latest
-#     ports:
-#       - "8080:8080"  # API
-#       - "8081:8081"  # Console
-#     volumes:
-#       - ./data:/data
-#       - ./config.yaml:/config.yaml
-#     command: --config /config.yaml
-#     environment:
-#       - MAXIOFS_LOG_LEVEL=info
-#     restart: unless-stopped
-
-# =============================================================================
-# NOTES
-# =============================================================================
-# - All paths can be absolute or relative
-# - Relative paths are resolved from the current working directory
-# - The data_dir will be created automatically if it doesn't exist
-# - For production, always use TLS (enable_tls: true) with valid certificates
-# - Keep your encryption_key and jwt_secret secure and backed up
-# - Regular backups of the data_dir are recommended
-# - Monitor metrics endpoint for system health and performance
+replication:
+  # Permit replication targets on private addresses. Off by default because a
+  # target the operator does not control could be used to probe the network.
+  allow_internal_endpoints: false
