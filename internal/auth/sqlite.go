@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/db/migrations"
@@ -19,6 +20,10 @@ import (
 // SQLiteStore implements authentication storage using SQLite
 type SQLiteStore struct {
 	db *sql.DB
+
+	// lastUsedWritten maps an access key to the second already committed for it,
+	// so the same value is not rewritten once per request.
+	lastUsedWritten sync.Map
 }
 
 // NewSQLiteStore creates a new SQLite-based auth store
@@ -632,13 +637,23 @@ func (s *SQLiteStore) GetAccessKey(accessKeyID string) (*AccessKey, error) {
 
 // UpdateAccessKeyLastUsed updates the last used timestamp
 func (s *SQLiteStore) UpdateAccessKeyLastUsed(accessKeyID string, timestamp int64) error {
+	if written, ok := s.lastUsedWritten.Load(accessKeyID); ok && written.(int64) >= timestamp {
+		return nil
+	}
+
 	_, err := s.db.Exec(`
 		UPDATE access_keys
 		SET last_used = ?
 		WHERE access_key_id = ?
 	`, timestamp, accessKeyID)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Recorded only once the row holds it: the reverse order would skip a write
+	// that never reached disk.
+	s.lastUsedWritten.Store(accessKeyID, timestamp)
+	return nil
 }
 
 // DeleteAccessKey permanently deletes an access key
@@ -653,6 +668,7 @@ func (s *SQLiteStore) DeleteAccessKey(accessKeyID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete access key: %w", err)
 	}
+	s.lastUsedWritten.Delete(accessKeyID)
 
 	return tx.Commit()
 }
