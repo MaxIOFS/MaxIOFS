@@ -20,7 +20,9 @@ func (s *Server) RegisterProfilingRoutes(router *mux.Router) {
 	// Create subrouter for profiling endpoints
 	pprofRouter := router.PathPrefix("/debug/pprof").Subrouter()
 
-	// Apply authentication middleware (only global admins)
+	// These routes hang off the root router, outside the console API subrouter
+	// that authenticates, so they carry their own copy of it.
+	pprofRouter.Use(s.consoleAuthMiddleware)
 	pprofRouter.Use(s.requireGlobalAdminMiddleware)
 
 	// Index page

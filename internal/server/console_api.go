@@ -160,6 +160,85 @@ func shouldLimitConsoleBody(r *http.Request) bool {
 }
 
 // setupConsoleAPIRoutes registers all console API routes
+func (s *Server) consoleAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip authentication for OPTIONS requests
+		if r.Method == "OPTIONS" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
+			"/sts/ldap-identity", "/sts/web-identity"}
+		const apiV1Segment = "/api/v1"
+		urlPath := r.URL.Path
+		// Find the "/api/v1" token in the full request path (handles basePath
+		// prefixes such as "/ui/api/v1/...").
+		apiIdx := strings.Index(urlPath, apiV1Segment)
+		relPath := urlPath // fallback: compare against the full path
+		if apiIdx >= 0 {
+			relPath = urlPath[apiIdx+len(apiV1Segment):]
+			if relPath == "" {
+				relPath = "/"
+			}
+		}
+		for _, pub := range publicPaths {
+			var matched bool
+			if strings.HasSuffix(pub, "/") {
+				// Prefix pattern: relative path must START with the token.
+				matched = strings.HasPrefix(relPath, pub)
+			} else {
+				// Exact endpoint: relative path must equal the token exactly.
+				matched = relPath == pub
+			}
+			if matched {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		user, handled := s.userFromDownloadToken(w, r)
+		if handled {
+			return
+		}
+
+		if user == nil {
+			// Extract JWT token from Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				s.writeError(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Validate JWT token
+			var err error
+			user, err = s.authManager.ValidateJWT(r.Context(), token)
+			if err != nil {
+				logrus.WithError(err).Warn("JWT validation failed")
+				s.writeError(w, "Invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		if !s.userHasConsoleAccess(r.Context(), user) {
+			s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), "user", user)
+		if resolver, ok := s.authManager.(interface {
+			ResolvePolicySet(ctx context.Context, user *auth.User) (*auth.PolicySet, error)
+		}); ok {
+			if set, err := resolver.ResolvePolicySet(ctx, user); err == nil {
+				ctx = auth.WithPolicySet(ctx, set)
+			}
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Metrics tracking middleware
 	router.Use(func(next http.Handler) http.Handler {
@@ -207,85 +286,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	}
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
-	// Authentication middleware - validates JWT and adds user to context
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for OPTIONS requests
-			if r.Method == "OPTIONS" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
-				"/sts/ldap-identity", "/sts/web-identity"}
-			const apiV1Segment = "/api/v1"
-			urlPath := r.URL.Path
-			// Find the "/api/v1" token in the full request path (handles basePath
-			// prefixes such as "/ui/api/v1/...").
-			apiIdx := strings.Index(urlPath, apiV1Segment)
-			relPath := urlPath // fallback: compare against the full path
-			if apiIdx >= 0 {
-				relPath = urlPath[apiIdx+len(apiV1Segment):]
-				if relPath == "" {
-					relPath = "/"
-				}
-			}
-			for _, pub := range publicPaths {
-				var matched bool
-				if strings.HasSuffix(pub, "/") {
-					// Prefix pattern: relative path must START with the token.
-					matched = strings.HasPrefix(relPath, pub)
-				} else {
-					// Exact endpoint: relative path must equal the token exactly.
-					matched = relPath == pub
-				}
-				if matched {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-
-			user, handled := s.userFromDownloadToken(w, r)
-			if handled {
-				return
-			}
-
-			if user == nil {
-				// Extract JWT token from Authorization header
-				authHeader := r.Header.Get("Authorization")
-				if !strings.HasPrefix(authHeader, "Bearer ") {
-					s.writeError(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
-					return
-				}
-
-				token := strings.TrimPrefix(authHeader, "Bearer ")
-
-				// Validate JWT token
-				var err error
-				user, err = s.authManager.ValidateJWT(r.Context(), token)
-				if err != nil {
-					logrus.WithError(err).Warn("JWT validation failed")
-					s.writeError(w, "Invalid or expired token", http.StatusUnauthorized)
-					return
-				}
-			}
-
-			if !s.userHasConsoleAccess(r.Context(), user) {
-				s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), "user", user)
-			if resolver, ok := s.authManager.(interface {
-				ResolvePolicySet(ctx context.Context, user *auth.User) (*auth.PolicySet, error)
-			}); ok {
-				if set, err := resolver.ResolvePolicySet(ctx, user); err == nil {
-					ctx = auth.WithPolicySet(ctx, set)
-				}
-			}
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	})
+	router.Use(s.consoleAuthMiddleware)
 
 	router.Use(s.coordinatorMiddleware)
 
