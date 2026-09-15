@@ -363,7 +363,11 @@ func everyCatalogedAction() []string {
 // reach them.
 func (s *SQLiteStore) userTenantID(userID string) (string, error) {
 	var tenantID sql.NullString
-	err := s.db.QueryRow(`SELECT tenant_id FROM users WHERE id = ?`, userID).Scan(&tenantID)
+	stmt, err := s.prepared(`SELECT tenant_id FROM users WHERE id = ?`)
+	if err != nil {
+		return "", err
+	}
+	err = stmt.QueryRow(userID).Scan(&tenantID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

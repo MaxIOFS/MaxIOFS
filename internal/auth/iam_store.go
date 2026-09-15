@@ -663,7 +663,7 @@ func (s *SQLiteStore) DeleteIAMRole(name string) error {
 // its inline policies plus the default version of each attached managed policy.
 // Order is irrelevant — evaluation is Deny-wins over the whole set.
 func (s *SQLiteStore) IAMEffectiveDocuments(targetType, targetID string) ([]string, error) {
-	rows, err := s.db.Query(`
+	stmt, err := s.prepared(`
 		SELECT document FROM iam_inline_policies WHERE target_type = ? AND target_id = ?
 		UNION ALL
 		SELECT v.document
@@ -671,7 +671,12 @@ func (s *SQLiteStore) IAMEffectiveDocuments(targetType, targetID string) ([]stri
 		JOIN iam_policies p ON p.name = a.policy_name
 		JOIN iam_policy_versions v ON v.policy_name = p.name AND v.version_id = p.default_version_id
 		WHERE a.target_type = ? AND a.target_id = ?
-	`, targetType, targetID, targetType, targetID)
+	`)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := stmt.Query(targetType, targetID, targetType, targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +702,11 @@ func (s *SQLiteStore) IAMEffectiveDocumentsForUser(userID string) ([]string, err
 		return nil, err
 	}
 
-	rows, err := s.db.Query(`SELECT group_id FROM group_members WHERE user_id = ?`, userID)
+	stmt, err := s.prepared(`SELECT group_id FROM group_members WHERE user_id = ?`)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query(userID)
 	if err != nil {
 		return nil, err
 	}

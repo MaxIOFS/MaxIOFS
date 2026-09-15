@@ -24,6 +24,27 @@ type SQLiteStore struct {
 	// lastUsedWritten maps an access key to the second already committed for it,
 	// so the same value is not rewritten once per request.
 	lastUsedWritten sync.Map
+
+	// stmts holds the statements of the request path, compiled once. SQLite
+	// parses the SQL text on every call otherwise, which is where the CPU went.
+	stmts sync.Map
+}
+
+// prepared compiles a statement the first time it is asked for and reuses it.
+// Only for constant SQL: the cache is keyed by the text.
+func (s *SQLiteStore) prepared(query string) (*sql.Stmt, error) {
+	if cached, ok := s.stmts.Load(query); ok {
+		return cached.(*sql.Stmt), nil
+	}
+	stmt, err := s.db.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	actual, loaded := s.stmts.LoadOrStore(query, stmt)
+	if loaded {
+		stmt.Close() //nolint:errcheck
+	}
+	return actual.(*sql.Stmt), nil
 }
 
 // NewSQLiteStore creates a new SQLite-based auth store
@@ -246,13 +267,18 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	var authProvider sql.NullString
 	var externalID sql.NullString
 
-	err := s.db.QueryRow(`
+	stmt, err := s.prepared(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
 		       theme_preference, language_preference, auth_provider, external_id, must_change_password
 		FROM users
 		WHERE id = ? AND status != 'deleted'
-	`, userID).Scan(
+	`)
+	if err != nil {
+		return nil, err
+	}
+
+	err = stmt.QueryRow(userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
@@ -613,11 +639,16 @@ func (s *SQLiteStore) GetAccessKey(accessKeyID string) (*AccessKey, error) {
 	var key AccessKey
 	var lastUsed sql.NullInt64
 
-	err := s.db.QueryRow(`
+	stmt, err := s.prepared(`
 		SELECT access_key_id, secret_access_key, user_id, status, created_at, last_used
 		FROM access_keys
 		WHERE access_key_id = ? AND status != 'deleted'
-	`, accessKeyID).Scan(
+	`)
+	if err != nil {
+		return nil, err
+	}
+
+	err = stmt.QueryRow(accessKeyID).Scan(
 		&key.AccessKeyID, &key.SecretAccessKey, &key.UserID, &key.Status, &key.CreatedAt, &lastUsed,
 	)
 
@@ -811,6 +842,10 @@ func (s *SQLiteStore) GetAccountLockStatus(userID string) (failedAttempts int, l
 
 // Close closes the database connection
 func (s *SQLiteStore) Close() error {
+	s.stmts.Range(func(_, stmt any) bool {
+		stmt.(*sql.Stmt).Close() //nolint:errcheck
+		return true
+	})
 	return s.db.Close()
 }
 
@@ -824,7 +859,6 @@ func ensureDir(dir string) error {
 	}
 	return nil
 }
-
 
 // Enable2FA enables 2FA for a user
 func (s *SQLiteStore) Enable2FA(ctx context.Context, userID string, secret string, backupCodes []string) error {
