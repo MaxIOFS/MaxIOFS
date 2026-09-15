@@ -70,8 +70,8 @@ storage:
   metadata_cache_size_mb: 256
 
 auth:
-  # Off means the S3 API accepts ANY credentials and the console lets anyone in
-  # as the administrator. For a server nobody else can reach.
+  # Off lets anyone into the console as the administrator, whatever password
+  # they type. The S3 API still requires a valid signed credential.
   enable_auth: true
 
   # Signs console sessions. Generated and stored in the database on first start

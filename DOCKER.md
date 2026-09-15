@@ -125,15 +125,25 @@ docker restart maxiofs
 
 ### Environment Variables
 
-Only two settings can be overridden via environment variables:
+Any setting in `config.yaml` can be overridden with an environment variable:
+`MAXIOFS_` prefix, upper case, nested keys joined with an underscore.
 
 ```yaml
 environment:
-  MAXIOFS_DATA_DIR: "/data"    # must match the volume mount
-  MAXIOFS_LOG_LEVEL: "info"    # overrides log_level in config.yaml
+  MAXIOFS_DATA_DIR: "/data"                        # must match the volume mount
+  MAXIOFS_LOG_LEVEL: "info"                        # log_level
+  MAXIOFS_PUBLIC_API_URL: "https://s3.example.com" # public_api_url
+  MAXIOFS_STORAGE_ROOT: "/data/objects"            # storage.root
+
+  # These two exist only as environment variables. They give the administrator
+  # that S3 key pair when the deployment has no access key yet, and are ignored
+  # on one that already has one.
+  MAXIOFS_BOOTSTRAP_ACCESS_KEY: "maxiofsadmin"
+  MAXIOFS_BOOTSTRAP_SECRET_KEY: "pick-your-own-secret"
 ```
 
-All other settings (encryption, SMTP, public URLs, TLS) require `config.yaml`.
+The settings that live in the database — SMTP, quotas, rate limits, retention —
+are changed from the console, not from here.
 
 ## Volumes
 

@@ -66,6 +66,10 @@ services:
     restart: unless-stopped
     environment:
       MAXIOFS_DATA_DIR: /data
+      # S3 credentials for the administrator, applied only on a deployment with
+      # no access key yet.
+      MAXIOFS_BOOTSTRAP_ACCESS_KEY: maxiofsadmin
+      MAXIOFS_BOOTSTRAP_SECRET_KEY: pick-your-own-secret
       # Encryption at rest is always on — the key is generated automatically
       # and stored in the database. After the first start, download the
       # recovery bundle from Settings → Security and keep it off this host.

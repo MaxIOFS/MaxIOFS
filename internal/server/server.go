@@ -224,6 +224,10 @@ func New(cfg *config.Config) (*Server, error) {
 	// (below) needs before the object manager can be created.
 	authManager := auth.NewManager(cfg.Auth, cfg.DataDir)
 
+	if err := auth.SeedBootstrapAccessKey(context.Background(), authManager); err != nil {
+		return nil, err
+	}
+
 	// Initialize settings manager (uses same SQLite DB as auth)
 	db, ok := authManager.GetDB().(*sql.DB)
 	if !ok {

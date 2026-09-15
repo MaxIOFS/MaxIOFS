@@ -353,6 +353,10 @@ services:
       MAXIOFS_DATA_DIR: /data
       MAXIOFS_PUBLIC_API_URL: https://s3.example.com
       MAXIOFS_PUBLIC_CONSOLE_URL: https://console.example.com
+      # S3 credentials for the administrator, applied only on a deployment with
+      # no access key yet. Environment only, never a config file key.
+      MAXIOFS_BOOTSTRAP_ACCESS_KEY: maxiofsadmin
+      MAXIOFS_BOOTSTRAP_SECRET_KEY: pick-your-own-secret
       # Encryption at rest is always on — the key is generated automatically
       # and stored in the database (download the recovery bundle after setup).
     volumes:

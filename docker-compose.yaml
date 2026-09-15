@@ -49,6 +49,12 @@ services:
     environment:
       # Data directory — must match the volume mount above
       MAXIOFS_DATA_DIR: "/data"
+
+      # S3 credentials for the administrator, applied only when the deployment
+      # has no access key yet. Remove them to start with none and create keys
+      # from the console.
+      MAXIOFS_BOOTSTRAP_ACCESS_KEY: "maxiofsadmin"
+      MAXIOFS_BOOTSTRAP_SECRET_KEY: "pick-your-own-secret"
       # Cluster: set to the host's real IP so other nodes can reach this container.
       # Required for multi-host Docker clusters. Leave empty for auto-detection.
       # MAXIOFS_CLUSTER_ADVERTISE_ADDRESS: "10.200.1.135"

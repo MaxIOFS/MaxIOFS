@@ -217,12 +217,18 @@ docker run -d \
   --name maxiofs \
   -p 8080:8080 \
   -p 8081:8081 \
-  -v maxiofs-data:/var/lib/maxiofs \
+  -v maxiofs-data:/data \
+  -e MAXIOFS_BOOTSTRAP_ACCESS_KEY=maxiofsadmin \
+  -e MAXIOFS_BOOTSTRAP_SECRET_KEY=pick-your-own-secret \
   maxiofs/maxiofs:latest
 ```
 
 - **Web Console:** http://localhost:8081 — login: `admin` / `admin`
-- **S3 API:** http://localhost:8080
+- **S3 API:** http://localhost:8080 — with the key pair above, ready to use
+
+The two `BOOTSTRAP` variables hand the administrator that S3 key pair when the
+deployment has none, so a client connects without a trip through the console
+first. They apply once: a deployment that already has a key ignores them.
 
 > ⚠️ Change the default password immediately after first login.
 

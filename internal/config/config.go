@@ -122,6 +122,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 
 	// Read from environment variables
 	v.SetEnvPrefix("MAXIOFS")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	// Unmarshal configuration
