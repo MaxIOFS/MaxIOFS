@@ -738,6 +738,27 @@ func (m *Manager) cleanup(ctx context.Context) {
 	if _, err := m.db.ExecContext(ctx, query, cutoff); err != nil {
 		logrus.WithError(err).Warn("Failed to cleanup old replication queue items")
 	}
+
+	// One status row per object and version, kept forever, grows with the store
+	// itself. A copy that succeeded long ago answers no question; a failure is
+	// what an operator comes here to find, so those stay.
+	statuses := `
+		DELETE FROM replication_status
+		WHERE status = ?
+		AND replicated_at IS NOT NULL
+		AND replicated_at < ?
+	`
+	result, err := m.db.ExecContext(ctx, statuses, StatusCompleted, cutoff)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to cleanup old replication status rows")
+		return
+	}
+	if removed, _ := result.RowsAffected(); removed > 0 {
+		logrus.WithFields(logrus.Fields{
+			"rows":           removed,
+			"retention_days": m.config.RetentionDays,
+		}).Info("Removed replication status rows past their retention")
+	}
 }
 
 // SyncBucket synchronizes all objects in a bucket according to a replication rule

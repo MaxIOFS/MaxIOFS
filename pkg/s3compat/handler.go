@@ -92,9 +92,6 @@ func addS3CompatHeaders(w http.ResponseWriter) {
 
 	w.Header().Set("Vary", "Origin")
 	w.Header().Add("Vary", "Accept-Encoding")
-
-	w.Header().Set("X-Ratelimit-Limit", "18299")
-	w.Header().Set("X-Ratelimit-Remaining", "18299")
 }
 
 type Handler struct {
@@ -535,7 +532,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		"host":   r.Host,
 		"remote": r.RemoteAddr,
 		"ua":     r.Header.Get("User-Agent"),
-	}).Info("S3 API: ListBuckets request")
+	}).Debug("S3 API: ListBuckets request")
 
 	// Add S3-compatible headers FIRST
 	addS3CompatHeaders(w)
@@ -896,17 +893,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 
 	if bkt.ObjectLock != nil && bkt.ObjectLock.ObjectLockEnabled {
 		w.Header().Set("x-amz-bucket-object-lock-enabled", "true")
-	}
-
-	userAgent := r.Header.Get("User-Agent")
-	if isVeeamClient(userAgent) {
-		logrus.WithFields(logrus.Fields{
-			"bucket":           bucketName,
-			"user_agent":       userAgent,
-			"method":           r.Method,
-			"uri":              r.RequestURI,
-			"response_headers": w.Header(),
-		}).Warn("VEEAM HeadBucket - RESPONSE HEADERS - MaxIOFS S3-compatible")
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1757,16 +1743,6 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) {
 		return
 	}
-	userAgent := r.Header.Get("User-Agent")
-	if isVeeamClient(userAgent) {
-		logrus.WithFields(logrus.Fields{
-			"bucket":     bucketName,
-			"user_agent": userAgent,
-			"method":     r.Method,
-			"uri":        r.RequestURI,
-		}).Warn("VEEAM GetBucketLocation - DETECTION PHASE - May determine auto-provisioning")
-	}
-
 	// x-amz-bucket-region: Veeam reads this header from both HeadBucket and
 	// GetBucketLocation to determine the bucket region and decide multi-bucket mode.
 	w.Header().Set("x-amz-bucket-region", "us-east-1")

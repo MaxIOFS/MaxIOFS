@@ -264,7 +264,32 @@ func (m *Manager) CreateReport(ctx context.Context, report *InventoryReport) err
 		return fmt.Errorf("failed to create inventory report: %w", err)
 	}
 
+	m.trimReports(ctx, report.BucketName)
 	return nil
+}
+
+// reportsKeptPerBucket bounds the history a bucket accumulates. The worker
+// writes one report an hour, so without a bound the table grows for as long
+// as the deployment lives.
+const reportsKeptPerBucket = 20
+
+func (m *Manager) trimReports(ctx context.Context, bucketName string) {
+	_, err := m.db.ExecContext(ctx, `
+		DELETE FROM bucket_inventory_reports
+		WHERE bucket_name = ?
+		AND id NOT IN (
+			SELECT id FROM bucket_inventory_reports
+			WHERE bucket_name = ?
+			-- created_at is a whole second, so several reports share one: the
+			-- rowid breaks the tie toward whatever was written last.
+			ORDER BY created_at DESC, rowid DESC
+			LIMIT ?
+		)
+	`, bucketName, bucketName, reportsKeptPerBucket)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketName).
+			Warn("Could not trim the inventory report history")
+	}
 }
 
 // UpdateReport updates an inventory report

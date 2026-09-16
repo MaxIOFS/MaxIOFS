@@ -764,16 +764,12 @@ func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request)
 		return nil, ErrMissingSignature
 	}
 
-	logrus.WithField("auth_header", authHeader).Info("ValidateS3Signature called")
-
 	// Check if it's SigV4 (from Authorization header or query param)
 	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
-		logrus.Info("Delegating to ValidateS3SignatureV4")
 		return am.ValidateS3SignatureV4(ctx, r)
 	}
 
 	// Otherwise assume SigV2
-	logrus.Info("Delegating to ValidateS3SignatureV2")
 	return am.ValidateS3SignatureV2(ctx, r)
 }
 
@@ -1772,7 +1768,7 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 		"service":        sig.Service,
 		"signed_headers": sig.SignedHeaders,
 		"credential":     sig.Credential,
-	}).Info("Parsed SigV4 signature")
+	}).Debug("Parsed SigV4 signature")
 
 	return sig, nil
 }
@@ -1952,7 +1948,7 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		"canonical_headers": strings.ReplaceAll(canonicalHeaders, "\n", "\\n"),
 		"signed_headers":    signedHeaders,
 		"payload_hash":      payloadHash,
-	}).Info("Canonical request components")
+	}).Debug("Canonical request components")
 
 	return canonicalRequest
 }
