@@ -374,16 +374,17 @@ func TestMemoryStats_ConsistentData(t *testing.T) {
 	require.NoError(t, err2)
 	require.NotNil(t, stats2)
 
-	// Total memory should be exactly the same
+	// Installed memory does not change between two reads; how much of it is in
+	// use does, by however much the machine happens to be doing.
 	assert.Equal(t, stats1.TotalBytes, stats2.TotalBytes)
 
-	// Used memory might vary slightly, but should be reasonable
-	// Allow up to 100MB variance (for small allocations during test)
-	diff := int64(stats1.UsedBytes) - int64(stats2.UsedBytes)
-	if diff < 0 {
-		diff = -diff
+	for _, stats := range []*MemoryStats{stats1, stats2} {
+		assert.Greater(t, stats.TotalBytes, uint64(0), "a machine with no memory is not a reading")
+		assert.LessOrEqual(t, stats.UsedBytes, stats.TotalBytes, "more used than exists")
+		assert.LessOrEqual(t, stats.FreeBytes, stats.TotalBytes, "more free than exists")
+		assert.GreaterOrEqual(t, stats.UsedPercent, 0.0)
+		assert.LessOrEqual(t, stats.UsedPercent, 100.0)
 	}
-	assert.Less(t, diff, int64(100*1024*1024), "Memory usage variance should be less than 100MB")
 }
 
 func TestDiskStats_ConsistentData(t *testing.T) {
@@ -401,14 +402,19 @@ func TestDiskStats_ConsistentData(t *testing.T) {
 	require.NoError(t, err2)
 	require.NotNil(t, stats2)
 
-	// Total disk should be exactly the same
+	// Capacity does not change between two reads; how much of it is in use
+	// does, by however much the machine happens to be writing.
 	assert.Equal(t, stats1.TotalBytes, stats2.TotalBytes)
 
-	// Used disk might vary slightly, but total should stay constant
-	// Allow up to 10MB variance (for temp files, logs, etc.)
-	diff := int64(stats1.UsedBytes) - int64(stats2.UsedBytes)
-	if diff < 0 {
-		diff = -diff
+	// Nothing here compares UsedPercent against UsedBytes/TotalBytes: on Linux
+	// the total counts the blocks reserved for root, so the two differ by
+	// design and the check would pass on Windows and fail on a runner.
+	for _, stats := range []*DiskStats{stats1, stats2} {
+		assert.Greater(t, stats.TotalBytes, uint64(0), "a disk with no capacity is not a reading")
+		assert.LessOrEqual(t, stats.UsedBytes, stats.TotalBytes, "more used than exists")
+		assert.LessOrEqual(t, stats.FreeBytes, stats.TotalBytes, "more free than exists")
+		assert.LessOrEqual(t, stats.UsedBytes+stats.FreeBytes, stats.TotalBytes, "used and free exceed the disk")
+		assert.GreaterOrEqual(t, stats.UsedPercent, 0.0)
+		assert.LessOrEqual(t, stats.UsedPercent, 100.0)
 	}
-	assert.Less(t, diff, int64(10*1024*1024), "Disk usage variance should be less than 10MB")
 }
