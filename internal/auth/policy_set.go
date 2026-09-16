@@ -8,10 +8,11 @@ import (
 // PolicySet is a user's complete permissions, resolved once. TenantID is the
 // account the principal belongs to.
 type PolicySet struct {
-	UserID    string
-	TenantID  string
-	Documents []string
-	Actions   []string
+	UserID        string
+	TenantID      string
+	Documents     []string
+	Actions       []string
+	SessionPolicy *Policy
 }
 
 // AccessRequest is one authorization question: a principal asking to perform an
@@ -64,7 +65,8 @@ func (p *PolicySet) Allows(req AccessRequest) bool {
 	if !p.mayReachAccount(req) {
 		return false
 	}
-	return EvaluateIAMDocuments(p.Documents, req.Action, req.Resource)
+	return EvaluateSessionPolicy(p.SessionPolicy, req.Action, req.Resource) &&
+		EvaluateIAMDocuments(p.Documents, req.Action, req.Resource)
 }
 
 // AllowsOwnAccount answers for a resource that belongs to no tenant — the
@@ -107,24 +109,35 @@ func (p *PolicySet) AllowsAnywhere(action string) bool {
 		return false
 	}
 
-	for _, permitted := range p.Actions {
-		if stsWildcardMatch(strings.ToLower(permitted), strings.ToLower(action)) {
-			return true
+	if p.SessionPolicy == nil {
+		for _, permitted := range p.Actions {
+			if stsWildcardMatch(strings.ToLower(permitted), strings.ToLower(action)) {
+				return true
+			}
 		}
 	}
 
-	seen := make(map[string]bool)
+	var resources []string
+	if p.SessionPolicy != nil {
+		for _, statement := range p.SessionPolicy.Statement {
+			if statement.Effect == EffectAllow && stsActionMatches(statement.Action, action) {
+				resources = append(resources, policyStringValues(statement.Resource)...)
+			}
+		}
+	}
 	for _, doc := range p.Documents {
-		for _, resource := range allowedResourcesFor(doc, action) {
-			probe := probeResource(resource)
-			if seen[probe] {
-				continue
-			}
-			seen[probe] = true
+		resources = append(resources, allowedResourcesFor(doc, action)...)
+	}
+	seen := make(map[string]bool)
+	for _, resource := range resources {
+		probe := probeResource(resource)
+		if seen[probe] {
+			continue
+		}
+		seen[probe] = true
 
-			if EvaluateIAMDocuments(p.Documents, action, probe) {
-				return true
-			}
+		if EvaluateSessionPolicy(p.SessionPolicy, action, probe) && EvaluateIAMDocuments(p.Documents, action, probe) {
+			return true
 		}
 	}
 	return false
@@ -237,6 +250,7 @@ func (am *authManager) buildPolicySetFor(userID string, roles []string, tenantID
 func ReadOnlyAuditAction(action string) bool {
 	switch action {
 	case ActionListAllMyBuckets,
+		ActionGetBucketQuota,
 		ActionListBucket,
 		ActionListBucketVersions,
 		ActionListBucketMultipartUploads,

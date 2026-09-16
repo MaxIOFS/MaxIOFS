@@ -83,7 +83,8 @@ func bucketGrantDocument(bucketName string, actions []string) string {
 
 // isResourceScopedAction reports whether an action names a bucket or an object.
 func isResourceScopedAction(action string) bool {
-	return strings.HasPrefix(action, "s3:") || action == "*"
+	return strings.HasPrefix(action, "s3:") || action == "*" ||
+		action == ActionGetBucketQuota || action == ActionPutBucketQuota
 }
 
 // splitRoleActions separates what a role permits into the globally-granted
@@ -229,6 +230,8 @@ func grantsEverythingEverywhere(document string) bool {
 func tenantAdminDocument() string {
 	return allowDocument([]string{
 		ActionTenantAdmin,
+		ActionGetBucketQuota,
+		ActionPutBucketQuota,
 		ActionConsoleAccess,
 		ActionManageOwnKeys,
 		ActionCreateBucket,

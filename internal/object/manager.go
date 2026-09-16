@@ -322,6 +322,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	if err := om.validateObjectName(key); err != nil {
 		return nil, nil, err
 	}
+	defer om.lockKey(bucket, key)()
 
 	// Load object metadata first to determine if versioning is enabled.
 	var metaObj *metadata.ObjectMetadata

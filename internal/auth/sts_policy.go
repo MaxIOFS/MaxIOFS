@@ -102,6 +102,9 @@ func enforceSessionPolicy(sess *STSSession, r *http.Request) error {
 	if err != nil {
 		return ErrAccessDenied
 	}
+	if isS3BatchDelete(r) {
+		return nil // The request URL names a bucket, not the resources being deleted.
+	}
 
 	if !EvaluateSessionPolicy(policy, S3ActionForRequest(r), ResourceARNForRequest(r)) {
 		return ErrAccessDenied

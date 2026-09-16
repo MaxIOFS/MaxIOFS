@@ -402,7 +402,9 @@ func (am *authManager) AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID,
 	if err := am.enforceSTSSession(sess, r); err != nil {
 		return nil, err
 	}
-	am.attachRolePolicySetToRequest(r, sess)
+	if err := am.attachSessionPolicySetToRequest(r, user, sess); err != nil {
+		return nil, err
+	}
 	return roleSessionUser(user, sess), nil
 }
 
@@ -433,19 +435,37 @@ func (am *authManager) validateSTSSignatureV4(r *http.Request, sig *S3SignatureV
 		return nil, err
 	}
 
-	am.attachRolePolicySetToRequest(r, sess)
+	if err := am.attachSessionPolicySetToRequest(r, user, sess); err != nil {
+		return nil, err
+	}
 	return roleSessionUser(user, sess), nil
 }
 
-func (am *authManager) attachRolePolicySetToRequest(r *http.Request, sess *STSSession) {
-	if r == nil || sess == nil || sess.PolicyMode != STSPolicyModeRole {
-		return
+func (am *authManager) attachSessionPolicySetToRequest(r *http.Request, user *User, sess *STSSession) error {
+	var set *PolicySet
+	var err error
+	if sess.PolicyMode == STSPolicyModeRole {
+		set, err = am.rolePolicySetForSession(sess)
+	} else {
+		set, err = am.ResolvePolicySet(r.Context(), user)
 	}
-	set, err := am.rolePolicySetForSession(sess)
 	if err != nil {
-		return
+		return err
 	}
-	*r = *r.WithContext(WithPolicySet(r.Context(), set))
+	set.SessionPolicy, err = ParseSessionPolicy(sess.SessionPolicy)
+	if err != nil {
+		return ErrAccessDenied
+	}
+	ctx := context.WithValue(r.Context(), stsAccessKeyContextKey{}, sess.TempAccessKeyID)
+	*r = *r.WithContext(WithPolicySet(ctx, set))
+	return nil
+}
+
+type stsAccessKeyContextKey struct{}
+
+func STSAccessKeyFromContext(ctx context.Context) string {
+	key, _ := ctx.Value(stsAccessKeyContextKey{}).(string)
+	return key
 }
 
 // signedHeadersInclude reports whether name appears in a SigV4 SignedHeaders

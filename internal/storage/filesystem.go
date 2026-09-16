@@ -134,7 +134,7 @@ func (fs *FilesystemBackend) putAt(ctx context.Context, path string, data io.Rea
 		return NewErrorWithCause("StageMetadata", "Failed to stage metadata file", err)
 	}
 
-	if err := os.Rename(tempFile.Name(), fullPath); err != nil {
+	if err := replaceObjectFile(tempFile.Name(), fullPath); err != nil {
 		os.Remove(stagingPath) // old pair stays fully intact
 		return NewErrorWithCause("AtomicMove", "Failed to move file to final location", err)
 	}
@@ -158,8 +158,9 @@ func (fs *FilesystemBackend) getAt(ctx context.Context, path string) (io.ReadClo
 		return nil, nil, err
 	}
 
-	// Resolve any staged sidecar left by a crashed Put before serving.
-	fs.maybeRepair(path)
+	unlock := fs.lockPath(path)
+	defer unlock()
+	fs.repairStagedCommit(path)
 
 	fullPath := fs.getFullPath(path)
 
@@ -171,13 +172,13 @@ func (fs *FilesystemBackend) getAt(ctx context.Context, path string) (io.ReadClo
 	}
 
 	// Open file
-	file, err := os.Open(fullPath)
+	file, err := openObjectFile(fullPath)
 	if err != nil {
 		return nil, nil, NewErrorWithCause("OpenFile", "Failed to open file", err)
 	}
 
 	// Get metadata
-	metadata, err := fs.metadataAt(ctx, path)
+	metadata, err := fs.readMetadataAt(path)
 	if err != nil {
 		file.Close()
 		return nil, nil, err
@@ -353,7 +354,10 @@ func (fs *FilesystemBackend) metadataAt(ctx context.Context, path string) (map[s
 
 	// Resolve any staged sidecar left by a crashed Put before reading.
 	fs.maybeRepair(path)
+	return fs.readMetadataAt(path)
+}
 
+func (fs *FilesystemBackend) readMetadataAt(path string) (map[string]string, error) {
 	metadataPath := fs.getMetadataPath(path)
 
 	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
@@ -510,7 +514,7 @@ func (fs *FilesystemBackend) repairStagedCommit(path string) {
 		return
 	}
 
-	f, err := os.Open(fullPath)
+	f, err := openObjectFile(fullPath)
 	if err != nil {
 		return // transient; retry on a later access
 	}
@@ -609,7 +613,7 @@ func (fs *FilesystemBackend) generateBasicMetadata(path string) (map[string]stri
 	metadata[MetadataGeneratedKey] = "true"
 
 	// Try to calculate ETag by reading file
-	file, err := os.Open(fullPath)
+	file, err := openObjectFile(fullPath)
 	if err == nil {
 		defer file.Close()
 		hasher := md5.New()

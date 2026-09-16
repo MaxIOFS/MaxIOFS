@@ -45,64 +45,37 @@ func S3ActionForRequest(r *http.Request) string {
 		return ""
 	}
 
-	pathParts := strings.Split(strings.Trim(path, "/"), "/")
+	pathParts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
 
 	// Bucket level operations
-	if len(pathParts) == 1 && pathParts[0] != "" {
+	if len(pathParts) == 1 || pathParts[1] == "" {
+		for _, op := range bucketSubresourceActions {
+			if !query.Has(op.query) || query.Get(op.query) != op.value {
+				continue
+			}
+			var action string
+			switch method {
+			case http.MethodGet:
+				action = op.get
+			case http.MethodPut:
+				action = op.put
+			case http.MethodDelete:
+				action = op.delete
+			}
+			if action != "" {
+				return action
+			}
+		}
 		switch method {
 		case http.MethodGet:
-			switch {
-			case query.Has("versioning"):
-				return ActionGetBucketVersioning
-			case query.Has("policy"):
-				return ActionGetBucketPolicy
-			case query.Has("lifecycle"):
-				return ActionGetBucketLifecycle
-			case query.Has("cors"):
-				return ActionGetBucketCORS
-			case query.Has("acl"):
-				return ActionGetBucketAcl
-			case query.Has("tagging"):
-				return ActionGetBucketTagging
-			case query.Has("location"):
-				return ActionGetBucketLocation
-			case query.Has("versions"):
-				return ActionListBucketVersions
-			case query.Has("uploads"):
-				return ActionListBucketMultipartUploads
-			}
 			return ActionListBucket
 		case http.MethodHead:
 			// HEAD bucket is an existence check, authorized as ListBucket
 			// (same as AWS).
 			return ActionListBucket
 		case http.MethodPut:
-			switch {
-			case query.Has("versioning"):
-				return ActionPutBucketVersioning
-			case query.Has("policy"):
-				return ActionPutBucketPolicy
-			case query.Has("lifecycle"):
-				return ActionPutBucketLifecycle
-			case query.Has("cors"):
-				return ActionPutBucketCORS
-			case query.Has("acl"):
-				return ActionPutBucketAcl
-			case query.Has("tagging"):
-				return ActionPutBucketTagging
-			}
 			return ActionCreateBucket
 		case http.MethodDelete:
-			switch {
-			case query.Has("policy"):
-				return ActionDeleteBucketPolicy
-			case query.Has("lifecycle"):
-				return ActionDeleteBucketLifecycle
-			case query.Has("cors"):
-				return ActionDeleteBucketCORS
-			case query.Has("tagging"):
-				return ActionDeleteBucketTagging
-			}
 			return ActionDeleteBucket
 		case http.MethodPost:
 			// POST /bucket?delete is the multi-object delete; a bare POST to a
@@ -117,19 +90,34 @@ func S3ActionForRequest(r *http.Request) string {
 
 	// Object level operations
 	if len(pathParts) >= 2 {
+		if method == http.MethodGet && query.Has("uploads") {
+			return ActionListBucketMultipartUploads
+		}
+		if query.Has("uploadId") {
+			switch method {
+			case http.MethodGet:
+				return ActionListMultipartUploadParts
+			case http.MethodDelete:
+				return ActionAbortMultipartUpload
+			case http.MethodPost:
+				return ActionPutObject
+			case http.MethodPut:
+				if query.Has("partNumber") {
+					return ActionPutObject
+				}
+			}
+		}
 		switch method {
 		case http.MethodGet:
 			switch {
-			case query.Has("acl"):
-				return ActionGetObjectAcl
-			case query.Has("tagging"):
-				return ActionGetObjectTagging
 			case query.Has("retention"):
 				return ActionGetObjectRetention
 			case query.Has("legal-hold"):
 				return ActionGetObjectLegalHold
-			case query.Has("uploadId"):
-				return ActionListMultipartUploadParts
+			case query.Has("acl"):
+				return ActionGetObjectAcl
+			case query.Has("tagging"):
+				return ActionGetObjectTagging
 			case query.Has("versionId"):
 				return ActionGetObjectVersion
 			}
@@ -141,14 +129,14 @@ func S3ActionForRequest(r *http.Request) string {
 			return ActionGetObject
 		case http.MethodPut:
 			switch {
-			case query.Has("acl"):
-				return ActionPutObjectAcl
-			case query.Has("tagging"):
-				return ActionPutObjectTagging
 			case query.Has("retention"):
 				return ActionPutObjectRetention
 			case query.Has("legal-hold"):
 				return ActionPutObjectLegalHold
+			case query.Has("acl"):
+				return ActionPutObjectAcl
+			case query.Has("tagging"):
+				return ActionPutObjectTagging
 			}
 			// Covers PutObject, UploadPart and UploadPartCopy — all writes of
 			// object content, all authorized as PutObject.
@@ -164,8 +152,14 @@ func S3ActionForRequest(r *http.Request) string {
 			}
 			return ActionDeleteObject
 		case http.MethodPost:
+			if query.Has("uploads") {
+				return ActionPutObject
+			}
 			if query.Has("restore") {
 				return ActionRestoreObject
+			}
+			if query.Has("select") {
+				return ActionGetObject
 			}
 			// CreateMultipartUpload (?uploads) and CompleteMultipartUpload
 			// (?uploadId) both write object content.
@@ -184,7 +178,7 @@ func ResourceARNForRequest(r *http.Request) string {
 	}
 
 	pathParts := strings.Split(path, "/")
-	if len(pathParts) == 1 {
+	if len(pathParts) == 1 || (len(pathParts) == 2 && pathParts[1] == "") {
 		// Bucket resource
 		return "arn:aws:s3:::" + pathParts[0]
 	}
@@ -193,4 +187,35 @@ func ResourceARNForRequest(r *http.Request) string {
 	bucket := pathParts[0]
 	object := strings.Join(pathParts[1:], "/")
 	return "arn:aws:s3:::" + bucket + "/" + object
+}
+
+func isS3BatchDelete(r *http.Request) bool {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	return r.Method == http.MethodPost && r.URL.Query().Has("delete") &&
+		!strings.Contains(strings.TrimSuffix(path, "/"), "/")
+}
+
+// Order matches the bucket routes, including requests with multiple subresources.
+var bucketSubresourceActions = []struct{ query, value, get, put, delete string }{
+	{"location", "", ActionGetBucketLocation, "", ""},
+	{"versioning", "", ActionGetBucketVersioning, ActionPutBucketVersioning, ""},
+	{"policy", "", ActionGetBucketPolicy, ActionPutBucketPolicy, ActionDeleteBucketPolicy},
+	{"object-lock", "", ActionGetBucketObjectLockConfiguration, ActionPutBucketObjectLockConfiguration, ""},
+	{"lifecycle", "", ActionGetBucketLifecycle, ActionPutBucketLifecycle, ActionDeleteBucketLifecycle},
+	{"cors", "", ActionGetBucketCORS, ActionPutBucketCORS, ActionDeleteBucketCORS},
+	{"tagging", "", ActionGetBucketTagging, ActionPutBucketTagging, ActionDeleteBucketTagging},
+	{"acl", "", ActionGetBucketAcl, ActionPutBucketAcl, ""},
+	{"versions", "", ActionListBucketVersions, "", ""},
+	{"list-type", "2", ActionListBucket, "", ""},
+	{"notification", "", ActionGetBucketNotification, ActionPutBucketNotification, ActionPutBucketNotification},
+	{"website", "", ActionGetBucketWebsite, ActionPutBucketWebsite, ActionDeleteBucketWebsite},
+	{"accelerate", "", ActionGetAccelerate, ActionPutAccelerate, ""},
+	{"requestPayment", "", ActionGetRequestPayment, ActionPutRequestPayment, ""},
+	{"encryption", "", ActionGetBucketEncryption, ActionPutBucketEncryption, ActionPutBucketEncryption},
+	{"replication", "", ActionGetBucketReplication, ActionPutBucketReplication, ActionPutBucketReplication},
+	{"logging", "", ActionGetBucketLogging, ActionPutBucketLogging, ""},
+	{"publicAccessBlock", "", ActionGetBucketPublicAccess, ActionPutBucketPublicAccess, ActionPutBucketPublicAccess},
+	{"ownershipControls", "", ActionGetBucketOwnership, ActionPutBucketOwnership, ActionPutBucketOwnership},
+	{"inventory", "", ActionGetBucketInventory, ActionPutBucketInventory, ActionPutBucketInventory},
+	{"uploads", "", ActionListBucketMultipartUploads, "", ""},
 }

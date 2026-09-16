@@ -133,7 +133,7 @@ func TestGetResourceARN(t *testing.T) {
 		{
 			name:    "Bucket with trailing slash",
 			path:    "/mybucket/",
-			wantARN: "arn:aws:s3:::mybucket/",
+			wantARN: "arn:aws:s3:::mybucket",
 		},
 		{
 			name:    "Object in bucket",

@@ -1374,6 +1374,18 @@ func (s *Server) setupRoutes() error {
 								Roles:    roles,
 							}
 							ctx := context.WithValue(r.Context(), "user", proxyUser)
+							if key := r.Header.Get("X-MaxIOFS-STS-Access-Key"); key != "" {
+								token := r.Header.Get("X-Amz-Security-Token")
+								if token == "" {
+									token = r.URL.Query().Get("X-Amz-Security-Token")
+								}
+								stsUser, err := s.authManager.AuthorizeSTSRequest(r.Context(), key, token, r)
+								if err != nil || stsUser == nil || stsUser.ID != userID || stsUser.TenantID != tenantID {
+									http.Error(w, "Access denied", http.StatusForbidden)
+									return
+								}
+								ctx = context.WithValue(r.Context(), "user", stsUser)
+							}
 							next.ServeHTTP(w, r.WithContext(ctx))
 							return
 						}

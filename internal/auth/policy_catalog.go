@@ -8,9 +8,11 @@ const (
 	ActionSuperAdmin  = "maxiofs:SuperAdmin"
 	ActionTenantAdmin = "maxiofs:TenantAdmin"
 
-	ActionConsoleAccess = "console:Access"
-	ActionManageOwnKeys = "console:ManageOwnKeys"
-	ActionIAMManage     = "iam:*"
+	ActionConsoleAccess  = "console:Access"
+	ActionManageOwnKeys  = "console:ManageOwnKeys"
+	ActionIAMManage      = "iam:*"
+	ActionGetBucketQuota = "maxiofs:GetBucketQuota"
+	ActionPutBucketQuota = "maxiofs:PutBucketQuota"
 )
 
 // Built-in policy names. Roles are built out of these, and they are what the
@@ -63,6 +65,7 @@ var PolicyCatalog = []catalogEntry{
 		Description: "Change bucket settings: versioning, lifecycle, CORS, tagging, ACLs, replication and the rest",
 		Actions: []string{
 			ActionGetBucketVersioning, ActionPutBucketVersioning,
+			ActionGetBucketQuota, ActionPutBucketQuota,
 			ActionGetBucketLifecycle, ActionPutBucketLifecycle, ActionDeleteBucketLifecycle,
 			ActionGetBucketCORS, ActionPutBucketCORS, ActionDeleteBucketCORS,
 			ActionGetBucketTagging, ActionPutBucketTagging, ActionDeleteBucketTagging,

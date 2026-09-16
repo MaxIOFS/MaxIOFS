@@ -204,7 +204,7 @@ func TestRoleSession_AttachesRolePolicySetToRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	r := iamRequest(t, http.MethodGet, "/backups/f.txt")
-	am.attachRolePolicySetToRequest(r, stored)
+	require.NoError(t, am.attachSessionPolicySetToRequest(r, user, stored))
 
 	set, ok := PolicySetFromContext(r.Context())
 	require.True(t, ok)

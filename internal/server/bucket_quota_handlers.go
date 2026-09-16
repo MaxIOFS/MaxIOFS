@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,17 +30,29 @@ type bucketQuotaUsage struct {
 	ObjectCount int64 `json:"objectCount"`
 }
 
-// resolveBucketQuotaTenant resolves the tenant scope for a bucket quota request,
-// honoring a ?tenantId= override only for global admins (same rule as the other
-// bucket config handlers).
-func (s *Server) resolveBucketQuotaTenant(r *http.Request, currentUser *auth.User) string {
-	tenantID := currentUser.TenantID
-	queryTenantID := r.URL.Query().Get("tenantId")
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
+func (s *Server) authorizeBucketQuota(w http.ResponseWriter, r *http.Request, bucketName, action string) (string, bool) {
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok || user == nil {
+		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
+		return "", false
 	}
-	return tenantID
+	tenantID := s.resolveConsoleBucketTenantID(r, bucketName, user)
+	set, ok := auth.PolicySetFromContext(r.Context())
+	if !ok || set.UserID != user.ID {
+		resolver, exists := s.authManager.(interface {
+			ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
+		})
+		if exists {
+			set, _ = resolver.ResolvePolicySet(r.Context(), user)
+		} else {
+			set = nil
+		}
+	}
+	if !set.Allows(auth.AccessRequest{Action: action, Resource: consoleBucketARN(bucketName), Owner: auth.OwnedBy(tenantID)}) {
+		s.writeError(w, "You do not have permission to access this bucket's quota", http.StatusForbidden)
+		return "", false
+	}
+	return tenantID, true
 }
 
 // handleGetBucketQuota returns the per-bucket storage quota and current usage.
@@ -55,13 +68,10 @@ func (s *Server) handleGetBucketQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentUser, ok := auth.GetUserFromContext(ctx)
+	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionGetBucketQuota)
 	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-
-	tenantID := s.resolveBucketQuotaTenant(r, currentUser)
 
 	info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName)
 	if err != nil {
@@ -97,16 +107,10 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentUser, ok := auth.GetUserFromContext(ctx)
+	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionPutBucketQuota)
 	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
-		return
-	}
-
-	tenantID := s.resolveBucketQuotaTenant(r, currentUser)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -201,16 +205,10 @@ func (s *Server) handleDeleteBucketQuota(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	currentUser, ok := auth.GetUserFromContext(ctx)
+	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionPutBucketQuota)
 	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireCapability(w, r, auth.CapBucketConfigure, "You do not have permission to configure buckets") {
-		return
-	}
-
-	tenantID := s.resolveBucketQuotaTenant(r, currentUser)
 
 	if err := s.bucketManager.DeleteQuota(ctx, tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {

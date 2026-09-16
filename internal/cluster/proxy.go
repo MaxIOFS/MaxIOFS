@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/clusterauth"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/transfer"
@@ -111,6 +112,7 @@ var internalClusterHeaders = []string{
 	"X-MaxIOFS-Forwarded-User",
 	"X-MaxIOFS-Forwarded-Tenant",
 	"X-MaxIOFS-Forwarded-Roles",
+	"X-MaxIOFS-STS-Access-Key",
 }
 
 // StripInternalClusterHeaders removes all X-MaxIOFS-* cluster-internal headers
@@ -389,6 +391,10 @@ func AddClusterProxyHeaders(req *http.Request, nodeID, clusterToken, userID, ten
 
 	// Remove original Authorization (SigV4 was signed for the client's host — invalid on the target node)
 	req.Header.Del("Authorization")
+	req.Header.Del("X-MaxIOFS-STS-Access-Key")
+	if key := auth.STSAccessKeyFromContext(req.Context()); key != "" {
+		req.Header.Set("X-MaxIOFS-STS-Access-Key", key)
+	}
 
 	req.Header.Set("X-MaxIOFS-Node-ID", nodeID)
 	req.Header.Set("X-MaxIOFS-Timestamp", timestamp)
@@ -462,16 +468,18 @@ func clusterProxySignature(req *http.Request, clusterToken, nodeID, timestamp, n
 		bodyHash = clusterauth.UnsignedPayload
 	}
 	return clusterauth.Sign(clusterToken, clusterauth.Request{
-		NodeID:    nodeID,
-		Timestamp: timestamp,
-		Nonce:     nonce,
-		Method:    req.Method,
-		Path:      req.URL.Path,
-		Query:     req.URL.RawQuery,
-		BodyHash:  bodyHash,
-		User:      userID,
-		Tenant:    tenantID,
-		Roles:     roles,
+		NodeID:       nodeID,
+		Timestamp:    timestamp,
+		Nonce:        nonce,
+		Method:       req.Method,
+		Path:         req.URL.Path,
+		Query:        req.URL.RawQuery,
+		BodyHash:     bodyHash,
+		User:         userID,
+		Tenant:       tenantID,
+		Roles:        roles,
+		STSAccessKey: req.Header.Get("X-MaxIOFS-STS-Access-Key"),
+		STSToken:     req.Header.Get("X-Amz-Security-Token"),
 	})
 }
 

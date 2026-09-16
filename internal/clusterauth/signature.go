@@ -34,14 +34,16 @@ type Request struct {
 	Query     string
 	BodyHash  string
 
-	User   string
-	Tenant string
-	Roles  string
+	User         string
+	Tenant       string
+	Roles        string
+	STSAccessKey string
+	STSToken     string
 }
 
 // Payload is the exact string the signature covers.
 func (r Request) Payload() string {
-	return strings.Join([]string{
+	payload := strings.Join([]string{
 		"maxiofs-cluster-v1",
 		r.NodeID,
 		r.Timestamp,
@@ -54,6 +56,10 @@ func (r Request) Payload() string {
 		r.Tenant,
 		r.Roles,
 	}, "\n")
+	if r.STSAccessKey != "" || r.STSToken != "" {
+		payload += "\nsts\n" + r.STSAccessKey + "\n" + r.STSToken
+	}
+	return payload
 }
 
 // Sign returns the hex-encoded HMAC-SHA256 of the request under the given key.

@@ -42,6 +42,8 @@ func (s *SQLiteStore) EnsurePermissionCatalog() error {
 
 // permissionCatalog is everything that can be granted, in display order.
 var permissionCatalog = []CatalogPermission{
+	{Action: ActionGetBucketQuota, Group: "bucket-config", Label: "Read bucket quota", ResourceScoped: true},
+	{Action: ActionPutBucketQuota, Group: "bucket-config", Label: "Change bucket quota", ResourceScoped: true},
 	{Action: "maxiofs:SuperAdmin", Group: "administration", Label: "Super administrator",
 		Description: "Every permission on every tenant and every bucket, including granting them to others"},
 	{Action: "maxiofs:TenantAdmin", Group: "administration", Label: "Tenant administrator",

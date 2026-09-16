@@ -38,6 +38,7 @@ func (om *objectManager) CanReplicateRaw(sidecar map[string]string) bool {
 // GetObjectRaw resolves the object path exactly like GetObject but returns
 // the stored bytes without decrypting, plus the sidecar and Pebble metadata.
 func (om *objectManager) GetObjectRaw(ctx context.Context, bucket, key, versionID string) (io.ReadCloser, map[string]string, *metadata.ObjectMetadata, error) {
+	defer om.lockKey(bucket, key)()
 	var metaObj *metadata.ObjectMetadata
 	var err error
 	if versionID != "" {
@@ -92,12 +93,10 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	for k, v := range sidecar {
 		sidecarCopy[k] = v
 	}
+	defer om.lockKey(bucket, key)()
 	if err := om.storage.Put(ctx, objectRef, data, sidecarCopy); err != nil {
 		return fmt.Errorf("failed to store raw replica: %w", err)
 	}
-
-	// Same locking discipline as PutObject's metadata section.
-	defer om.lockKey(bucket, key)()
 
 	existingObjBeforeSave, _ := om.metadataStore.GetObject(ctx, bucket, key)
 

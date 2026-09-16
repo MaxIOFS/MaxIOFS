@@ -314,6 +314,9 @@ func (am *authManager) authorizeRoleSession(sess *STSSession, r *http.Request) e
 	if err != nil {
 		return err
 	}
+	if isS3BatchDelete(r) {
+		return nil // Each key and version is authorized by DeleteObjects.
+	}
 
 	if !set.AllowsOwnAccount(S3ActionForRequest(r), ResourceARNForRequest(r)) {
 		return ErrAccessDenied

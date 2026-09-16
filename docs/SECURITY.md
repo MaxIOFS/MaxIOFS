@@ -230,8 +230,10 @@ never leaves it, whatever its own policies say. A global administrator reaches
 another tenant to read — the audit view — and not to write: on a tenant's bucket
 the console refuses to change lifecycle, tagging, CORS, ACL, policy, versioning,
 object lock, notifications, encryption, public access block, website and
-inventory. The exception is the bucket quota, which is the ceiling the operator
-imposes on the tenant and therefore theirs to set.
+inventory and bucket quotas. Global administrators retain full access to global
+buckets. Bucket quotas use the resource-scoped actions
+`maxiofs:GetBucketQuota` and `maxiofs:PutBucketQuota`; the latter covers both
+setting and removing a quota. Tenant administrators hold both actions.
 
 **Roles** are named permission sets. A role is assigned to users; if it also
 carries a trust policy it can be assumed through `AssumeRole`, and a role with
