@@ -30,8 +30,8 @@ func TestConcurrentMultipartUpload(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: tmpDir + "/metadata",
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: tmpDir + "/metadata",
+		Logger: logrus.StandardLogger()})
 	require.NoError(t, err)
 	defer metadataStore.Close()
 
@@ -40,6 +40,7 @@ func TestConcurrentMultipartUpload(t *testing.T) {
 	ctx := context.Background()
 	bucket := "test-bucket"
 	key := "test-object.bin"
+	require.NoError(t, metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucket, OwnerID: "owner"}))
 
 	// Create multipart upload
 	upload, err := om.CreateMultipartUpload(ctx, bucket, key, nil)
@@ -129,8 +130,8 @@ func TestMultipleSimultaneousMultipartUploads(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{		DataDir: tmpDir + "/metadata",
-		Logger:  logrus.StandardLogger(),})
+	metadataStore, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: tmpDir + "/metadata",
+		Logger: logrus.StandardLogger()})
 	require.NoError(t, err)
 	defer metadataStore.Close()
 
@@ -138,6 +139,8 @@ func TestMultipleSimultaneousMultipartUploads(t *testing.T) {
 
 	ctx := context.Background()
 	bucket := "test-bucket"
+
+	require.NoError(t, metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucket, OwnerID: "owner"}))
 
 	// Start 5 different multipart uploads concurrently
 	numUploads := 5

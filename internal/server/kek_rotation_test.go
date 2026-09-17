@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/kek"
@@ -60,7 +59,7 @@ func newIsolatedEncryptionServer(t *testing.T) *Server {
 		Backend: "filesystem", Root: tempDir,
 	}, object.WithKEKProvider(kekStore))
 
-	return &Server{
+	server := &Server{
 		storageBackend: backend,
 		metadataStore:  metaStore,
 		objectManager:  om,
@@ -68,6 +67,8 @@ func newIsolatedEncryptionServer(t *testing.T) *Server {
 		// systemMetrics nil → no load backoff; encWorkerRunning zero → free;
 		// clusterManager/globalConfigSyncMgr nil → no cluster distribution.
 	}
+	t.Cleanup(server.stopEncryptionWorkers)
+	return server
 }
 
 // TestRotateKEKEndpoint: rotation creates a new current version, resets the
@@ -105,6 +106,7 @@ func TestRotateKEKEndpoint(t *testing.T) {
 	w = httptest.NewRecorder()
 	server.handleRotateKEK(w, req)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	server.encWorkerWG.Wait()
 
 	var resp struct {
 		Data struct {
@@ -134,14 +136,9 @@ func TestRotateKEKEndpoint(t *testing.T) {
 	dataBefore, _ := io.ReadAll(rawBefore)
 	rawBefore.Close()
 
-	// The rotate handler already kicked an async worker pass (single-flight
-	// makes a direct call a no-op) — wait for the re-wrap to land.
-	var metaAfter map[string]string
-	require.Eventually(t, func() bool {
-		server.runEncryptionPass(ctx) // no-op while the async pass runs
-		metaAfter, err = server.storageBackend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
-		return err == nil && metaAfter["kek-version"] != versionBefore
-	}, 15*time.Second, 200*time.Millisecond, "worker must re-wrap to the new KEK version")
+	metaAfter, err := server.storageBackend.GetMetadata(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
+	require.NoError(t, err)
+	require.NotEqual(t, versionBefore, metaAfter["kek-version"])
 
 	rawAfter, _, err := server.storageBackend.Get(ctx, storage.ObjectRef{Bucket: bucketName, Key: "pre-rotate.txt"})
 	require.NoError(t, err)

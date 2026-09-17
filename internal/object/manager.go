@@ -1947,7 +1947,11 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, err
 	}
 	multipart := fromMetadataMultipartUpload(metaMU)
-	versioningEnabled := om.isBucketVersioningEnabled(ctx, multipart.Bucket)
+	bucketMeta, err := om.loadBucketMetadata(ctx, multipart.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
 
 	defer om.lockKey(multipart.Bucket, multipart.Key)()
 
@@ -2059,6 +2063,23 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		Metadata:     filterStorageMetadataKeys(multipart.Metadata),
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
+	}
+
+	if lock := bucketMeta.ObjectLock; lock != nil && lock.Enabled && lock.Rule != nil && lock.Rule.DefaultRetention != nil {
+		rule := lock.Rule.DefaultRetention
+		until := rule.RetainUntilDate
+		switch {
+		case rule.Days != nil && *rule.Days > 0 && rule.Years == nil:
+			until = time.Now().AddDate(0, 0, *rule.Days)
+		case rule.Years != nil && *rule.Years > 0 && rule.Days == nil:
+			until = time.Now().AddDate(*rule.Years, 0, 0)
+		case rule.Days != nil || rule.Years != nil || until.IsZero():
+			return nil, fmt.Errorf("invalid default bucket retention period")
+		}
+		if rule.Mode != RetentionModeCompliance && rule.Mode != RetentionModeGovernance {
+			return nil, fmt.Errorf("invalid default bucket retention mode")
+		}
+		object.Retention = &RetentionConfig{Mode: rule.Mode, RetainUntilDate: until}
 	}
 
 	// From this point on PutObjectVersion/PutObject handle cleanup on failure.

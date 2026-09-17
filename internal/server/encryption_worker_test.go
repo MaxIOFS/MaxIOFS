@@ -158,6 +158,14 @@ func TestStartEncryptionPassIsTrackedByShutdownWaitGroup(t *testing.T) {
 		metadataStore: metaStore,
 		objectManager: manager,
 	}
+	t.Cleanup(func() {
+		select {
+		case <-manager.release:
+		default:
+			close(manager.release)
+		}
+		server.stopEncryptionWorkers()
+	})
 
 	require.True(t, server.startEncryptionPass(ctx))
 	select {

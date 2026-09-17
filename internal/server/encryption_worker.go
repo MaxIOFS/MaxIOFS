@@ -55,7 +55,14 @@ func (s *Server) startEncryptionWorker(ctx context.Context) {
 		return
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
+	s.encWorkerMu.Lock()
+	if s.encWorkersClosed || s.encWorkerCancel != nil {
+		s.encWorkerMu.Unlock()
+		cancel()
+		return
+	}
 	s.encWorkerCancel = cancel
+	s.encWorkerMu.Unlock()
 	if !s.goEncryptionWorker("encryption periodic worker", func() {
 		select {
 		case <-workerCtx.Done():

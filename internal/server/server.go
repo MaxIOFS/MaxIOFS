@@ -169,7 +169,15 @@ func (s *Server) goEncryptionWorker(name string, fn func()) bool {
 func (s *Server) stopAcceptingEncryptionWorkers() {
 	s.encWorkerMu.Lock()
 	s.encWorkersClosed = true
+	if s.encWorkerCancel != nil {
+		s.encWorkerCancel()
+	}
 	s.encWorkerMu.Unlock()
+}
+
+func (s *Server) stopEncryptionWorkers() {
+	s.stopAcceptingEncryptionWorkers()
+	s.encWorkerWG.Wait()
 }
 
 func (s *Server) componentRegistry() *registry {
@@ -1090,26 +1098,27 @@ func (s *Server) shutdown() error {
 	// Shutdown API server
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		logrus.WithError(err).Error("Failed to shutdown API server")
+		_ = s.httpServer.Shutdown(context.Background())
 	}
 
 	// Shutdown console server
 	if err := s.consoleServer.Shutdown(ctx); err != nil {
 		logrus.WithError(err).Error("Failed to shutdown console server")
+		_ = s.consoleServer.Shutdown(context.Background())
 	}
 
 	// Shutdown cluster server
 	if err := s.shutdownClusterServer(ctx); err != nil {
 		logrus.WithError(err).Error("Failed to shutdown cluster server")
+		_ = s.shutdownClusterServer(context.Background())
 	}
 
 	if s.reg != nil {
 		s.reg.stopAll()
 	}
 
-	if s.encWorkerCancel != nil {
-		s.encWorkerCancel()
-	}
-	s.encWorkerWG.Wait()
+	s.stopEncryptionWorkers()
+	s.workers.Wait()
 
 	// Stop cluster manager
 	if s.clusterManager != nil {
@@ -1126,11 +1135,6 @@ func (s *Server) shutdown() error {
 		}
 	}
 
-	// Wait for the server's own workers before touching the stores they write
-	// to. They all select on the cancelled context, so this returns as soon as
-	// they see it; there is no deadline because closing the stores while a
-	// worker is still writing is what takes the process down.
-	s.workers.Wait()
 	logrus.Info("Background workers stopped")
 
 	if closer, ok := s.authManager.(interface{ Close() error }); ok {
@@ -1569,19 +1573,68 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	router.PathPrefix("/").Handler(frontendHandler)
 }
 
-// logS3APIRequests logs every HTTP request that hits the S3 API server (this process/port) at Info level.
-// Use this to see the "capabilities" probe or any other request from clients (e.g. VEEAM) that might not reach the S3 router.
+// logS3APIRequests writes one line per request to the S3 API: what was asked,
+// who asked it, how it ended and how long it took. Everything needed to follow
+// a client through the log, and nothing repeated from the request itself.
 func logS3APIRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.WithFields(logrus.Fields{
-			"method": r.Method,
-			"path":   r.URL.Path,
-			"host":   r.Host,
-			"remote": r.RemoteAddr,
-			"ua":     r.Header.Get("User-Agent"),
-		}).Debug("S3 API server request")
-		next.ServeHTTP(w, r)
+		started := time.Now()
+		recorder := &s3StatusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+
+		fields := logrus.Fields{
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"status":      recorder.status,
+			"bytes":       recorder.written,
+			"duration_ms": time.Since(started).Milliseconds(),
+			"remote":      r.RemoteAddr,
+			"ua":          r.Header.Get("User-Agent"),
+		}
+		if query := r.URL.RawQuery; query != "" {
+			fields["query"] = query
+		}
+		if key := accessKeyOfRequest(r); key != "" {
+			fields["access_key"] = key
+		}
+		logrus.WithFields(fields).Info("S3 request")
 	})
+}
+
+// s3StatusRecorder remembers what was answered, which the handler knows and the
+// logger otherwise cannot see.
+type s3StatusRecorder struct {
+	http.ResponseWriter
+	status  int
+	written int64
+}
+
+func (r *s3StatusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *s3StatusRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.written += int64(n)
+	return n, err
+}
+
+// accessKeyOfRequest names the credential a request was signed with, taken from
+// the credential scope. The signature is deliberately left out of the log.
+func accessKeyOfRequest(r *http.Request) string {
+	credential := ""
+	if header := r.Header.Get("Authorization"); strings.Contains(header, "Credential=") {
+		credential = strings.SplitN(strings.SplitN(header, "Credential=", 2)[1], ",", 2)[0]
+	} else if query := r.URL.Query().Get("X-Amz-Credential"); query != "" {
+		credential = query
+	} else if legacy := r.URL.Query().Get("AWSAccessKeyId"); legacy != "" {
+		return legacy
+	}
+	if credential == "" {
+		return ""
+	}
+	return strings.SplitN(credential, "/", 2)[0]
 }
 
 // virtualHostedStyleMiddleware rewrites virtual-hosted-style S3 requests to path-style

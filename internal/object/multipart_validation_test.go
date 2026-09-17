@@ -49,6 +49,7 @@ func TestCompleteMultipartUploadValidatesETagAndOrder(t *testing.T) {
 		TenantID: "tenant-1",
 		OwnerID:  "user-1",
 	}))
+	bucket = "tenant-1/" + bucket
 
 	upload, err := om.CreateMultipartUpload(ctx, bucket, key, http.Header{"Content-Type": []string{"application/octet-stream"}})
 	require.NoError(t, err)
@@ -89,6 +90,7 @@ func TestMultipartUploadFiltersRequestHeadersFromFinalUserMetadata(t *testing.T)
 		TenantID: "tenant-1",
 		OwnerID:  "user-1",
 	}))
+	bucket = "tenant-1/" + bucket
 
 	headers := http.Header{
 		"Authorization": []string{"AWS4-HMAC-SHA256 Credential=should-not-persist"},

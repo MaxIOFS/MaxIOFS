@@ -80,25 +80,14 @@ func TestMain(m *testing.M) {
 
 	testCtx, testCancel := context.WithCancel(context.Background())
 	sharedServer.serverCtx = testCtx
-	defer testCancel()
 
 	// Run all tests
 	code := m.Run()
+	testCancel()
 
 	// Cleanup: Destroy the shared server ONCE at the end
 	if sharedServer != nil {
-		if sharedServer.metadataStore != nil {
-			sharedServer.metadataStore.Close()
-		}
-		if sharedServer.storageBackend != nil {
-			sharedServer.storageBackend.Close()
-		}
-		if sharedServer.db != nil {
-			sharedServer.db.Close()
-		}
-		if sharedServer.auditManager != nil {
-			sharedServer.auditManager.Close()
-		}
+		_ = sharedServer.shutdown()
 	}
 	os.RemoveAll(sharedTempDir)
 

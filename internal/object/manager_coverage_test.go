@@ -341,9 +341,8 @@ func TestCompleteMultipartUpload_Success(t *testing.T) {
 
 	// Create bucket
 	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucket,
-		TenantID: "tenant-1",
-		OwnerID:  "user-1",
+		Name:    bucket,
+		OwnerID: "user-1",
 	})
 	require.NoError(t, err)
 
@@ -388,9 +387,8 @@ func TestCompleteMultipartUpload_ConcurrentSameID(t *testing.T) {
 
 	bucket := "concurrent-multipart-bucket"
 	err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucket,
-		TenantID: "tenant-1",
-		OwnerID:  "user-1",
+		Name:    bucket,
+		OwnerID: "user-1",
 	})
 	require.NoError(t, err)
 
