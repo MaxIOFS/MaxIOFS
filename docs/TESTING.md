@@ -1,6 +1,6 @@
 # Testing
 
-**Version**: 1.7.0
+**Version**: 1.6.0
 **Last Updated**: May 18, 2026
 
 ---

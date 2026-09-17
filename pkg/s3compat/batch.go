@@ -113,7 +113,11 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if !h.checkDeleteObjectPermission(ctx, user, userExists, tenantID, bucketName, bucketPath, obj.Key, obj.VersionId) {
+		// The response echoes the key the client sent; the check and the delete
+		// both use the key that will actually be removed.
+		deleteKey := h.objectManager.ResolveDeleteKey(ctx, bucketPath, obj.Key)
+
+		if !h.checkDeleteObjectPermission(ctx, user, userExists, tenantID, bucketName, bucketPath, deleteKey, obj.VersionId) {
 			result.Errors = append(result.Errors, DeleteError{
 				Key:       obj.Key,
 				Code:      "AccessDenied",
@@ -128,9 +132,9 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 		var deleteMarkerVersionID string
 		var err error
 		if obj.VersionId != "" {
-			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, obj.VersionId)
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, deleteKey, false, obj.VersionId)
 		} else {
-			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false)
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, deleteKey, false)
 		}
 
 		if err != nil {

@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.7.0}
+%{!?version: %define version 1.6.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -190,14 +190,6 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
-* Thu Sep 10 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.7.0-1
-- Storage layout v2: one file per object named by a digest of the key, buckets
-  at the storage root, automatic migration from the previous layout
-- Fixes two ways stored objects could be destroyed: a folder marker replacing a
-  same-named object, and two keys differing only in case sharing one file
-- No object is created for the parent prefixes of an uploaded key
-- Bucket and multipart cleanup keep the index record when the files remain
-
 * Wed Aug 26 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.6.0-1
 - Release v1.6.0 — IAM is the authorization model, AWS IAM/STS protocols, security pass
 - IAM: roles, bucket permissions and attached policies are all IAM policies, evaluated

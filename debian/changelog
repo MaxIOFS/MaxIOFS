@@ -1,16 +1,3 @@
-maxiofs (1:1.7.0) stable; urgency=high
-
-  * Release v1.7.0 — storage layout v2: one file per object named by a digest of
-    the key, buckets at the storage root, automatic migration from the previous
-    layout.
-  * Fixes two ways stored objects could be destroyed: a folder marker replacing
-    a same-named object, and two keys differing only in case sharing one file.
-  * No object is created for the parent prefixes of an uploaded key.
-  * Bucket and multipart cleanup no longer drop the index record when the files
-    could not be removed.
-
- -- Aluisco Ricardo <aluisco@maxiofs.com>  Thu, 10 Sep 2026 12:00:00 -0300
-
 maxiofs (1:1.6.0) stable; urgency=high
 
   * Release v1.6.0 — IAM is the authorization model, AWS IAM/STS protocols,

@@ -2562,14 +2562,6 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	deleteAction := auth.ActionDeleteObject
-	if r.URL.Query().Get("versionId") != "" {
-		deleteAction = auth.ActionDeleteObjectVersion
-	}
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, deleteAction, "You do not have permission to delete objects") {
-		return
-	}
-
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
 	tenantID := user.TenantID
@@ -2583,6 +2575,18 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	bucketPath := tenantID + "/" + bucketName
 	if tenantID == "" {
 		bucketPath = bucketName
+	}
+
+	// Resolve before authorizing, so the permission covers the key that will
+	// actually be removed.
+	objectKey = s.objectManager.ResolveDeleteKey(r.Context(), bucketPath, objectKey)
+
+	deleteAction := auth.ActionDeleteObject
+	if r.URL.Query().Get("versionId") != "" {
+		deleteAction = auth.ActionDeleteObjectVersion
+	}
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, deleteAction, "You do not have permission to delete objects") {
+		return
 	}
 
 	// Check if versionId is provided (for deleting specific versions)

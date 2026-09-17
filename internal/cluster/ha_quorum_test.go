@@ -268,6 +268,10 @@ func (m *rollbackRecorderManager) GetObject(context.Context, string, string, ...
 func (m *rollbackRecorderManager) PutObject(context.Context, string, string, io.Reader, http.Header) (*object.Object, error) {
 	return nil, nil
 }
+func (m *rollbackRecorderManager) ResolveDeleteKey(_ context.Context, _, key string) string {
+	return key
+}
+
 func (m *rollbackRecorderManager) DeleteObject(_ context.Context, _, _ string, _ bool, versionID ...string) (string, error) {
 	m.deleted = true
 	m.versionIDs = append([]string(nil), versionID...)

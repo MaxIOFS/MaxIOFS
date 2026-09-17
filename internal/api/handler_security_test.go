@@ -289,6 +289,10 @@ func (m *MockObjectManager) PutObject(ctx context.Context, bucket, key string, d
 	return args.Get(0).(*object.Object), args.Error(1)
 }
 
+func (m *MockObjectManager) ResolveDeleteKey(_ context.Context, _, key string) string {
+	return key
+}
+
 func (m *MockObjectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	args := m.Called(ctx, bucket, key, bypassGovernance, versionID)
 	return args.String(0), args.Error(1)

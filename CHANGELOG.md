@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test setup assigned `globalThis.localStorage` and `globalThis.sessionStorage` directly; under Vitest 5 those are getter-only and every suite failed to load. Installed with `Object.defineProperty`. (`web/frontend/src/test/setup.ts`)
 - Setting descriptions, types and categories are refreshed on startup instead of being written only on first boot, so an upgraded install no longer shows the text of the release it was first installed with. Values are untouched. (`internal/settings/manager.go`)
 - `security.iam_api_enabled` description said Veeam creates its own identities and credentials, and that disabling it stops the advertisement "to Veeam". Veeam signs with the key it is given, and `system.xml` is served on the object key with no User-Agent check.
+- **A failed overwrite replaced the stored object anyway.** The bytes were written before the index entry, so a metadata failure returned an error while a later GET served the new content under the previous ETag and size. The object that was there is restored. (`internal/object/manager.go`)
+- **A part could be replaced while the completion was assembling it**, producing an object built from bytes its validated ETag never described. `UploadPart`, completion and abort now exclude each other per upload. (`internal/object/manager.go`)
+- **A delete authorized for one key could remove another.** The manager rewrote `folder` to the `folder/` marker after the permission check, so an explicit `Deny` on the marker was bypassed. Callers resolve the key before authorizing. (`internal/object/manager.go`, `pkg/s3compat/handler.go`, `pkg/s3compat/batch.go`, `internal/server/console_api.go`)
+- **The encryption worker's cancel could be overwritten by a second start**, leaving the first pass with no way to stop it — it outlived the metadata store and wrote to a closed Pebble. Shutdown now cancels as it closes the gate. (`internal/server/encryption_worker.go`, `internal/server/server.go`)
 
 ## [1.6.0] - 2026-08-26
 

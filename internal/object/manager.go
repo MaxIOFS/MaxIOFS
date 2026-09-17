@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -33,6 +34,7 @@ type Manager interface {
 	GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
 	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (deleteMarkerVersionID string, err error)
+	ResolveDeleteKey(ctx context.Context, bucket, key string) string
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 	SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error)
 
@@ -128,7 +130,9 @@ type objectManager struct {
 		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
 
-	muShards [256]sync.Mutex
+	muShards  [256]sync.Mutex
+	uploadsMu sync.Mutex
+	uploads   map[string]*multipartLock
 
 	completionMu sync.Mutex
 	completions  map[string]*completionFuture
@@ -493,7 +497,7 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 }
 
 // PutObject stores an object
-func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error) {
+func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (result *Object, resultErr error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, err
 	}
@@ -604,6 +608,30 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		}
 	}
 
+	// Without versioning the write lands on the live path, so the object that is
+	// already there has to stay recoverable until the index entry is committed.
+	var restorePrevious func() error
+	if !versioningEnabled {
+		exists, err := om.storage.Exists(ctx, objectRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing object before overwriting: %w", err)
+		}
+		if exists {
+			restore, cleanupBackup, backupErr := om.backupStorageObject(ctx, objectRef)
+			if backupErr != nil {
+				return nil, fmt.Errorf("failed to back up the existing object before overwriting it: %w", backupErr)
+			}
+			defer cleanupBackup()
+			restorePrevious = restore
+		}
+	}
+	committed := false
+	defer func() {
+		if !committed && restorePrevious != nil {
+			resultErr = errors.Join(resultErr, restorePrevious())
+		}
+	}()
+
 	isFolderMarker := strings.HasSuffix(key, "/")
 	if isFolderMarker {
 		if err := om.storeUnencryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
@@ -682,6 +710,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
 	}
+	committed = true
 
 	// Update bucket metrics using helper function
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
@@ -695,12 +724,28 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 // DeleteObject deletes an object or creates a delete marker
 // Returns deleteMarkerVersionID if a delete marker was created, empty string otherwise
 // bypassGovernance allows admins to delete objects under GOVERNANCE retention
+// ResolveDeleteKey returns the key a delete request actually names: a client
+// asking for "folder" when only the "folder/" marker exists means the marker,
+// which is how S3 Browser deletes a folder. Callers resolve before authorizing,
+// so the policy is evaluated on the key that will be removed.
+func (om *objectManager) ResolveDeleteKey(ctx context.Context, bucket, key string) string {
+	if strings.HasSuffix(key, "/") {
+		return key
+	}
+	if _, err := om.metadataStore.GetObject(ctx, bucket, key); err == nil {
+		return key
+	}
+	folderKey := key + "/"
+	if _, err := om.metadataStore.GetObject(ctx, bucket, folderKey); err == nil {
+		return folderKey
+	}
+	return key
+}
+
 func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return "", err
 	}
-
-	key = om.resolveFolderDeleteKey(ctx, bucket, key)
 
 	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
 
@@ -720,23 +765,6 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		// DELETE without versioning → Legacy behavior (permanent delete)
 		return "", om.deletePermanently(ctx, bucket, key, bypassGovernance)
 	}
-}
-
-func (om *objectManager) resolveFolderDeleteKey(ctx context.Context, bucket, key string) string {
-	if strings.HasSuffix(key, "/") {
-		return key
-	}
-
-	if _, err := om.metadataStore.GetObject(ctx, bucket, key); err == nil {
-		return key
-	}
-
-	folderKey := key + "/"
-	if _, err := om.metadataStore.GetObject(ctx, bucket, folderKey); err == nil {
-		return folderKey
-	}
-
-	return key
 }
 
 // createDeleteMarker creates a delete marker for a versioned object
@@ -1820,6 +1848,10 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	if partNumber < 1 || partNumber > 10000 {
 		return nil, fmt.Errorf("part number must be between 1 and 10000")
 	}
+	// The completion validates each part's ETag and then opens the part files.
+	// Replacing a part in between would assemble bytes the ETag never described.
+	defer om.lockUploadPart(uploadID, partNumber)()
+
 	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
 		if err == metadata.ErrUploadNotFound {
 			return nil, ErrUploadNotFound
@@ -1937,7 +1969,9 @@ func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID s
 	return f.obj, f.err
 }
 
-func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
+func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (result *Object, resultErr error) {
+	defer om.lockUpload(uploadID)()
+
 	// Load multipart upload metadata
 	metaMU, err := om.metadataStore.GetMultipartUpload(ctx, uploadID)
 	if err != nil {
@@ -1989,7 +2023,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		objectRef = om.objectRef(multipart.Bucket, multipart.Key)
 	}
 
-	var restorePreviousFinal func()
+	var restorePreviousFinal func() error
 	var cleanupPreviousFinalBackup func()
 	if !versioningEnabled && existingObj != nil {
 		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef)
@@ -2013,7 +2047,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		// Without versioning the combine wrote over the live object, so deleting
 		// the path destroys whatever was already there.
 		if restorePreviousFinal != nil {
-			restorePreviousFinal()
+			resultErr = errors.Join(resultErr, restorePreviousFinal())
 			return
 		}
 		if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
@@ -2107,7 +2141,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	} else if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 		logrus.WithError(err).Warn("Failed to save final multipart object metadata")
 		if restorePreviousFinal != nil {
-			restorePreviousFinal()
+			err = errors.Join(err, restorePreviousFinal())
 		} else if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
 			logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
 		}
@@ -2151,7 +2185,7 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, ref storage.O
 	return tempPath, nil
 }
 
-func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.ObjectRef) (func(), func(), error) {
+func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.ObjectRef) (func() error, func(), error) {
 	reader, storageMeta, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open existing object for backup: %w", err)
@@ -2169,26 +2203,47 @@ func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.Ob
 		os.Remove(tempPath)
 		return nil, nil, fmt.Errorf("failed to backup existing object: %w", err)
 	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return nil, nil, fmt.Errorf("failed to sync object backup: %w", err)
+	}
 	if err := tempFile.Close(); err != nil {
 		os.Remove(tempPath)
 		return nil, nil, fmt.Errorf("failed to close multipart backup file: %w", err)
 	}
+	manifestPath := tempPath + ".json"
+	if err := writeObjectBackupManifest(manifestPath, ref, storageMeta); err != nil {
+		os.Remove(tempPath)
+		os.Remove(manifestPath)
+		return nil, nil, fmt.Errorf("failed to write object backup manifest: %w", err)
+	}
 
-	restore := func() {
+	keepBackup := false
+	restore := func() error {
+		keepBackup = true
 		backup, err := os.Open(tempPath)
 		if err != nil {
-			logrus.WithError(err).WithField("path", tempPath).Error("Failed to open multipart backup for restore")
-			return
+			return fmt.Errorf("failed to open retained object backup %q: %w", tempPath, err)
 		}
 		defer backup.Close()
 
-		if err := om.storage.Put(ctx, ref, backup, storageMeta); err != nil {
-			logrus.WithError(err).WithField("path", ref).Error("Failed to restore previous object after multipart metadata failure")
+		if err := om.storage.Put(context.WithoutCancel(ctx), ref, backup, storageMeta); err != nil {
+			return fmt.Errorf("failed to restore object; backup retained at %q: %w", tempPath, err)
 		}
+		keepBackup = false
+		return nil
 	}
 	cleanup := func() {
+		if keepBackup {
+			return
+		}
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
 			logrus.WithError(err).WithField("path", tempPath).Debug("Failed to remove multipart backup file")
+			return
+		}
+		if err := os.Remove(manifestPath); err != nil && !os.IsNotExist(err) {
+			logrus.WithError(err).WithField("path", manifestPath).Warn("Failed to remove object backup manifest")
 		}
 	}
 
@@ -2379,6 +2434,8 @@ func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID str
 
 // abortMultipartUpload cleans up a multipart upload
 func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID string, returnError bool) error {
+	defer om.lockUpload(uploadID)()
+
 	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
 		if err == metadata.ErrUploadNotFound {
 			if returnError {

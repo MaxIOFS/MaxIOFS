@@ -177,3 +177,38 @@ func TestCompleteMultipartUploadEncryptionFailurePreservesPreviousObject(t *test
 	require.NoError(t, err)
 	assert.Equal(t, "previous payload", string(data))
 }
+
+// The multipart path puts the previous object back when the save fails. The
+// plain overwrite writes the bytes before the index entry and has no such step.
+func TestPutObjectMetadataFailurePreservesPreviousObject(t *testing.T) {
+	ctx := context.Background()
+	om, _, metaStore := setupManagerWithConfigKey(t)
+
+	bucketName := "metafail-overwrite-bucket"
+	key := "victim.txt"
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:    bucketName,
+		OwnerID: "user-1",
+	}))
+
+	first, err := om.PutObject(ctx, bucketName, key,
+		bytes.NewReader([]byte("previous payload")), http.Header{"Content-Type": []string{"text/plain"}})
+	require.NoError(t, err)
+
+	failing := &failingPutStore{Store: metaStore, failPuts: true}
+	om.metadataStore = failing
+	_, err = om.PutObject(ctx, bucketName, key,
+		bytes.NewReader([]byte("replacement payload that is longer")), http.Header{"Content-Type": []string{"text/plain"}})
+	require.Error(t, err)
+
+	failing.failPuts = false
+	obj, reader, err := om.GetObject(ctx, bucketName, key)
+	require.NoError(t, err)
+	defer reader.Close() //nolint:errcheck
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	assert.Equal(t, "previous payload", string(data), "a failed overwrite must not replace the stored bytes")
+	assert.Equal(t, first.ETag, obj.ETag, "the served ETag must describe the served bytes")
+	assert.Equal(t, first.Size, obj.Size)
+}

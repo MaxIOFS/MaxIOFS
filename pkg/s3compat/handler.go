@@ -1580,6 +1580,10 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
+	// Resolve before authorizing: the permission has to be checked against the
+	// key the delete will actually remove, not the one the client spelled.
+	objectKey = h.objectManager.ResolveDeleteKey(r.Context(), bucketPath, objectKey)
+
 	hasPermission := h.checkDeleteObjectPermission(r.Context(), user, userExists, tenantID, bucketName, bucketPath, objectKey, versionID)
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{

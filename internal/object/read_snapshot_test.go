@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,10 +18,11 @@ type pausedReadBackend struct {
 	storage.Backend
 	entered chan struct{}
 	resume  chan struct{}
+	once    sync.Once
 }
 
 func (b *pausedReadBackend) Get(ctx context.Context, ref storage.ObjectRef) (io.ReadCloser, map[string]string, error) {
-	close(b.entered)
+	b.once.Do(func() { close(b.entered) })
 	<-b.resume
 	return b.Backend.Get(ctx, ref)
 }
