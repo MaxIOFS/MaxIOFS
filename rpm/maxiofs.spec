@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.6.0}
+%{!?version: %define version 1.7.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -190,6 +190,36 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Fri Sep 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.7.0-1
+- Release v1.7.0 — new on-disk storage layout, interrupted-write recovery, security pass
+- Storage layout v2: an object is one file named by a digest of its key, with no
+  directories built from key components. Two keys differing only in case, a key and its
+  own name followed by a slash, and a key ending in .metadata are all distinct now. An
+  existing installation is migrated on first start; `maxiofs migrate-layout --dry-run`
+  runs it by hand
+- A write interrupted between storing its bytes and committing the index entry is undone
+  or confirmed at the next start, before the server serves traffic: a killed overwrite,
+  multipart completion or part replacement no longer leaves an object whose size and
+  ETag disagree with what a GET delivers. Object, version and multipart-part commits
+  fsync before returning, and the bucket mutation lock is released before waiting on
+  that fsync so concurrent writers share Pebble's group commit
+- [SECURITY] A session policy is now consulted for every resource an operation touches,
+  not only the one named in the URL — closes a path where a denied GetObject was still
+  reachable through CopyObject
+- [SECURITY] Twenty-one console mutation routes and five IAM role/policy routes
+  resolved the wrong tenant; a global administrator could change another tenant's
+  bucket, and one tenant could read or delete another's IAM roles
+- [SECURITY] /debug/pprof/* answered any authenticated request instead of a global
+  administrator only, because the routes hung off the root router outside the
+  subrouter that authenticates
+- The S3 rate limit answers SlowDown in an XML error document instead of a bare 429;
+  the console keeps its own limit unchanged
+- `maxiofs reconcile` restores metadata entries missing from the index and repairs
+  entries left describing bytes an overwrite already replaced, reading identity from
+  the object's sidecar
+- `maxiofs repair-pointers --drop-orphans` removes version entries that name no bucket,
+  which were previously reported as failures
+
 * Wed Aug 26 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.6.0-1
 - Release v1.6.0 — IAM is the authorization model, AWS IAM/STS protocols, security pass
 - IAM: roles, bucket permissions and attached policies are all IAM policies, evaluated

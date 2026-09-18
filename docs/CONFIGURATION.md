@@ -1,6 +1,6 @@
 # MaxIOFS Configuration Guide
 
-**Version**: 1.6.0 | **Last Updated**: August 24, 2026
+**Version**: 1.7.0 | **Last Updated**: September 18, 2026
 
 ## Configuration Architecture
 
@@ -91,11 +91,22 @@ When MaxIOFS starts, it creates this structure under `data_dir`:
 ```
 {data_dir}/
 ├── db/
-│   └── maxiofs.db       ← SQLite: auth, users, tenants, keys, settings, cluster, IDP
-├── audit.db             ← SQLite: audit logs (separate for isolation)
-├── metadata/            ← Pebble: object metadata
-└── objects/             ← Filesystem: object data
+│   └── maxiofs.db          ← SQLite: auth, users, tenants, keys, settings, cluster, IDP
+├── audit.db                ← SQLite: audit logs (separate for isolation)
+├── metadata/                ← Pebble: object metadata
+└── objects/                 ← Filesystem: object data (storage layout v2)
+    ├── .maxiofs-layout      ← marks the layout version; the server refuses to start on one it can't read
+    ├── {bucket}/             ← global bucket, or {tenant}/{bucket} for a tenant bucket
+    │   ├── .maxiofs-bucket   ← records the tenant-qualified path
+    │   └── {aa}/{bb}/{sha256 of the key}   ← one file per object; no directory is built from key parts
+    └── .maxiofs/multipart/parts/{uploadId}/   ← in-progress multipart parts
 ```
+
+An object's filename is a digest of its key, so two keys differing only in case, a key and its
+own name followed by a slash, and a key ending in `.metadata` are all distinct files — none of
+them can collide the way a path built from the key's own components could. An installation on
+the previous layout is migrated bucket by bucket on the first start of this release; run
+`maxiofs migrate-layout --dry-run` to preview it by hand.
 
 ---
 

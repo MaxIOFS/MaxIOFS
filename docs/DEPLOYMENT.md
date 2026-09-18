@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.6.0 | **Last Updated**: August 24, 2026
+**Version**: 1.7.0 | **Last Updated**: September 18, 2026
 
 > Suitable for production use — always backup your data and change default credentials before deploying.
 
@@ -158,11 +158,11 @@ Pre-built packages are available for Debian/Ubuntu and RHEL/Rocky:
 
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i maxiofs_1.6.0_amd64.deb
+sudo dpkg -i maxiofs_1.7.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-1.6.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.7.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -332,6 +332,14 @@ sudo journalctl -u maxiofs -n 50
 # - Permission denied: check ownership of data directory
 # - Invalid YAML: validate config syntax
 ```
+
+**Interrupted-write rollback failed:** before serving traffic, the server resolves any write that
+was cut short between storing its bytes and committing its index entry (an overwrite, a multipart
+completion, a part replacement). If a retained copy cannot be resolved — its manifest is
+unreadable, or restoring it fails — the server logs the failure and refuses to start rather than
+guess. Run `maxiofs reconcile --data-dir <dir>` with the server stopped: it reports each
+unresolved copy and, for one review cannot decide on its own, leaves it on disk under
+`maxiofs-mpu-backup-*` or `maxiofs-part-backup-*` next to the object it belongs to.
 
 ### Can't Access Web Console
 

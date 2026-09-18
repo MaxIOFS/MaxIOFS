@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 1.6.0 | **Last Updated**: August 24, 2026
+**Version**: 1.7.0 | **Last Updated**: September 18, 2026
 
 ## Performance Summary
 
@@ -203,6 +203,35 @@ Veeam writes thousands of objects in bursts. MaxIOFS ships with Pebble pre-tuned
 | Block size | 32 KB | Efficient for sequential range scans (folder listings, GETs of consecutive objects). |
 
 These values are fixed in the binary and do not require configuration. Only the cache size is user-tunable.
+
+### Write durability cost
+
+An overwrite retains a rollback copy of the object it replaces until the new index entry is
+durable, so the metadata commit for an object write, a version write and a multipart-part write
+waits for a WAL sync before returning — see [Metadata durability](ARCHITECTURE.md#storage-layer) in
+ARCHITECTURE.md. The bucket mutation lock is released before that wait, so concurrent writers to
+the same bucket share one fsync instead of serializing on it (Pebble's group commit).
+
+Measured with `scripts/s3-battery.sh --bench` (8 KiB objects, one node, local SSD):
+
+| | 1 stream | 32 streams |
+|---|---|---|
+| Create | 11.7 obj/s | 31.0 obj/s |
+| Overwrite | 9.2 obj/s | 28.7 obj/s |
+
+At one stream, releasing the lock before the fsync roughly doubles the rate over waiting for it
+inside the lock (7.6 → 11.7 obj/s). At 32 streams the gain is within noise — the ceiling there is
+the filesystem backend's own write path (three fsyncs and three renames per object between the
+data file, its sidecar and the staged-commit protocol), not the metadata commit. A raw filesystem
+probe with the same two-file, two-fsync pattern reaches roughly 90 obj/s on the same disk, so there
+is headroom in that path that this release does not yet use.
+
+Run the benchmark against your own storage before sizing a Veeam job:
+
+```bash
+scripts/s3-battery.sh --bench-only --console http://localhost:8081 --admin-password '...' \
+  --bench-objects 1000 --bench-streams 32 --bench-label baseline
+```
 
 ### Estimating required cache for your workload
 

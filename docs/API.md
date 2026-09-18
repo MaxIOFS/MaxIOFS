@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.6.0 | **Last Updated**: August 24, 2026
+**Version**: 1.7.0 | **Last Updated**: September 18, 2026
 
 ## Overview
 
@@ -684,7 +684,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 </Error>
 ```
 
-Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `QuotaExceeded`, `ObjectLocked`
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `QuotaExceeded`, `ObjectLocked`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`)
 
 ### Console API (JSON)
 

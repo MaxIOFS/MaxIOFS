@@ -378,6 +378,45 @@ export default function AboutPage() {
               </p>
             </div>
 
+            <div className="border-l-4 border-emerald-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Interrupted Writes Are Undone or Confirmed, Not Left in Between
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Killing the process between storing an object's bytes and committing its index
+                entry — an overwrite, a multipart completion, a part replacement — used to leave
+                a GET announcing one size and delivering another. At the next start, before the
+                server serves anything, each interrupted write is either undone or confirmed
+                against the index. Object, version and part commits now wait for that index entry
+                to be durable before the previous copy is discarded.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                A Failed Multipart Completion No Longer Keeps the New Bytes
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                If combining the parts of a multipart upload succeeded but a later step failed —
+                out of disk space, a device error — the object that was being replaced is
+                restored instead of being left overwritten with no matching metadata. Replacing
+                an already-uploaded part is protected the same way: a failed part upload can no
+                longer destroy the part it was replacing.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-purple-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs reconcile</code>{' '}
+                Repairs, Not Just Restores
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Beyond rebuilding index entries that are missing entirely, reconcile now corrects
+                an entry left describing bytes an interrupted overwrite already replaced, reading
+                the object's true size and ETag from its own sidecar.
+              </p>
+            </div>
+
             <p className="text-sm text-muted-foreground pt-2">
               Earlier releases are listed in the{' '}
               <a
