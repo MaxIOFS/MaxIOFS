@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.7.0] - Unreleased
+## [1.7.0] - 2026-09-18
 
 ### Added
 - `MAXIOFS_BOOTSTRAP_ACCESS_KEY` and `MAXIOFS_BOOTSTRAP_SECRET_KEY` give the administrator that key pair on a deployment that has none, so a compose stack comes up with credentials it already knows instead of having to call the API for them. Applied once: a deployment that already has a key ignores them, and changing them later does nothing. A pair nothing could sign with — too short, or carrying a slash or a space — stops the server rather than being ignored. Environment only: a credential does not belong in a file that gets committed. ([#8](https://github.com/maxiofs/maxiofs/issues/8), `internal/auth/bootstrap_key.go`)
