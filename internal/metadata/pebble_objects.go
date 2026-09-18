@@ -15,7 +15,7 @@ import (
 // ==================== Object Operations ====================
 
 // PutObject stores or updates object metadata and its tag indices atomically.
-func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error {
+func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) (err error) {
 	if obj == nil {
 		return fmt.Errorf("object metadata cannot be nil")
 	}
@@ -25,7 +25,12 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 
 	mu := s.getBucketMutationMutex(obj.Bucket)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		if err == nil {
+			err = s.db.LogData(nil, pebble.Sync)
+		}
+	}()
 	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
 		return err
 	}
@@ -81,8 +86,8 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		}
 	}
 
-	// The writer may discard its rollback copy when this call returns.
-	if err := batch.Commit(pebble.Sync); err != nil {
+	// Publish under the bucket lock; wait for durability after releasing it.
+	if err := s.commitNoSync(batch); err != nil {
 		return fmt.Errorf("failed to commit object: %w", err)
 	}
 
@@ -430,14 +435,19 @@ func (s *PebbleStore) ObjectExists(ctx context.Context, bucket, key string) (boo
 // ==================== Object Versioning ====================
 
 // PutObjectVersion stores a new object version, marking previous versions as not-latest.
-func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata, version *ObjectVersion) error {
+func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata, version *ObjectVersion) (err error) {
 	if obj == nil || version == nil {
 		return fmt.Errorf("object and version metadata cannot be nil")
 	}
 
 	mu := s.getBucketMutationMutex(obj.Bucket)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		if err == nil {
+			err = s.db.LogData(nil, pebble.Sync)
+		}
+	}()
 	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
 		return err
 	}
@@ -512,7 +522,7 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		}
 	}
 
-	return batch.Commit(pebble.Sync)
+	return s.commitNoSync(batch)
 }
 
 // GetObjectVersions retrieves all versions of an object sorted newest-first.

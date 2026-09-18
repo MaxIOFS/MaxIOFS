@@ -44,8 +44,8 @@ type PebbleOptions struct {
 	WALSyncInterval time.Duration
 }
 
-// defaultWALSyncInterval bounds hard-kill metadata loss to ~1s at the cost of
-// at most one fsync per second — the "everysec" model.
+// defaultWALSyncInterval flushes asynchronous metadata updates; durable writes
+// independently wait for a WAL sync before returning.
 const defaultWALSyncInterval = time.Second
 
 // cleanShutdownSentinelFile marks that the store was closed cleanly.

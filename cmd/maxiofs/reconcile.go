@@ -14,7 +14,7 @@ import (
 )
 
 func newReconcileCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "reconcile",
 		Short: "Rebuild metadata entries for objects that are on disk but not in the index",
 		Long: `First undoes any write that was interrupted between storing an object's bytes
@@ -35,6 +35,8 @@ Run with the server STOPPED.`,
 		Example: `  maxiofs reconcile --data-dir /var/lib/maxiofs`,
 		RunE:    runReconcile,
 	}
+	cmd.Flags().String("storage-root", "", "Object storage directory (defaults to <data-dir>/objects)")
+	return cmd
 }
 
 func runReconcile(cmd *cobra.Command, args []string) error {
@@ -52,7 +54,10 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close() //nolint:errcheck
 
-	objectsRoot := filepath.Join(dataDir, "objects")
+	objectsRoot, _ := cmd.Flags().GetString("storage-root")
+	if objectsRoot == "" {
+		objectsRoot = filepath.Join(dataDir, "objects")
+	}
 	backend, err := storage.NewBackend(storage.Config{Backend: "filesystem", Root: objectsRoot})
 	if err != nil {
 		return fmt.Errorf("could not open the object store: %w", err)
@@ -77,7 +82,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("interrupted-write rollback has %d failures", len(undone.Failures))
 	}
 
-	report, err := recovery.Reconcile(context.Background(), dataDir, store, logrus.StandardLogger())
+	report, err := recovery.ReconcileRoot(context.Background(), objectsRoot, store, logrus.StandardLogger())
 	if report != nil {
 		fmt.Println()
 		fmt.Println("=== Reconcile report ===")

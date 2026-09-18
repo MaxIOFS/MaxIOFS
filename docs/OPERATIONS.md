@@ -542,6 +542,7 @@ MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble 
 - On the next start, Pebble **automatically replays the WAL** — no operator action required.
 - If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
 - Object writes, multipart-part writes and destructive operations fsync their metadata commits before returning. Other asynchronous metadata writes use the periodic WAL sync loop.
+- Object and version writes release the bucket mutation lock before waiting for WAL persistence, allowing concurrent writes to share a sync. Recovery uses `storage.root`; offline reconciliation accepts `--storage-root` when it differs from `<data-dir>/objects`.
 - Before serving traffic, the server processes retained overwrite backups. It restores only copies matching an existing index entry. Copies without an entry are retained for operator review, never used to recreate a deleted object. Recovery errors prevent startup; resolve them with the server stopped.
 
 **Unclean-shutdown reconciliation (automatic, non-destructive)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:

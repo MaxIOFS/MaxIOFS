@@ -190,6 +190,9 @@ file after a hard crash is therefore normal and self-heals.
 
 **Metadata durability**: object and multipart-part commits fsync before returning,
 so their rollback copies can be discarded only after the new index entry is durable.
+Object and version transactions release the bucket mutation lock after publication,
+then wait for a WAL sync barrier. Concurrent writers can share Pebble's group commit
+without returning success before durability or serializing disk waits per bucket.
 Destructive operations (object and bucket deletes, multipart complete/abort) also
 fsync immediately. Other asynchronous writes use the periodic WAL sync loop.
 Startup settles retained overwrite copies before serving traffic; copies without

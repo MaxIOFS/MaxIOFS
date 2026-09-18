@@ -42,12 +42,16 @@ const (
 // Safe to run while the node serves traffic; ctx cancellation stops between
 // files and returns the partial report.
 func Reconcile(ctx context.Context, dataDir string, store metadata.Store, logger *logrus.Logger) (*ReconcileReport, error) {
+	return ReconcileRoot(ctx, filepath.Join(dataDir, "objects"), store, logger)
+}
+
+// ReconcileRoot scans the configured object storage root.
+func ReconcileRoot(ctx context.Context, objectsRoot string, store metadata.Store, logger *logrus.Logger) (*ReconcileReport, error) {
 	if logger == nil {
 		logger = logrus.StandardLogger()
 	}
 	report := &ReconcileReport{}
 
-	objectsRoot := filepath.Join(dataDir, "objects")
 	if info, err := os.Stat(objectsRoot); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("objects directory not found at %s", objectsRoot)
 	}

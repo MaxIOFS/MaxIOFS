@@ -10,15 +10,26 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/recovery"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReconcileWaitsForObjectCommit(t *testing.T) {
-	for _, tenant := range []string{"", "tenant"} {
-		t.Run(fmt.Sprintf("tenant=%s", tenant), func(t *testing.T) {
+	for _, tc := range []struct {
+		tenant     string
+		customRoot bool
+	}{{"", false}, {"tenant", false}, {"", true}, {"tenant", true}} {
+		t.Run(fmt.Sprintf("tenant=%s/customRoot=%t", tc.tenant, tc.customRoot), func(t *testing.T) {
+			tenant := tc.tenant
 			root := t.TempDir()
 			m, s := openFaultManager(t, root)
 			defer s.Close()
+			if tc.customRoot {
+				m.config.Root = t.TempDir()
+				backend, err := storage.NewFilesystemBackend(storage.Config{Root: m.config.Root})
+				require.NoError(t, err)
+				m.storage = backend
+			}
 			bucket := "fault"
 			if tenant != "" {
 				bucket = tenant + "/" + bucket
@@ -49,7 +60,7 @@ func TestReconcileWaitsForObjectCommit(t *testing.T) {
 			recovered, recoveryResult := make(chan struct{}), make(chan error, 1)
 			go func() {
 				defer close(recovered)
-				r, err := recovery.Reconcile(t.Context(), root, s, nil)
+				r, err := recovery.ReconcileRoot(t.Context(), m.config.Root, s, nil)
 				if err == nil && len(r.Failures) > 0 {
 					err = fmt.Errorf("recovery failures: %v", r.Failures)
 				}
