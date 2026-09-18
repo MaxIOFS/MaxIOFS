@@ -725,6 +725,12 @@ func (s *Server) Start(ctx context.Context) error {
 		"data_dir":        s.config.DataDir,
 	}).Info("Starting MaxIOFS servers")
 
+	// Before anything reads or writes an object: settle the writes a previous
+	// run was cut short in the middle of.
+	if err := s.undoInterruptedWrites(ctx); err != nil {
+		return err
+	}
+
 	s.backfillBucketOwnerPolicies(ctx)
 
 	// Enable runtime profiling

@@ -289,7 +289,8 @@ func (s *PebbleStore) PutPart(ctx context.Context, part *PartMetadata) error {
 	}
 
 	key := partKey(part.UploadID, part.PartNumber)
-	if err := s.setNoSync(key, data); err != nil {
+	// Replacing a part discards its old bytes after this commit succeeds.
+	if err := s.db.Set(key, data, pebble.Sync); err != nil {
 		return fmt.Errorf("failed to store part: %w", err)
 	}
 

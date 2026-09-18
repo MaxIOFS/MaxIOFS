@@ -31,6 +31,10 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 - [ ] Review chunk-level bandwidth throttling.
 - [ ] Review quota delta calculation during concurrent overwrites.
 
+## Replication
+
+- [ ] Retain a copy on the replica-side raw write. `PutObjectRaw` publishes over the live path and commits afterwards with nothing to go back to, so a failed commit leaves the replica's bytes newer than its entry until the next reconcile. Same shape as the direct write path, same fix (`internal/object/raw_replication.go`).
+
 ## Erasure Coding
 
 After the storage layout change.

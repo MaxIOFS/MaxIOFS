@@ -541,10 +541,11 @@ MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble 
 - The WAL may contain writes that were not fully flushed to SST files.
 - On the next start, Pebble **automatically replays the WAL** — no operator action required.
 - If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
-- The WAL is fsynced at least once per second while writes are flowing, and destructive operations (object/bucket deletes, multipart completion) are fsynced immediately — so at most ~1 second of non-destructive metadata changes can be lost.
+- Object writes, multipart-part writes and destructive operations fsync their metadata commits before returning. Other asynchronous metadata writes use the periodic WAL sync loop.
+- Before serving traffic, the server processes retained overwrite backups. It restores only copies matching an existing index entry. Copies without an entry are retained for operator review, never used to recreate a deleted object. Recovery errors prevent startup; resolve them with the server stopped.
 
 **Unclean-shutdown reconciliation (automatic, non-destructive)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:
-- Objects whose metadata commit was lost in the final second are re-indexed from their `.metadata` sidecars (original timestamps preserved) — reads already worked via the sidecar fallback; listings converge as the scan progresses.
+- Missing entries from interrupted writes or older releases are re-indexed from their `.metadata` sidecars. Repairs serialize with normal object operations, including equal-size overwrites within the same second.
 - Metadata entries and sidecars are never removed merely because an object path is absent. If metadata must be rebuilt after a larger storage incident, use the explicit offline recovery tools such as `maxiofs recover`.
 - Bucket statistics are recalculated for any repaired bucket.
 

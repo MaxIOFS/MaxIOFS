@@ -93,6 +93,9 @@ func TestWALSyncLoop(t *testing.T) {
 	}
 
 	// Let several ticks fire so the loop demonstrably drains the dirty flag.
+	if err := store.setNoSync([]byte("test:unsynced"), []byte("pending")); err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(2 * time.Second)
 	for store.walDirty.Load() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)

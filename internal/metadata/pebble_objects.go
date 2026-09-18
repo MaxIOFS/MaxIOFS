@@ -81,7 +81,8 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) error 
 		}
 	}
 
-	if err := s.commitNoSync(batch); err != nil {
+	// The writer may discard its rollback copy when this call returns.
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit object: %w", err)
 	}
 
@@ -511,7 +512,7 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 		}
 	}
 
-	return s.commitNoSync(batch)
+	return batch.Commit(pebble.Sync)
 }
 
 // GetObjectVersions retrieves all versions of an object sorted newest-first.

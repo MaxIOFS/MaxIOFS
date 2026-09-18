@@ -190,7 +190,7 @@ func TestStoreEncryptedMultipartObject(t *testing.T) {
 	originalETag := "multipart-etag-12345"
 
 	// Call storeEncryptedMultipartObject
-	err = om.storeEncryptedMultipartObject(ctx, ref, tempPath, upload.UploadID, upload, originalSize, originalETag)
+	err = om.storeEncryptedMultipartObject(ctx, ref, tempPath, upload.UploadID, upload, originalSize, originalETag, originalETag+"-1")
 
 	// Should either succeed (if encryption configured) or fail gracefully
 	if err != nil {

@@ -360,15 +360,7 @@ func objectFromSidecar(path, bucketPath, key, versionID string, sidecar map[stri
 
 	encrypted := sidecar["encrypted"] == "true"
 
-	var size int64
-	var etag string
-	if encrypted {
-		size, _ = strconv.ParseInt(sidecar["original-size"], 10, 64)
-		etag = sidecar["original-etag"]
-	} else {
-		size, _ = strconv.ParseInt(sidecar["size"], 10, 64)
-		etag = sidecar["etag"]
-	}
+	size, etag := storage.SidecarIdentity(sidecar)
 
 	lastModified := time.Now()
 	if lm, err := strconv.ParseInt(sidecar["last_modified"], 10, 64); err == nil && lm > 0 {

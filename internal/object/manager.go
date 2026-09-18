@@ -25,6 +25,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/rollback"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/maxiofs/maxiofs/pkg/encryption"
 	"github.com/sirupsen/logrus"
@@ -130,7 +131,6 @@ type objectManager struct {
 		CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
 	}
 
-	muShards  [256]sync.Mutex
 	uploadsMu sync.Mutex
 	uploads   map[string]*multipartLock
 
@@ -141,14 +141,7 @@ type objectManager struct {
 // lockKey locks the shard associated with bucket+key and returns the unlock function.
 // Use as: defer om.lockKey(bucket, key)()
 func (om *objectManager) lockKey(bucket, key string) func() {
-	// FNV-1a hash for fast, uniform shard selection.
-	h := uint8(0)
-	for _, c := range bucket + "/" + key {
-		h ^= uint8(c)
-		h = (h << 3) | (h >> 5) // rotate
-	}
-	om.muShards[h].Lock()
-	return om.muShards[h].Unlock
+	return storage.LockObject(om.config.Root, bucket, key)
 }
 
 type Option func(*objectManager)
@@ -617,7 +610,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			return nil, fmt.Errorf("failed to check existing object before overwriting: %w", err)
 		}
 		if exists {
-			restore, cleanupBackup, backupErr := om.backupStorageObject(ctx, objectRef)
+			// The entry as it stands decides, at the next start, whether an
+			// interrupted overwrite has to be undone.
+			committed, _ := om.metadataStore.GetObject(ctx, bucket, key)
+			restore, cleanupBackup, backupErr := om.backupStorageObject(ctx, objectRef, committed)
 			if backupErr != nil {
 				return nil, fmt.Errorf("failed to back up the existing object before overwriting it: %w", backupErr)
 			}
@@ -1868,13 +1864,46 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 		"content-type": "application/octet-stream",
 	}
 
+	// Replacing a part that was already acknowledged: the write lands on the
+	// same path, so the stored bytes have to stay recoverable until the new row
+	// is committed. Without this, a failed commit leaves ListParts advertising
+	// an ETag whose bytes are gone.
+	var restorePreviousPart func() error
+	priorPart, err := om.metadataStore.GetPart(ctx, uploadID, partNumber)
+	if err != nil && err != metadata.ErrPartNotFound {
+		return nil, fmt.Errorf("failed to check part %d before replacing it: %w", partNumber, err)
+	}
+	if priorPart != nil {
+		restore, cleanupBackup, backupErr := om.backupStoragePart(ctx, uploadID, partNumber, priorPart)
+		switch {
+		case backupErr == nil:
+			defer cleanupBackup()
+			restorePreviousPart = restore
+		case errors.Is(backupErr, storage.ErrObjectNotFound):
+			// The row outlived its file (an earlier interruption). Nothing to
+			// preserve — the replacement can only improve on that.
+			logrus.WithFields(logrus.Fields{"uploadID": uploadID, "part": partNumber}).
+				Warn("Part metadata without stored bytes — replacing without a backup")
+		default:
+			return nil, fmt.Errorf("failed to back up part %d before replacing it: %w", partNumber, backupErr)
+		}
+	}
+
 	if err := om.storage.PutPart(ctx, uploadID, partNumber, data, partMetadata); err != nil {
+		if restorePreviousPart != nil {
+			// A half-written replacement is worse than the part it replaced.
+			err = errors.Join(err, restorePreviousPart())
+		}
 		return nil, fmt.Errorf("failed to store part: %w", err)
 	}
 
 	// Get part metadata to get size and etag
 	storageMetadata, err := om.storage.PartMetadata(ctx, uploadID, partNumber)
 	if err != nil {
+		// The replacement is already on disk and nothing describes it yet.
+		if restorePreviousPart != nil {
+			err = errors.Join(err, restorePreviousPart())
+		}
 		return nil, fmt.Errorf("failed to get part metadata: %w", err)
 	}
 
@@ -1891,8 +1920,17 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 
 	// Store part metadata in the metadata store.
 	if err := om.metadataStore.PutPart(ctx, partMeta); err != nil {
-		_ = om.storage.DeletePart(ctx, uploadID, partNumber)
-		if err == metadata.ErrUploadNotFound {
+		// The upload itself is gone: nothing to preserve, and a restored file
+		// would outlive every row that points at it.
+		uploadGone := errors.Is(err, metadata.ErrUploadNotFound)
+		if restorePreviousPart != nil && !uploadGone {
+			// The committed row still describes the bytes that were just
+			// overwritten — put them back rather than delete the part.
+			err = errors.Join(err, restorePreviousPart())
+		} else {
+			_ = om.storage.DeletePart(ctx, uploadID, partNumber)
+		}
+		if uploadGone {
 			return nil, ErrUploadNotFound
 		}
 		return nil, fmt.Errorf("failed to save part metadata: %w", err)
@@ -2026,19 +2064,18 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	var restorePreviousFinal func() error
 	var cleanupPreviousFinalBackup func()
 	if !versioningEnabled && existingObj != nil {
-		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef)
+		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef, existingObj)
 		if err != nil {
 			return nil, fmt.Errorf("failed to backup existing object before multipart completion: %w", err)
 		}
 		defer cleanupPreviousFinalBackup()
 	}
 
-	if err := om.combineMultipartParts(ctx, uploadID, parts, objectRef); err != nil {
-		return nil, fmt.Errorf("failed to combine parts: %w", err)
-	}
-
 	// Clean up the combined file on any error between here and the metadata write.
 	// PutObjectVersion/PutObject handle their own cleanup on metadata-write failure.
+	// Armed BEFORE the combine: storage.Put can publish the combined bytes over
+	// the live path and still fail afterwards (ENOSPC on sync/rename), and the
+	// previous object has to come back in that case too.
 	needsCombinedFileCleanup := true
 	defer func() {
 		if !needsCombinedFileCleanup {
@@ -2050,10 +2087,15 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 			resultErr = errors.Join(resultErr, restorePreviousFinal())
 			return
 		}
-		if delErr := om.storage.Delete(ctx, objectRef); delErr != nil {
+		// Nothing may have been written yet — absence is not a failure here.
+		if delErr := om.storage.Delete(ctx, objectRef); delErr != nil && !errors.Is(delErr, storage.ErrObjectNotFound) {
 			logrus.WithError(delErr).WithField("path", objectRef).Warn("Failed to remove orphaned combined object after error")
 		}
 	}()
+
+	if err := om.combineMultipartParts(ctx, uploadID, parts, objectRef, multipartETag); err != nil {
+		return nil, fmt.Errorf("failed to combine parts: %w", err)
+	}
 
 	// Retrieve etag+size+last_modified already written by combineMultipartParts.
 	// This reads only the tiny .metadata sidecar file, not the data.
@@ -2074,7 +2116,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 			return nil, stageErr
 		}
 		defer os.Remove(tempPath)
-		if err := om.storeEncryptedMultipartObject(ctx, objectRef, tempPath, uploadID, multipart, originalSize, originalETag); err != nil {
+		if err := om.storeEncryptedMultipartObject(ctx, objectRef, tempPath, uploadID, multipart, originalSize, originalETag, multipartETag); err != nil {
 			return nil, err
 		}
 		// Re-read metadata after encryption (encrypted size differs from plaintext size).
@@ -2185,38 +2227,84 @@ func (om *objectManager) stagePlaintextToTemp(ctx context.Context, ref storage.O
 	return tempPath, nil
 }
 
-func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.ObjectRef) (func() error, func(), error) {
+// backupStorageObject retains the stored bytes of an object about to be
+// overwritten. committed is the index entry the copy is decided against at the
+// next start: if the index still holds it, the overwrite never landed.
+func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.ObjectRef, committed *metadata.ObjectMetadata) (func() error, func(), error) {
 	reader, storageMeta, err := om.storage.Get(ctx, ref)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open existing object for backup: %w", err)
 	}
 	defer reader.Close()
 
-	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-mpu-backup-*")
+	return om.retainBackup(ctx, rollback.ObjectPrefix, reader,
+		func(manifestPath string) error {
+			return writeObjectBackupManifest(manifestPath, ref, storageMeta, committedObject(committed))
+		},
+		func(restoreCtx context.Context, backup io.Reader) error {
+			return om.storage.Put(restoreCtx, ref, backup, storageMeta)
+		})
+}
+
+// backupStoragePart retains the stored bytes of a part that is about to be
+// replaced. A missing part file is reported as storage.ErrObjectNotFound: there
+// is nothing to preserve and the caller decides whether that is a problem.
+func (om *objectManager) backupStoragePart(ctx context.Context, uploadID string, partNumber int, committed *metadata.PartMetadata) (func() error, func(), error) {
+	reader, partMeta, err := om.storage.GetPart(ctx, uploadID, partNumber)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create multipart backup file: %w", err)
+		return nil, nil, err
+	}
+	defer reader.Close()
+
+	return om.retainBackup(ctx, rollback.PartPrefix, reader,
+		func(manifestPath string) error {
+			return rollback.WritePartManifest(manifestPath, uploadID, partNumber, partMeta, committedPart(committed))
+		},
+		func(restoreCtx context.Context, backup io.Reader) error {
+			return om.storage.PutPart(restoreCtx, uploadID, partNumber, backup, partMeta)
+		})
+}
+
+// retainBackup stages a copy of what is about to be overwritten next to the
+// object tree, together with a manifest saying where it belongs.
+//
+// The restore hook puts the copy back; the cleanup hook removes both files,
+// except after a failed restore — then they stay on disk, for the boot pass or
+// for an operator. Restores run on a context detached from the request so an
+// aborted client cannot cancel the rollback halfway.
+func (om *objectManager) retainBackup(
+	ctx context.Context,
+	prefix string,
+	data io.Reader,
+	writeManifest func(manifestPath string) error,
+	restorePut func(ctx context.Context, backup io.Reader) error,
+) (func() error, func(), error) {
+	tempFile, err := os.CreateTemp(om.config.Root, prefix+"*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create backup file: %w", err)
 	}
 	tempPath := tempFile.Name()
 
-	if _, err := io.Copy(tempFile, reader); err != nil {
+	if _, err := io.Copy(tempFile, data); err != nil {
 		tempFile.Close()
 		os.Remove(tempPath)
-		return nil, nil, fmt.Errorf("failed to backup existing object: %w", err)
+		return nil, nil, fmt.Errorf("failed to write backup: %w", err)
 	}
 	if err := tempFile.Sync(); err != nil {
 		tempFile.Close()
 		os.Remove(tempPath)
-		return nil, nil, fmt.Errorf("failed to sync object backup: %w", err)
+		return nil, nil, fmt.Errorf("failed to sync backup: %w", err)
 	}
 	if err := tempFile.Close(); err != nil {
 		os.Remove(tempPath)
-		return nil, nil, fmt.Errorf("failed to close multipart backup file: %w", err)
+		return nil, nil, fmt.Errorf("failed to close backup file: %w", err)
 	}
-	manifestPath := tempPath + ".json"
-	if err := writeObjectBackupManifest(manifestPath, ref, storageMeta); err != nil {
+
+	manifestPath := tempPath + rollback.ManifestSuffix
+	if err := writeManifest(manifestPath); err != nil {
 		os.Remove(tempPath)
 		os.Remove(manifestPath)
-		return nil, nil, fmt.Errorf("failed to write object backup manifest: %w", err)
+		return nil, nil, fmt.Errorf("failed to write backup manifest: %w", err)
 	}
 
 	keepBackup := false
@@ -2224,12 +2312,12 @@ func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.Ob
 		keepBackup = true
 		backup, err := os.Open(tempPath)
 		if err != nil {
-			return fmt.Errorf("failed to open retained object backup %q: %w", tempPath, err)
+			return fmt.Errorf("failed to open retained backup %q: %w", tempPath, err)
 		}
 		defer backup.Close()
 
-		if err := om.storage.Put(context.WithoutCancel(ctx), ref, backup, storageMeta); err != nil {
-			return fmt.Errorf("failed to restore object; backup retained at %q: %w", tempPath, err)
+		if err := restorePut(context.WithoutCancel(ctx), backup); err != nil {
+			return fmt.Errorf("failed to restore; backup retained at %q: %w", tempPath, err)
 		}
 		keepBackup = false
 		return nil
@@ -2239,11 +2327,11 @@ func (om *objectManager) backupStorageObject(ctx context.Context, ref storage.Ob
 			return
 		}
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
-			logrus.WithError(err).WithField("path", tempPath).Debug("Failed to remove multipart backup file")
+			logrus.WithError(err).WithField("path", tempPath).Debug("Failed to remove backup file")
 			return
 		}
 		if err := os.Remove(manifestPath); err != nil && !os.IsNotExist(err) {
-			logrus.WithError(err).WithField("path", manifestPath).Warn("Failed to remove object backup manifest")
+			logrus.WithError(err).WithField("path", manifestPath).Warn("Failed to remove backup manifest")
 		}
 	}
 
@@ -2381,9 +2469,13 @@ func (om *objectManager) generateUploadID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, ref storage.ObjectRef) error {
+func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, ref storage.ObjectRef, multipartETag string) error {
+	// The assembled file carries the client-facing ETag from the moment it
+	// exists: it cannot be recomputed from the bytes, and a crash between this
+	// write and the index commit leaves the sidecar as the only record of it.
 	combinedMetadata := map[string]string{
-		"content-type": "application/octet-stream",
+		"content-type":   "application/octet-stream",
+		"multipart-etag": multipartETag,
 	}
 
 	if len(parts) == 0 {
@@ -2960,7 +3052,7 @@ func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket str
 // storeEncryptedMultipartObject envelope-encrypts and stores the assembled
 // multipart object (fresh DEK wrapped by the current KEK, same format as
 // storeEncryptedObject).
-func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref storage.ObjectRef, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag string) error {
+func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref storage.ObjectRef, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag, multipartETag string) error {
 	dek, envelopeMeta, err := om.newEnvelope()
 	if err != nil {
 		return err
@@ -2990,10 +3082,15 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref 
 	if encryptedContentType == "" {
 		encryptedContentType = "application/octet-stream"
 	}
-	// Store encryption markers in storage metadata
+	// Store encryption markers in storage metadata.
+	// multipart-etag is the ETag the client was given: the MD5 of the part
+	// digests, which cannot be recomputed from the assembled bytes. Recovery
+	// reads it from here, so an object rebuilt from its sidecar keeps the ETag
+	// it was uploaded with.
 	encryptionMetadata := map[string]string{
 		"original-size":                          fmt.Sprintf("%d", originalSize),
 		"original-etag":                          originalETag,
+		"multipart-etag":                         multipartETag,
 		"encrypted":                              "true",
 		"x-amz-server-side-encryption":           "AES256",
 		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",

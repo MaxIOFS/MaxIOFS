@@ -35,6 +35,7 @@ func logReconcileReport(report *recovery.ReconcileReport) {
 		"files_scanned":     report.FilesScanned,
 		"entries_restored":  report.EntriesRestored,
 		"versions_restored": report.VersionsRestored,
+		"entries_repaired":  report.EntriesRepaired,
 		"failures":          len(report.Failures),
 	}
 	for _, f := range report.Failures {
