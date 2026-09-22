@@ -94,7 +94,7 @@ func TestCompleteMultipartRestoresPreviousObjectAfterPublishFailure(t *testing.T
 	const previous = "previous object bytes"
 	const replacement = "replacement object bytes, a different length"
 
-	for name, failOn := range map[string]int{"combine": 1, "encrypt": 2} {
+	for name, failOn := range map[string]int{"encrypted-publish": 1} {
 		t.Run(name, func(t *testing.T) {
 			om, backend, meta := setupManagerWithConfigKey(t)
 			ctx := t.Context()
@@ -165,7 +165,7 @@ func TestCompleteMultipartVersionedPublishFailureKeepsLiveObject(t *testing.T) {
 	require.NoError(t, err)
 
 	publishErr := errors.New("device full after publish")
-	om.storage = &publishThenFailBackend{Backend: backend, failOn: 2, err: publishErr}
+	om.storage = &publishThenFailBackend{Backend: backend, failOn: 1, err: publishErr}
 	_, err = om.CompleteMultipartUpload(ctx, uploadID, parts)
 	require.ErrorIs(t, err, publishErr)
 	om.storage = backend
@@ -188,7 +188,7 @@ func TestCompleteMultipartPublishFailureLeavesNoStagingFile(t *testing.T) {
 	require.NoError(t, err)
 	uploadID, parts := stageOnePartUpload(t, om, "rollback", "key", "replacement")
 
-	om.storage = &publishThenFailBackend{Backend: backend, failOn: 2, err: errors.New("device full after publish")}
+	om.storage = &publishThenFailBackend{Backend: backend, failOn: 1, err: errors.New("device full after publish")}
 	_, err = om.CompleteMultipartUpload(ctx, uploadID, parts)
 	require.Error(t, err)
 	om.storage = backend

@@ -5,6 +5,21 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Multipart completion streams parts directly into one encrypted storage write.
+- Removed two full-object reads and two full-object writes from multipart completion.
+- Multipart completion keeps only one part reader open at a time.
+
+### Fixed
+- Multipart completion waits for encryption to stop on failure or cancellation.
+- Destination metadata lookup errors abort multipart completion before overwriting data.
+
+### Added
+- Write-path I/O accounting tests for PUT, overwrites, versioning and multipart uploads.
+- Multipart streaming regression tests for cancellation, read failures, rollback and retry.
+
 ## [1.7.0] - 2026-09-18
 
 ### Added

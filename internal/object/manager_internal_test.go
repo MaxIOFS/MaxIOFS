@@ -177,11 +177,8 @@ func TestStoreEncryptedMultipartObject(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, upload)
 
-	// Create a temporary file with multipart content
-	tempDir := t.TempDir()
-	tempPath := filepath.Join(tempDir, "temp-multipart.txt")
 	testContent := []byte("multipart content for encryption")
-	err = os.WriteFile(tempPath, testContent, 0644)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader(testContent))
 	require.NoError(t, err)
 
 	// Prepare parameters for storeEncryptedMultipartObject
@@ -190,7 +187,7 @@ func TestStoreEncryptedMultipartObject(t *testing.T) {
 	originalETag := "multipart-etag-12345"
 
 	// Call storeEncryptedMultipartObject
-	err = om.storeEncryptedMultipartObject(ctx, ref, tempPath, upload.UploadID, upload, originalSize, originalETag, originalETag+"-1")
+	err = om.storeEncryptedMultipartObject(ctx, ref, []Part{*part}, upload.UploadID, upload, originalSize, originalETag+"-1")
 
 	// Should either succeed (if encryption configured) or fail gracefully
 	if err != nil {

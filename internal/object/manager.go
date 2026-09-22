@@ -2033,8 +2033,10 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, err
 	}
 
-	// Check if this overwrites an existing object (before combining parts)
-	existingObj, _ := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
+	existingObj, err := om.metadataStore.GetObject(ctx, multipart.Bucket, multipart.Key)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
+		return nil, fmt.Errorf("failed to check multipart destination: %w", err)
+	}
 	isNewObject := existingObj == nil
 
 	// Validate tenant storage quota BEFORE combining parts (early rejection to avoid wasted work)
@@ -2049,9 +2051,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, fmt.Errorf("failed to compute multipart ETag: %w", err)
 	}
 
-	// Combine parts into final object.
-	// storage.Put inside combineMultipartParts already computes etag+size and writes them
-	// to the .metadata sidecar — no need to re-read the data file for MD5.
+	// Publish the encrypted object directly from the parts.
 	var versionID string
 	var objectRef storage.ObjectRef
 	if versioningEnabled {
@@ -2071,18 +2071,12 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		defer cleanupPreviousFinalBackup()
 	}
 
-	// Clean up the combined file on any error between here and the metadata write.
-	// PutObjectVersion/PutObject handle their own cleanup on metadata-write failure.
-	// Armed BEFORE the combine: storage.Put can publish the combined bytes over
-	// the live path and still fail afterwards (ENOSPC on sync/rename), and the
-	// previous object has to come back in that case too.
+	// Storage may report an error after publication; retain rollback until metadata commits.
 	needsCombinedFileCleanup := true
 	defer func() {
 		if !needsCombinedFileCleanup {
 			return
 		}
-		// Without versioning the combine wrote over the live object, so deleting
-		// the path destroys whatever was already there.
 		if restorePreviousFinal != nil {
 			resultErr = errors.Join(resultErr, restorePreviousFinal())
 			return
@@ -2093,37 +2087,16 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		}
 	}()
 
-	if err := om.combineMultipartParts(ctx, uploadID, parts, objectRef, multipartETag); err != nil {
-		return nil, fmt.Errorf("failed to combine parts: %w", err)
+	if err := om.storeEncryptedMultipartObject(ctx, objectRef, parts, uploadID, multipart, totalSize, multipartETag); err != nil {
+		return nil, err
 	}
-
-	// Retrieve etag+size+last_modified already written by combineMultipartParts.
-	// This reads only the tiny .metadata sidecar file, not the data.
 	storageMetadata, err := om.storage.GetMetadata(ctx, objectRef)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get object metadata after combining parts: %w", err)
+		return nil, fmt.Errorf("failed to get encrypted multipart metadata: %w", err)
 	}
-	originalETag := storageMetadata["etag"]
-	originalSize, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
+	originalETag := storageMetadata["original-etag"]
+	originalSize := totalSize
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
-
-	// Encryption is always on: re-encrypt the combined object (envelope)
-	// by reading the assembled plaintext → temp → encrypt → write back.
-	{
-		// Buffer plaintext to a temp file so objectRef can be safely overwritten on Windows.
-		tempPath, stageErr := om.stagePlaintextToTemp(ctx, objectRef)
-		if stageErr != nil {
-			return nil, stageErr
-		}
-		defer os.Remove(tempPath)
-		if err := om.storeEncryptedMultipartObject(ctx, objectRef, tempPath, uploadID, multipart, originalSize, originalETag, multipartETag); err != nil {
-			return nil, err
-		}
-		// Re-read metadata after encryption (encrypted size differs from plaintext size).
-		if sm, err2 := om.storage.GetMetadata(ctx, objectRef); err2 == nil {
-			lastModified, _ = strconv.ParseInt(sm["last_modified"], 10, 64)
-		}
-	}
 
 	contentType := multipart.Metadata["content-type"]
 	if contentType == "" {
@@ -2139,6 +2112,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		Metadata:     filterStorageMetadataKeys(multipart.Metadata),
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
+		SSEAlgorithm: "AES256",
 	}
 
 	if lock := bucketMeta.ObjectLock; lock != nil && lock.Enabled && lock.Rule != nil && lock.Rule.DefaultRetention != nil {
@@ -2200,31 +2174,6 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts, versioningEnabled)
 
 	return object, nil
-}
-
-// stagePlaintextToTemp copies the combined object at objectRef to a temporary file
-// so that objectRef can be safely overwritten during encryption on Windows
-// (os.Open does not set FILE_SHARE_DELETE, preventing os.Rename to an open path).
-func (om *objectManager) stagePlaintextToTemp(ctx context.Context, ref storage.ObjectRef) (string, error) {
-	reader, _, err := om.storage.Get(ctx, ref)
-	if err != nil {
-		return "", fmt.Errorf("failed to open combined object for encryption staging: %w", err)
-	}
-	defer reader.Close()
-
-	// Use DataDir to stay on the same filesystem as the final object path.
-	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-multipart-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file for encryption staging: %w", err)
-	}
-	tempPath := tempFile.Name()
-	if _, err := io.Copy(tempFile, reader); err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
-		return "", fmt.Errorf("failed to stage plaintext to temp file: %w", err)
-	}
-	tempFile.Close()
-	return tempPath, nil
 }
 
 // backupStorageObject retains the stored bytes of an object about to be
@@ -2467,61 +2416,6 @@ func (om *objectManager) generateUploadID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-func (om *objectManager) combineMultipartParts(ctx context.Context, uploadID string, parts []Part, ref storage.ObjectRef, multipartETag string) error {
-	// The assembled file carries the client-facing ETag from the moment it
-	// exists: it cannot be recomputed from the bytes, and a crash between this
-	// write and the index commit leaves the sidecar as the only record of it.
-	combinedMetadata := map[string]string{
-		"content-type":   "application/octet-stream",
-		"multipart-etag": multipartETag,
-	}
-
-	if len(parts) == 0 {
-		return fmt.Errorf("no parts to combine")
-	}
-
-	// Get content type from first part if available
-	if len(parts) > 0 {
-		metadata, err := om.storage.PartMetadata(ctx, uploadID, parts[0].PartNumber)
-		if err == nil {
-			if contentType, exists := metadata["content-type"]; exists {
-				combinedMetadata["content-type"] = contentType
-			}
-		}
-	}
-
-	// Create a MultiReader that concatenates all parts in order
-	readers := make([]io.Reader, len(parts))
-	for i, part := range parts {
-		reader, _, err := om.storage.GetPart(ctx, uploadID, part.PartNumber)
-		if err != nil {
-			// Close all previously opened readers
-			for j := 0; j < i; j++ {
-				if closer, ok := readers[j].(io.Closer); ok {
-					closer.Close()
-				}
-			}
-			return fmt.Errorf("failed to read part %d: %w", part.PartNumber, err)
-		}
-		readers[i] = reader
-	}
-
-	// Create a combined reader that reads all parts sequentially
-	combinedReader := io.MultiReader(readers...)
-
-	// Store the combined object
-	err := om.storage.Put(ctx, ref, combinedReader, combinedMetadata)
-
-	// Close all readers after Put completes
-	for _, reader := range readers {
-		if closer, ok := reader.(io.Closer); ok {
-			closer.Close()
-		}
-	}
-
-	return err
 }
 
 // abortMultipartUpload cleans up a multipart upload
@@ -3045,77 +2939,6 @@ func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket str
 				ErrBucketQuotaExceeded, bucketMeta.ObjectCount, q.MaxObjectCount)
 		}
 	}
-
-	return nil
-}
-
-// storeEncryptedMultipartObject envelope-encrypts and stores the assembled
-// multipart object (fresh DEK wrapped by the current KEK, same format as
-// storeEncryptedObject).
-func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref storage.ObjectRef, tempPath string, uploadID string, multipart *MultipartUpload, originalSize int64, originalETag, multipartETag string) error {
-	dek, envelopeMeta, err := om.newEnvelope()
-	if err != nil {
-		return err
-	}
-
-	tempFileRead, err := os.Open(tempPath)
-	if err != nil {
-		return fmt.Errorf("failed to open temp file for encryption: %w", err)
-	}
-	defer tempFileRead.Close()
-
-	// Create a pipe for streaming encryption
-	pipeReader, pipeWriter := io.Pipe()
-
-	defer pipeReader.Close()
-
-	// Encrypt in background goroutine
-	go func() {
-		defer pipeWriter.Close()
-		if _, err := om.encryptor.EncryptStream(tempFileRead, pipeWriter, dek); err != nil {
-			logrus.WithError(err).Error("Failed to encrypt multipart object")
-			pipeWriter.CloseWithError(fmt.Errorf("encryption failed: %w", err))
-		}
-	}()
-
-	encryptedContentType := multipart.Metadata["content-type"]
-	if encryptedContentType == "" {
-		encryptedContentType = "application/octet-stream"
-	}
-	// Store encryption markers in storage metadata.
-	// multipart-etag is the ETag the client was given: the MD5 of the part
-	// digests, which cannot be recomputed from the assembled bytes. Recovery
-	// reads it from here, so an object rebuilt from its sidecar keeps the ETag
-	// it was uploaded with.
-	encryptionMetadata := map[string]string{
-		"original-size":                          fmt.Sprintf("%d", originalSize),
-		"original-etag":                          originalETag,
-		"multipart-etag":                         multipartETag,
-		"encrypted":                              "true",
-		"x-amz-server-side-encryption":           "AES256",
-		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
-		"content-type":                           encryptedContentType,
-	}
-	for k, v := range envelopeMeta {
-		encryptionMetadata[k] = v
-	}
-
-	// Copy any user metadata from multipart upload
-	for k, v := range multipart.Metadata {
-		if k != "content-type" {
-			encryptionMetadata[k] = v
-		}
-	}
-
-	if err := om.storage.Put(ctx, ref, pipeReader, encryptionMetadata); err != nil {
-		return fmt.Errorf("failed to store encrypted multipart object: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"uploadID": uploadID,
-		"bucket":   multipart.Bucket,
-		"key":      multipart.Key,
-	}).Info("Multipart object encrypted and stored successfully (streaming)")
 
 	return nil
 }

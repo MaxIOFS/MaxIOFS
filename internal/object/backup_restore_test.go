@@ -43,11 +43,7 @@ func TestFailedRestoreKeepsRecoverableBackup(t *testing.T) {
 			p, err := om.UploadPart(ctx, u.UploadID, 1, strings.NewReader("replacement bytes"))
 			require.NoError(t, err)
 			restoreErr := errors.New("restore failed")
-			failAt := 2
-			if multipart {
-				failAt = 3
-			}
-			om.storage = &failedRestoreBackend{Backend: backend, failAt: failAt, err: restoreErr}
+			om.storage = &failedRestoreBackend{Backend: backend, failAt: 2, err: restoreErr}
 			om.metadataStore = &failingPutStore{Store: meta, failPuts: true}
 			if multipart {
 				_, err = om.CompleteMultipartUpload(ctx, u.UploadID, []Part{*p})
