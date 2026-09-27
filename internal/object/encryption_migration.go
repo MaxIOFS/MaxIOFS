@@ -5,12 +5,15 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/rollback"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/maxiofs/maxiofs/pkg/encryption"
 	"github.com/sirupsen/logrus"
@@ -65,7 +68,7 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 // convertPathToEnvelope converts one stored file to envelope encryption.
 // Returns (false, nil) when there is nothing to do (missing file, already
 // encrypted, directory marker).
-func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key string, ref storage.ObjectRef) (bool, error) {
+func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key string, ref storage.ObjectRef) (converted bool, resultErr error) {
 	// Cheap pre-checks without the lock.
 	exists, err := om.storage.Exists(ctx, ref)
 	if err != nil || !exists {
@@ -112,26 +115,40 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key 
 		return false, fmt.Errorf("failed to open object for encryption: %w", err)
 	}
 
-	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-encmigrate-*")
+	prefix := rollback.ObjectPrefix
+	if isLegacyEncrypted {
+		prefix = "maxiofs-encmigrate-"
+	}
+	tempFile, err := os.CreateTemp(om.config.Root, prefix+"*")
 	if err != nil {
 		reader.Close()
 		return false, fmt.Errorf("failed to create staging file: %w", err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
-
 	restorePath := tempPath
+	keepBackup := false
+	defer func() {
+		if !keepBackup || tempPath != restorePath {
+			os.Remove(tempPath)
+		}
+	}()
+	defer tempFile.Close()
 	hasher := md5.New()
 	var stagedSize int64
 
 	if isLegacyEncrypted {
-		rawFile, rErr := os.CreateTemp(om.config.Root, "maxiofs-encmigrate-raw-*")
+		rawFile, rErr := os.CreateTemp(om.config.Root, rollback.ObjectPrefix+"*")
 		if rErr != nil {
 			reader.Close()
 			return false, fmt.Errorf("failed to create raw staging file: %w", rErr)
 		}
 		rawPath := rawFile.Name()
-		defer os.Remove(rawPath)
+		defer func() {
+			if !keepBackup {
+				os.Remove(rawPath)
+			}
+		}()
+		defer rawFile.Close()
 		restorePath = rawPath
 
 		// Tee the ciphertext to the raw staging file while decrypting it into
@@ -147,15 +164,14 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key 
 		plainWriter := io.MultiWriter(tempFile, hasher)
 		dErr := om.encryptor.DecryptStream(tee, &countingWriter{w: plainWriter, n: &stagedSize}, decryptKey, decryptMetaFor(meta))
 		reader.Close()
-		rawFile.Close()
-		tempFile.Close()
+		dErr = errors.Join(dErr, rawFile.Sync(), rawFile.Close(), tempFile.Close())
 		if dErr != nil {
 			return false, fmt.Errorf("failed to decrypt legacy object for conversion: %w", dErr)
 		}
 	} else {
 		stagedSize, err = io.Copy(io.MultiWriter(tempFile, hasher), reader)
 		reader.Close()
-		tempFile.Close()
+		err = errors.Join(err, tempFile.Sync(), tempFile.Close())
 		if err != nil {
 			return false, fmt.Errorf("failed to stage plaintext: %w", err)
 		}
@@ -177,41 +193,45 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key 
 	for k, v := range meta {
 		metaCopy[k] = v
 	}
+	committed, err := om.metadataStore.GetObject(ctx, bucket, key, ref.VersionID)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) && !errors.Is(err, metadata.ErrVersionNotFound) {
+		return false, err
+	}
+	manifestPath := restorePath + rollback.ManifestSuffix
+	if err := writeObjectBackupManifest(manifestPath, ref, meta, committedObject(committed)); err != nil {
+		os.Remove(manifestPath)
+		return false, err
+	}
+	defer func() {
+		if !keepBackup {
+			os.Remove(manifestPath)
+		}
+	}()
+	verified := false
+	defer func() {
+		if verified {
+			return
+		}
+		keepBackup = true
+		backup, err := os.Open(restorePath)
+		if err == nil {
+			err = om.storage.Put(context.WithoutCancel(ctx), ref, backup, meta)
+			backup.Close()
+		}
+		if err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("restore failed; backup retained at %s: %w", restorePath, err))
+			return
+		}
+		keepBackup = false
+	}()
 
 	if err := om.storeEncryptedObject(ctx, ref, tempPath, metaCopy, stagedSize, originalETag); err != nil {
 		return false, fmt.Errorf("failed to rewrite object encrypted: %w", err)
 	}
-	wroteDEK := metaCopy["wrapped-dek"]
-
-	// Verify: read the final file back, decrypt, compare MD5 with the staged
-	// plaintext.
-	if verifyErr := om.verifyConvertedObject(ctx, ref, stagedMD5); verifyErr != nil {
-		// Did a concurrent client overwrite win the rename race? Then the
-		// object on disk is theirs (valid, envelope) — leave it alone.
-		if cur, mErr := om.storage.GetMetadata(ctx, ref); mErr == nil && cur["wrapped-dek"] != "" && cur["wrapped-dek"] != wroteDEK {
-			logrus.WithFields(logrus.Fields{"bucket": bucket, "key": key}).
-				Info("Encryption migration: object was overwritten concurrently, leaving client version")
-			return false, nil
-		}
-
-		// Real failure — restore the original bytes (plaintext staging, or the
-		// raw ciphertext copy for legacy objects) with the original sidecar.
-		restoreFile, rErr := os.Open(restorePath)
-		if rErr == nil {
-			restoreMeta := make(map[string]string, len(meta))
-			for k, v := range meta {
-				restoreMeta[k] = v
-			}
-			rErr = om.storage.Put(ctx, ref, restoreFile, restoreMeta)
-			restoreFile.Close()
-		}
-		if rErr != nil {
-			logrus.WithError(rErr).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
-				Error("Encryption migration: verification failed AND restore failed")
-			return false, fmt.Errorf("verification failed (%v) and restore failed: %w", verifyErr, rErr)
-		}
-		return false, fmt.Errorf("verification failed, original restored: %w", verifyErr)
+	if err := om.verifyConvertedObject(ctx, ref, stagedMD5); err != nil {
+		return false, fmt.Errorf("verification failed: %w", err)
 	}
+	verified = true
 
 	return true, nil
 }

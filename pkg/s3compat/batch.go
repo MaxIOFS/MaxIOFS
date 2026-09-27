@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -101,6 +102,16 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// A missing bucket answers for the whole request, as in S3 — not once per key.
+	if _, err := h.bucketManager.GetBucketInfo(ctx, tenantID, bucketName); err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
 
 	// Process each object deletion sequentially
 	for _, obj := range deleteRequest.Objects {

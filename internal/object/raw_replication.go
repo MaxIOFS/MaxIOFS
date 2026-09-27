@@ -2,6 +2,7 @@ package object
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -73,7 +74,7 @@ func (om *objectManager) GetObjectRaw(ctx context.Context, bucket, key, versionI
 }
 
 // PutObjectRaw is the replica-side write of a raw ciphertext transfer.
-func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, data io.Reader, sidecar map[string]string, metaObj *metadata.ObjectMetadata) error {
+func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, data io.Reader, sidecar map[string]string, metaObj *metadata.ObjectMetadata) (resultErr error) {
 	if err := om.validateObjectName(key); err != nil {
 		return err
 	}
@@ -94,15 +95,45 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 		sidecarCopy[k] = v
 	}
 	defer om.lockKey(bucket, key)()
+	existingObjBeforeSave, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
+		return fmt.Errorf("failed to read replica destination metadata: %w", err)
+	}
+	exists, err := om.storage.Exists(ctx, objectRef)
+	if err != nil {
+		return fmt.Errorf("failed to check replica destination: %w", err)
+	}
+	var restorePrevious func() error
+	if exists {
+		previous := existingObjBeforeSave
+		if versioned {
+			previous, err = om.metadataStore.GetObject(ctx, bucket, key, metaObj.VersionID)
+			if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) && !errors.Is(err, metadata.ErrVersionNotFound) {
+				return fmt.Errorf("failed to read replica version metadata: %w", err)
+			}
+		}
+		restore, cleanup, err := om.backupStorageObject(ctx, objectRef, previous)
+		if err != nil {
+			return fmt.Errorf("failed to back up replica destination: %w", err)
+		}
+		defer cleanup()
+		restorePrevious = restore
+	}
+	committed := false
+	defer func() {
+		if !committed && restorePrevious != nil {
+			resultErr = errors.Join(resultErr, restorePrevious())
+		}
+	}()
 	if err := om.storage.Put(ctx, objectRef, data, sidecarCopy); err != nil {
 		return fmt.Errorf("failed to store raw replica: %w", err)
 	}
 
-	existingObjBeforeSave, _ := om.metadataStore.GetObject(ctx, bucket, key)
-
 	// Normalise ownership fields the primary set for its own store.
-	metaObj.Bucket = bucket
-	metaObj.Key = key
+	replicaMeta := *metaObj
+	replicaMeta.Bucket = bucket
+	replicaMeta.Key = key
+	metaObj = &replicaMeta
 
 	if versioned {
 		version := &metadata.ObjectVersion{
@@ -126,6 +157,7 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 			return fmt.Errorf("failed to save replica metadata: %w", err)
 		}
 	}
+	committed = true
 
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, metaObj.Size, versioned, existingObjBeforeSave)
 	om.updateTenantQuotaAfterPut(ctx, tenantID, key, metaObj.Size, versioned, existingObjBeforeSave)

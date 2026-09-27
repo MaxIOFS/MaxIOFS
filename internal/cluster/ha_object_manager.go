@@ -26,6 +26,11 @@ const HADeleteMarkerVersionHeader = "X-HA-Delete-Marker-Version-ID"
 // HALastModifiedHeader carries the primary's LastModified (unix seconds) on
 const HALastModifiedHeader = "X-HA-Last-Modified"
 
+// HAObjectLockHeader marks a legacy replica transfer whose object-lock headers
+// are the primary's stored state: the replica keeps them as they are and adds
+// no bucket default.
+const HAObjectLockHeader = "X-HA-Object-Lock"
+
 // Raw (ciphertext) replication headers.
 const HARawHeader = "X-HA-Raw"
 const HARawSidecarHeader = "X-HA-Raw-Sidecar"
@@ -36,6 +41,20 @@ const HARawObjectMetaHeader = "X-HA-Raw-Object-Meta"
 func setHALastModified(h http.Header, obj *object.Object) {
 	if obj != nil && !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
 		h.Set(HALastModifiedHeader, strconv.FormatInt(obj.LastModified.Unix(), 10))
+	}
+}
+
+// setHAObjectLock forwards the object's retention and legal hold as stored, as
+// the raw transfer does. Only what is set is sent: an older replica refuses
+// any lock header on a bucket without Object Lock.
+func setHAObjectLock(h http.Header, obj *object.Object) {
+	h.Set(HAObjectLockHeader, "true")
+	if r := obj.Retention; r != nil {
+		h.Set("x-amz-object-lock-mode", r.Mode)
+		h.Set("x-amz-object-lock-retain-until-date", r.RetainUntilDate.UTC().Format(time.RFC3339Nano))
+	}
+	if obj.LegalHold != nil && obj.LegalHold.Status == object.LegalHoldStatusOn {
+		h.Set("x-amz-object-lock-legal-hold", object.LegalHoldStatusOn)
 	}
 }
 
@@ -233,7 +252,9 @@ func (h *HAObjectManager) CanReplicateRaw(sidecar map[string]string) bool {
 
 // rollbackLocalPut deletes the just-written local copy after a quorum failure.
 // Non-versioned overwrites cannot be safely rolled back here because DeleteObject
-// would delete the current key without restoring the previous bytes.
+// would delete the current key without restoring the previous bytes. The write
+// was never acknowledged, so the retention and legal hold it set do not block
+// the delete.
 func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, versionID, op string) {
 	if versionID == "" {
 		logrus.WithFields(logrus.Fields{
@@ -241,7 +262,7 @@ func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, ver
 		}).Warn("HA quorum rollback skipped for non-versioned write; preserving local object")
 		return
 	}
-	rbCtx := WithHARollbackContext(ctx)
+	rbCtx := object.WithWriteRollback(WithHARollbackContext(ctx))
 	if _, err := h.Manager.DeleteObject(rbCtx, bucket, key, true, versionID); err != nil {
 		logrus.WithFields(logrus.Fields{
 			"op": op, "bucket": bucket, "key": key, "version_id": versionID,
@@ -347,6 +368,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 			}
 			setHALastModified(req.Header, obj)
 			setHAChecksum(req.Header, obj)
+			setHAObjectLock(req.Header, obj)
 			req.Header.Set("Content-Type", obj.ContentType)
 			if obj.ContentDisposition != "" {
 				req.Header.Set("Content-Disposition", obj.ContentDisposition)

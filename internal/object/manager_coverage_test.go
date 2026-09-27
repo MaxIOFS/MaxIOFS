@@ -33,6 +33,7 @@ func TestGetObject_ErrorCases(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	content := bytes.NewReader([]byte("test content for retrieval"))
 	headers := http.Header{"Content-Type": []string{"text/plain"}}
@@ -74,6 +75,7 @@ func TestGetObjectMetadata_ErrorCases(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	content := bytes.NewReader([]byte("metadata test content"))
 	headers := http.Header{
@@ -237,6 +239,7 @@ func TestDeleteObject_Permanent(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put object
 	key := "to-delete.txt"
@@ -273,6 +276,7 @@ func TestPutObject_WithCustomMetadata(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put object with custom metadata
 	key := "custom-meta.txt"
@@ -309,6 +313,7 @@ func TestUpdateObjectMetadata_Success(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put object
 	key := "update-meta.txt"
@@ -517,6 +522,7 @@ func TestSetObjectRetention_RemoveRetention(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put object
 	key := "retention-remove.txt"

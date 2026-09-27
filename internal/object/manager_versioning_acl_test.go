@@ -101,6 +101,7 @@ func TestGetObjectVersions(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put first version
 	content1 := bytes.NewReader([]byte("version 1"))
@@ -181,6 +182,7 @@ func TestGetObjectACL(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object
 	content := bytes.NewReader([]byte("test content"))
@@ -213,6 +215,7 @@ func TestSetObjectACL(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object
 	content := bytes.NewReader([]byte("test content"))
@@ -288,6 +291,7 @@ func TestCopyObject_UsingGetPut(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	srcBucket = "tenant-1/" + srcBucket
 
 	err = metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name:     dstBucket,
@@ -295,6 +299,7 @@ func TestCopyObject_UsingGetPut(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	dstBucket = "tenant-1/" + dstBucket
 
 	// Put source object
 	content := bytes.NewReader([]byte("original content for copy"))

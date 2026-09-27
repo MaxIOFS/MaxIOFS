@@ -2606,6 +2606,10 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 			return
 		}
+		if err == object.ErrBucketNotFound {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
 
 		// Check if it's a retention error with detailed information
 		if retErr, ok := err.(*object.RetentionError); ok {

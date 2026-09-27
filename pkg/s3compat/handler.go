@@ -1465,10 +1465,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	lockMode := r.Header.Get("x-amz-object-lock-mode")
-	retainUntilDateStr := r.Header.Get("x-amz-object-lock-retain-until-date")
-	legalHoldStatus := r.Header.Get("x-amz-object-lock-legal-hold")
-
 	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
 
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
@@ -1509,17 +1505,13 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
 			return
 		}
+		if errors.Is(err, object.ErrInvalidRetentionMode) || errors.Is(err, object.ErrRetentionDateInPast) || errors.Is(err, object.ErrInvalidLegalHoldStatus) || errors.Is(err, object.ErrNoRetentionConfiguration) {
+			h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
-
-	retentionApplied := h.applyObjectLockFromHeaders(r, bucketPath, bucketName, objectKey, lockMode, retainUntilDateStr)
-
-	if !retentionApplied {
-		h.applyDefaultBucketRetention(r, bucketPath, bucketName, objectKey, tenantID)
-	}
-
-	h.applyLegalHold(r, bucketPath, bucketName, objectKey, legalHoldStatus)
 
 	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
 		h.applyObjectCannedACLHeader(r.Context(), bucketPath, objectKey, cannedACL)
@@ -3342,116 +3334,6 @@ func (h *Handler) detectAndDecodeAwsChunked(
 	}
 
 	return bodyReader
-}
-
-// applyObjectLockFromHeaders applies Object Lock retention from request headers (Veeam compatibility)
-// Returns true if retention was successfully applied, false otherwise
-func (h *Handler) applyObjectLockFromHeaders(
-	r *http.Request,
-	bucketPath string,
-	bucketName string,
-	objectKey string,
-	lockMode string,
-	retainUntilDateStr string,
-) bool {
-	if lockMode == "" || retainUntilDateStr == "" {
-		return false
-	}
-
-	retainUntilDate, parseErr := time.Parse(time.RFC3339, retainUntilDateStr)
-	if parseErr != nil {
-		logrus.WithError(parseErr).Warn("Failed to parse retain-until-date header")
-		return false
-	}
-
-	retention := &object.RetentionConfig{
-		Mode:            lockMode,
-		RetainUntilDate: retainUntilDate,
-	}
-
-	if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
-		logrus.WithError(setErr).Warn("Failed to set retention from headers")
-		return false
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket": bucketName,
-		"object": objectKey,
-		"mode":   lockMode,
-		"until":  retainUntilDate,
-	}).Info("Applied Object Lock retention from headers")
-	return true
-}
-
-// applyDefaultBucketRetention applies default bucket retention if configured
-func (h *Handler) applyDefaultBucketRetention(
-	r *http.Request,
-	bucketPath string,
-	bucketName string,
-	objectKey string,
-	tenantID string,
-) {
-	lockConfig, err := h.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
-	if err != nil || lockConfig == nil || !lockConfig.ObjectLockEnabled {
-		return
-	}
-
-	// Apply default retention if configured
-	if lockConfig.Rule == nil || lockConfig.Rule.DefaultRetention == nil {
-		return
-	}
-
-	retention := &object.RetentionConfig{
-		Mode: lockConfig.Rule.DefaultRetention.Mode,
-	}
-
-	// Calculate retain until date based on days or years
-	if lockConfig.Rule.DefaultRetention.Days != nil {
-		retention.RetainUntilDate = time.Now().AddDate(0, 0, *lockConfig.Rule.DefaultRetention.Days)
-	} else if lockConfig.Rule.DefaultRetention.Years != nil {
-		retention.RetainUntilDate = time.Now().AddDate(*lockConfig.Rule.DefaultRetention.Years, 0, 0)
-	}
-
-	// Set retention on the newly uploaded object
-	if retention.RetainUntilDate.IsZero() {
-		return
-	}
-
-	if setErr := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention); setErr != nil {
-		logrus.WithError(setErr).Warn("Failed to apply default bucket retention")
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket": bucketName,
-		"object": objectKey,
-		"mode":   retention.Mode,
-		"until":  retention.RetainUntilDate,
-	}).Info("Applied default bucket retention")
-}
-
-// applyLegalHold applies legal hold from request headers (Veeam compatibility)
-func (h *Handler) applyLegalHold(
-	r *http.Request,
-	bucketPath string,
-	bucketName string,
-	objectKey string,
-	legalHoldStatus string,
-) {
-	if legalHoldStatus != "ON" {
-		return
-	}
-
-	legalHold := &object.LegalHoldConfig{Status: "ON"}
-	if setErr := h.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHold); setErr != nil {
-		logrus.WithError(setErr).Warn("Failed to set legal hold from headers")
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket": bucketName,
-		"object": objectKey,
-	}).Info("Applied legal hold from headers")
 }
 
 // applyObjectCannedACLHeader applies a canned ACL value to an object.

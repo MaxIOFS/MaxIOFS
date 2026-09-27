@@ -19,11 +19,12 @@ import (
 func putTestObject(t *testing.T, om *objectManager, metaStore metadata.Store, bucket, key string, body []byte) string {
 	t.Helper()
 	ctx := context.Background()
+	tenantID, bucketName := om.parseBucketPath(bucket)
 
 	// Create bucket; ignore "already exists" errors
 	_ = metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name:     bucket,
-		TenantID: "tenant1",
+		Name:     bucketName,
+		TenantID: tenantID,
 		OwnerID:  "user1",
 	})
 
@@ -116,7 +117,7 @@ func TestVerifyObjectIntegrity_OK(t *testing.T) {
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 
-	bucket := "ok-bucket"
+	bucket := "tenant1/ok-bucket"
 	body := []byte("hello integrity world")
 	etag := putTestObject(t, om, metaStore, bucket, "file.txt", body)
 
@@ -133,7 +134,7 @@ func TestVerifyObjectIntegrity_Corrupted(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	bucket := "corrupt-bucket"
+	bucket := "tenant1/corrupt-bucket"
 	body := []byte("original content")
 	putTestObject(t, om, metaStore, bucket, "corrupt.txt", body)
 
@@ -253,7 +254,7 @@ func TestVerifyBucketIntegrity_AllOK(t *testing.T) {
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 
-	bucket := "all-ok-bucket"
+	bucket := "tenant1/all-ok-bucket"
 	putTestObject(t, om, metaStore, bucket, "a.txt", []byte("aaa"))
 	putTestObject(t, om, metaStore, bucket, "b.txt", []byte("bbb"))
 	putTestObject(t, om, metaStore, bucket, "c.txt", []byte("ccc"))
@@ -272,7 +273,7 @@ func TestVerifyBucketIntegrity_MixedResults(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	bucket := "mixed-bucket"
+	bucket := "tenant1/mixed-bucket"
 	putTestObject(t, om, metaStore, bucket, "good.txt", []byte("good content"))
 
 	// Folder marker → skipped

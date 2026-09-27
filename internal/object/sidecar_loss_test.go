@@ -36,12 +36,12 @@ func TestSidecarLoss_CiphertextIsNotServedAsTheObject(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	const bucket = "integrity"
+	const bucket = "tenant-1/integrity"
 	const key = "report.bin"
 	payload := bytes.Repeat([]byte("A"), 1280)
 
 	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name: bucket, TenantID: "tenant-1", OwnerID: "user-1"}))
+		Name: "integrity", TenantID: "tenant-1", OwnerID: "user-1"}))
 
 	_, err := manager.PutObject(ctx, bucket, key, bytes.NewReader(payload), nil)
 	require.NoError(t, err)
@@ -77,12 +77,12 @@ func TestSidecarLoss_PlaintextLegacyObjectsStillRead(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	const bucket = "legacyread"
+	const bucket = "tenant-1/legacyread"
 	const key = "old.txt"
 	payload := []byte("written before encryption existed")
 
 	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{
-		Name: bucket, TenantID: "tenant-1", OwnerID: "user-1"}))
+		Name: "legacyread", TenantID: "tenant-1", OwnerID: "user-1"}))
 
 	_, err := manager.PutObject(ctx, bucket, key, bytes.NewReader(payload), nil)
 	require.NoError(t, err)

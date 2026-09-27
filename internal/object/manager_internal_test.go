@@ -31,6 +31,7 @@ func TestCreateDeleteMarker(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object first
 	content := bytes.NewReader([]byte("test content"))
@@ -63,6 +64,7 @@ func TestDeleteSpecificVersion(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object
 	content := bytes.NewReader([]byte("test content"))

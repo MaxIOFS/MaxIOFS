@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multipart completion keeps only one part reader open at a time.
 
 ### Fixed
+- Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
+- Raw replica rollback retains recoverable backups when restoration fails.
 - Multipart completion waits for encryption to stop on failure or cancellation.
 - Destination metadata lookup errors abort multipart completion before overwriting data.
 

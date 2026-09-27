@@ -2769,8 +2769,9 @@ func TestDeleteObjectErrorCases(t *testing.T) {
 	t.Run("Delete from non-existent bucket", func(t *testing.T) {
 		req, w := env.makeS3Request("DELETE", "/nonexistent-bucket/object.txt", nil)
 		env.router.ServeHTTP(w, req)
-		// S3 spec: DELETE is idempotent - returns 204 even if bucket doesn't exist
-		assert.Equal(t, http.StatusNoContent, w.Code, "Should return 204 (idempotent behavior)")
+		// S3: DELETE is idempotent for a missing key, not for a missing bucket.
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for a bucket that does not exist")
+		assert.Contains(t, w.Body.String(), "NoSuchBucket")
 	})
 
 	t.Run("Delete object with missing versionId parameter returns NoSuchVersion", func(t *testing.T) {

@@ -134,8 +134,11 @@ type objectManager struct {
 	uploadsMu sync.Mutex
 	uploads   map[string]*multipartLock
 
-	completionMu sync.Mutex
-	completions  map[string]*completionFuture
+	completionMu   sync.Mutex
+	completions    map[string]*completionFuture
+	quotaMu        sync.Mutex
+	pendingQuotas  map[string][]*quotaHold // by bucket, oldest first
+	pendingTenants map[string][]*quotaHold // by tenant, oldest first
 }
 
 // lockKey locks the shard associated with bucket+key and returns the unlock function.
@@ -238,12 +241,6 @@ func isVersionDeleteMarker(ver *metadata.ObjectVersion) bool {
 	return ver != nil && ver.Size == 0 && ver.ETag == ""
 }
 
-func (om *objectManager) isBucketVersioningEnabled(ctx context.Context, bucket string) bool {
-	tenantID, bucketName := om.parseBucketPath(bucket)
-	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	return err == nil && bucketMeta != nil && bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
-}
-
 // generateVersionID generates a unique version ID for object versioning
 // Format: timestamp (nanoseconds) + random hex (8 chars)
 func generateVersionID() string {
@@ -297,6 +294,21 @@ func validateReplicatedVersionID(versionID string) error {
 		return ErrInvalidPath
 	}
 	return nil
+}
+
+type writeRollbackKey struct{}
+
+// WithWriteRollback marks the delete of a specific version as undoing the
+// write that created it, which the client was never told succeeded. The
+// retention and legal hold that write set do not block the delete. Only a
+// delete of a specific version honours it.
+func WithWriteRollback(ctx context.Context) context.Context {
+	return context.WithValue(ctx, writeRollbackKey{}, true)
+}
+
+func isWriteRollback(ctx context.Context) bool {
+	v, _ := ctx.Value(writeRollbackKey{}).(bool)
+	return v
 }
 
 type replicatedLastModifiedKey struct{}
@@ -500,7 +512,15 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 
 	// Check if versioning is enabled for this bucket
 	tenantID, bucketName := om.parseBucketPath(bucket)
-	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
+	bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
+	if err != nil {
+		return nil, err
+	}
+	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
+	retention, legalHold, err := writeObjectLock(ctx, bucketMeta, headers)
+	if err != nil {
+		return nil, err
+	}
 
 	// Generate versionID if versioning is enabled
 	var versionID string
@@ -573,33 +593,15 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
 
-	if !isBypassQuotaEnforcement(ctx) {
-		var sizeIncrement int64
-		var isNewObject bool
-		if versioningEnabled {
-			sizeIncrement = originalSize
-			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
-			isNewObject = existingObj == nil || isMetadataDeleteMarker(existingObj)
-		} else {
-			existingObj, _ := om.metadataStore.GetObject(ctx, bucket, key)
-			if existingObj == nil {
-				sizeIncrement = originalSize
-				isNewObject = true
-			} else {
-				sizeIncrement = originalSize - existingObj.Size
-			}
-		}
-
-		if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
-			if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-				return nil, fmt.Errorf("storage quota exceeded: %w", err)
-			}
-		}
-
-		if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
-			return nil, err
-		}
+	existingObjBeforeSave, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
+		return nil, err
 	}
+	releaseQuota, err := om.reserveWriteQuota(ctx, bucket, originalSize, existingObjBeforeSave, versioningEnabled)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseQuota()
 
 	// Without versioning the write lands on the live path, so the object that is
 	// already there has to stay recoverable until the index entry is committed.
@@ -612,8 +614,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		if exists {
 			// The entry as it stands decides, at the next start, whether an
 			// interrupted overwrite has to be undone.
-			committed, _ := om.metadataStore.GetObject(ctx, bucket, key)
-			restore, cleanupBackup, backupErr := om.backupStorageObject(ctx, objectRef, committed)
+			restore, cleanupBackup, backupErr := om.backupStorageObject(ctx, objectRef, existingObjBeforeSave)
 			if backupErr != nil {
 				return nil, fmt.Errorf("failed to back up the existing object before overwriting it: %w", backupErr)
 			}
@@ -669,16 +670,12 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		VersionID:          versionID,
 		ChecksumAlgorithm:  checksumAlgo,
 		ChecksumValue:      checksumValue,
+		Retention:          retention,
+		LegalHold:          legalHold,
 	}
 	if !isFolderMarker {
 		object.SSEAlgorithm = "AES256"
 	}
-
-	if err := om.applyDefaultRetention(ctx, object); err != nil {
-		logrus.WithError(err).Debug("Failed to apply default retention")
-	}
-
-	existingObjBeforeSave, _ := om.metadataStore.GetObject(ctx, bucket, key)
 
 	if versioningEnabled {
 
@@ -707,6 +704,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		}
 	}
 	committed = true
+	releaseQuota()
 
 	// Update bucket metrics using helper function
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
@@ -743,7 +741,11 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		return "", err
 	}
 
-	versioningEnabled := om.isBucketVersioningEnabled(ctx, bucket)
+	bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
+	if err != nil {
+		return "", err
+	}
+	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
 
 	// Determine if we're deleting a specific version or creating a delete marker
 	var specificVersionID string
@@ -861,14 +863,16 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	}
 
 	objMetadata := fromMetadataObject(metaObj)
+	// The lock state of a write being undone was never acknowledged either.
+	rollback := isWriteRollback(ctx)
 
 	// Check Object Lock - Legal Hold
-	if objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
+	if !rollback && objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
 		return ErrObjectUnderLegalHold
 	}
 
 	// Check Object Lock - Retention
-	if objMetadata.Retention != nil {
+	if !rollback && objMetadata.Retention != nil {
 		if time.Now().Before(objMetadata.Retention.RetainUntilDate) {
 			if objMetadata.Retention.Mode == RetentionModeCompliance {
 				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
@@ -2040,9 +2044,11 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	isNewObject := existingObj == nil
 
 	// Validate tenant storage quota BEFORE combining parts (early rejection to avoid wasted work)
-	if err := om.checkMultipartQuotaBeforeComplete(ctx, multipart.Bucket, uploadID, totalSize, existingObj, versioningEnabled); err != nil {
+	releaseQuota, err := om.reserveWriteQuota(ctx, multipart.Bucket, totalSize, existingObj, versioningEnabled)
+	if err != nil {
 		return nil, err
 	}
+	defer releaseQuota()
 
 	// Compute the S3-spec multipart ETag: MD5 of the concatenated binary MD5 digests
 	// of each part, formatted as "<hex>-<partCount>".
@@ -2115,21 +2121,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		SSEAlgorithm: "AES256",
 	}
 
-	if lock := bucketMeta.ObjectLock; lock != nil && lock.Enabled && lock.Rule != nil && lock.Rule.DefaultRetention != nil {
-		rule := lock.Rule.DefaultRetention
-		until := rule.RetainUntilDate
-		switch {
-		case rule.Days != nil && *rule.Days > 0 && rule.Years == nil:
-			until = time.Now().AddDate(0, 0, *rule.Days)
-		case rule.Years != nil && *rule.Years > 0 && rule.Days == nil:
-			until = time.Now().AddDate(*rule.Years, 0, 0)
-		case rule.Days != nil || rule.Years != nil || until.IsZero():
-			return nil, fmt.Errorf("invalid default bucket retention period")
-		}
-		if rule.Mode != RetentionModeCompliance && rule.Mode != RetentionModeGovernance {
-			return nil, fmt.Errorf("invalid default bucket retention mode")
-		}
-		object.Retention = &RetentionConfig{Mode: rule.Mode, RetainUntilDate: until}
+	object.Retention, err = defaultWriteRetention(bucketMeta)
+	if err != nil {
+		return nil, err
 	}
 
 	// From this point on PutObjectVersion/PutObject handle cleanup on failure.
@@ -2169,6 +2163,8 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		"size":     originalSize,
 		"etag":     originalETag,
 	}).Info("Multipart upload completed successfully")
+
+	releaseQuota()
 
 	// Update bucket metrics and clean up multipart data
 	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts, versioningEnabled)
@@ -2378,36 +2374,12 @@ func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName stri
 	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, actualBucketName)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
-			return nil, fmt.Errorf("bucket metadata not found")
+			return nil, ErrBucketNotFound
 		}
 		return nil, fmt.Errorf("failed to load bucket metadata: %w", err)
 	}
 
 	return bucketMeta, nil
-}
-
-func (om *objectManager) applyDefaultRetention(ctx context.Context, object *Object) error {
-	bucketMeta, err := om.loadBucketMetadata(ctx, object.Bucket)
-	if err != nil {
-		return nil
-	}
-
-	if bucketMeta.ObjectLock == nil || !bucketMeta.ObjectLock.Enabled {
-		return nil
-	}
-
-	if bucketMeta.ObjectLock.Rule == nil || bucketMeta.ObjectLock.Rule.DefaultRetention == nil {
-		return nil
-	}
-
-	retention := bucketMeta.ObjectLock.Rule.DefaultRetention
-
-	object.Retention = &RetentionConfig{
-		Mode:            retention.Mode,
-		RetainUntilDate: retention.RetainUntilDate,
-	}
-
-	return nil
 }
 
 func (om *objectManager) generateUploadID() (string, error) {
@@ -2859,88 +2831,6 @@ func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID stri
 	}
 	digest := md5.Sum(combined)
 	return fmt.Sprintf("%s-%d", hex.EncodeToString(digest[:]), len(parts)), nil
-}
-
-// checkMultipartQuotaBeforeComplete validates tenant quota before combining parts
-func (om *objectManager) checkMultipartQuotaBeforeComplete(ctx context.Context, bucket, uploadID string, totalSize int64, existingObj *metadata.ObjectMetadata, versioningEnabled bool) error {
-	var sizeIncrement int64
-	if versioningEnabled || existingObj == nil {
-		sizeIncrement = totalSize
-	} else {
-		sizeIncrement = totalSize - existingObj.Size
-	}
-	isNewObject := existingObj == nil || isMetadataDeleteMarker(existingObj)
-
-	tenantID, _ := om.parseBucketPath(bucket)
-
-	// Tenant quota (tenant buckets only), enforced when adding storage.
-	if om.authManager != nil && tenantID != "" && sizeIncrement > 0 {
-		logrus.WithFields(logrus.Fields{
-			"tenantID":      tenantID,
-			"uploadID":      uploadID,
-			"totalSize":     totalSize,
-			"sizeIncrement": sizeIncrement,
-		}).Info("Validating tenant quota before completing multipart upload")
-
-		if err := om.authManager.CheckTenantStorageQuota(ctx, tenantID, sizeIncrement); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"tenantID":      tenantID,
-				"uploadID":      uploadID,
-				"sizeIncrement": sizeIncrement,
-				"error":         err,
-			}).Warn("Multipart upload tenant quota validation failed")
-			return fmt.Errorf("storage quota exceeded: %w", err)
-		}
-	}
-
-	// Per-bucket quota (global and tenant buckets).
-	if err := om.checkBucketStorageQuota(ctx, bucket, sizeIncrement, isNewObject); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"bucket":   bucket,
-			"uploadID": uploadID,
-			"error":    err,
-		}).Warn("Multipart upload bucket quota validation failed")
-		return err
-	}
-
-	return nil
-}
-
-// checkBucketStorageQuota enforces the optional per-bucket quota.
-func (om *objectManager) checkBucketStorageQuota(ctx context.Context, bucket string, sizeIncrement int64, newObject bool) error {
-	tenantID, bucketName := om.parseBucketPath(bucket)
-	bucketMeta, err := om.metadataStore.GetBucket(ctx, tenantID, bucketName)
-	if err != nil || bucketMeta == nil || bucketMeta.Quota == nil {
-		return nil
-	}
-	q := bucketMeta.Quota
-
-	if q.MaxSizeBytes > 0 && sizeIncrement > 0 {
-		if bucketMeta.TotalSize+sizeIncrement > q.MaxSizeBytes {
-			logrus.WithFields(logrus.Fields{
-				"bucket":        bucket,
-				"currentBytes":  bucketMeta.TotalSize,
-				"maxBytes":      q.MaxSizeBytes,
-				"sizeIncrement": sizeIncrement,
-			}).Warn("Bucket storage quota exceeded (size)")
-			return fmt.Errorf("%w: %d/%d bytes (attempting to add %d)",
-				ErrBucketQuotaExceeded, bucketMeta.TotalSize, q.MaxSizeBytes, sizeIncrement)
-		}
-	}
-
-	if q.MaxObjectCount > 0 && newObject {
-		if bucketMeta.ObjectCount+1 > q.MaxObjectCount {
-			logrus.WithFields(logrus.Fields{
-				"bucket":       bucket,
-				"currentCount": bucketMeta.ObjectCount,
-				"maxCount":     q.MaxObjectCount,
-			}).Warn("Bucket storage quota exceeded (object count)")
-			return fmt.Errorf("%w: %d/%d objects",
-				ErrBucketQuotaExceeded, bucketMeta.ObjectCount, q.MaxObjectCount)
-		}
-	}
-
-	return nil
 }
 
 // updateMetricsAndCleanupMultipart updates bucket/tenant metrics and cleans up multipart data

@@ -171,6 +171,7 @@ func TestDeleteSpecificVersion_VersionNotFound(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object
 	key := "versioned-object.txt"
@@ -201,6 +202,7 @@ func TestDeleteSpecificVersion_WithExistingVersion(t *testing.T) {
 		OwnerID:  "user-1",
 	})
 	require.NoError(t, err)
+	bucket = "tenant-1/" + bucket
 
 	// Put an object to create a version
 	key := "versioned-file.txt"

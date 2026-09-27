@@ -1431,6 +1431,9 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok {
 		ctx = object.WithReplicatedLastModified(ctx, lm)
 	}
+	if r.Header.Get(cluster.HAObjectLockHeader) == "true" {
+		ctx = object.WithReplicatedObjectLock(ctx)
+	}
 	headers := r.Header.Clone()
 	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
