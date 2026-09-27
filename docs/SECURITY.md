@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.7.0 | **Last Updated**: September 18, 2026
+**Version**: 1.7.0 | **Last Updated**: September 27, 2026
 
 ## Security Overview
 
@@ -105,6 +105,9 @@ TOTP-based 2FA compatible with Google Authenticator, Authy, and similar apps.
 ---
 
 ## Authorization (RBAC)
+
+Default grants per role. Since 1.6.0 each role is a set of IAM policies, evaluated
+together with bucket permissions and attached policies — see [IAM](#iam).
 
 | Action | Global Admin | Tenant Admin | User | Read-Only |
 |--------|:---:|:---:|:---:|:---:|
@@ -454,6 +457,19 @@ Write-Once-Read-Many compliance for regulatory requirements.
 | **COMPLIANCE** | Strict immutability | Cannot be deleted until retention period expires |
 
 **Legal Hold**: Independent of retention — can be applied/removed anytime, prevents deletion regardless of retention settings.
+
+**Protection from the first write**: retention and legal hold sent with a PUT
+(`x-amz-object-lock-mode`, `x-amz-object-lock-retain-until-date`,
+`x-amz-object-lock-legal-hold`), or the bucket default retention, are stored in
+the same metadata write as the object, so no copy of it exists unprotected.
+Invalid values reject the PUT with `InvalidRequest`. HA replicas receive the same
+retention and legal hold with the object. `CreateMultipartUpload` takes the same
+headers, validated when the upload is created and applied when it completes.
+
+**One exception**: a write that misses the HA quorum removes the version it just
+created, even under the retention or legal hold it set. The client was told the
+write failed, so that version never existed for it. No client request can delete
+a protected version.
 
 ```bash
 # Enable on bucket

@@ -1524,8 +1524,8 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 			"newTotal":        newTotal,
 			"clusterMode":     isClusterEnabled,
 		}).Warn("CheckTenantStorageQuota: QUOTA EXCEEDED")
-		return fmt.Errorf("storage quota exceeded: %d/%d bytes (attempting to add %d bytes)",
-			currentStorage, tenant.MaxStorageBytes, additionalBytes)
+		return fmt.Errorf("%w: %d/%d bytes (attempting to add %d bytes)",
+			ErrStorageQuotaExceeded, currentStorage, tenant.MaxStorageBytes, additionalBytes)
 	}
 
 	logrus.Debug("CheckTenantStorageQuota: quota check passed")

@@ -288,7 +288,7 @@ func TestRunCycle_ClusterDisabled_NoOp(t *testing.T) {
 
 	// Must NOT panic and must NOT insert into ha_scrub_runs (table doesn't exist
 	// without InitReplicationSchema; the early return guards against that).
-	scrubber.runCycle(context.Background(), nil)
+	scrubber.runCycle(context.Background(), nil, 0)
 }
 
 func TestRunCycle_FactorOne_NoOp(t *testing.T) {
@@ -302,7 +302,7 @@ func TestRunCycle_FactorOne_NoOp(t *testing.T) {
 	require.NoError(t, mgr.SetReplicationFactor(ctx, 1))
 
 	scrubber := NewAntiEntropyScrubber(nil, nil, mgr, newFakeRawKV())
-	scrubber.runCycle(ctx, nil)
+	scrubber.runCycle(ctx, nil, 0)
 
 	// No row should have been inserted because the cycle exited before beginCycle.
 	var n int

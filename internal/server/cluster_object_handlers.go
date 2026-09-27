@@ -1425,17 +1425,8 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if versionID := r.Header.Get(cluster.HAObjectVersionHeader); versionID != "" {
-		ctx = object.WithReplicatedVersionID(ctx, versionID)
-	}
-	if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok {
-		ctx = object.WithReplicatedLastModified(ctx, lm)
-	}
-	if r.Header.Get(cluster.HAObjectLockHeader) == "true" {
-		ctx = object.WithReplicatedObjectLock(ctx)
-	}
 	headers := r.Header.Clone()
-	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
+	if _, err := s.objectManager.PutObject(cluster.ReplicaWriteContext(ctx, r.Header), bucketPath, key, r.Body, headers); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
 			Error("HA receive PUT failed")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1688,6 +1679,7 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	for k, v := range obj.Metadata {
 		w.Header().Set("x-amz-meta-"+k, v)
 	}
+	cluster.SetHAObjectLock(w.Header(), obj)
 	if obj.Size > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
 	}

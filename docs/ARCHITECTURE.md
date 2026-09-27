@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 1.7.0 | **Last Updated**: September 18, 2026
+**Version**: 1.7.0 | **Last Updated**: September 27, 2026
 
 ## Overview
 
@@ -101,9 +101,9 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 
 | Package | Purpose |
 |---------|---------|
-| `internal/auth` | User/access key management, bcrypt passwords, RBAC, S3 signatures, TOTP 2FA |
+| `internal/auth` | User/access key management, bcrypt passwords, IAM policy engine and roles, STS, S3 signatures, TOTP 2FA |
 | `internal/bucket` | Bucket CRUD, policy evaluation, tenant-scoped operations |
-| `internal/object` | Object CRUD, versioning, retention, tagging, multipart uploads |
+| `internal/object` | Object CRUD, versioning, retention, tagging, multipart uploads, quota reservations |
 | `internal/acl` | S3-compatible ACLs (canned + custom), permission evaluation |
 | `internal/presigned` | Presigned URL generation/validation (S3-compatible paths) |
 | `internal/share` | Share link management (time-limited public access) |
@@ -116,6 +116,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/metrics` | Prometheus metrics, system metrics, performance history (Pebble) |
 | `internal/settings` | Dynamic runtime configuration (no restart required) |
 | `internal/config` | Static configuration (YAML, env vars, CLI flags) |
+| `internal/bandwidth` | Per-tenant transfer throttling |
 
 ### Cluster
 
@@ -125,15 +126,23 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/cluster` | 6 sync managers: users, tenants, access keys, bucket permissions, IDP providers, group mappings |
 | `internal/cluster` | Tombstone-based deletion sync, circuit breaker, rate limiter |
 | `internal/cluster` | Bucket migration between nodes, replication queue/workers |
+| `internal/cluster` | HA object manager: quorum writes, local rollback on quorum failure, read fallback, anti-entropy |
+| `internal/clusterauth` | Inter-node request signature definition |
+| `internal/transfer` | Progress-based stall watchdog for requests that carry object data |
 | `internal/replication` | External S3 replication (user-configured, separate from cluster) |
 
 ### Storage & Data
 
 | Package | Purpose |
 |---------|---------|
-| `internal/storage` | Filesystem backend (tenant-scoped directories) |
+| `internal/storage` | Filesystem backend (layout v2: one directory per bucket, objects named by a digest of the key) |
 | `internal/metadata` | Pebble metadata store (objects, buckets, versions, locks, tags) |
 | `internal/db` | SQLite database management |
+| `internal/kek` | Key Encryption Key store, rotation, cluster key, recovery bundle |
+| `internal/rollback` | Retained copies of in-place writes; undo of interrupted writes at startup |
+| `internal/recovery` | Metadata rebuild and reconcile from the object files (`maxiofs recover`, `maxiofs reconcile`) |
+| `internal/layout` | Migration of an existing storage tree to the current layout |
+| `internal/bgwork` | Background goroutine ownership for components (tracked stop) |
 | `pkg/encryption` | AES-256-GCM authenticated encryption at rest |
 
 ### Frontend
@@ -161,21 +170,26 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │   ├── MANIFEST-*         ←   Version manifest
 │   ├── OPTIONS-*          ←   Engine options snapshot
 │   └── WAL/               ←   Write-Ahead Log (crash safety)
-└── objects/                ← Filesystem: actual object data
-    ├── .maxiofs/           ←   Internal storage metadata (multipart staging)
-    ├── tenant-{hash}/      ←   Tenant-scoped directories
-    │   ├── bucket-a/
-    │   │   ├── .maxiofs-bucket        ←   Bucket marker (records owning tenant)
-    │   │   ├── file1.txt
-    │   │   ├── file1.txt.metadata     ←   Sidecar: size, etag, content-type,
-    │   │   │                              encryption fields (wrapped DEK)
-    │   │   ├── dir/file2.pdf
-    │   │   └── .versions/             ←   Stored versions (versioned buckets):
-    │   │       └── {key}/{versionID}  ←     one file + sidecar per version
-    │   └── bucket-b/
-    ├── global-bucket/      ←   Global admin buckets (no tenant prefix)
+└── objects/                ← Filesystem: object data (layout v2)
+    ├── .maxiofs-layout     ←   On-disk layout version
+    ├── .maxiofs/multipart/parts/{uploadID}/{00001}
+    │                       ←   Uploaded parts until completion
+    ├── maxiofs-mpu-backup-*   ← Retained copies of in-place writes, with a
+    ├── maxiofs-part-backup-*    .json manifest; settled at the next start
+    ├── backups/            ←   One directory per bucket (names are global)
+    │   ├── .maxiofs-bucket ←     Marker: tenant-qualified bucket path
+    │   ├── 3f/a2/3fa2…c9   ←     Object: SHA-256 of the key (of key and
+    │   │                          version ID for a stored version)
+    │   └── 3f/a2/3fa2…c9.metadata
+    │                       ←     Sidecar: size, etag, content-type,
+    │                              encryption fields (wrapped DEK)
     └── ...
 ```
+
+The key never reaches the filesystem, so keys differing only in case, a key and
+the same key with a trailing slash, and a key ending in `.metadata` are all
+distinct objects. An installation on the previous layout is migrated on first
+start; `maxiofs migrate-layout --dry-run` previews the move.
 
 Every object file has a `.metadata` **sidecar** next to it holding everything
 needed to reconstruct its metadata entry (including the encryption envelope) —
@@ -211,7 +225,7 @@ writes, deletes and encryption migration.
 | `db/maxiofs.db` | SQLite (WAL mode) | Users, tenants, access keys, sessions, dynamic settings, cluster config, cluster nodes, replication rules, replication queue, bucket permissions, IDP providers, group mappings, deletion log, migrations |
 | `audit.db` | SQLite | Immutable audit trail (authentication, CRUD, security events). Separate for isolation and retention management |
 | `metadata/` | Pebble v2.1 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
-| `objects/` | Filesystem | Raw object data, organized by tenant and bucket |
+| `objects/` | Filesystem | Encrypted object data and sidecars, one directory per bucket |
 
 ---
 
@@ -235,7 +249,11 @@ Global Admin (no tenant)
     └── IDP Providers (optional)
 ```
 
-### Roles (RBAC)
+### Roles
+
+Since 1.6.0 each role is a set of IAM policies; bucket permissions and attached
+policies are evaluated with them AWS-style (default deny, explicit `Deny` wins).
+See [SECURITY.md](SECURITY.md#iam).
 
 | Role | Scope | Capabilities |
 |------|-------|-------------|
@@ -252,20 +270,29 @@ Bucket names are **globally unique** across all tenants (AWS S3 compatible):
 - Tenant A creates "backups" → OK
 - Tenant B tries to create "backups" → **Rejected** (name already taken)
 - S3 clients see standard URLs: `http://endpoint/backups/file.txt`
-- Backend transparently resolves: `access_key → user → tenant_id → tenant-{hash}/backups/file.txt`
-- Buckets created by a global admin can be global buckets with no tenant owner; these are stored without a tenant path prefix and remain visible to global admins.
+- Backend transparently resolves: `access_key → user → tenant_id → bucket path tenant-{id}/backups` in the metadata; on disk the bucket is `objects/backups/`
+- Buckets created by a global admin can be global buckets with no tenant owner; their bucket path has no tenant prefix and they remain visible to global admins.
 
 ### Quota Enforcement
 
 | Quota | Enforcement | Error |
 |-------|------------|-------|
-| Storage (bytes) | Checked before every upload (S3 API + Console) | 403 Quota Exceeded |
-| Buckets (count) | Checked on bucket creation | 403 Quota Exceeded |
-| Access Keys (count) | Checked on key generation | 403 Quota Exceeded |
+| Tenant storage (bytes) | Reserved before every PUT and multipart completion (S3 API + Console) | 403 QuotaExceeded |
+| Bucket storage (bytes) | Reserved before every PUT and multipart completion | 403 QuotaExceeded |
+| Bucket objects (count) | Reserved when a write creates a new key | 403 QuotaExceeded |
+| Buckets (count) | Checked on bucket creation | 403 QuotaExceeded |
+| Access Keys (count) | Checked on key generation | 403 QuotaExceeded |
+
+A write holds its room from before it stores anything until its usage is
+committed, and the check counts every earlier write still in flight, so
+concurrent writes on a node cannot pass against the same free space. Only
+growth is checked: deletes, delete markers and overwrites that do not grow an
+object are allowed over the quota. Reservations are per node; writes in flight
+on different cluster nodes do not see each other.
 
 ### Resource Isolation
 
-- Each tenant has isolated filesystem directories
+- Each bucket has its own directory; its marker records the owning tenant
 - API responses automatically filtered by tenant
 - Zero cross-tenant visibility
 - Global admins can access all tenants and global buckets
@@ -274,13 +301,14 @@ Bucket names are **globally unique** across all tenants (AWS S3 compatible):
 
 ## Authentication
 
-MaxIOFS supports **four authentication methods**:
+MaxIOFS supports **five authentication methods**:
 
 | Method | Use Case | Mechanism |
 |--------|----------|-----------|
 | **JWT** | Web Console | Username/password + optional 2FA → JWT token (24h default) |
 | **OAuth2/OIDC** | SSO Login | Google, Microsoft, or custom OIDC → auto-provisioning via group mappings |
 | **S3 Signatures** | S3 API | Access Key + Secret Key with AWS Signature v2/v4 |
+| **STS** | S3 API | Temporary `ASIA` key + session token from `GetSessionToken`/`AssumeRole`, optional session policy (SigV4 only) |
 | **HMAC-SHA256** | Cluster sync | Node token-based inter-node authentication |
 
 > Complete details: [SECURITY.md](SECURITY.md) | SSO guide: [SSO.md](SSO.md)
@@ -293,17 +321,23 @@ MaxIOFS supports **four authentication methods**:
 
 ```
 1. Client → S3 API: PUT /my-bucket/file.txt (AWS Signature v4)
-2. Auth: Extract access_key → lookup user → get tenant_id
-3. Bucket resolution: "my-bucket" → metadata lookup → tenant-{hash}/my-bucket
-4. Authorization: Verify user has write access to bucket
-5. Quota check: Verify tenant storage limit
-6. Optional: Encrypt data (if encryption enabled, AES-256-GCM)
-8. Write to filesystem: {data_dir}/objects/tenant-{hash}/my-bucket/file.txt
-9. Store metadata in Pebble: ETag, size, content-type, timestamps
-10. Update bucket metrics: IncrementObjectCount
-11. Optional: Trigger webhook notifications (ObjectCreated)
-12. Optional: Queue for cluster replication
-13. Return success to client
+2. Auth: access key → user → tenant
+3. Bucket resolution: "my-bucket" → bucket path tenant-{id}/my-bucket
+4. Authorization: IAM policy evaluation of s3:PutObject on the bucket
+5. Tenant quota pre-check on the declared size
+6. Object Lock: lock headers validated, or the bucket default retention computed
+7. Quota reservation: bucket and tenant room held for the write in flight
+8. Encrypt: plaintext staged, then encrypted with a new per-object DEK (AES-256-GCM)
+9. Write to filesystem: objects/my-bucket/ab/cd/<sha256(key)> + .metadata sidecar
+   (two-phase commit); an overwrite retains the previous copy until step 10
+10. Commit metadata in Pebble (ETag, size, retention, legal hold), fsynced
+11. Release the reservation; update bucket metrics and tenant usage
+12. Cluster (replication factor 2 or 3): replicate to the healthy peers; a peer
+    that misses the write is caught up when it is back. A factor of 3 needs one
+    peer to confirm, or the new version is removed locally and the request
+    answers 503
+13. Optional: Trigger webhook notifications (ObjectCreated)
+14. Return success to client
 ```
 
 ### Cluster Request Routing
@@ -342,7 +376,8 @@ MaxIOFS supports **four authentication methods**:
 ## Current Limitations
 
 - ⚠️ Filesystem backend only (local/NAS/SAN storage)
-- ⚠️ Single master encryption key for all tenants
+- ⚠️ One KEK for all tenants (rotatable; each object has its own DEK)
+- ⚠️ Quotas enforced per node: writes in flight on different nodes do not see each other
 - ⚠️ No SAML SSO (OAuth2/OIDC recommended instead)
 - ⚠️ No per-tenant rate limiting (global only)
 - ⚠️ Not validated at high scale (100+ concurrent users, 100+ tenants)

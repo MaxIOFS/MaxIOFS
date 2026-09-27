@@ -2,7 +2,9 @@ package cluster
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -125,6 +127,9 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node health: %w", err)
+	}
+	if status == HealthStatusHealthy {
+		m.catchUpReplica(ctx, nodeID)
 	}
 
 	if m.storagePressureFn != nil {
@@ -308,6 +313,56 @@ func (m *Manager) performHealthChecks(ctx context.Context) {
 
 		cancel()
 	}
+}
+
+// noteMissedWrites records that the given nodes, or when none are given every
+// node that is neither local, healthy nor dead, missed a write made at
+// modified. The earliest miss is kept until the node is caught up.
+func (m *Manager) noteMissedWrites(ctx context.Context, localID string, modified time.Time, nodeIDs ...string) {
+	const earliest = `UPDATE cluster_nodes SET replica_missed_since = CASE
+		WHEN replica_missed_since IS NULL OR replica_missed_since > ? THEN ?
+		ELSE replica_missed_since END `
+	since := modified.Unix()
+	ctx = context.WithoutCancel(ctx)
+	var err error
+	if len(nodeIDs) == 0 {
+		_, err = m.db.ExecContext(ctx, earliest+`WHERE id != ? AND health_status NOT IN (?, ?)`,
+			since, since, localID, HealthStatusHealthy, HealthStatusDead)
+	}
+	for _, id := range nodeIDs {
+		_, idErr := m.db.ExecContext(ctx, earliest+`WHERE id = ?`, since, since, id)
+		err = errors.Join(err, idErr)
+	}
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to record a missed replica write")
+	}
+}
+
+// catchUpReplica takes the node's record of missed writes, if any, and hands
+// it to the OnReplicaBack hook. The record is cleared only if it did not change
+// since it was read: an earlier miss recorded meanwhile stays for the next check.
+func (m *Manager) catchUpReplica(ctx context.Context, nodeID string) {
+	fn := m.replicaCaughtUp.Load()
+	if fn == nil {
+		return
+	}
+	var since sql.NullInt64
+	err := m.db.QueryRowContext(ctx,
+		`SELECT replica_missed_since FROM cluster_nodes WHERE id = ?`, nodeID).Scan(&since)
+	if err != nil || !since.Valid {
+		return
+	}
+	res, err := m.db.ExecContext(ctx,
+		`UPDATE cluster_nodes SET replica_missed_since = NULL WHERE id = ? AND replica_missed_since = ?`,
+		nodeID, since.Int64)
+	if err != nil {
+		m.log.WithError(err).WithField("node_id", nodeID).Warn("Failed to clear missed replica writes")
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return
+	}
+	(*fn)(nodeID, time.Unix(since.Int64, 0))
 }
 
 // checkAndMarkStale marks a node as stale if it has been unreachable longer than StalenessThreshold.

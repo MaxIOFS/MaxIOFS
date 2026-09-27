@@ -49,7 +49,7 @@ func fanoutToRecorder(t *testing.T, obj *object.Object) http.Header {
 	require.NoError(t, err)
 
 	h := &HAObjectManager{Manager: &lockedObjectManager{obj: obj}, mgr: mgr}
-	require.NoError(t, h.fanoutPut(ctx, "bucket", "key", obj.VersionID))
+	require.NoError(t, h.fanoutPut(ctx, "bucket", "key", obj.VersionID, time.Now()))
 	select {
 	case got := <-received:
 		return got

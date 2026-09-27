@@ -11,16 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multipart completion streams parts directly into one encrypted storage write.
 - Removed two full-object reads and two full-object writes from multipart completion.
 - Multipart completion keeps only one part reader open at a time.
+- Bucket and tenant quotas reserve room for each write in flight: concurrent PUTs and multipart completions on a node cannot pass against the same free space.
+- Invalid Object Lock headers on PUT are rejected with `InvalidRequest`; the object is not stored.
+- DELETE and batch delete on a missing bucket return 404 (`NoSuchBucket` in the S3 API).
+- A node that comes back after missing writes is caught up at once: the node that accepted them compares the objects modified since the first missed write and sends the deletes the peer missed.
 
 ### Fixed
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
 - Raw replica rollback retains recoverable backups when restoration fails.
 - Multipart completion waits for encryption to stop on failure or cancellation.
 - Destination metadata lookup errors abort multipart completion before overwriting data.
+- PUT stores the retention and legal hold from Object Lock headers, or the bucket default retention, in the same metadata write as the object. A failure after the write no longer leaves the object unprotected.
+- Bucket metadata read errors fail PUT, DELETE and quota checks instead of treating the bucket as unversioned or without quota.
+- PUT and raw replica writes fail when the existing object's metadata cannot be read, instead of overwriting it without a backup.
+- Every copy between nodes carries retention and legal hold with the object: replication (raw or not), the initial sync of a new replica, the anti-entropy push and pull, and the stale-node catch-up.
+- Two nodes with a replication factor of 2 keep accepting writes while one of them is down, as a mirror. Writes answered `503` until the peer returned.
+- A tenant quota refusal inside a write answers `403 QuotaExceeded` instead of `500` (S3 PUT, CopyObject, POST upload, console upload, rename and version restore). CopyObject and POST uploads also answer bucket quota and Object Lock errors with their S3 codes.
+- `CreateMultipartUpload` applies `x-amz-object-lock-mode`, `x-amz-object-lock-retain-until-date` and `x-amz-object-lock-legal-hold`: validated when the upload is created, applied when it completes. They were ignored.
+- A write that misses HA quorum removes its local version even under the retention or legal hold it set; the client was told the write failed.
+- Encryption migration keeps a crash-recoverable backup of each object and restores it when the rewrite or its verification fails.
+- `docs/API.md` listed console routes that do not exist and missed many that do; its route tables now match the router.
 
 ### Added
 - Write-path I/O accounting tests for PUT, overwrites, versioning and multipart uploads.
 - Multipart streaming regression tests for cancellation, read failures, rollback and retry.
+- Quota tests for concurrent writers, slow tenant checks, writes finishing or refused during a check, and deletes over the limit.
+- Object Lock tests for PUT headers, HA replica transfers and quorum rollback of protected versions.
+- Rollback tests for raw replica overwrites and failed encryption migration restores.
+- HA tests for mirror writes with a node down, the catch-up of a returning node (window, deletes, retries) and quota error codes.
 
 ## [1.7.0] - 2026-09-18
 

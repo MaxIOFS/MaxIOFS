@@ -79,3 +79,54 @@ func writeObjectLock(ctx context.Context, bucket *metadata.BucketMetadata, heade
 	}
 	return retention, hold, nil
 }
+
+// Object-lock state a multipart upload keeps until it completes. A ':' cannot
+// appear in a header name, so no user metadata key can take these.
+const (
+	uploadLockMode  = "lock:mode"
+	uploadLockUntil = "lock:retain-until-date"
+	uploadLockHold  = "lock:legal-hold"
+)
+
+func hasObjectLockHeaders(headers http.Header) bool {
+	return headers.Get("x-amz-object-lock-mode") != "" ||
+		headers.Get("x-amz-object-lock-retain-until-date") != "" ||
+		headers.Get("x-amz-object-lock-legal-hold") != ""
+}
+
+// uploadObjectLock validates the object-lock headers of a new multipart upload
+// as a PUT would, and returns what the upload keeps until it completes. The
+// bucket default retention is left to the completion, which dates it.
+func uploadObjectLock(ctx context.Context, bucket *metadata.BucketMetadata, headers http.Header) (map[string]string, error) {
+	retention, hold, err := writeObjectLock(ctx, bucket, headers)
+	if err != nil {
+		return nil, err
+	}
+	kept := make(map[string]string, 3)
+	if headers.Get("x-amz-object-lock-mode") != "" || headers.Get("x-amz-object-lock-retain-until-date") != "" {
+		kept[uploadLockMode] = retention.Mode
+		kept[uploadLockUntil] = retention.RetainUntilDate.UTC().Format(time.RFC3339Nano)
+	}
+	if hold != nil {
+		kept[uploadLockHold] = hold.Status
+	}
+	return kept, nil
+}
+
+// completedObjectLock is the lock state of a completed multipart upload: what
+// its creation asked for, as asked, or else the bucket default retention.
+func completedObjectLock(kept map[string]string, bucket *metadata.BucketMetadata) (*RetentionConfig, *LegalHoldConfig, error) {
+	var hold *LegalHoldConfig
+	if status := kept[uploadLockHold]; status != "" {
+		hold = &LegalHoldConfig{Status: status}
+	}
+	if mode := kept[uploadLockMode]; mode != "" {
+		until, err := time.Parse(time.RFC3339, kept[uploadLockUntil])
+		if err != nil {
+			return nil, nil, fmt.Errorf("multipart upload retain-until date: %w", err)
+		}
+		return &RetentionConfig{Mode: mode, RetainUntilDate: until}, hold, nil
+	}
+	retention, err := defaultWriteRetention(bucket)
+	return retention, hold, err
+}

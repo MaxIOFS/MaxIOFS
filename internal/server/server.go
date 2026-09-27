@@ -562,6 +562,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize anti-entropy scrubber (PebbleStore implements RawKVStore for crash-safe checkpoints).
 	antiEntropyScrubber := supervise(reg, "antiEntropy", cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore))
+	clusterManager.OnReplicaBack(antiEntropyScrubber.CatchUp)
 
 	// Dead-node reconciler is wired below after the Server struct is built so
 	// it can capture the notification hub for SSE emission.

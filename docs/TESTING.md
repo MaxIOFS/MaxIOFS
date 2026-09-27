@@ -1,13 +1,13 @@
 # Testing
 
 **Version**: 1.7.0
-**Last Updated**: May 18, 2026
+**Last Updated**: September 27, 2026
 
 ---
 
 ## Overview
 
-MaxIOFS has **268 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **284 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -104,24 +104,54 @@ npx vitest run --coverage
 |------|-------------|
 | `sqlite_test.go` | Audit log storage, querying, retention, SQLite operations |
 
-### `internal/auth/` — 32 test files (table below is partial, not yet reconciled)
+### `internal/auth/` — 32 test files
 
 | File | Description |
 |------|-------------|
+| `access_key_last_used_test.go` | An access key's last-used time skips a write for a second already stored and never moves backwards |
+| `admin_identity_test.go` | Administrator status comes from the role or from an attached policy |
+| `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through |
+| `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
 | `auth_test.go` | Core authentication flows |
+| `bootstrap_key_test.go` | The bootstrap key pair seeds the administrator's first S3 key once; ignored when a key exists, when unset, or when unusable |
+| `cluster_convergence_test.go` | Two-node convergence: credential revocation window, immediate deactivation, concurrent policy and bucket-grant writes |
+| `download_token_test.go` | A download token opens only the resource it names, is not a session, and is refused for a disabled user |
+| `iam_console_test.go` | The console's permission screens load what a user's role and grants give; assignable roles exist and are healed on an old database |
+| `iam_legacy_schema_test.go` | Databases that applied the IAM migration early: a NOT NULL trust policy column, a missing permission catalogue |
+| `iam_policy_repair_test.go` | A policy whose default version is missing is repaired; one with no versions is an error |
+| `iam_role_test.go` | IAM roles: trust policy parsing and evaluation, `AssumeRole` checks (session name, duration, tenant), role-session permissions, immediate revocation, ARN parsing |
+| `iam_test.go` | IAM policies: parsing and size budget, evaluation (explicit `Deny` wins), version lifecycle, built-ins, inline policies, IAM user create/delete rules |
 | `manager_jwt_secret_test.go` | JWT secret rotation and validation |
 | `manager_s3sig_test.go` | S3 Signature V4 verification |
 | `manager_simple_test.go` | Basic auth manager operations (CRUD users, keys) |
 | `manager_tenant_test.go` | Tenant-scoped auth operations |
+| `permissions_screen_test.go` | Saving a user's permissions stores real grants without baking in inherited ones |
 | `permissions_test.go` | Permission checks |
+| `policy_bootstrap_test.go` | First-boot conversion to IAM policies: administrators and ordinary users keep console access; an unconverted database is healed; idempotent |
+| `policy_equivalence_test.go` | The unified policy set reaches the same verdict as the legacy role, bucket-permission and capability model over every combination |
+| `policy_orphan_test.go` | Deleting a user, group or tenant removes its policies; a reused identifier inherits nothing |
+| `policy_set_test.go` | The policy engine enforces the account boundary; a super administrator reads across accounts and writes nowhere; an unstated owner is refused |
 | `quota_cluster_test.go` | Cluster-wide quota enforcement |
 | `rate_limiter_test.go` | Login rate limiting, account lockout |
+| `s3_subresources_test.go` | S3 action resolution for bucket subresources, action precedence and trailing slashes |
 | `s3auth_test.go` | S3 authentication flow end-to-end |
+| `sts_policy_test.go` | STS session policies: parsing, evaluation, action/ARN resolution per request, enforcement on signed and presigned requests |
+| `sts_test.go` | STS sessions: issued credentials, duration bounds, per-user cap, signature round trip, tampering, expiry, revocation, deactivated user, SigV2 refusal, sweeping |
+| `tenant_admin_test.go` | Tenant administrators: role policies still apply, Object Lock managed for their own tenant, no unscoped full access |
 | `totp_test.go` | TOTP 2FA enrollment, verification, recovery codes |
+| `upgrade_test.go` | Upgrade from a pre-IAM deployment: every user keeps exactly their permissions, console screens load, a second boot changes nothing |
 
-`audit_helpers_test.go` no longer exists; the file was removed without updating this table. The
-other 22 files in the package (IAM policy evaluation, STS, session policies, bootstrap key —
-grown across several releases) are not catalogued here yet.
+### `internal/bandwidth/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `manager_test.go` | Per-tenant bandwidth limiter: none when unlimited, one shared limiter per tenant with in-place rate updates, measured throttling |
+
+### `internal/bgwork/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `worker_test.go` | `Stop` waits for the goroutine and is idempotent under concurrency; a spawn after `Stop` is refused; the zero value is usable |
 
 ### `internal/bucket/` — 5 test files
 
@@ -133,7 +163,7 @@ grown across several releases) are not catalogued here yet.
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 33 test files
+### `internal/cluster/` — 36 test files
 
 | File | Description |
 |------|-------------|
@@ -147,8 +177,11 @@ grown across several releases) are not catalogued here yet.
 | `dead_node_reconciler_test.go` | Dead-node replica redistribution |
 | `deletion_log_test.go` | Tombstone-based deletion sync |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
+| `ha_fanout_lock_test.go` | The legacy (non-raw) HA transfer carries the object's retention and legal hold; without lock state it sends no lock header |
+| `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again |
 | `ha_quorum_test.go` | HA write quorum behavior |
 | `ha_read_test.go` | HA read fallback and ordered retry |
+| `ha_rollback_lock_test.go` | A write that misses HA quorum (factor 3, both peers failing) removes its local version even under COMPLIANCE retention and a legal hold |
 | `ha_url_test.go` | Cluster HA endpoint URL handling |
 | `health_test.go` | Node health checks (30s intervals) |
 | `idp_provider_sync_test.go` | IDP provider configuration sync |
@@ -171,11 +204,23 @@ grown across several releases) are not catalogued here yet.
 | `tenant_sync_test.go` | Tenant sync across nodes |
 | `user_sync_test.go` | User sync across nodes |
 
+### `internal/clusterauth/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `signature_test.go` | The inter-node request signature binds every request field; components cannot be confused; nonces are unique |
+
 ### `internal/config/` — 1 test file
 
 | File | Description |
 |------|-------------|
 | `config_test.go` | Config loading (YAML, env vars, CLI flags), validation, defaults |
+
+### `internal/db/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `dsn_test.go` | The canonical SQLite DSN applies its pragmas |
 
 ### `internal/db/migrations/` — 1 test file
 
@@ -202,6 +247,19 @@ grown across several releases) are not catalogued here yet.
 | `report_retention_test.go` | Only recent report history is kept |
 | `worker_test.go` | Background inventory worker |
 
+### `internal/kek/` — 2 test files
+
+| File | Description |
+|------|-------------|
+| `bundle_test.go` | Recovery bundle export and decryption: round trip, wrong or short passphrase, garbage input, several KEK versions, download tracking |
+| `store_test.go` | KEK bootstrap (database key wins over config, config seeds version 1, otherwise generated), lookup by version, cluster key creation and adoption, rotation, concurrent rotations |
+
+### `internal/layout/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `migrate_test.go` | Layout v1 → v2 migration: moves every object and version, idempotent, resumes after an interruption, dry run, refuses duplicate or tenant-like bucket names, reports inconsistencies, prunes the old tree once per directory, purges implicit folder objects |
+
 ### `internal/lifecycle/` — 2 test files
 
 | File | Description |
@@ -223,20 +281,23 @@ grown across several releases) are not catalogued here yet.
 
 | File | Description |
 |------|-------------|
+| `bucket_concurrency_test.go` | A bucket configuration update does not lose concurrent metric increments |
+| `close_idempotent_test.go` | `Close` is idempotent |
+| `delete_bucket_if_empty_test.go` | A bucket holding a folder-marker object is not empty |
+| `lastmodified_test.go` | `PutObject` keeps a caller-provided `LastModified` and stamps the current time only when it is unset |
 | `multipart_comprehensive_test.go` | Multipart upload metadata tracking |
 | `objects_test.go` | Object metadata storage and retrieval |
+| `pagination_property_test.go` | Every listing, delimited or not, returns every key and prefix exactly once across page boundaries |
 | `pebble_test.go` | Pebble store: object CRUD and bucket deletion race coverage |
 | `pebble_durability_test.go` | WAL sync loop, `CLEAN_SHUTDOWN` sentinel, unclean-shutdown recovery |
 | `pebble_group_commit_test.go` | `PutObject`/`PutObjectVersion` release the bucket lock before the WAL-sync wait, so concurrent writers share one fsync |
 | `pebble_group_commit_crash_test.go` | A process killed between the NoSync commit and the WAL sync leaves a rollback copy consistent with the index, not a phantom entry |
+| `pebble_pagination_test.go` | Marker loops over listing, delimited listing and search lose nothing at several page sizes |
 | `search_objects_test.go` | Object search by prefix, delimiter, pagination |
 | `store_consistency_test.go` | Metadata consistency and counter reconciliation |
 | `tags_comprehensive_test.go` | Object and bucket tag operations |
+| `version_delete_test.go` | Deleting a version promotes the next one, removes the entry when none remain, and leaves the main entry alone for an older version |
 | `versioning_test.go` | Version ID generation, version listing |
-
-Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go`,
-`delete_bucket_if_empty_test.go`, `lastmodified_test.go`, `pagination_property_test.go`,
-`pebble_pagination_test.go`, `version_delete_test.go`.
 
 ### `internal/metrics/` — 6 test files
 
@@ -265,7 +326,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 38 test files
+### `internal/object/` — 46 test files
 
 | File | Description |
 |------|-------------|
@@ -296,17 +357,25 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `multipart_part_replace_test.go` | Replacing an acknowledged part retains it until the new one commits, and restores it on failure |
 | `multipart_race_test.go` | Concurrent multipart upload race conditions |
 | `multipart_retention_test.go` | Default retention on multipart completion; a lookup failure preserves the upload |
+| `multipart_stream_test.go` | A multipart completion failing at any stage of the stream (open, read, short part, close, cancel, encryption, commit, lookup) keeps the previous object, closes every part reader and stays retryable; empty parts complete |
 | `multipart_validation_test.go` | Multipart validation and failure handling |
 | `raw_replication_test.go` | Replica-side raw ciphertext write, plain and versioned |
+| `raw_replication_rollback_test.go` | A failed raw replica overwrite restores the previous data and sidecar, including existing versions |
 | `read_snapshot_test.go` | A reader keeps the generation it opened across a concurrent overwrite |
 | `reconcile_serialization_test.go` | Reconcile takes the same per-key lock as normal operations and does not race a concurrent PUT |
 | `review_part_crash_faultcheck_test.go` | An acknowledged multipart part survives a process kill during a replacement upload |
 | `search_objects_test.go` | Object search and listing |
 | `sidecar_loss_test.go` | A lost sidecar never serves ciphertext as if it were the plaintext object |
+| `staging_cost_test.go` | Content passes of PUT staging and multipart completion, per path; the large-part probe is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#put-staging-and-multipart-completion)) |
 | `storage_identity_test.go` | `GetObject` refuses to serve ciphertext whose sidecar records no verifiable identity |
 | `versioned_prefix_test.go` | Versioned-bucket key collisions: shared prefix, case-only difference, folder marker |
 | `versioning_delete_test.go` | Version-aware delete operations |
 | `versioning_multipart_metrics_test.go` | Versioning, multipart, and metric counter interaction |
+| `write_audit_test.go` | PUT applies the bucket default retention; a bucket read failure fails closed; concurrent writes respect the quota; a failed encryption-migration restore keeps its backup |
+| `write_cost_test.go` | Write-path cost accounting (backend calls, bytes, metadata lookups) for new, overwrite, versioned and part writes; the disk workload is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#write-path-cost-accounting)) |
+| `write_quota_test.go` | Quota reservations: concurrent writers never over-admit and all fitting writers are admitted; a finished or refused write is not counted twice; a slow tenant check blocks nobody; freeing space is allowed over the limit; a versioned overwrite is charged in full |
+| `write_rollback_test.go` | Undoing a write deletes the protected version it created; a client delete of that version is still refused. Multipart uploads keep the Object Lock headers of their creation, validated then, and user metadata cannot set them |
+| `write_safety_test.go` | Reservations are released on success and failure; a failed write stays retryable; quota is accounted per bucket; Object Lock headers are applied at the first commit; a failed bucket lookup on delete preserves the object |
 
 ### `internal/presigned/` — 1 test file
 
@@ -344,7 +413,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 35 test files
+### `internal/server/` — 37 test files
 
 | File | Description |
 |------|-------------|
@@ -353,6 +422,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold |
+| `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
 | `console_idp_test.go` | Console IDP management endpoints |
@@ -374,6 +444,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `leader_gate_test.go` | Reads, sign-in and cluster traffic are never blocked by the leader gate |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
+| `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not |
 | `pending_password_change_test.go` | A pending forced password change leaves only the intended way out |
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |
@@ -412,6 +483,12 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `sidecar_identity_test.go` | `Put` and `SetMetadata` record and keep the object's own identity in the sidecar |
 | `storage_bench_test.go` | Storage benchmarks (throughput, latency by file size) |
 
+### `internal/transfer/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `stall_test.go` | Stall watchdog for inter-node transfers: a slow but progressing transfer is not cut, a stalled one is; upload progress counts; closing the body releases the watch; caller cancellation still works |
+
 ### `pkg/encryption/` — 2 test files
 
 | File | Description |
@@ -419,7 +496,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 33 test files
+### `pkg/s3compat/` — 36 test files
 
 | File | Description |
 |------|-------------|
@@ -427,6 +504,7 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `acl_debug_test.go` | ACL compatibility debugging |
 | `acl_security_test.go` | ACL security edge cases |
 | `background_jobs_test.go` | A background job keeps the request's values but uses shutdown cancellation, not the request's |
+| `batch_missing_bucket_test.go` | A batch delete on a missing bucket answers `NoSuchBucket` |
 | `bucket_listing_test.go` | `ListBuckets` shows exactly what the caller's policies grant, no more and no less |
 | `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256) |
 | `conditional_headers_test.go` | `If-Match`/`If-None-Match` ETag comparison |
@@ -438,12 +516,14 @@ Not yet catalogued here: `bucket_concurrency_test.go`, `close_idempotent_test.go
 | `iam_authorization_test.go` | An IAM read policy does not authorize a write or delete; version actions are resource-scoped |
 | `inventory_test.go` | S3 inventory API compatibility |
 | `multipart_faultcheck_test.go` | Concurrent part uploads to different/the same part number over real HTTP; abort during a disconnected upload |
+| `multipart_object_lock_test.go` | `CreateMultipartUpload` refuses Object Lock headers it cannot honour with `InvalidRequest` |
 | `multipart_ownership_test.go` | A foreign multipart upload is refused; the owner's own upload keeps working |
 | `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
 | `multipart_retention_test.go` | Default retention applied to an S3 multipart completion |
 | `notifications_test.go` | Bucket notification webhook dispatch |
 | `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously |
 | `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
+| `quota_write_errors_test.go` | A tenant quota refusal inside a PUT and a bucket quota refusal on CopyObject answer 403 `QuotaExceeded`; a failure to check the quota is not a refusal |
 | `presigned_signer_test.go` | Presigned-URL signer resolves a permanent key's owner and an STS principal, denies what it cannot resolve |
 | `presigned_test.go` | S3 pre-signed request handling (SigV2 + SigV4) |
 | `proxy_fallthrough_test.go` | A request whose body was already consumed is not handled locally; reads may still fall through |
@@ -485,7 +565,9 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `IdentityProviders.test.tsx` | IDP management UI flows |
 | `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |
+| `Modal.test.tsx` | Modal keeps focus inside the dialog, returns it to the opener, announces itself as a dialog |
 | `Users.test.tsx` | User management CRUD UI |
+| `useIdleTimer.test.ts` | The idle timer ignores background token refreshes and resets on real activity |
 
 ### Configuration
 
@@ -559,7 +641,7 @@ make perf-test-custom VUS=50 DURATION=2m SCRIPT=upload_test.js
 
 ## Benchmarks
 
-Two packages have dedicated benchmarks:
+Three packages have dedicated benchmarks:
 
 ### Storage Benchmarks
 
@@ -576,6 +658,15 @@ go test ./pkg/encryption -bench=. -benchmem -benchtime=3s
 ```
 
 Tests AES-256-GCM encryption/decryption throughput and memory allocation.
+
+### Metadata Durability Benchmark
+
+```bash
+go test ./internal/metadata -run '^$' -bench BenchmarkDurableMetadata -benchtime=3s
+```
+
+Parallel object, version and part commits against Pebble. Reports `WAL-sync/op`: below 1 means
+concurrent commits share a WAL sync (group commit).
 
 ### Profiling
 
@@ -691,12 +782,12 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 38 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery |
-| Cluster | 33 | Sync, replication, routing, HA, migration, health |
-| Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM, STS *(table below is partial)* |
-| S3 Compat | 33 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
-| Server | 35 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate |
-| Metadata | 17 | Pebble store, search, tags, versioning, multipart, durability, group commit |
+| Object | 46 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 37 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive |
+| Cluster | 36 | Sync, replication, routing, HA quorum, rollback and catch-up, migration, health |
+| S3 Compat | 36 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
+| Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
+| Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 11 | Filesystem, staged commit, layout v2, benchmarks |
 | Replication | 8 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 6 | Prometheus, history, system, performance |
@@ -708,11 +799,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Inventory | 4 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
-| Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, migrations, kek, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **268** | |
-
-Recovery and Rollback are new packages in 1.7.0. The full per-file breakdown for every area above
-except Auth is in the sections below; Auth's is partial (10 of 32 files) — the rest predate this
-release and are not yet catalogued in detail.
-| Frontend | 8 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling |
+| Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
+| **Total Go** | **284** | |
+| Frontend | 10 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer |
 | Performance | 4 | Upload, download, mixed, common |

@@ -905,7 +905,7 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	result, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, src, syntheticHeaders)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketName, "key": objectKey}).Error("POST presigned: PutObject failed")
-		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
 	}
 

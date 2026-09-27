@@ -1,7 +1,7 @@
 # MaxIOFS Operations Guide
 
 **Version**: 1.7.0  
-**Last Updated**: August 24, 2026  
+**Last Updated**: September 27, 2026  
 **Audience**: SRE / Ops / On-call engineers
 
 This document describes day‑to‑day operations, runbooks, and best practices for running MaxIOFS in production (single node and clusters).
@@ -258,7 +258,8 @@ MaxIOFS includes logic to handle **stale nodes** and **network partitions** usin
 
 **Behavior**:
 
-- Cluster continues to accept writes on surviving nodes.
+- Writes continue on the surviving nodes: a factor of 2 keeps writing on its own copy; a factor of 3 needs one of its two peers.
+- When the node is healthy again, the node that accepted its writes catches it up with the writes and deletes it missed (see [CLUSTER.md](CLUSTER.md#what-happens-when-a-node-fails)).
 - When the node returns:
   - It is detected as **stale** if it has been offline longer than the staleness threshold.
   - The **stale reconciler** fetches a **state snapshot** from peers and:
@@ -317,11 +318,14 @@ Each node stores:
 - Monitor disk usage and set alerts at 80% and 90%.
 - Plan **vertical scaling** (bigger disks) or **horizontal scaling** (more nodes) before you reach 90%.
 
-### Tenant Quotas
+### Quotas
 
 - Tenants can have:
   - Maximum storage in bytes.
   - Maximum bucket and access key counts.
+- Buckets can have a maximum size and a maximum object count (bucket settings → Quota).
+- A write that would take usage past a quota is refused with `403 QuotaExceeded`. Deletes, delete markers and overwrites that do not grow an object are always allowed, even over the quota.
+- Concurrent writes on a node reserve their room before they store anything, so they cannot pass against the same free space. Reservations are per node: writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time.
 - When quotas are close to being reached:
   - Console shows visual indicators.
   - Alerts are sent to tenant and global admins.
@@ -608,7 +612,7 @@ No error messages during open means WAL replay succeeded. If you see `pebble: co
 
 ### Quota or Capacity Errors
 
-1. Check tenant quota settings and usage in Console.
+1. Check tenant and bucket quota settings and usage in Console.
 2. Verify lifecycle rules are working as expected.
 3. Coordinate with tenant owners to clean up or increase quota.
 

@@ -1823,6 +1823,19 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 	if acl := headers.Get("x-amz-acl"); acl != "" {
 		metadata["x-amz-acl"] = acl
 	}
+	if hasObjectLockHeaders(headers) {
+		bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
+		if err != nil {
+			return nil, err
+		}
+		kept, err := uploadObjectLock(ctx, bucketMeta, headers)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range kept {
+			metadata[k] = v
+		}
+	}
 
 	// Create multipart upload metadata
 	multipart := &MultipartUpload{
@@ -2121,7 +2134,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		SSEAlgorithm: "AES256",
 	}
 
-	object.Retention, err = defaultWriteRetention(bucketMeta)
+	object.Retention, object.LegalHold, err = completedObjectLock(multipart.Metadata, bucketMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -2524,7 +2537,8 @@ func filterStorageMetadataKeys(m map[string]string) map[string]string {
 		"content-type": true, "content-disposition": true,
 		"content-encoding": true, "cache-control": true,
 		"content-language": true, "storage-class": true,
-		"x-amz-acl": true,
+		"x-amz-acl":    true,
+		uploadLockMode: true, uploadLockUntil: true, uploadLockHold: true,
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {

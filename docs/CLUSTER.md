@@ -2,7 +2,7 @@
 
 **Version**: 1.7.0
 **Status**: Production-Ready
-**Last Updated**: September 18, 2026
+**Last Updated**: September 27, 2026
 
 ---
 
@@ -34,6 +34,10 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ **Dedicated cluster port 8082** — inter-node traffic is fully separated from S3 (8080) and console (8081)
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
+- ✅ Synchronous replication (factor 1–3): a factor of 2 is a mirror that keeps writing with its peer down; a factor of 3 needs one of its two peers
+- ✅ A node that comes back is caught up at once with the writes and deletes it missed
+- ✅ Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
+- ✅ Elected coordinator for configuration changes; a surviving node takes over
 - ✅ Automatic synchronization for 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
 - ✅ Tombstone-based deletion sync (prevents entity resurrection)
 - ✅ Health monitoring (30-second intervals)
@@ -55,12 +59,24 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 A cluster has two planes, and it is worth knowing how each one behaves.
 
 **The data plane (S3 API, port 8080) needs no coordinator at all.** Every node
-serves reads and writes on its own. With a replication factor of 2 the write
-quorum is deliberately *one* — the local write — so an object written while the
-other node is down still succeeds, and the stale-object reconciler copies it
-across when the peer returns. Two nodes are a real mirror: both hold a full
-copy, either one serves everything, and losing one loses no data and stops no
-S3 traffic.
+serves reads and writes on its own. With a replication factor above 1, a write is
+copied to the healthy peers before it is acknowledged, and half of the factor's
+copies, rounded up and counting the local one, must hold it. A factor of 2 is
+therefore a mirror, like RAID 1: with its peer down, the survivor keeps accepting
+writes on its own copy. A factor of 3 needs one of its two peers, so it keeps
+writing with one node down and answers `503 ServiceUnavailable`
+(`Retry-After: 30`) only with both down.
+
+**A node that missed writes is caught up as soon as it is back.** The node that
+accepted them records, per peer, the time of the earliest write that peer
+missed. When a health check finds the peer healthy again, it compares every
+object modified since then with the peer and sends what differs, lock state
+included, then sends the deletes the peer missed. A delete of a whole key is sent
+only if the peer's copy is not newer than the delete, so a key written on the
+other side of a partition is kept. What fails is recorded again and retried at
+the next health check. The catch-up runs even with the periodic scrub disabled.
+With the periodic scrub enabled (the default), a node that restarts also runs a
+full anti-entropy cycle within an hour of starting.
 
 **The control plane (web console, port 8081) elects a coordinator**, so that two
 nodes cannot edit the same entity at the same instant and quietly disagree about
@@ -82,9 +98,10 @@ done by hand, and nothing has to be removed or re-joined. If you *do* want to
 decommission it permanently, remove it from the console in the ordinary way —
 the surviving node is a coordinator, so that works too.
 
-| | 2 nodes | 3 nodes |
+| | 2 nodes, factor 2 | 3 nodes, factor 3 |
 |---|---|---|
-| Object reads and writes with a node down | ✅ Continue | ✅ Continue |
+| Object reads with a node down | ✅ Continue | ✅ Continue |
+| Object writes with a node down | ✅ Continue | ✅ Continue |
 | Data redundancy (full copy per node) | ✅ Yes | ✅ Yes |
 | Configuration changes with a node down | ✅ Continue on the survivor | ✅ Continue |
 | Failed node returns | ✅ Rejoins and syncs | ✅ Rejoins and syncs |
@@ -420,6 +437,20 @@ Cluster replication enables **node-to-node replication** for HA. This is separat
    checksums travel with it)
 4. Node 2 verifies the HMAC signature
 5. Node 2 stores a byte-identical copy and decrypts only on read
+
+The object's retention and legal hold travel with it, in this transfer and in the
+decrypt/re-encrypt fallback below, so a replica is protected from its first
+write.
+
+The same holds for every other copy between nodes: the initial sync of a new
+replica, the anti-entropy push and pull, and the stale-node catch-up.
+
+When fewer peers confirm than the replication factor needs (a factor of 3 with
+both peers failing), Node 1 answers `503 ServiceUnavailable` (`Retry-After: 30`)
+and removes the version it just wrote, even under the retention or legal hold
+that write set: the client was told the write failed. An unversioned write is
+kept locally, since deleting it would lose the object it replaced. A peer that
+failed is recorded as having missed the write and caught up when it is back.
 
 **Encryption Keys**: all cluster nodes share a **cluster-wide KEK**,
 distributed inside the join package and re-synced on every key rotation.
@@ -1236,7 +1267,7 @@ For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalclus
 ---
 
 **Version**: 1.7.0
-**Last Updated**: September 18, 2026
+**Last Updated**: September 27, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

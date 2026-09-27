@@ -96,7 +96,7 @@ or a support contract with an SLA.
 - Presigned URLs — Signature V4 and V2
 - POST presigned URLs — HTML form upload with POST policy validation (expiration, conditions, content-length-range)
 - Bucket versioning with delete markers
-- Object Lock — COMPLIANCE and GOVERNANCE modes, per-version enforcement
+- Object Lock — COMPLIANCE and GOVERNANCE modes, legal hold, per-version enforcement; retention and legal hold sent with a PUT are stored in the same metadata write as the object
 - Bucket policies (S3 JSON policy evaluation engine with full Condition block evaluation)
 - CORS — stored and enforced on actual requests, OPTIONS preflight handled before auth
 - Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker
@@ -113,6 +113,7 @@ or a support contract with an SLA.
 - `GetObjectAttributes` — lightweight object metadata (ETag, size, storage class, parts) without downloading the object body
 - Conditional writes — `PutObject If-None-Match: *` returns 412 if the object already exists (atomic create-if-absent)
 - Object search & filters — content-type, size range, date range, tags
+- AWS IAM and STS protocols on the S3 endpoint — `aws iam` and `aws sts` work with `--endpoint-url`
 - Works with `aws s3`, `aws s3api`, the `mc` client, and the S3 SDKs
 
 </details>
@@ -137,7 +138,9 @@ or a support contract with an SLA.
 <summary><strong>Multi-tenancy</strong></summary>
 
 - Full tenant isolation — each tenant has its own users, access keys, buckets, and quotas
-- Storage quotas per tenant with real-time enforcement
+- Storage quotas per tenant, and per bucket by size and object count (exposed to Veeam through SOSAPI capacity)
+- Concurrent writes reserve quota room, so two uploads cannot both pass against the same free space; deletes and overwrites that do not grow an object are allowed over the quota
+- Per-tenant bandwidth throttling
 - Global admin cross-tenant visibility without impersonation
 - Per-tenant identity provider routing (by email domain)
 - Tenant-scoped bucket permissions with user, group, and tenant-level grants
@@ -149,6 +152,9 @@ or a support contract with an SLA.
 <details>
 <summary><strong>Identity & Access</strong></summary>
 
+- IAM is the authorization model — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins)
+- Managed policies with versions, inline policies, roles with trust policies and `AssumeRole`; permissions picked from a catalogue in the console
+- STS temporary credentials — `GetSessionToken`, `AssumeRole`, session policies, LDAP and OIDC federation
 - Local users with roles (global admin, tenant admin, user)
 - User groups with scoped membership (global or tenant) and bucket permission grants
 - LDAP/AD integration — bind, search filter, group-to-role mappings
@@ -164,7 +170,8 @@ or a support contract with an SLA.
 <details>
 <summary><strong>Security</strong></summary>
 
-- AES-256-GCM authenticated encryption at rest (64 KB chunks, tamper detection)
+- Always-on envelope encryption at rest — AES-256-GCM in 64 KB chunks with tamper detection, a per-object DEK wrapped by a database KEK
+- KEK rotation without re-encrypting data; encrypted recovery bundle for disaster recovery
 - Multiple internal security audits — all identified vulnerabilities fixed
 - SSRF protection on all outbound HTTP (webhooks, log targets, replication endpoints)
 - Auth cookies: `Secure` + `SameSite=Strict`
@@ -172,6 +179,7 @@ or a support contract with an SLA.
 - CORS allowlist (no wildcard)
 - Replication credentials encrypted at rest
 - Cluster inter-node TLS with auto-generated CA, CSR-based join (CA key never transmitted)
+- Inter-node requests signed with HMAC and refused on replay or tampering
 - Audit logging — 20+ event types (auth, object ops, admin actions), external syslog forwarding
 - Object Lock enforcement in the console UI — locked objects cannot be deleted or bulk-deleted
 
@@ -183,6 +191,11 @@ or a support contract with an SLA.
 - Multi-node cluster — up to 5 nodes tested
 - **Dedicated cluster port 8082** — inter-node coordination fully separated from S3 (8080) and Console (8081)
 - Automatic failover and health monitoring
+- Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
+- A node that comes back is caught up at once with the writes and deletes it missed
+- Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
+- Read fallback with ordered retry, anti-entropy, dead-node redistribution, storage-pressure health state
+- Elected coordinator for configuration changes; a surviving node takes over when it fails
 - HMAC-authenticated inter-node replication
 - Bucket migration between nodes (full data + metadata + settings)
 - 6-entity sync (users, tenants, access keys, bucket permissions, IDP providers, group mappings)
@@ -202,7 +215,9 @@ or a support contract with an SLA.
 - Disk space and tenant quota alerts — SSE notifications + SMTP email on threshold escalation
 - External syslog targets — TCP/UDP/TLS, RFC 5424 structured data
 - Log level configurable at runtime
-- Crash-safe metadata store — Pebble WAL flushed to disk on graceful shutdown, preventing metadata loss
+- Crash-safe metadata — object commits are fsynced before returning, with one WAL sync shared by concurrent writers; other writes use a per-second WAL sync; an unclean shutdown triggers a non-destructive reconcile
+- Interrupted writes are undone or confirmed at the next start, before the server serves traffic
+- Offline tools — `maxiofs recover` rebuilds the metadata store from the object files, `maxiofs reconcile` indexes objects on disk that the index lacks, `maxiofs repair-pointers` rebuilds latest-object pointers from versions, `maxiofs migrate-layout` moves objects to the current on-disk layout
 
 </details>
 
@@ -314,6 +329,7 @@ make rpm          # Build RPM package (Linux only)
 | [SSO.md](docs/SSO.md) | LDAP and OAuth2/OIDC setup |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Day-2 operations runbook |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks and tuning |
+| [TESTING.md](docs/TESTING.md) | Test suite, per-package catalogue, benchmarks |
 | [DOCKER.md](DOCKER.md) | Docker and Compose reference |
 
 ---
@@ -333,8 +349,8 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 3,800+ backend tests
-cd web/frontend && npm run test        # 106 frontend tests
+go test ./...                          # 4,300+ backend tests (284 files)
+cd web/frontend && npm run test        # 110 frontend tests
 ```
 
 ---
@@ -345,7 +361,7 @@ cd web/frontend && npm run test        # 106 frontend tests
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned
-- **Reserved object-key suffixes** — keys ending in `.metadata` or `.metadata-staging` are rejected (they collide with the on-disk metadata sidecar files)
+- **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead
 - **No SOC 2 / ISO 27001 certification** — comprehensive internal audit completed

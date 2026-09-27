@@ -1488,28 +1488,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			"object": objectKey,
 		}).Error("PutObject failed")
 
-		if errors.Is(err, cluster.ErrClusterDegraded) {
-			w.Header().Set("Retry-After", "30")
-			h.writeError(w, "ServiceUnavailable", "Cluster degraded — replication quorum unavailable, retry later", objectKey, r)
-			return
-		}
-		if err == object.ErrBucketNotFound {
-			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
-			return
-		}
-		if errors.Is(err, object.ErrBucketQuotaExceeded) {
-			h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
-			return
-		}
-		if strings.HasPrefix(err.Error(), "BadDigest:") {
-			h.writeError(w, "BadDigest", err.Error(), objectKey, r)
-			return
-		}
-		if errors.Is(err, object.ErrInvalidRetentionMode) || errors.Is(err, object.ErrRetentionDateInPast) || errors.Is(err, object.ErrInvalidLegalHoldStatus) || errors.Is(err, object.ErrNoRetentionConfiguration) {
-			h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
-			return
-		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
 	}
 
@@ -3334,6 +3313,38 @@ func (h *Handler) detectAndDecodeAwsChunked(
 	}
 
 	return bodyReader
+}
+
+// writeObjectWriteError answers a failed object write with the S3 error that
+// names its cause.
+func (h *Handler) writeObjectWriteError(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) {
+	switch {
+	case errors.Is(err, cluster.ErrClusterDegraded):
+		w.Header().Set("Retry-After", "30")
+		h.writeError(w, "ServiceUnavailable", "Cluster degraded — replication quorum unavailable, retry later", objectKey, r)
+	case errors.Is(err, object.ErrBucketNotFound):
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+	case isQuotaExceeded(err):
+		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+	case strings.HasPrefix(err.Error(), "BadDigest:"):
+		h.writeError(w, "BadDigest", err.Error(), objectKey, r)
+	case isObjectLockRequestError(err):
+		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+	default:
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+	}
+}
+
+// isQuotaExceeded reports a write refused by a bucket or tenant quota. A
+// failure to check the quota is not one.
+func isQuotaExceeded(err error) bool {
+	return errors.Is(err, object.ErrBucketQuotaExceeded) || errors.Is(err, auth.ErrStorageQuotaExceeded)
+}
+
+// isObjectLockRequestError reports Object Lock headers the write refused.
+func isObjectLockRequestError(err error) bool {
+	return errors.Is(err, object.ErrInvalidRetentionMode) || errors.Is(err, object.ErrRetentionDateInPast) ||
+		errors.Is(err, object.ErrInvalidLegalHoldStatus) || errors.Is(err, object.ErrNoRetentionConfiguration)
 }
 
 // applyObjectCannedACLHeader applies a canned ACL value to an object.

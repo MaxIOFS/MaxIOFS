@@ -46,6 +46,13 @@ type Manager struct {
 	currentCert       atomic.Pointer[tls.Certificate]
 	readCounter       uint64 // atomic — round-robin read balancing
 	storagePressureFn StoragePressureEmitter
+	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
+}
+
+// OnReplicaBack sets what runs when a node that missed writes is healthy
+// again: since is the modification time of the earliest write it missed.
+func (m *Manager) OnReplicaBack(fn func(nodeID string, since time.Time)) {
+	m.replicaCaughtUp.Store(&fn)
 }
 
 // StoragePressureEvent is emitted when a node crosses the storage-pressure

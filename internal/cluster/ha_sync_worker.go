@@ -370,6 +370,7 @@ func (w *HASyncWorker) syncObject(
 	req.Header.Set(HABucketHeader, bucketPath)
 	setHALastModified(req.Header, obj)
 	setHAChecksum(req.Header, obj)
+	SetHAObjectLock(req.Header, obj)
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)

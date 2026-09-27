@@ -110,7 +110,10 @@ func InitSchema(db *sql.DB) error {
 	if err := applySyncJobsMigration(db); err != nil {
 		return err
 	}
-	return applyDeadNodeMigration(db)
+	if err := applyDeadNodeMigration(db); err != nil {
+		return err
+	}
+	return applyReplicaCatchUpMigration(db)
 }
 
 // applyDeadNodeMigration adds the unavailable_since column needed for the
@@ -142,6 +145,37 @@ func applyDeadNodeMigration(db *sql.DB) error {
 		if _, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN unavailable_since TIMESTAMP"); err != nil {
 			return fmt.Errorf("failed to add column unavailable_since: %w", err)
 		}
+	}
+	return nil
+}
+
+// applyReplicaCatchUpMigration adds replica_missed_since to cluster_nodes: the
+// modification time (unix seconds) of the earliest write the node missed while
+// it was not a healthy replica, cleared when it is caught up.
+func applyReplicaCatchUpMigration(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+	if err != nil {
+		return err
+	}
+	exists := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dfltValue sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "replica_missed_since" {
+			exists = true
+		}
+	}
+	rows.Close()
+	if exists {
+		return nil
+	}
+	if _, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN replica_missed_since INTEGER"); err != nil {
+		return fmt.Errorf("failed to add column replica_missed_since: %w", err)
 	}
 	return nil
 }

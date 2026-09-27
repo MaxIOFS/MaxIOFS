@@ -44,10 +44,10 @@ func setHALastModified(h http.Header, obj *object.Object) {
 	}
 }
 
-// setHAObjectLock forwards the object's retention and legal hold as stored, as
+// SetHAObjectLock forwards the object's retention and legal hold as stored, as
 // the raw transfer does. Only what is set is sent: an older replica refuses
 // any lock header on a bucket without Object Lock.
-func setHAObjectLock(h http.Header, obj *object.Object) {
+func SetHAObjectLock(h http.Header, obj *object.Object) {
 	h.Set(HAObjectLockHeader, "true")
 	if r := obj.Retention; r != nil {
 		h.Set("x-amz-object-lock-mode", r.Mode)
@@ -111,6 +111,23 @@ func isHARollback(ctx context.Context) bool {
 	return v
 }
 
+// ReplicaWriteContext marks a write as a copy of another node's object and
+// carries what the transfer headers pin: the version ID, the modification time
+// and, when the sender marks it complete, the object-lock state.
+func ReplicaWriteContext(ctx context.Context, h http.Header) context.Context {
+	ctx = WithHAReplicaContext(ctx)
+	if versionID := h.Get(HAObjectVersionHeader); versionID != "" {
+		ctx = object.WithReplicatedVersionID(ctx, versionID)
+	}
+	if lm, ok := HALastModifiedFromHeader(h); ok {
+		ctx = object.WithReplicatedLastModified(ctx, lm)
+	}
+	if h.Get(HAObjectLockHeader) == "true" {
+		ctx = object.WithReplicatedObjectLock(ctx)
+	}
+	return ctx
+}
+
 // fanoutResult holds the outcome of a single replica fanout attempt.
 type fanoutResult struct {
 	nodeID string
@@ -145,7 +162,7 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return obj, nil
 	}
-	if err := h.fanoutPut(ctx, bucket, key, obj.VersionID); err != nil {
+	if err := h.fanoutPut(ctx, bucket, key, obj.VersionID, obj.LastModified); err != nil {
 		h.rollbackLocalPut(ctx, bucket, key, obj.VersionID, "PutObject")
 		return nil, err
 	}
@@ -217,7 +234,7 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return obj, nil
 	}
-	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key, obj.VersionID); err != nil {
+	if err := h.fanoutPut(ctx, obj.Bucket, obj.Key, obj.VersionID, obj.LastModified); err != nil {
 		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, obj.VersionID, "CompleteMultipartUpload")
 		return nil, err
 	}
@@ -270,18 +287,22 @@ func (h *HAObjectManager) rollbackLocalPut(ctx context.Context, bucket, key, ver
 	}
 }
 
-// RequiredReplicaAcks is how many peers must confirm a write for a majority of
-// the factor copies to hold it. The local copy is one of them and always
-// succeeds, so a factor of 3 asks for one peer and survives losing the other.
+// RequiredReplicaAcks is how many peers must confirm a write: half of the
+// factor's copies, rounded up, hold it, and the local copy is one of them. A
+// factor of 2 is a mirror that keeps accepting writes while its peer is down;
+// a factor of 3 needs one of its two peers. A peer that misses a write is
+// caught up when it is back (see noteMissedWrites).
 func RequiredReplicaAcks(factor int) int {
 	if factor <= 1 {
 		return 0
 	}
-	return factor / 2
+	return (factor+1)/2 - 1
 }
 
 // replicaTargets returns up to factor-1 healthy non-local nodes and the number
-func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, bool) {
+// of them that must confirm. When fewer are healthy, every other node that is
+// not healthy misses the write made at modified, and is recorded as such.
+func (h *HAObjectManager) replicaTargets(ctx context.Context, modified time.Time) ([]*Node, int, bool) {
 	if !h.mgr.IsClusterEnabled() {
 		return nil, 0, false
 	}
@@ -307,6 +328,9 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 			break
 		}
 	}
+	if len(targets) < factor-1 {
+		h.mgr.noteMissedWrites(ctx, localID, modified)
+	}
 	if len(targets) == 0 {
 		return nil, 0, false
 	}
@@ -314,8 +338,10 @@ func (h *HAObjectManager) replicaTargets(ctx context.Context) ([]*Node, int, boo
 }
 
 // fanoutPut synchronously replicates the just-written object to replica nodes.
-func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID string) error {
-	targets, needed, ok := h.replicaTargets(ctx)
+// modified is the object's modification time: a peer that misses the write is
+// caught up from it.
+func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID string, modified time.Time) error {
+	targets, needed, ok := h.replicaTargets(ctx, modified)
 	if !ok {
 		return nil
 	}
@@ -368,7 +394,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 			}
 			setHALastModified(req.Header, obj)
 			setHAChecksum(req.Header, obj)
-			setHAObjectLock(req.Header, obj)
+			SetHAObjectLock(req.Header, obj)
 			req.Header.Set("Content-Type", obj.ContentType)
 			if obj.ContentDisposition != "" {
 				req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -404,7 +430,7 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 		}(node)
 	}
 
-	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, "PUT", bucket, key)
+	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, modified, "PUT", bucket, key)
 }
 
 // sendRawReplica attempts the ciphertext transfer of the pinned version to
@@ -472,7 +498,8 @@ func (h *HAObjectManager) sendRawReplica(ctx context.Context, client *ProxyClien
 // fanoutPut: returns ErrClusterDegraded when fewer than `needed` replicas
 // confirm.
 func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specificVersionID, deleteMarkerVersionID string) error {
-	targets, needed, ok := h.replicaTargets(ctx)
+	deleted := time.Now()
+	targets, needed, ok := h.replicaTargets(ctx, deleted)
 	if !ok {
 		return nil
 	}
@@ -482,41 +509,45 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specifi
 
 	for _, node := range targets {
 		go func(n *Node) {
-			url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
-			req, err := client.CreateAuthenticatedRequest(ctx, "DELETE", url, nil, localID, n.NodeToken)
-			if err != nil {
-				ch <- fanoutResult{n.ID, err}
-				return
-			}
-			req.Header.Set("X-MaxIOFS-HA-Replica", "true")
-			req.Header.Set(HABucketHeader, bucket)
-			if specificVersionID != "" {
-				req.Header.Set(HAObjectVersionHeader, specificVersionID)
-			}
-			if deleteMarkerVersionID != "" {
-				req.Header.Set(HADeleteMarkerVersionHeader, deleteMarkerVersionID)
-			}
-
-			resp, err := client.DoAuthenticatedRequest(req)
-			if err != nil {
-				ch <- fanoutResult{n.ID, err}
-				return
-			}
-			resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				ch <- fanoutResult{n.ID, fmt.Errorf("status %d", resp.StatusCode)}
-				return
-			}
-			ch <- fanoutResult{n.ID, nil}
+			ch <- fanoutResult{n.ID, sendHADelete(ctx, client, n, localID, bucket, key, specificVersionID, deleteMarkerVersionID)}
 		}(node)
 	}
 
-	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, "DELETE", bucket, key)
+	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, deleted, "DELETE", bucket, key)
+}
+
+// sendHADelete replays a delete on node n: one version when specificVersionID
+// is set, otherwise the key, with deleteMarkerVersionID pinning the marker a
+// versioned bucket creates.
+func sendHADelete(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key, specificVersionID, deleteMarkerVersionID string) error {
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
+	req, err := client.CreateAuthenticatedRequest(ctx, "DELETE", url, nil, localID, n.NodeToken)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
+	req.Header.Set(HABucketHeader, bucket)
+	if specificVersionID != "" {
+		req.Header.Set(HAObjectVersionHeader, specificVersionID)
+	}
+	if deleteMarkerVersionID != "" {
+		req.Header.Set(HADeleteMarkerVersionHeader, deleteMarkerVersionID)
+	}
+	resp, err := client.DoAuthenticatedRequest(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // collectAndCheckQuorum drains all fanout results, marks failed nodes
-// unavailable, and returns ErrClusterDegraded when successes < needed.
-func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan fanoutResult, total, needed int, op, bucket, key string) error {
+// unavailable and as having missed the write made at modified, and returns
+// ErrClusterDegraded when successes < needed.
+func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan fanoutResult, total, needed int, modified time.Time, op, bucket, key string) error {
 	success := 0
 	for i := 0; i < total; i++ {
 		r := <-ch
@@ -532,6 +563,7 @@ func (h *HAObjectManager) collectAndCheckQuorum(ctx context.Context, ch <-chan f
 			`UPDATE cluster_nodes SET health_status = ?, updated_at = ? WHERE id = ?`,
 			HealthStatusUnavailable, now, r.nodeID,
 		)
+		h.mgr.noteMissedWrites(ctx, "", modified, r.nodeID)
 	}
 	if success < needed {
 		logrus.WithFields(logrus.Fields{

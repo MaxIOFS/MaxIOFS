@@ -55,3 +55,82 @@ func TestWriteRollbackDeletesTheProtectedVersionItCreated(t *testing.T) {
 		})
 	}
 }
+
+// Object-lock headers sent when a multipart upload is created are validated
+// then, as a PUT's are, and applied to the object it completes into.
+func TestMultipartUploadKeepsItsObjectLock(t *testing.T) {
+	m, _, s := setupManagerWithConfigKey(t)
+	ctx := t.Context()
+	days := 1
+	require.NoError(t, s.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:       "mpworm",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true, Rule: &metadata.ObjectLockRuleMetadata{
+			DefaultRetention: &metadata.RetentionMetadata{Mode: RetentionModeGovernance, Days: &days},
+		}},
+	}))
+	require.NoError(t, s.CreateBucket(ctx, &metadata.BucketMetadata{Name: "mpplain"}))
+	complete := func(t *testing.T, bucket, key string, h http.Header) (*Object, error) {
+		t.Helper()
+		upload, err := m.CreateMultipartUpload(ctx, bucket, key, h)
+		if err != nil {
+			return nil, err
+		}
+		part, err := m.UploadPart(ctx, upload.UploadID, 1, strings.NewReader("part"))
+		require.NoError(t, err)
+		return m.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	}
+
+	t.Run("explicit retention and legal hold", func(t *testing.T) {
+		until := time.Now().Add(72*time.Hour + 123456789).UTC()
+		h := http.Header{}
+		h.Set("x-amz-object-lock-mode", RetentionModeCompliance)
+		h.Set("x-amz-object-lock-retain-until-date", until.Format(time.RFC3339Nano))
+		h.Set("x-amz-object-lock-legal-hold", LegalHoldStatusOn)
+		h.Set("x-amz-meta-owner", "backup")
+		obj, err := complete(t, "mpworm", "explicit", h)
+		require.NoError(t, err)
+		require.NotNil(t, obj.Retention)
+		require.Equal(t, RetentionModeCompliance, obj.Retention.Mode)
+		require.True(t, obj.Retention.RetainUntilDate.Equal(until), "stored %v for %v", obj.Retention.RetainUntilDate, until)
+		require.Equal(t, LegalHoldStatusOn, obj.LegalHold.Status)
+		require.Equal(t, map[string]string{"owner": "backup"}, obj.Metadata, "lock state is not user metadata")
+
+		_, err = m.DeleteObject(ctx, "mpworm", "explicit", true, obj.VersionID)
+		require.Error(t, err, "the completed version is protected")
+	})
+
+	t.Run("legal hold only: the bucket default retention applies", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("x-amz-object-lock-legal-hold", LegalHoldStatusOn)
+		obj, err := complete(t, "mpworm", "hold-only", h)
+		require.NoError(t, err)
+		require.NotNil(t, obj.Retention)
+		require.Equal(t, RetentionModeGovernance, obj.Retention.Mode)
+		require.Equal(t, LegalHoldStatusOn, obj.LegalHold.Status)
+	})
+
+	t.Run("user metadata cannot set the lock state", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("x-amz-meta-x-amz-object-lock-legal-hold", LegalHoldStatusOn)
+		_, err := complete(t, "mpplain", "sneaky", h)
+		require.NoError(t, err)
+		stored, err := m.GetObjectMetadata(ctx, "mpplain", "sneaky")
+		require.NoError(t, err)
+		require.Nil(t, stored.Retention)
+		require.NotEqual(t, LegalHoldStatusOn, stored.LegalHold.Status)
+	})
+
+	t.Run("refused at creation", func(t *testing.T) {
+		past := http.Header{}
+		past.Set("x-amz-object-lock-mode", RetentionModeGovernance)
+		past.Set("x-amz-object-lock-retain-until-date", time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
+		_, err := complete(t, "mpworm", "past", past)
+		require.ErrorIs(t, err, ErrRetentionDateInPast)
+
+		hold := http.Header{}
+		hold.Set("x-amz-object-lock-legal-hold", LegalHoldStatusOn)
+		_, err = complete(t, "mpplain", "nolock", hold)
+		require.ErrorIs(t, err, ErrNoRetentionConfiguration)
+	})
+}

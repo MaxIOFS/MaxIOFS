@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.7.0 | **Last Updated**: September 18, 2026
+**Version**: 1.7.0 | **Last Updated**: September 27, 2026
 
 ## Overview
 
@@ -88,10 +88,13 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
 
-**Object key rules**: standard S3 keys up to 1024 characters. Keys ending in
-`.metadata` or `.metadata-staging` are rejected with `InvalidObjectName` —
-those suffixes are reserved for the on-disk metadata sidecar files and would
-collide with another object's sidecar.
+**Object key rules**: standard S3 keys up to 1024 characters. A key may not be
+empty, start with `/`, or contain a `..` path segment. Objects are stored under a
+digest of their key, so every other key is ordinary, including one ending in
+`.metadata`.
+
+**Missing bucket**: `DeleteObject` and `DeleteMultipleObjects` on a bucket that
+does not exist answer `404 NoSuchBucket` for the whole request.
 
 ### Multipart Upload Operations
 
@@ -111,6 +114,15 @@ collide with another object's sidecar.
 | PutObjectRetention | PUT | `/{bucket}/{key+}?retention` |
 | GetObjectLegalHold | GET | `/{bucket}/{key+}?legal-hold` |
 | PutObjectLegalHold | PUT | `/{bucket}/{key+}?legal-hold` |
+
+**Lock headers on PutObject**: `x-amz-object-lock-mode`,
+`x-amz-object-lock-retain-until-date` (RFC 3339) and `x-amz-object-lock-legal-hold`
+are stored in the same metadata write as the object. The PUT is rejected with
+`400 InvalidRequest` for an unknown mode, a date not in the future, an unknown
+legal-hold status, or any of these headers on a bucket without Object Lock.
+Without them, the bucket default retention applies. `CreateMultipartUpload`
+takes the same headers, validated when the upload is created and applied when it
+completes; without them the completed object gets the bucket default retention.
 
 ### ACL Operations
 
@@ -193,6 +205,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | POST | `/api/v1/auth/login` | Login (username + password + optional TOTP) | None |
+| POST | `/api/v1/auth/refresh` | Exchange a refresh token for a new token pair | Refresh token |
 | POST | `/api/v1/auth/logout` | Logout | JWT |
 | GET | `/api/v1/auth/me` | Get current user info | JWT |
 
@@ -200,21 +213,22 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/auth/2fa/setup` | Start 2FA setup (returns QR code) |
-| POST | `/api/v1/auth/2fa/verify` | Verify 2FA setup with TOTP code |
+| POST | `/api/v1/auth/2fa/setup` | Generate a TOTP secret and QR code |
+| POST | `/api/v1/auth/2fa/enable` | Verify a TOTP code and enable 2FA |
+| POST | `/api/v1/auth/2fa/verify` | Verify a 2FA code during login (no JWT) |
 | POST | `/api/v1/auth/2fa/disable` | Disable 2FA |
-| POST | `/api/v1/auth/2fa/validate` | Validate a TOTP code |
 | POST | `/api/v1/auth/2fa/backup-codes` | Regenerate backup codes |
-| GET | `/api/v1/auth/2fa/backup-codes` | Get backup codes |
+| GET | `/api/v1/auth/2fa/status` | 2FA status for a user |
 
 ### OAuth / SSO
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | GET | `/api/v1/auth/oauth/providers` | List active OAuth providers | None |
-| POST | `/api/v1/auth/oauth/login` | Start OAuth login flow | None |
-| GET | `/api/v1/auth/oauth/callback` | OAuth callback from provider | None |
-| GET | `/api/v1/auth/oauth/complete` | Complete OAuth login | None |
+| GET | `/api/v1/auth/oauth/{id}/login` | Start the OAuth flow with a provider | None |
+| POST | `/api/v1/auth/oauth/start` | Resolve the provider from a preset and an email, then start the flow | None |
+| GET | `/api/v1/auth/oauth/callback` | Callback from the provider; issues a one-time code | None |
+| GET | `/api/v1/auth/oauth/exchange-code` | Exchange the one-time code for JWT tokens (single use) | None |
 
 ### Users
 
@@ -226,17 +240,34 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | PUT | `/api/v1/users/{id}` | Update user |
 | DELETE | `/api/v1/users/{id}` | Delete user |
 | PUT | `/api/v1/users/{id}/password` | Change password |
-| PATCH | `/api/v1/users/{id}/status` | Update user status (activate/deactivate) |
-| POST | `/api/v1/users/{id}/unlock` | Unlock locked account |
+| PATCH | `/api/v1/users/{id}/preferences` | Update theme and language preferences |
+| POST | `/api/v1/users/{id}/unlock` | Unlock a locked account |
+| GET | `/api/v1/users/{id}/permissions` | Permissions the user holds, globally and per bucket |
+| PUT | `/api/v1/users/{id}/permissions` | Replace the user's permission selection |
 
 ### Access Keys
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/access-keys` | List all access keys |
-| GET | `/api/v1/access-keys/user/{userId}` | List user's access keys |
-| POST | `/api/v1/access-keys` | Create access key |
-| DELETE | `/api/v1/access-keys/{id}` | Delete access key |
+| GET | `/api/v1/users/{id}/access-keys` | List a user's access keys |
+| POST | `/api/v1/users/{id}/access-keys` | Create an access key for a user |
+| DELETE | `/api/v1/users/{id}/access-keys/{accessKey}` | Delete an access key |
+
+### IAM Policies and Roles
+
+The console view of the entities the [AWS IAM protocol](#aws-iam-protocol) manages.
+Policies and roles are global admin only.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/iam/policies` | List managed policies with their current document |
+| POST | `/api/v1/iam/policies` | Create a managed policy, or add a version to an existing one |
+| DELETE | `/api/v1/iam/policies/{name}` | Delete a managed policy |
+| GET | `/api/v1/iam/roles` | List roles with their attached policies |
+| POST | `/api/v1/iam/roles` | Create a role, or replace an existing role's trust policy |
+| DELETE | `/api/v1/iam/roles/{name}` | Delete a role; sessions issued from it stop working immediately |
+| GET | `/api/v1/iam/permissions` | Catalogue of assignable permissions, grouped |
 
 ### Temporary Credentials (STS)
 
@@ -457,7 +488,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | GET | `/api/v1/tenants/{id}` | Get tenant details |
 | PUT | `/api/v1/tenants/{id}` | Update tenant |
 | DELETE | `/api/v1/tenants/{id}` | Delete tenant |
-| GET | `/api/v1/tenants/{id}/stats` | Get tenant statistics |
+| GET | `/api/v1/tenants/{id}/users` | List a tenant's users |
 
 ### Buckets
 
@@ -467,20 +498,34 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | POST | `/api/v1/buckets` | Create bucket |
 | GET | `/api/v1/buckets/{name}` | Get bucket details |
 | DELETE | `/api/v1/buckets/{name}` | Delete bucket |
+| PUT | `/api/v1/buckets/{name}/owner` | Change the bucket owner |
+| GET | `/api/v1/buckets/{name}/versions` | All object versions and delete markers (`?prefix=`, `?maxKeys=`) |
+| GET | `/api/v1/buckets/{name}/folder-size?prefix={prefix}` | Total size (bytes) and object count under a prefix |
+| POST | `/api/v1/buckets/{name}/download-zip-token` | Mint a download token for a folder archive |
+| GET | `/api/v1/buckets/{name}/download-zip?prefix={prefix}` | Stream objects under a prefix as a ZIP archive (max 10,000 objects / 10 GB); accepts `?downloadToken=` |
+| POST | `/api/v1/buckets/{name}/recalculate-stats` | Recalculate object count and size (admin only) |
+| POST | `/api/v1/buckets/{name}/verify-integrity` | Verify object integrity (global admin only, rate-limited) |
+| GET | `/api/v1/buckets/{name}/integrity-status` | Last integrity scan results, newest first |
+| POST | `/api/v1/buckets/{name}/integrity-status` | Save a manual scan result |
 
 ### Bucket Configuration
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/buckets/{name}/permissions` | List bucket permissions |
-| POST | `/api/v1/buckets/{name}/permissions` | Add permission |
-| DELETE | `/api/v1/buckets/{name}/permissions/{id}` | Remove permission |
-| PUT | `/api/v1/buckets/{name}/permissions/{id}` | Update permission |
+| POST | `/api/v1/buckets/{name}/permissions` | Grant a permission to a user, group or tenant |
+| DELETE | `/api/v1/buckets/{name}/permissions/revoke` | Revoke a permission (`?userId=`, `?groupId=` or `?tenantId=`) |
+| DELETE | `/api/v1/buckets/{name}/permissions/{id}` | Revoke a permission by ID (legacy) |
 | GET | `/api/v1/buckets/{name}/versioning` | Get versioning config |
 | PUT | `/api/v1/buckets/{name}/versioning` | Set versioning config |
+| GET | `/api/v1/buckets/{name}/object-lock` | Get Object Lock config (enabled flag, default retention) |
+| PUT | `/api/v1/buckets/{name}/object-lock` | Set Object Lock config |
 | GET | `/api/v1/buckets/{name}/lifecycle` | Get lifecycle rules |
 | PUT | `/api/v1/buckets/{name}/lifecycle` | Set lifecycle rules |
 | DELETE | `/api/v1/buckets/{name}/lifecycle` | Delete lifecycle rules |
+| GET | `/api/v1/buckets/{name}/quota` | Get the bucket quota and current usage |
+| PUT | `/api/v1/buckets/{name}/quota` | Set the bucket quota (size, object count) |
+| DELETE | `/api/v1/buckets/{name}/quota` | Remove the bucket quota |
 | GET | `/api/v1/buckets/{name}/cors` | Get CORS config |
 | PUT | `/api/v1/buckets/{name}/cors` | Set CORS config |
 | DELETE | `/api/v1/buckets/{name}/cors` | Delete CORS config |
@@ -492,28 +537,34 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | GET | `/api/v1/buckets/{name}/tagging` | Get bucket tags |
 | PUT | `/api/v1/buckets/{name}/tagging` | Set bucket tags |
 | DELETE | `/api/v1/buckets/{name}/tagging` | Delete bucket tags |
-| GET | `/api/v1/buckets/{name}/notifications` | Get notification config |
-| PUT | `/api/v1/buckets/{name}/notifications` | Set notification config |
-| DELETE | `/api/v1/buckets/{name}/notifications` | Delete notification config |
-| PUT | `/api/v1/buckets/{name}/object-lock` | Enable object lock |
+| GET | `/api/v1/buckets/{name}/notification` | Get notification config |
+| PUT | `/api/v1/buckets/{name}/notification` | Set notification config |
+| DELETE | `/api/v1/buckets/{name}/notification` | Delete notification config |
+| GET | `/api/v1/buckets/{name}/encryption` | Get SSE config |
+| PUT | `/api/v1/buckets/{name}/encryption` | Set SSE config |
+| DELETE | `/api/v1/buckets/{name}/encryption` | Remove SSE config (server default applies) |
+| GET | `/api/v1/buckets/{name}/public-access-block` | Get public-access-block config |
+| PUT | `/api/v1/buckets/{name}/public-access-block` | Set public-access-block config |
+| DELETE | `/api/v1/buckets/{name}/public-access-block` | Remove public-access-block config (all flags false) |
+| GET | `/api/v1/buckets/{name}/website` | Get static website config |
+| PUT | `/api/v1/buckets/{name}/website` | Set static website config |
+| DELETE | `/api/v1/buckets/{name}/website` | Remove static website config |
 | GET | `/api/v1/buckets/{name}/inventory` | Get inventory config |
 | PUT | `/api/v1/buckets/{name}/inventory` | Set inventory config |
 | DELETE | `/api/v1/buckets/{name}/inventory` | Delete inventory config |
 | GET | `/api/v1/buckets/{name}/inventory/reports` | List inventory reports |
-| POST | `/api/v1/buckets/{name}/verify-integrity` | Verify bucket object integrity (admin only, rate-limited) |
-| POST | `/api/v1/buckets/{name}/recalculate-stats` | Recalculate bucket object count and size (admin only) |
 
 ### Bucket Replication (External S3)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/buckets/{name}/replication` | List replication rules |
-| POST | `/api/v1/buckets/{name}/replication` | Create replication rule |
-| GET | `/api/v1/buckets/{name}/replication/{id}` | Get rule details |
-| PUT | `/api/v1/buckets/{name}/replication/{id}` | Update rule |
-| DELETE | `/api/v1/buckets/{name}/replication/{id}` | Delete rule |
-| GET | `/api/v1/buckets/{name}/replication/{id}/status` | Get replication status |
-| POST | `/api/v1/buckets/{name}/replication/{id}/sync` | Trigger manual sync |
+| GET | `/api/v1/buckets/{name}/replication/rules` | List replication rules |
+| POST | `/api/v1/buckets/{name}/replication/rules` | Create replication rule |
+| GET | `/api/v1/buckets/{name}/replication/rules/{ruleId}` | Get rule details |
+| PUT | `/api/v1/buckets/{name}/replication/rules/{ruleId}` | Update rule |
+| DELETE | `/api/v1/buckets/{name}/replication/rules/{ruleId}` | Delete rule |
+| GET | `/api/v1/buckets/{name}/replication/rules/{ruleId}/metrics` | Replication metrics for a rule |
+| POST | `/api/v1/buckets/{name}/replication/rules/{ruleId}/sync` | Trigger a manual sync |
 
 ### Objects
 
@@ -521,28 +572,31 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 |--------|------|-------------|
 | GET | `/api/v1/buckets/{bucket}/objects` | List objects |
 | GET | `/api/v1/buckets/{bucket}/objects/search` | Search objects (filters) |
-| GET | `/api/v1/buckets/{bucket}/objects/{key+}` | Download object |
+| POST | `/api/v1/buckets/{bucket}/objects/{key+}/download-token` | Mint a download token for one object (valid 120 s) |
+| GET | `/api/v1/buckets/{bucket}/objects/{key+}` | Download object; accepts `?downloadToken=` |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}` | Upload object |
-| DELETE | `/api/v1/buckets/{bucket}/objects/{key+}` | Delete object |
+| DELETE | `/api/v1/buckets/{bucket}/objects/{key+}` | Delete object (`404` when the bucket does not exist) |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/acl` | Get object ACL |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}/acl` | Set object ACL |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Get legal hold |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}/legal-hold` | Set legal hold |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/versions` | List object versions |
+| POST | `/api/v1/buckets/{bucket}/objects/{key+}/restore` | Restore a version: re-promote it, or remove a delete marker |
 | POST | `/api/v1/buckets/{bucket}/objects/{key+}/rename` | Rename object — body `{"newKey":"..."}`. Blocked for COMPLIANCE retention or active Legal Hold. |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Get object tags |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Set object tags — body `{"tags":[{"key":"...","value":"..."}]}` |
-| GET | `/api/v1/buckets/{bucket}/folder-size?prefix={prefix}` | Total size (bytes) and object count under prefix |
-| GET | `/api/v1/buckets/{bucket}/download-zip?prefix={prefix}` | Stream objects under prefix as ZIP archive (max 10,000 objects / 10 GB) |
+
+A download token is bound to one object or one folder archive and is not a
+session: it opens only the resource it was minted for.
 
 ### Shares & Presigned URLs
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/shares` | List active share links |
-| POST | `/api/v1/shares` | Create share link |
-| DELETE | `/api/v1/shares/{id}` | Revoke share link |
-| POST | `/api/v1/presign` | Generate presigned URL |
+| GET | `/api/v1/buckets/{bucket}/shares` | List active share links for a bucket |
+| POST | `/api/v1/buckets/{bucket}/objects/{key+}/share` | Create a share link |
+| DELETE | `/api/v1/buckets/{bucket}/objects/{key+}/share` | Revoke a share link |
+| POST | `/api/v1/buckets/{bucket}/objects/{key+}/presigned-url` | Generate a presigned URL |
 
 ### Metrics & Monitoring
 
@@ -550,13 +604,13 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 |--------|------|-------------|
 | GET | `/api/v1/metrics` | Dashboard metrics |
 | GET | `/api/v1/metrics/system` | System metrics (CPU, memory, disk) |
-| GET | `/api/v1/metrics/storage` | Storage metrics |
-| GET | `/api/v1/metrics/performance` | Performance metrics |
+| GET | `/api/v1/metrics/s3` | S3 operation metrics |
 | GET | `/api/v1/metrics/history` | Metrics history |
-| GET | `/api/v1/performance/overview` | Performance overview |
-| GET | `/api/v1/performance/operations` | Operation-level metrics |
-| GET | `/api/v1/performance/history` | Performance history |
-| POST | `/api/v1/performance/reset` | Reset performance counters |
+| GET | `/api/v1/metrics/history/stats` | Metrics history statistics |
+| GET | `/api/v1/metrics/performance/latencies` | Latency statistics per operation |
+| GET | `/api/v1/metrics/performance/throughput` | Current throughput |
+| GET | `/api/v1/metrics/performance/history?operation={op}` | Latency history for one operation |
+| POST | `/api/v1/metrics/performance/reset` | Reset performance counters |
 
 ### Audit Logs
 
@@ -571,19 +625,31 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/settings` | List all settings |
-| GET | `/api/v1/settings/{key}` | Get setting value |
-| GET | `/api/v1/settings/category/{category}` | List settings by category |
-| PUT | `/api/v1/settings/{key}` | Update setting |
-| POST | `/api/v1/settings/reset` | Reset all to defaults |
+| GET | `/api/v1/settings` | List settings (`?category=`) |
+| GET | `/api/v1/settings/categories` | List setting categories |
+| GET | `/api/v1/settings/{key}` | Get a setting |
+| PUT | `/api/v1/settings/{key}` | Update a setting — body `{"value":"..."}` |
+| POST | `/api/v1/settings/bulk` | Update several settings — body `{"settings":{"key":"value"}}` |
+| POST | `/api/v1/settings/email/test` | Send a test email to the requesting admin |
+| GET | `/api/v1/settings/encryption/recovery-status` | KEK version and whether the recovery bundle was downloaded |
+| POST | `/api/v1/settings/encryption/recovery-bundle` | Export the KEK as a passphrase-encrypted recovery bundle |
+| GET | `/api/v1/settings/encryption/worker-status` | Encryption worker progress (global admin only) |
+| POST | `/api/v1/settings/encryption/worker-run` | Start an encryption pass now |
+| POST | `/api/v1/settings/encryption/rotate-kek` | Create a new current KEK version |
 
 ### Logging Configuration
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/logging/test-syslog` | Test syslog output |
-| POST | `/api/v1/logging/test-http` | Test HTTP log output |
-| POST | `/api/v1/logging/test-file` | Test file log output |
+| POST | `/api/v1/logs/frontend` | Receive frontend logs |
+| POST | `/api/v1/logs/reconfigure` | Reapply logging settings |
+| GET | `/api/v1/logs/targets` | List log targets |
+| POST | `/api/v1/logs/targets` | Create a log target |
+| POST | `/api/v1/logs/targets/test` | Test a target configuration without saving it |
+| GET | `/api/v1/logs/targets/{id}` | Get a log target |
+| PUT | `/api/v1/logs/targets/{id}` | Update a log target |
+| DELETE | `/api/v1/logs/targets/{id}` | Delete a log target |
+| POST | `/api/v1/logs/targets/{id}/test` | Test a saved log target |
 
 ### Identity Providers (IDP)
 
@@ -597,7 +663,8 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | POST | `/api/v1/identity-providers/{id}/test` | Test provider connection |
 | POST | `/api/v1/identity-providers/{id}/search-users` | Search users in provider |
 | POST | `/api/v1/identity-providers/{id}/search-groups` | Search groups in provider |
-| POST | `/api/v1/identity-providers/{id}/import-user` | Import user from provider |
+| POST | `/api/v1/identity-providers/{id}/group-members` | List the members of a provider group |
+| POST | `/api/v1/identity-providers/{id}/import-users` | Import users from provider |
 | POST | `/api/v1/identity-providers/{id}/sync` | Sync all group memberships |
 
 ### Group Mappings (IDP)
@@ -615,30 +682,36 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/cluster/initialize` | Initialize cluster on this node |
-| POST | `/api/v1/cluster/join` | Join existing cluster |
+| POST | `/api/v1/cluster/join` | Receive the join package from an existing cluster node |
 | POST | `/api/v1/cluster/leave` | Leave cluster |
 | GET | `/api/v1/cluster/status` | Get cluster status |
-| GET | `/api/v1/cluster/config` | Get cluster configuration |
+| GET | `/api/v1/cluster/config` | Get this node's cluster configuration |
+| GET | `/api/v1/cluster/token` | Get the cluster token (global admin only) |
 | GET | `/api/v1/cluster/nodes` | List all nodes |
-| POST | `/api/v1/cluster/nodes` | Add node |
+| POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster |
 | GET | `/api/v1/cluster/nodes/{id}` | Get node details |
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
 | DELETE | `/api/v1/cluster/nodes/{id}` | Remove node |
-| GET | `/api/v1/cluster/health` | Cluster health summary |
-| GET | `/api/v1/cluster/health/history` | Health check history |
-| POST | `/api/v1/cluster/health/refresh` | Trigger manual health check |
-| GET | `/api/v1/cluster/cache/stats` | Cache statistics |
-| DELETE | `/api/v1/cluster/cache` | Clear bucket location cache |
+| GET | `/api/v1/cluster/nodes/{id}/health` | Run a health check on one node |
+| POST | `/api/v1/cluster/nodes/{id}/drain` | Mark a remote node dead immediately and start the dead-node reconciler (global admin only) |
+| GET | `/api/v1/cluster/cache/stats` | Bucket location cache statistics |
+| POST | `/api/v1/cluster/cache/invalidate` | Invalidate the bucket location cache |
+| GET | `/api/v1/cluster/buckets` | Buckets with replication information |
+| GET | `/api/v1/cluster/buckets/{bucket}/replicas` | Replication information for one bucket |
 
-### Cluster Replication
+### High Availability
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/cluster/replication` | List replication rules |
-| POST | `/api/v1/cluster/replication` | Create replication rule |
-| PUT | `/api/v1/cluster/replication/{id}` | Update rule |
-| DELETE | `/api/v1/cluster/replication/{id}` | Delete rule |
-| POST | `/api/v1/cluster/replication/bulk` | Bulk replicate all buckets |
+| GET | `/api/v1/cluster/ha` | Replication factor and node status |
+| PUT | `/api/v1/cluster/ha` | Set the replication factor — body `{"factor":2}` (global admin only) |
+| GET | `/api/v1/cluster/ha/sync-jobs` | Initial-sync and delta-sync jobs |
+| GET | `/api/v1/cluster/ha/scrub-status` | Recent anti-entropy runs and the checkpoint of a running cycle |
+| GET | `/api/v1/cluster/ha/degraded-state` | Cluster degraded reason (empty when healthy) |
+
+The factor is 1, 2 or 3. Setting it requires as many healthy nodes as the factor,
+and on every node free space of at least the current data divided by the factor,
+plus 20%.
 
 ### Cluster Migrations
 
@@ -658,16 +731,20 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
+| GET | `/api/v1` | Console API information and endpoint index | None |
 | GET | `/api/v1/version` | Server version info | None |
-| GET | `/api/v1/config` | Public server configuration (includes `maintenanceMode`) | JWT |
-| GET | `/health` | Health check | None |
+| GET | `/api/v1/config` | Server configuration (includes `maintenanceMode`) | JWT |
+| GET | `/api/v1/version-check` | Latest-release check, proxied to maxiofs.com | JWT |
 | GET | `/api/v1/security/status` | Security status overview | JWT |
+| GET | `/api/v1/health` | Console API health check | None |
+| GET | `/health` | Health check | None |
 
 ### Profiling
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/profiling` | Go pprof data (global admin only) |
+| GET | `/api/v1/profiling/stats` | Real-time system statistics (global admin only) |
+| GET | `/debug/pprof/*` | Go pprof endpoints (global admin only) |
 
 ---
 
@@ -684,7 +761,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 </Error>
 ```
 
-Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `QuotaExceeded`, `ObjectLocked`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`)
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
 
 ### Console API (JSON)
 

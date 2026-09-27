@@ -97,3 +97,35 @@ func TestHAReceivePutKeepsTheSourceObjectLock(t *testing.T) {
 		assert.Equal(t, object.RetentionModeGovernance, obj.Retention.Mode)
 	})
 }
+
+// A copy served to a peer carries the object's lock state and marks it complete.
+func TestHAGetObjectSendsObjectLock(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "ha-get-lock"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: bucketName, OwnerID: "admin",
+		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
+	}))
+	until := time.Now().Add(48 * time.Hour).UTC()
+	h := http.Header{}
+	h.Set("x-amz-object-lock-mode", object.RetentionModeCompliance)
+	h.Set("x-amz-object-lock-retain-until-date", until.Format(time.RFC3339Nano))
+	h.Set("x-amz-object-lock-legal-hold", object.LegalHoldStatusOn)
+	_, err := server.objectManager.PutObject(ctx, bucketName, "held", strings.NewReader("locked"), h)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("GET", "/api/internal/ha/objects/held?bucket="+bucketName, nil)
+	req = mux.SetURLVars(req, map[string]string{"key": "held"})
+	w := httptest.NewRecorder()
+	server.handleHAGetObject(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	assert.Equal(t, "true", w.Header().Get(cluster.HAObjectLockHeader))
+	assert.Equal(t, object.RetentionModeCompliance, w.Header().Get("x-amz-object-lock-mode"))
+	sent, err := time.Parse(time.RFC3339, w.Header().Get("x-amz-object-lock-retain-until-date"))
+	require.NoError(t, err)
+	assert.True(t, sent.Equal(until), "sent %v for %v", sent, until)
+	assert.Equal(t, object.LegalHoldStatusOn, w.Header().Get("x-amz-object-lock-legal-hold"))
+}

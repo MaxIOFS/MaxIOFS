@@ -116,11 +116,7 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 	// Create multipart upload
 	upload, err := h.objectManager.CreateMultipartUpload(r.Context(), bucketPath, objectKey, r.Header)
 	if err != nil {
-		if err == object.ErrBucketNotFound {
-			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
-			return
-		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
 	}
 
@@ -670,7 +666,7 @@ done:
 			code = "InvalidPartOrder"
 		} else if errors.Is(res.err, cluster.ErrClusterDegraded) {
 			code = "ServiceUnavailable"
-		} else if strings.Contains(res.err.Error(), "storage quota exceeded") || strings.Contains(res.err.Error(), "quota exceeded") {
+		} else if isQuotaExceeded(res.err) {
 			code = "QuotaExceeded"
 		}
 		logrus.WithFields(logrus.Fields{

@@ -874,7 +874,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)
 			return
 		}
-		h.writeError(w, "InternalError", err.Error(), destKey, r)
+		h.writeObjectWriteError(w, r, err, destBucket, destKey)
 		return
 	}
 

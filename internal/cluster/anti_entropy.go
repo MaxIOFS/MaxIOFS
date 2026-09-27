@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
@@ -46,6 +47,12 @@ type ScrubCheckpoint struct {
 	DivergencesFound int64     `json:"divergences_found"`
 	DivergencesFixed int64     `json:"divergences_fixed"`
 	RunID            int64     `json:"run_id"`
+	// Since, when set, limits a catch-up cycle to objects modified at or after
+	// this unix time.
+	Since int64 `json:"since,omitempty"`
+	// Unreconciled counts objects left uncompared or unrepaired: a peer that
+	// did not answer, or a push, pull or delete that failed.
+	Unreconciled int64 `json:"unreconciled,omitempty"`
 }
 
 // ScrubRun mirrors one row of the ha_scrub_runs table for status display.
@@ -74,7 +81,14 @@ type AntiEntropyScrubber struct {
 	mu        sync.Mutex
 	cancel    context.CancelFunc
 	currentCP *ScrubCheckpoint // in-memory snapshot for status endpoint
+
+	caughtUp chan struct{}        // signalled by CatchUp
+	pending  map[string]time.Time // node ID → earliest write it missed
 }
+
+// catchUpMargin widens a catch-up window: a delete's tombstone is dated a
+// moment before the fan-out that records the miss.
+const catchUpMargin = time.Minute
 
 // NewAntiEntropyScrubber wires a scrubber.  rawKV is used for the persistent
 // mid-cycle checkpoint; passing the underlying metadata store works.
@@ -84,6 +98,24 @@ func NewAntiEntropyScrubber(objMgr object.Manager, bucketMgr bucket.Manager, mgr
 		bucketMgr: bucketMgr,
 		mgr:       mgr,
 		rawKV:     rawKV,
+		caughtUp:  make(chan struct{}, 1),
+		pending:   make(map[string]time.Time),
+	}
+}
+
+// CatchUp brings a node that is back up to date with the writes and deletes
+// it missed since the given time. It runs as soon as no other cycle is
+// running, whether or not the periodic scrub is enabled: it is the rebuild of
+// a mirror, not a scrub.
+func (s *AntiEntropyScrubber) CatchUp(nodeID string, since time.Time) {
+	s.mu.Lock()
+	if prev, ok := s.pending[nodeID]; !ok || since.Before(prev) {
+		s.pending[nodeID] = since
+	}
+	s.mu.Unlock()
+	select {
+	case s.caughtUp <- struct{}{}:
+	default:
 	}
 }
 
@@ -196,7 +228,7 @@ func (s *AntiEntropyScrubber) run(ctx context.Context) {
 			"buckets_scanned":  cp.BucketsScanned,
 			"objects_compared": cp.ObjectsCompared,
 		}).Info("AntiEntropyScrubber: resuming interrupted cycle")
-		s.runCycle(ctx, cp)
+		s.runCycle(ctx, cp, 0)
 	}
 
 	timer := time.NewTimer(jitter)
@@ -210,28 +242,94 @@ func (s *AntiEntropyScrubber) run(ctx context.Context) {
 			if !s.scrubEnabled(ctx) {
 				logrus.Debug("AntiEntropyScrubber: disabled by config, skipping cycle")
 			} else {
-				s.runCycle(ctx, nil)
+				s.runCycle(ctx, nil, 0)
 			}
 			timer.Reset(s.cycleInterval(ctx))
+		case <-s.caughtUp:
+			s.runCatchUp(ctx)
+		}
+	}
+}
+
+// runCatchUp compares every object modified since the earliest pending miss
+// with the peers, then sends each returning node the deletes it missed. What
+// fails is recorded as missed again, so the next health check retries it.
+func (s *AntiEntropyScrubber) runCatchUp(ctx context.Context) {
+	s.mu.Lock()
+	pending := s.pending
+	s.pending = make(map[string]time.Time)
+	s.mu.Unlock()
+	retry := func(nodeID string, t time.Time) {
+		if ctx.Err() == nil {
+			s.mgr.noteMissedWrites(ctx, "", t, nodeID)
+		}
+	}
+	// A node down again by now is caught up when it is next back.
+	for nodeID, t := range pending {
+		if node, err := s.mgr.GetNode(ctx, nodeID); err != nil || node.HealthStatus != HealthStatusHealthy {
+			retry(nodeID, t)
+			delete(pending, nodeID)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	var since time.Time
+	for _, t := range pending {
+		if since.IsZero() || t.Before(since) {
+			since = t
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{"nodes": len(pending), "since": since}).
+		Info("AntiEntropyScrubber: catching up nodes that missed writes")
+	if !s.runCycle(ctx, nil, since.Add(-catchUpMargin).Unix()) {
+		for nodeID, t := range pending {
+			retry(nodeID, t)
+		}
+		return
+	}
+
+	localID, err := s.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		for nodeID, t := range pending {
+			retry(nodeID, t)
+		}
+		return
+	}
+	client := NewProxyClient(s.mgr.GetTLSConfig())
+	for nodeID, t := range pending {
+		node, err := s.mgr.GetNode(ctx, nodeID)
+		if err == nil {
+			err = s.replayDeletes(ctx, client, node, localID, t.Add(-catchUpMargin))
+		}
+		if err != nil {
+			logrus.WithError(err).WithField("node_id", nodeID).
+				Warn("AntiEntropyScrubber: deletes not caught up, retrying at the next health check")
+			retry(nodeID, t)
 		}
 	}
 }
 
 // runCycle performs one full pass.  When `resume` is non-nil it picks up from
 // that checkpoint; otherwise a brand-new cycle is started.
-func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpoint) {
+//
+// since, for a new cycle, limits it to objects modified at or after that unix
+// time; 0 compares everything. It reports whether the cycle completed with
+// every object compared and every divergence repaired.
+func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpoint, since int64) bool {
 	if !s.mgr.IsClusterEnabled() {
-		return
+		return true
 	}
 	factor, err := s.mgr.GetReplicationFactor(ctx)
 	if err != nil || factor <= 1 {
-		return
+		return err == nil
 	}
 
-	cp, runID, err := s.beginCycle(ctx, resume)
+	cp, runID, err := s.beginCycle(ctx, resume, since)
 	if err != nil {
 		logrus.WithError(err).Error("AntiEntropyScrubber: failed to begin cycle")
-		return
+		return false
 	}
 
 	s.publishCheckpoint(cp)
@@ -255,12 +353,12 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 			cp.BucketsScanned, cp.ObjectsCompared, cp.DivergencesFound, cp.DivergencesFixed,
 			runID)
 		logrus.WithError(cycleErr).Error("AntiEntropyScrubber: cycle failed")
-		return
+		return false
 	}
 
 	if ctx.Err() != nil {
 		// Shutdown: leave run as 'running' and checkpoint intact so resume works.
-		return
+		return false
 	}
 
 	// Clean completion: clear checkpoint, mark run done, prune old run rows.
@@ -280,11 +378,13 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 		"objects_compared":  cp.ObjectsCompared,
 		"divergences_found": cp.DivergencesFound,
 		"divergences_fixed": cp.DivergencesFixed,
+		"unreconciled":      cp.Unreconciled,
 	}).Info("AntiEntropyScrubber: cycle completed")
+	return cp.Unreconciled == 0
 }
 
 // beginCycle returns the checkpoint to use and the ha_scrub_runs row id.
-func (s *AntiEntropyScrubber) beginCycle(ctx context.Context, resume *ScrubCheckpoint) (*ScrubCheckpoint, int64, error) {
+func (s *AntiEntropyScrubber) beginCycle(ctx context.Context, resume *ScrubCheckpoint, since int64) (*ScrubCheckpoint, int64, error) {
 	if resume != nil {
 		return resume, resume.RunID, nil
 	}
@@ -314,6 +414,7 @@ func (s *AntiEntropyScrubber) beginCycle(ctx context.Context, resume *ScrubCheck
 		StartedAt:   now,
 		BucketOrder: order,
 		RunID:       runID,
+		Since:       since,
 	}
 	s.saveCheckpoint(ctx, cp)
 	return cp, runID, nil
@@ -353,13 +454,18 @@ func (s *AntiEntropyScrubber) executeCycle(ctx context.Context, cp *ScrubCheckpo
 				break
 			}
 
-			peers, err := s.healthyPeers(ctx, localID)
-			if err != nil || len(peers) == 0 {
-				logrus.WithError(err).Warn("AntiEntropyScrubber: no healthy peers, aborting cycle")
-				return fmt.Errorf("no healthy peers")
+			objects := result.Objects
+			if cp.Since > 0 {
+				objects = modifiedSince(objects, cp.Since)
 			}
-
-			s.processBatch(ctx, client, peers, localID, bp, result.Objects, cp, perObjectDelay)
+			if len(objects) > 0 {
+				peers, err := s.healthyPeers(ctx, localID)
+				if err != nil || len(peers) == 0 {
+					logrus.WithError(err).Warn("AntiEntropyScrubber: no healthy peers, aborting cycle")
+					return fmt.Errorf("no healthy peers")
+				}
+				s.processBatch(ctx, client, peers, localID, bp, objects, cp, perObjectDelay)
+			}
 
 			marker = result.NextMarker
 			cp.LastKey = marker
@@ -378,6 +484,116 @@ func (s *AntiEntropyScrubber) executeCycle(ctx context.Context, cp *ScrubCheckpo
 		s.saveCheckpoint(ctx, cp)
 	}
 	return nil
+}
+
+// replayDeletes sends node the deletes recorded here since the given time. A
+// version delete names one version and is always sent. A delete of a whole key
+// is sent only while the key is still deleted here and node's copy is not newer
+// than the delete — the rule the scrubber applies to deletes — so a key the
+// node wrote after the delete, during a partition, is kept.
+func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyClient, node *Node, localID string, since time.Time) error {
+	type keyDelete struct {
+		key       string
+		deletedAt int64
+	}
+	rows, err := s.mgr.db.QueryContext(ctx, `
+		SELECT entity_type, entity_id, deleted_at FROM cluster_deletion_log
+		WHERE entity_type IN (?, ?) AND deleted_at >= ?`,
+		EntityTypeObject, EntityTypeObjectVersion, since.Unix())
+	if err != nil {
+		return fmt.Errorf("read deletion log: %w", err)
+	}
+	var versions [][3]string
+	keys := make(map[string][]keyDelete)
+	for rows.Next() {
+		var entityType, entityID string
+		var deletedAt int64
+		if err := rows.Scan(&entityType, &entityID, &deletedAt); err != nil {
+			rows.Close()
+			return fmt.Errorf("read deletion log: %w", err)
+		}
+		if entityType == EntityTypeObjectVersion {
+			if b, k, v, ok := DecodeObjectVersionTombstoneID(entityID); ok {
+				versions = append(versions, [3]string{b, k, v})
+			}
+		} else if b, k, ok := DecodeObjectTombstoneID(entityID); ok {
+			keys[b] = append(keys[b], keyDelete{k, deletedAt})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read deletion log: %w", err)
+	}
+
+	var errs error
+	for _, v := range versions {
+		errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, v[0], v[1], v[2], ""))
+	}
+	batch := s.cycleBatchSize(ctx)
+	for bucketPath, deletes := range keys {
+		for start := 0; start < len(deletes); start += batch {
+			chunk := deletes[start:min(start+batch, len(deletes))]
+			names := make([]string, len(chunk))
+			for i, d := range chunk {
+				names[i] = d.key
+			}
+			entries, err := s.fetchPeerChecksums(ctx, client, node, localID, bucketPath, names)
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			there := make(map[string]ChecksumEntry, len(entries))
+			for _, e := range entries {
+				there[e.Key] = e
+			}
+			for _, d := range chunk {
+				e, ok := there[d.key]
+				if !ok || !e.Found || e.LastModified > d.deletedAt {
+					continue
+				}
+				marker, live, err := s.deletedHere(ctx, bucketPath, d.key)
+				if err != nil {
+					errs = errors.Join(errs, err)
+					continue
+				}
+				if !live {
+					errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, bucketPath, d.key, "", marker))
+				}
+			}
+		}
+	}
+	return errs
+}
+
+// deletedHere reports whether key is live on this node and, when it is not and
+// the bucket keeps versions, the delete marker that hides it.
+func (s *AntiEntropyScrubber) deletedHere(ctx context.Context, bucketPath, key string) (marker string, live bool, err error) {
+	if _, err := s.objMgr.GetObjectMetadata(ctx, bucketPath, key); err == nil {
+		return "", true, nil
+	} else if !errors.Is(err, object.ErrObjectNotFound) {
+		return "", false, err
+	}
+	versions, err := s.objMgr.GetObjectVersions(ctx, bucketPath, key)
+	if err != nil && !errors.Is(err, object.ErrObjectNotFound) {
+		return "", false, err
+	}
+	for _, v := range versions {
+		if v.IsLatest && v.IsDeleteMarker {
+			return v.VersionID, false, nil
+		}
+	}
+	return "", false, nil
+}
+
+// modifiedSince keeps the objects modified at or after the unix time since.
+func modifiedSince(objects []object.Object, since int64) []object.Object {
+	kept := make([]object.Object, 0, len(objects))
+	for _, o := range objects {
+		if o.LastModified.Unix() >= since {
+			kept = append(kept, o)
+		}
+	}
+	return kept
 }
 
 // processBatch compares one page of local objects against every peer and
@@ -408,6 +624,7 @@ func (s *AntiEntropyScrubber) processBatch(
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath,
 			}).Warn("AntiEntropyScrubber: checksum-batch failed, skipping peer for this batch")
+			cp.Unreconciled += int64(len(keys))
 			continue
 		}
 
@@ -433,6 +650,8 @@ func (s *AntiEntropyScrubber) processBatch(
 				cp.DivergencesFound++
 				if s.applyAction(ctx, client, peer, localID, bucketPath, key, local, action) {
 					cp.DivergencesFixed++
+				} else {
+					cp.Unreconciled++
 				}
 			}
 			s.publishCheckpoint(cp)
@@ -665,6 +884,7 @@ func (s *AntiEntropyScrubber) pushObjectToPeer(
 	}
 	setHALastModified(req.Header, obj)
 	setHAChecksum(req.Header, obj)
+	SetHAObjectLock(req.Header, obj)
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -726,14 +946,7 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 		return fmt.Errorf("GET object returned %d: %s", resp.StatusCode, string(b))
 	}
 
-	repCtx := WithHAReplicaContext(ctx)
-	if versionID := resp.Header.Get(HAObjectVersionHeader); versionID != "" {
-		repCtx = object.WithReplicatedVersionID(repCtx, versionID)
-	}
-	if lm, ok := HALastModifiedFromHeader(resp.Header); ok {
-		repCtx = object.WithReplicatedLastModified(repCtx, lm)
-	}
-	_, err = s.objMgr.PutObject(repCtx, bucketPath, key, resp.Body, resp.Header.Clone())
+	_, err = s.objMgr.PutObject(ReplicaWriteContext(ctx, resp.Header), bucketPath, key, resp.Body, resp.Header.Clone())
 	return err
 }
 

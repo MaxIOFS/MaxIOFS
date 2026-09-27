@@ -1,0 +1,488 @@
+package cluster
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type localNode struct {
+	objects object.Manager
+	buckets bucket.Manager
+	store   metadata.Store
+}
+
+// newLocalNode is a real object manager over a temporary store.
+func newLocalNode(t *testing.T) *localNode {
+	t.Helper()
+	root := t.TempDir()
+	backend, err := storage.NewFilesystemBackend(storage.Config{Root: root})
+	require.NoError(t, err)
+	store, err := metadata.NewPebbleStore(metadata.PebbleOptions{
+		DataDir: filepath.Join(root, "metadata"),
+		Logger:  logrus.StandardLogger(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Close() })
+	return &localNode{
+		objects: object.NewManager(backend, store, config.StorageConfig{
+			Backend: "filesystem", Root: root, EncryptionKey: strings.Repeat("ab", 32),
+		}),
+		buckets: bucket.NewManager(backend, store),
+		store:   store,
+	}
+}
+
+// newClusterWithPeers initialises a cluster of the given factor whose peers
+// are the given servers, all healthy.
+func newClusterWithPeers(t *testing.T, factor int, peers ...*httptest.Server) (*Manager, *sql.DB, []*Node) {
+	t.Helper()
+	db, cleanup := setupQuorumTestDB(t)
+	t.Cleanup(cleanup)
+	ctx := context.Background()
+	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
+	_, err := mgr.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
+	require.NoError(t, err)
+	require.NoError(t, mgr.SetReplicationFactor(ctx, factor))
+	var nodes []*Node
+	for i, p := range peers {
+		n := &Node{Name: "peer-" + string(rune('a'+i)), Endpoint: p.URL, NodeToken: "t", Region: "us-east-1", Priority: 100, Metadata: "{}"}
+		require.NoError(t, mgr.AddNode(ctx, n))
+		_, err = db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusHealthy, n.ID)
+		require.NoError(t, err)
+		nodes = append(nodes, n)
+	}
+	return mgr, db, nodes
+}
+
+func missedSince(t *testing.T, db *sql.DB, nodeID string) sql.NullInt64 {
+	t.Helper()
+	var since sql.NullInt64
+	require.NoError(t, db.QueryRow(`SELECT replica_missed_since FROM cluster_nodes WHERE id = ?`, nodeID).Scan(&since))
+	return since
+}
+
+func failingPeer(t *testing.T, hits *int) *httptest.Server {
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		mu.Lock()
+		*hits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Two nodes with a factor of 2 are a mirror: with the peer down, writes go on
+// and the peer is recorded as having missed the earliest of them.
+func TestHAMirrorKeepsWritingWithItsPeerDown(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "mirror"}))
+	hits := 0
+	mgr, db, nodes := newClusterWithPeers(t, 2, failingPeer(t, &hits))
+	ha := NewHAObjectManager(local.objects, mgr)
+
+	first, err := ha.PutObject(ctx, "mirror", "a", strings.NewReader("first"), http.Header{})
+	require.NoError(t, err, "the write succeeds with the peer failing")
+	assert.Equal(t, 1, hits)
+	peer, err := mgr.GetNode(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusUnavailable, peer.HealthStatus)
+	assert.Equal(t, first.LastModified.Unix(), missedSince(t, db, nodes[0].ID).Int64)
+
+	time.Sleep(1100 * time.Millisecond)
+	_, err = ha.PutObject(ctx, "mirror", "b", strings.NewReader("second"), http.Header{})
+	require.NoError(t, err, "the write succeeds with the peer down")
+	assert.Equal(t, 1, hits, "a peer known to be down is not tried")
+	assert.Equal(t, first.LastModified.Unix(), missedSince(t, db, nodes[0].ID).Int64, "the earliest miss is kept")
+
+	for _, key := range []string{"a", "b"} {
+		_, reader, err := local.objects.GetObject(ctx, "mirror", key)
+		require.NoError(t, err)
+		reader.Close()
+	}
+}
+
+// A factor of 3 still needs one of its two peers.
+func TestHAFactorThreeNeedsAPeer(t *testing.T) {
+	db, cleanup := setupQuorumTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
+	_, err := mgr.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
+	require.NoError(t, err)
+	require.NoError(t, mgr.SetReplicationFactor(ctx, 3))
+	ok, err := mgr.ClusterCanAcceptWrites(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A health check that finds a node healthy hands its missed writes to the
+// hook once, and clears them; an unhealthy check keeps them.
+func TestHealthCheckHandsBackAMissedReplica(t *testing.T) {
+	healthy := true
+	var mu sync.Mutex
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		ok := healthy
+		mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer peer.Close()
+	mgr, db, nodes := newClusterWithPeers(t, 2, peer)
+	ctx := context.Background()
+	type call struct {
+		node  string
+		since time.Time
+	}
+	var calls []call
+	mgr.OnReplicaBack(func(nodeID string, since time.Time) { calls = append(calls, call{nodeID, since}) })
+
+	_, err := mgr.CheckNodeHealth(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	assert.Empty(t, calls, "nothing was missed")
+
+	missed := time.Now().Add(-time.Hour).Unix()
+	_, err = db.Exec(`UPDATE cluster_nodes SET replica_missed_since = ? WHERE id = ?`, missed, nodes[0].ID)
+	require.NoError(t, err)
+	mu.Lock()
+	healthy = false
+	mu.Unlock()
+	_, err = mgr.CheckNodeHealth(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	assert.Empty(t, calls, "the node is still down")
+	assert.Equal(t, missed, missedSince(t, db, nodes[0].ID).Int64)
+
+	mu.Lock()
+	healthy = true
+	mu.Unlock()
+	_, err = mgr.CheckNodeHealth(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, nodes[0].ID, calls[0].node)
+	assert.Equal(t, missed, calls[0].since.Unix())
+	assert.False(t, missedSince(t, db, nodes[0].ID).Valid, "the record is cleared")
+
+	_, err = mgr.CheckNodeHealth(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	assert.Len(t, calls, 1, "handed back once")
+}
+
+// catchUpPeer answers checksum-batch from what it holds, and records the
+// objects pushed to it and the deletes sent to it.
+type catchUpPeer struct {
+	mu      sync.Mutex
+	holds   map[string]ChecksumEntry // key → what the peer holds
+	pushed  map[string]http.Header   // key → headers of the push
+	deletes []http.Header
+	fail    bool
+}
+
+func newCatchUpPeer(t *testing.T) (*catchUpPeer, *httptest.Server) {
+	p := &catchUpPeer{holds: map[string]ChecksumEntry{}, pushed: map[string]http.Header{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.fail {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ha/checksum-batch"):
+			var req struct {
+				Keys []string `json:"keys"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			var out struct {
+				Entries []ChecksumEntry `json:"entries"`
+			}
+			for _, k := range req.Keys {
+				e, ok := p.holds[k]
+				if !ok {
+					e = ChecksumEntry{Key: k}
+				}
+				out.Entries = append(out.Entries, e)
+			}
+			_ = json.NewEncoder(w).Encode(out)
+		case r.Method == http.MethodPut:
+			_, _ = io.Copy(io.Discard, r.Body)
+			key := r.URL.Path[strings.Index(r.URL.Path, "/ha/objects/")+len("/ha/objects/"):]
+			p.pushed[key] = r.Header.Clone()
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodDelete:
+			h := r.Header.Clone()
+			h.Set("X-Test-Key", r.URL.Path[strings.Index(r.URL.Path, "/ha/objects/")+len("/ha/objects/"):])
+			p.deletes = append(p.deletes, h)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return p, srv
+}
+
+// A catch-up pushes what changed since the node went missing, lock state
+// included, and nothing older, then sends the deletes it missed.
+func TestCatchUpPushesOnlyWhatTheNodeMissed(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:       "worm",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
+	}))
+	old := object.WithReplicatedLastModified(ctx, time.Now().Add(-2*time.Hour))
+	_, err := local.objects.PutObject(old, "worm", "before", strings.NewReader("old"), http.Header{})
+	require.NoError(t, err)
+	until := time.Now().Add(24 * time.Hour).UTC()
+	h := http.Header{}
+	h.Set("x-amz-object-lock-mode", object.RetentionModeCompliance)
+	h.Set("x-amz-object-lock-retain-until-date", until.Format(time.RFC3339))
+	h.Set("x-amz-object-lock-legal-hold", object.LegalHoldStatusOn)
+	_, err = local.objects.PutObject(ctx, "worm", "during", strings.NewReader("new"), h)
+	require.NoError(t, err)
+	_, err = local.objects.PutObject(old, "worm", "removed", strings.NewReader("gone"), http.Header{})
+	require.NoError(t, err)
+	_, err = local.objects.DeleteObject(ctx, "worm", "removed", false)
+	require.NoError(t, err)
+
+	peer, srv := newCatchUpPeer(t)
+	peer.holds["removed"] = ChecksumEntry{Key: "removed", Found: true, LastModified: time.Now().Add(-2 * time.Hour).Unix()}
+	mgr, db, nodes := newClusterWithPeers(t, 2, srv)
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID("worm", "removed"), "local"))
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	scrubber.CatchUp(nodes[0].ID, time.Now().Add(-10*time.Minute))
+	scrubber.runCatchUp(ctx)
+
+	peer.mu.Lock()
+	defer peer.mu.Unlock()
+	require.Contains(t, peer.pushed, "during")
+	assert.NotContains(t, peer.pushed, "before", "written before the node went missing")
+	require.Len(t, peer.deletes, 1, "the delete made while the node was missing")
+	assert.Equal(t, "removed", peer.deletes[0].Get("X-Test-Key"))
+	pushed := peer.pushed["during"]
+	assert.Equal(t, "true", pushed.Get(HAObjectLockHeader))
+	assert.Equal(t, object.RetentionModeCompliance, pushed.Get("x-amz-object-lock-mode"))
+	assert.Equal(t, object.LegalHoldStatusOn, pushed.Get("x-amz-object-lock-legal-hold"))
+}
+
+// A catch-up that cannot reach the node leaves the miss recorded, so the next
+// health check retries it.
+func TestCatchUpThatFailsIsRetried(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "retry"}))
+	_, err := local.objects.PutObject(ctx, "retry", "k", strings.NewReader("x"), http.Header{})
+	require.NoError(t, err)
+	peer, srv := newCatchUpPeer(t)
+	peer.fail = true
+	mgr, db, nodes := newClusterWithPeers(t, 2, srv)
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	since := time.Now().Add(-10 * time.Minute)
+	scrubber.CatchUp(nodes[0].ID, since)
+	scrubber.runCatchUp(ctx)
+	assert.Equal(t, since.Unix(), missedSince(t, db, nodes[0].ID).Int64)
+}
+
+// Deletes the node missed are sent to it: a version delete always, a key
+// delete only while the key is still deleted here and the node's copy is not
+// newer than the delete.
+func TestCatchUpReplaysMissedDeletes(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: "vb", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+	}))
+	put := func(key string) {
+		_, err := local.objects.PutObject(ctx, "vb", key, strings.NewReader(key), http.Header{})
+		require.NoError(t, err)
+	}
+	del := func(key string) string {
+		marker, err := local.objects.DeleteObject(ctx, "vb", key, false)
+		require.NoError(t, err)
+		return marker
+	}
+	put("gone")
+	goneMarker := del("gone")
+	put("newer-there")
+	del("newer-there")
+	put("alive")
+	del("alive")
+	put("alive")
+	put("absent-there")
+	del("absent-there")
+	put("old")
+	del("old")
+
+	peer, srv := newCatchUpPeer(t)
+	mgr, db, nodes := newClusterWithPeers(t, 2, srv)
+	now := time.Now().Unix()
+	tomb := func(entityType, id string, at int64) {
+		require.NoError(t, RecordDeletion(ctx, db, entityType, id, "local"))
+		_, err := db.Exec(`UPDATE cluster_deletion_log SET deleted_at = ? WHERE entity_type = ? AND entity_id = ?`, at, entityType, id)
+		require.NoError(t, err)
+	}
+	tomb(EntityTypeObjectVersion, ObjectVersionTombstoneID("vb", "versioned", "v123"), now)
+	for _, key := range []string{"gone", "newer-there", "alive", "absent-there"} {
+		tomb(EntityTypeObject, ObjectTombstoneID("vb", key), now)
+	}
+	tomb(EntityTypeObject, ObjectTombstoneID("vb", "old"), now-7200)
+	peer.holds["gone"] = ChecksumEntry{Key: "gone", Found: true, LastModified: now - 60}
+	peer.holds["newer-there"] = ChecksumEntry{Key: "newer-there", Found: true, LastModified: now + 60}
+	peer.holds["alive"] = ChecksumEntry{Key: "alive", Found: true, LastModified: now - 60}
+	peer.holds["old"] = ChecksumEntry{Key: "old", Found: true, LastModified: now - 9000}
+
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	node, err := mgr.GetNode(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	localID, err := mgr.GetLocalNodeID(ctx)
+	require.NoError(t, err)
+	require.NoError(t, scrubber.replayDeletes(ctx, NewProxyClient(nil), node, localID, time.Unix(now-600, 0)))
+
+	peer.mu.Lock()
+	defer peer.mu.Unlock()
+	sent := map[string]http.Header{}
+	for _, h := range peer.deletes {
+		sent[h.Get("X-Test-Key")] = h
+	}
+	require.Contains(t, sent, "versioned")
+	assert.Equal(t, "v123", sent["versioned"].Get(HAObjectVersionHeader))
+	require.Contains(t, sent, "gone")
+	assert.Equal(t, goneMarker, sent["gone"].Get(HADeleteMarkerVersionHeader), "the marker keeps its ID on the node")
+	assert.NotContains(t, sent, "newer-there", "the node wrote it after the delete")
+	assert.NotContains(t, sent, "alive", "written again here after the delete")
+	assert.NotContains(t, sent, "absent-there", "the node does not hold it")
+	assert.NotContains(t, sent, "old", "deleted before the node went missing")
+	assert.Len(t, sent, 2)
+}
+
+// A node that is down again when the catch-up starts keeps its record, so it
+// is caught up when it is next back — even while another peer is healthy and
+// the rest of the catch-up runs.
+func TestCatchUpWaitsForANodeDownAgain(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "again"}))
+	_, err := local.objects.PutObject(ctx, "again", "k", strings.NewReader("x"), http.Header{})
+	require.NoError(t, err)
+	down, downSrv := newCatchUpPeer(t)
+	up, upSrv := newCatchUpPeer(t)
+	mgr, db, nodes := newClusterWithPeers(t, 3, downSrv, upSrv)
+	_, err = db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusUnavailable, nodes[0].ID)
+	require.NoError(t, err)
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	since := time.Now().Add(-10 * time.Minute)
+	scrubber.CatchUp(nodes[0].ID, since)
+	scrubber.CatchUp(nodes[1].ID, since)
+	scrubber.runCatchUp(ctx)
+
+	assert.Equal(t, since.Unix(), missedSince(t, db, nodes[0].ID).Int64)
+	assert.False(t, missedSince(t, db, nodes[1].ID).Valid, "the healthy peer was caught up")
+	down.mu.Lock()
+	assert.Empty(t, down.pushed)
+	down.mu.Unlock()
+	up.mu.Lock()
+	assert.Contains(t, up.pushed, "k")
+	up.mu.Unlock()
+}
+
+// A write that skips a peer already known to be down records the miss.
+func TestHAWriteSkippingADownPeerRecordsTheMiss(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "skip"}))
+	hits := 0
+	mgr, db, nodes := newClusterWithPeers(t, 2, failingPeer(t, &hits))
+	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusDegraded, nodes[0].ID)
+	require.NoError(t, err)
+
+	obj, err := NewHAObjectManager(local.objects, mgr).PutObject(ctx, "skip", "k", strings.NewReader("x"), http.Header{})
+	require.NoError(t, err)
+	assert.Zero(t, hits)
+	assert.Equal(t, obj.LastModified.Unix(), missedSince(t, db, nodes[0].ID).Int64)
+}
+
+// The initial sync to a new replica carries the object's lock state.
+func TestInitialSyncCarriesObjectLock(t *testing.T) {
+	received := make(chan http.Header, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		received <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	until := time.Now().Add(time.Hour).UTC()
+	w := NewHASyncWorker(&lockedObjectManager{obj: &object.Object{
+		Key: "k", Size: 4,
+		Retention: &object.RetentionConfig{Mode: object.RetentionModeGovernance, RetainUntilDate: until},
+		LegalHold: &object.LegalHoldConfig{Status: object.LegalHoldStatusOn},
+	}}, nil, mgr)
+	require.NoError(t, w.syncObject(context.Background(), NewProxyClient(nil), nodes[0], "local", "bucket", "k"))
+	got := <-received
+	assert.Equal(t, "true", got.Get(HAObjectLockHeader))
+	assert.Equal(t, object.RetentionModeGovernance, got.Get("x-amz-object-lock-mode"))
+	assert.Equal(t, object.LegalHoldStatusOn, got.Get("x-amz-object-lock-legal-hold"))
+}
+
+// A copy pulled from a peer keeps the peer's lock state as sent, a date that
+// passed in transit included.
+func TestPulledCopyKeepsThePeersObjectLock(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name:       "worm",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
+	}))
+	passed := time.Now().Add(-time.Minute).UTC()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SetHAObjectLock(w.Header(), &object.Object{
+			Retention: &object.RetentionConfig{Mode: object.RetentionModeCompliance, RetainUntilDate: passed},
+			LegalHold: &object.LegalHoldConfig{Status: object.LegalHoldStatusOn},
+		})
+		w.Header().Set(HAObjectVersionHeader, "1700000000.peer")
+		_, _ = w.Write([]byte("peer copy"))
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	node, err := mgr.GetNode(ctx, nodes[0].ID)
+	require.NoError(t, err)
+	require.NoError(t, scrubber.pullObjectFromPeer(ctx, NewProxyClient(nil), node, "local", "worm", "k"))
+
+	obj, reader, err := local.objects.GetObject(ctx, "worm", "k")
+	require.NoError(t, err)
+	reader.Close()
+	require.NotNil(t, obj.Retention)
+	assert.Equal(t, object.RetentionModeCompliance, obj.Retention.Mode)
+	assert.True(t, obj.Retention.RetainUntilDate.Equal(passed), "stored %v for %v", obj.Retention.RetainUntilDate, passed)
+	require.NotNil(t, obj.LegalHold)
+	assert.Equal(t, object.LegalHoldStatusOn, obj.LegalHold.Status)
+	assert.Equal(t, "1700000000.peer", obj.VersionID)
+}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -108,7 +110,7 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Write to the new key
 	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, req.NewKey, reader, headers); err != nil {
-		s.writeError(w, fmt.Sprintf("Failed to write object at new key: %v", err), http.StatusInternalServerError)
+		s.writeError(w, fmt.Sprintf("Failed to write object at new key: %v", err), writeErrorStatus(err))
 		return
 	}
 
@@ -473,7 +475,7 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	}
 
 	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, objectKey, reader, headers); err != nil {
-		s.writeError(w, fmt.Sprintf("Failed to restore version: %v", err), http.StatusInternalServerError)
+		s.writeError(w, fmt.Sprintf("Failed to restore version: %v", err), writeErrorStatus(err))
 		return
 	}
 
@@ -518,4 +520,24 @@ func buildBucketPath(tenantID, bucketName string) string {
 		return tenantID + "/" + bucketName
 	}
 	return bucketName
+}
+
+// isQuotaExceeded reports a write refused by a bucket or tenant quota. A
+// failure to check the quota is not one.
+func isQuotaExceeded(err error) bool {
+	return errors.Is(err, object.ErrBucketQuotaExceeded) || errors.Is(err, auth.ErrStorageQuotaExceeded)
+}
+
+// writeErrorStatus is the HTTP status for a failed object write.
+func writeErrorStatus(err error) int {
+	switch {
+	case isQuotaExceeded(err):
+		return http.StatusForbidden
+	case errors.Is(err, object.ErrBucketNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, cluster.ErrClusterDegraded):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
 }

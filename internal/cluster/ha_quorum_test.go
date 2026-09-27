@@ -53,7 +53,7 @@ func TestClusterCanAcceptWrites_FactorOneAlwaysOK(t *testing.T) {
 	assert.True(t, ok, "factor=1 needs no replicas")
 }
 
-func TestClusterCanAcceptWrites_FactorTwoRejectsWhenNoHealthyPeers(t *testing.T) {
+func TestClusterCanAcceptWrites_FactorTwoAcceptsWithNoHealthyPeers(t *testing.T) {
 	db, cleanup := setupQuorumTestDB(t)
 	defer cleanup()
 	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -65,7 +65,7 @@ func TestClusterCanAcceptWrites_FactorTwoRejectsWhenNoHealthyPeers(t *testing.T)
 
 	ok, err := mgr.ClusterCanAcceptWrites(ctx)
 	require.NoError(t, err)
-	assert.False(t, ok, "factor=2 is a mirror and needs one healthy replica")
+	assert.True(t, ok, "factor=2 is a mirror: it keeps accepting writes while its peer is down")
 }
 
 func TestClusterCanAcceptWrites_FactorTwoAcceptsWithOneHealthyPeer(t *testing.T) {
@@ -90,7 +90,7 @@ func TestClusterCanAcceptWrites_FactorTwoAcceptsWithOneHealthyPeer(t *testing.T)
 
 	ok, err := mgr.ClusterCanAcceptWrites(ctx)
 	require.NoError(t, err)
-	assert.True(t, ok, "factor=2 needs exactly one healthy replica")
+	assert.True(t, ok, "factor=2 accepts writes with its peer up")
 }
 
 func TestClusterCanAcceptWrites_FactorThreeAcceptsWithOneHealthyPeer(t *testing.T) {
@@ -184,7 +184,7 @@ func TestCollectAndCheckQuorum_AllSuccess(t *testing.T) {
 	ch <- fanoutResult{nodeID: "n1", err: nil}
 	ch <- fanoutResult{nodeID: "n2", err: nil}
 
-	err := h.collectAndCheckQuorum(context.Background(), ch, 2, 1, "PUT", "b", "k")
+	err := h.collectAndCheckQuorum(context.Background(), ch, 2, 1, time.Now(), "PUT", "b", "k")
 	assert.NoError(t, err)
 }
 
@@ -206,7 +206,7 @@ func TestCollectAndCheckQuorum_QuorumMet(t *testing.T) {
 	ch <- fanoutResult{nodeID: "n2", err: errors.New("boom")}
 
 	// 1 success >= needed=1 → no error, but n2 must be marked unavailable.
-	err = h.collectAndCheckQuorum(context.Background(), ch, 2, 1, "PUT", "b", "k")
+	err = h.collectAndCheckQuorum(context.Background(), ch, 2, 1, time.Now(), "PUT", "b", "k")
 	assert.NoError(t, err)
 
 	var status string
@@ -224,7 +224,7 @@ func TestCollectAndCheckQuorum_QuorumMissed(t *testing.T) {
 	ch <- fanoutResult{nodeID: "n1", err: errors.New("boom1")}
 	ch <- fanoutResult{nodeID: "n2", err: errors.New("boom2")}
 
-	err := h.collectAndCheckQuorum(context.Background(), ch, 2, 1, "PUT", "b", "k")
+	err := h.collectAndCheckQuorum(context.Background(), ch, 2, 1, time.Now(), "PUT", "b", "k")
 	assert.ErrorIs(t, err, ErrClusterDegraded)
 }
 
@@ -368,8 +368,8 @@ func TestHARollbackContext(t *testing.T) {
 	assert.False(t, isHARollback(rep), "replica marker must not also flag as rollback")
 }
 
-func TestRequiredReplicaAcks_IsAMajorityCountingTheLocalCopy(t *testing.T) {
-	cases := map[int]int{1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3}
+func TestRequiredReplicaAcks_IsHalfTheCopiesCountingTheLocalOne(t *testing.T) {
+	cases := map[int]int{1: 0, 2: 0, 3: 1, 4: 1, 5: 2, 6: 2, 7: 3}
 	for factor, want := range cases {
 		assert.Equal(t, want, RequiredReplicaAcks(factor),
 			"replication factor %d", factor)
