@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **290 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **296 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -124,7 +124,7 @@ npx vitest run --coverage
 | `manager_jwt_secret_test.go` | JWT secret rotation and validation |
 | `manager_s3sig_test.go` | S3 Signature V4 verification |
 | `manager_simple_test.go` | Basic auth manager operations (CRUD users, keys) |
-| `manager_tenant_test.go` | Tenant-scoped auth operations |
+| `manager_tenant_test.go` | Tenant-scoped auth operations; storage usage does not touch `updated_at` |
 | `permissions_screen_test.go` | Saving a user's permissions stores real grants without baking in inherited ones |
 | `permissions_test.go` | Permission checks |
 | `policy_bootstrap_test.go` | First-boot conversion to IAM policies: administrators and ordinary users keep console access; an unconverted database is healed; idempotent |
@@ -153,11 +153,12 @@ npx vitest run --coverage
 |------|-------------|
 | `worker_test.go` | `Stop` waits for the goroutine and is idempotent under concurrency; a spawn after `Stop` is refused; the zero value is usable |
 
-### `internal/bucket/` — 5 test files
+### `internal/bucket/` — 6 test files
 
 | File | Description |
 |------|-------------|
 | `bucket_name_uniqueness_test.go` | A bucket name already taken in another tenant is rejected |
+| `create_entry_test.go` | Creating a bucket whose name has a removal pending finishes the removal first; creating one that exists touches nothing |
 | `delete_bucket_test.go` | Bucket deletion with object cleanup |
 | `integration_test.go` | Bucket CRUD + versioning integration |
 | `manager_test.go` | Bucket manager core operations |
@@ -202,7 +203,7 @@ npx vitest run --coverage
 | `shared_state_test.go` | TLS state is race-free; the leader manager's `Stop` is idempotent; start doesn't replace the proxy client |
 | `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes) |
 | `storage_pressure_test.go` | Storage-pressure health state |
-| `tenant_sync_test.go` | Tenant sync across nodes |
+| `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
 | `user_sync_test.go` | User sync across nodes |
 
 ### `internal/clusterauth/` — 1 test file
@@ -328,7 +329,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 48 test files
+### `internal/object/` — 50 test files
 
 | File | Description |
 |------|-------------|
@@ -340,6 +341,7 @@ npx vitest run --coverage
 | `faultcheck_test.go` | Kills a subprocess mid-write (before/after data, before/after metadata) and checks what the next start recovers; also covers the retained-backup rollback path and the cost of an overwrite's backup copy |
 | `folder_marker_test.go` | A folder marker and a same-named object coexist (layout v2) |
 | `integration_test.go` | Full object lifecycle (put → get → delete) |
+| `key_acls_test.go` | An object does not inherit the ACL of the one before it at the key; ACLs kept per key are moved into their objects once |
 | `key_serialization_test.go` | Every key-mutating call serializes on the per-key lock |
 | `manager_coverage_test.go` | Manager edge cases for coverage |
 | `manager_critical_functions_test.go` | Critical path testing (copy, multipart complete) |
@@ -371,6 +373,7 @@ npx vitest run --coverage
 | `search_objects_test.go` | Object search and listing |
 | `sidecar_loss_test.go` | A lost sidecar never serves ciphertext as if it were the plaintext object |
 | `staging_cost_test.go` | Content passes of PUT staging and multipart completion, per path; the large-part probe is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#put-staging-and-multipart-completion)) |
+| `suspended_delete_test.go` | DELETE without a version ID in a suspended bucket adds a marker and keeps the versions from before; a current object without a version ID is removed; a legal hold refuses it; a copied marker removes only an older object |
 | `storage_identity_test.go` | `GetObject` refuses to serve ciphertext whose sidecar records no verifiable identity |
 | `versioned_prefix_test.go` | Versioned-bucket key collisions: shared prefix, case-only difference, folder marker |
 | `versioning_delete_test.go` | Version-aware delete operations |
@@ -417,13 +420,14 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 38 test files
+### `internal/server/` — 40 test files
 
 | File | Description |
 |------|-------------|
 | `bucket_aggregation_test.go` | Multi-node bucket aggregation API |
 | `bucket_quota_handlers_test.go` | A bucket quota is authorized against its own tenant, not `?tenantId=` |
-| `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too |
+| `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too; the directory of a bucket created since is kept |
+| `bucket_routing_test.go` | Between two complete nodes, every S3 request (AWS SDK client) and console request about a bucket reaches the node that holds it; bucket names are unique across nodes; bucket permissions stay with the coordinator and find a bucket on another node |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
 | `cluster_migration_test.go` | Bucket migration between two complete nodes: every version and its state moved and verified with the bucket's configuration, ACL and rows; writes refused while it runs and writes under way waited for; failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target; hidden copies answer for nothing; stale locations are forgotten; the console endpoint |
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold |
@@ -446,7 +450,7 @@ npx vitest run --coverage
 | `interrupted_writes_test.go` | `Start` refuses to serve traffic when the interrupted-write rollback has unresolved failures |
 | `kek_rotation_test.go` | KEK rotation endpoint and cluster KEK-sync receive |
 | `kek_shutdown_test.go` | Shutdown waits for a rotating KEK checkpoint; stopping encryption workers cancels the periodic pass |
-| `leader_gate_test.go` | Reads, sign-in and cluster traffic are never blocked by the leader gate |
+| `leader_gate_test.go` | Reads, sign-in and cluster traffic are never blocked by the leader gate; a bucket's settings and objects need no coordinator, its permissions do |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
 | `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not. A console upload's Object Lock headers need their own permission; a tenant without a storage limit can upload |
@@ -458,6 +462,7 @@ npx vitest run --coverage
 | `server_test.go` | Server startup, shutdown, configuration |
 | `sts_aws_api_test.go` | AWS STS XML actions: missing/unknown action, `GetSessionToken` signature and credential issuance |
 | `sts_federation_test.go` | STS federation disabled by default; requires a provider ID; rejects a malformed body |
+| `tenant_usage_test.go` | Tenant synchronisation keeps each node's usage; the bucket limit and the console count the tenant's buckets on every node; the statistics pass corrects the tenant's storage |
 | `worker_shutdown_test.go` | `goWorker` shutdown waits for every tracked worker and refuses new ones once shutdown starts |
 
 ### `internal/settings/` — 1 test file
@@ -501,7 +506,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 38 test files
+### `pkg/s3compat/` — 39 test files
 
 | File | Description |
 |------|-------------|
@@ -510,6 +515,7 @@ npx vitest run --coverage
 | `acl_security_test.go` | ACL security edge cases |
 | `background_jobs_test.go` | A background job keeps the request's values but uses shutdown cancellation, not the request's |
 | `batch_missing_bucket_test.go` | A batch delete on a missing bucket answers `NoSuchBucket` |
+| `bucket_limit_test.go` | A tenant's bucket limit counts every bucket the tenant has, including those its users created through the S3 API |
 | `bucket_listing_test.go` | `ListBuckets` shows exactly what the caller's policies grant, no more and no less |
 | `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256) |
 | `conditional_headers_test.go` | `If-Match`/`If-None-Match` ETag comparison |

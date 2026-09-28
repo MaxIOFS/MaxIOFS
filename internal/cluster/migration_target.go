@@ -204,10 +204,7 @@ func (t *MigrationTarget) Stage(ctx context.Context, st MigrationStage) error {
 	b.ObjectCount, b.TotalSize = 0, 0
 	b.HA = nil
 	path := pathOf(&b)
-	if err := t.finishRemoval(ctx, path); err != nil {
-		return err
-	}
-	if err := t.store.CreateBucket(ctx, &b); err != nil {
+	if err := bucket.CreateEntry(ctx, t.store, t.storage, &b); err != nil {
 		return err
 	}
 	if err := t.storage.CreateBucket(ctx, path); err != nil {
@@ -217,25 +214,6 @@ func (t *MigrationTarget) Stage(ctx context.Context, st MigrationStage) error {
 		if err := t.acls.SetBucketACL(ctx, b.TenantID, b.Name, st.ACL); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// finishRemoval completes the deletion of an earlier bucket at path whose
-// directory outlived it, so nothing of it is found in the copy.
-func (t *MigrationTarget) finishRemoval(ctx context.Context, path string) error {
-	pending, err := t.store.PendingBucketRemovals(ctx)
-	if err != nil {
-		return err
-	}
-	for _, p := range pending {
-		if p != path {
-			continue
-		}
-		if err := t.storage.DeleteBucket(ctx, path); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
-			return fmt.Errorf("the directory of an earlier bucket %s could not be removed: %w", path, err)
-		}
-		return t.store.ClearBucketRemoval(ctx, path)
 	}
 	return nil
 }

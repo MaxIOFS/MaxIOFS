@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -374,107 +373,31 @@ func GenerateTenantID() string {
 	return "tenant-" + hex.EncodeToString(b)
 }
 
-// IncrementTenantBucketCount increments the current bucket count for a tenant
-func (s *SQLiteStore) IncrementTenantBucketCount(tenantID string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	res, err := tx.Exec(`
-		UPDATE tenants
-		SET current_buckets = current_buckets + 1, updated_at = ?
-		WHERE id = ?
-		AND (max_buckets = 0 OR current_buckets + 1 <= max_buckets)
-	`, time.Now().Unix(), tenantID)
-
-	if err != nil {
-		return fmt.Errorf("failed to increment bucket count: %w", err)
-	}
-
-	if rows, _ := res.RowsAffected(); rows == 0 {
-		// Either the tenant is gone or its bucket quota is full. Told apart so
-		// the caller can say which.
-		var exists int
-		if qErr := tx.QueryRow(`SELECT COUNT(*) FROM tenants WHERE id = ?`, tenantID).
-			Scan(&exists); qErr == nil && exists == 0 {
-			return fmt.Errorf("tenant %s not found", tenantID)
-		}
-		return ErrBucketQuotaExceeded
-	}
-
-	return tx.Commit()
-}
-
-// DecrementTenantBucketCount decrements the current bucket count for a tenant
-func (s *SQLiteStore) DecrementTenantBucketCount(tenantID string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec(`
-		UPDATE tenants
-		SET current_buckets = CASE
-			WHEN current_buckets > 0 THEN current_buckets - 1
-			ELSE 0
-		END, updated_at = ?
-		WHERE id = ?
-	`, time.Now().Unix(), tenantID)
-
-	if err != nil {
-		return fmt.Errorf("failed to decrement bucket count: %w", err)
-	}
-
-	return tx.Commit()
-}
-
-// IncrementTenantStorage atomically increments the current storage usage for a tenant.
+// IncrementTenantStorage adds bytes this node now stores for a tenant. It
+// counts what is stored, over the quota or not: the quota is enforced before
+// a write. Usage is not a change of the tenant's configuration and leaves
+// updated_at alone, which orders configuration changes between nodes.
 func (s *SQLiteStore) IncrementTenantStorage(tenantID string, bytes int64) error {
 	if bytes <= 0 {
 		return nil
 	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Atomic increment with quota enforcement:
-	// Only update if max_storage_bytes is 0 (unlimited) OR the new total <= max.
-	res, err := tx.Exec(`
+	if _, err := s.db.Exec(`
 		UPDATE tenants
-		SET current_storage_bytes = current_storage_bytes + ?, updated_at = ?
+		SET current_storage_bytes = current_storage_bytes + ?
 		WHERE id = ?
-		AND (max_storage_bytes = 0 OR current_storage_bytes + ? <= max_storage_bytes)
-	`, bytes, time.Now().Unix(), tenantID, bytes)
-
-	if err != nil {
+	`, bytes, tenantID); err != nil {
 		return fmt.Errorf("failed to increment storage: %w", err)
 	}
+	return nil
+}
 
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		// Either the tenant doesn't exist or the quota would be exceeded.
-		// Distinguish the two cases so we can return the right error.
-		var maxStorage int64
-		qErr := tx.QueryRow(`SELECT max_storage_bytes FROM tenants WHERE id = ?`, tenantID).
-			Scan(&maxStorage)
-		if qErr != nil {
-			// Tenant not found — nothing to update, treat as no-op.
-			return nil
-		}
-		if maxStorage == 0 {
-			// Unlimited quota but still 0 rows — tenant must have been deleted concurrently.
-			return nil
-		}
-		return ErrStorageQuotaExceeded
+// SetTenantStorage sets the bytes this node stores for a tenant, as counted
+// from its buckets.
+func (s *SQLiteStore) SetTenantStorage(tenantID string, bytes int64) error {
+	if _, err := s.db.Exec(`UPDATE tenants SET current_storage_bytes = ? WHERE id = ?`, max(bytes, 0), tenantID); err != nil {
+		return fmt.Errorf("failed to set storage: %w", err)
 	}
-
-	return tx.Commit()
+	return nil
 }
 
 // DecrementTenantStorage decrements the current storage usage for a tenant
@@ -494,9 +417,9 @@ func (s *SQLiteStore) DecrementTenantStorage(tenantID string, bytes int64) error
 		SET current_storage_bytes = CASE
 			WHEN current_storage_bytes > ? THEN current_storage_bytes - ?
 			ELSE 0
-		END, updated_at = ?
+		END
 		WHERE id = ?
-	`, bytes, bytes, time.Now().Unix(), tenantID)
+	`, bytes, bytes, tenantID)
 
 	if err != nil {
 		return fmt.Errorf("failed to decrement storage: %w", err)

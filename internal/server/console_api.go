@@ -288,6 +288,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 
 	router.Use(s.consoleAuthMiddleware)
 
+	router.Use(s.consoleBucketRouting)
+
 	router.Use(s.coordinatorMiddleware)
 
 	// Maintenance mode middleware — blocks write operations when enabled.
@@ -1368,6 +1370,17 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	return true
 }
 
+// consoleBucketRouting sends a request about a bucket's own state to the node
+// the bucket lives on, whatever the operation.
+func (s *Server) consoleBucketRouting(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bucket := mux.Vars(r)["bucket"]; bucket != "" && bucketScopedPath(r.URL.Path) && s.proxyConsoleRequest(w, r, bucket) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // bucketLeftThisNode reports whether a request forwarded here as the node
 // holding bucket finds it gone: the sender remembered a stale location.
 func (s *Server) bucketLeftThisNode(ctx context.Context, bucket string) bool {
@@ -1443,6 +1456,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bucket names are unique in the cluster.
+	if s.bucketOnAnotherNode(r.Context(), req.Name) {
+		s.writeError(w, "Bucket already exists", http.StatusConflict)
+		return
+	}
+
 	// Cluster: if a specific node is requested and it is not the local node, proxy the creation.
 	// The remote node will perform its own quota and validation checks.
 	if req.NodeID != "" && r.Header.Get("X-MaxIOFS-Proxied") != "true" &&
@@ -1503,9 +1522,16 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if tenant.CurrentBuckets >= tenant.MaxBuckets {
-			s.writeError(w, fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.", tenant.CurrentBuckets, tenant.MaxBuckets), http.StatusForbidden)
-			return
+		if tenant.MaxBuckets > 0 {
+			count, err := s.tenantBucketCount(r.Context(), targetTenantID)
+			if err != nil {
+				s.writeError(w, "Failed to count the tenant's buckets", http.StatusInternalServerError)
+				return
+			}
+			if count >= int64(tenant.MaxBuckets) {
+				s.writeError(w, fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.", count, tenant.MaxBuckets), http.StatusForbidden)
+				return
+			}
 		}
 	}
 
@@ -1645,25 +1671,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Incrementar el contador de buckets del tenant si tiene owner de tipo tenant
-	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
-		if err := s.authManager.IncrementTenantBucketCount(r.Context(), bucketInfo.OwnerID); err != nil {
-			// Log error but don't fail the request
-			logrus.WithError(err).WithField("tenantID", bucketInfo.OwnerID).Error("Failed to increment tenant bucket count")
-		}
-	}
-
 	s.writeJSON(w, map[string]string{"name": req.Name})
 }
 
 func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -1877,14 +1890,6 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Decrementar el contador de buckets del tenant si tiene owner de tipo tenant
-	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
-		if err := s.authManager.DecrementTenantBucketCount(r.Context(), bucketInfo.OwnerID); err != nil {
-			// Log error but don't fail the request
-			logrus.WithError(err).WithField("tenantID", bucketInfo.OwnerID).Error("Failed to decrement tenant bucket count")
-		}
-	}
-
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1892,11 +1897,6 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -1977,11 +1977,6 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -2116,11 +2111,6 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
-
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
@@ -2238,11 +2228,6 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -2584,11 +2569,6 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -4372,30 +4352,12 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enrich tenants with real-time usage statistics
+	// Enrich tenants with their usage in the cluster
 	for i := range tenants {
-		// Calculate current storage bytes from tenant's buckets
-		// Use the tenant's ID for filtering buckets
-		buckets, err := s.bucketManager.ListBuckets(r.Context(), tenants[i].ID)
-		if err == nil {
-			var totalStorage int64
-			var bucketCount int64
-			for _, b := range buckets {
-				if b.OwnerType == "tenant" && b.OwnerID == tenants[i].ID {
-					bucketCount++
-					// Get object count and size for this bucket
-					bucketPath := tenants[i].ID + "/" + b.Name
-					result, err := s.objectManager.ListObjects(r.Context(), bucketPath, "", "", "", 10000)
-					if err == nil {
-						for _, obj := range result.Objects {
-							totalStorage += obj.Size
-						}
-					}
-				}
-			}
-			tenants[i].CurrentStorageBytes = totalStorage
-			tenants[i].CurrentBuckets = bucketCount
+		if count, err := s.tenantBucketCount(r.Context(), tenants[i].ID); err == nil {
+			tenants[i].CurrentBuckets = count
 		}
+		tenants[i].CurrentStorageBytes = s.tenantStorage(r.Context(), tenants[i])
 
 		// Calculate current access keys from tenant's users
 		users, err := s.authManager.ListUsers(r.Context())
@@ -4556,6 +4518,10 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if count, err := s.tenantBucketCount(r.Context(), tenant.ID); err == nil {
+		tenant.CurrentBuckets = count
+	}
+	tenant.CurrentStorageBytes = s.tenantStorage(r.Context(), tenant)
 
 	s.writeJSON(w, tenant)
 }
@@ -4847,7 +4813,10 @@ func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil {
+	// Permissions are cluster configuration, written on the coordinator, which
+	// need not be the node that holds the bucket.
+	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil &&
+		!s.bucketInCluster(r.Context(), bucketTenantID, bucketName) {
 		if s.isGlobalAdmin(currentUser) {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 		} else {
@@ -4857,6 +4826,34 @@ func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Req
 	}
 
 	return bucketTenantID, true
+}
+
+// bucketInCluster reports whether a tenant has the named bucket on a node of
+// the cluster.
+func (s *Server) bucketInCluster(ctx context.Context, tenantID, bucketName string) bool {
+	if s.bucketAggregator == nil || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		return false
+	}
+	buckets, err := s.bucketAggregator.ListAllBucketsFromAllNodes(ctx, tenantID)
+	if err != nil {
+		return false
+	}
+	for _, b := range buckets {
+		if b.Name == bucketName && b.TenantID == tenantID {
+			return true
+		}
+	}
+	return false
+}
+
+// bucketOnAnotherNode reports whether another node of the cluster holds the
+// named bucket.
+func (s *Server) bucketOnAnotherNode(ctx context.Context, name string) bool {
+	if s.clusterRouter == nil || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		return false
+	}
+	node, isLocal, err := s.clusterRouter.RouteRequest(ctx, name)
+	return err == nil && !isLocal && node != nil
 }
 
 func (s *Server) scopedBucketPermissionManager() (scopedBucketPermissionManager, bool) {
@@ -5471,11 +5468,6 @@ func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())

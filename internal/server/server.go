@@ -737,6 +737,14 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.backfillBucketOwnerPolicies(ctx)
 
+	// An object's ACL is kept with the object; the ACLs once kept by key are
+	// moved to the objects that answered with them.
+	if adopted, err := object.AdoptKeyACLs(ctx, s.metadataStore); err != nil {
+		return fmt.Errorf("moving object ACLs to their objects: %w", err)
+	} else if adopted > 0 {
+		logrus.WithField("objects", adopted).Info("Object ACLs moved to their objects")
+	}
+
 	// Before serving: a bucket whose move was being committed takes no writes
 	// until the move is finished.
 	s.bucketMigrator.Start(ctx)
@@ -871,6 +879,7 @@ func (s *Server) reconcileBucketStats(ctx context.Context) {
 		}
 	}
 
+	s.refreshTenantStorage(ctx)
 	logrus.WithField("buckets", len(buckets)).Info("Stats reconciler: completed pass")
 }
 
@@ -1461,6 +1470,9 @@ func (s *Server) setupRoutes() error {
 		enabled, _ := s.settingsManager.GetBool("system.maintenance_mode")
 		return enabled
 	}))
+
+	// A request about a bucket that lives on another node goes there.
+	s3Router.Use(apiHandler.BucketRoutingMiddleware)
 
 	// A bucket being migrated off this node takes no writes until it moves.
 	s3Router.Use(s.bucketWriteGate(s3GateReads, refuseS3BucketWrite))

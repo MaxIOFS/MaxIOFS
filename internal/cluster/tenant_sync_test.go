@@ -48,8 +48,8 @@ func TestTenantSyncManager_ListLocalTenants(t *testing.T) {
 			max_buckets INTEGER DEFAULT 10,
 			current_buckets INTEGER DEFAULT 0,
 			metadata TEXT DEFAULT '{}',
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
 		)
 	`)
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestTenantSyncManager_ListLocalTenants(t *testing.T) {
 		_, err = db.ExecContext(ctx, `
 			INSERT INTO tenants (id, name, status, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?)
-		`, tenant.id, tenant.name, tenant.status, now, now)
+		`, tenant.id, tenant.name, tenant.status, now.Unix(), now.Unix())
 		require.NoError(t, err)
 	}
 
@@ -110,8 +110,8 @@ func TestTenantSyncManager_ComputeChecksum(t *testing.T) {
 		MaxStorageBytes: 1000000,
 		MaxBuckets:      10,
 		Metadata:        map[string]string{"key": "value"},
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		CreatedAt:       now.Unix(),
+		UpdatedAt:       now.Unix(),
 	}
 
 	checksum1 := syncManager.computeTenantChecksum(tenant)
@@ -304,8 +304,8 @@ func TestTenantSyncManager_SendTenantToNode(t *testing.T) {
 		MaxStorageBytes: 1000000,
 		MaxBuckets:      10,
 		Metadata:        map[string]string{"key": "value"},
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		CreatedAt:       now.Unix(),
+		UpdatedAt:       now.Unix(),
 	}
 
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -342,8 +342,8 @@ func TestTenantSyncManager_SendTenantToNode_ServerError(t *testing.T) {
 		ID:        "tenant-123",
 		Name:      "test",
 		Status:    "active",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().Unix(),
 	}
 
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -384,8 +384,8 @@ func TestTenantSyncManager_SyncTenantToNode(t *testing.T) {
 		ID:        "tenant-123",
 		Name:      "test",
 		Status:    "active",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().Unix(),
 	}
 
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -443,8 +443,8 @@ func TestTenantSyncManager_SyncLoop(t *testing.T) {
 			id TEXT PRIMARY KEY,
 			name TEXT,
 			status TEXT,
-			created_at TIMESTAMP,
-			updated_at TIMESTAMP,
+			created_at INTEGER,
+			updated_at INTEGER,
 			display_name TEXT DEFAULT '',
 			description TEXT DEFAULT '',
 			max_access_keys INTEGER DEFAULT 5,
@@ -459,7 +459,7 @@ func TestTenantSyncManager_SyncLoop(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Now()
-	_, err = db.ExecContext(ctx, `INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('tenant-1', 'test', 'active', ?, ?)`, now, now)
+	_, err = db.ExecContext(ctx, `INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('tenant-1', 'test', 'active', ?, ?)`, now.Unix(), now.Unix())
 	require.NoError(t, err)
 
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -499,8 +499,7 @@ func TestTenantSyncManager_Start(t *testing.T) {
 		db, cleanup := setupTestDB(t)
 		defer cleanup()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
+		ctx := context.Background()
 
 		require.NoError(t, InitSchema(db))
 		require.NoError(t, InitReplicationSchema(db))
@@ -526,8 +525,23 @@ func TestTenantSyncManager_Start(t *testing.T) {
 		clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 		syncManager := NewTenantSyncManager(db, clusterManager)
 
-		syncManager.Start(ctx)
+		// The deadline bounds the running manager, not the setup.
+		runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		syncManager.Start(runCtx)
 		time.Sleep(100 * time.Millisecond)
 		syncManager.Stop()
 	})
+}
+
+// Usage is each node's own: a change of usage alone is not a change to send.
+func TestTenantChecksumIgnoresUsage(t *testing.T) {
+	m := &TenantSyncManager{}
+	a := &TenantData{ID: "t", Name: "t", Status: "active", MaxBuckets: 10, UpdatedAt: 1}
+	b := *a
+	b.CurrentBuckets, b.CurrentStorageBytes = 7, 700
+	assert.Equal(t, m.computeTenantChecksum(a), m.computeTenantChecksum(&b))
+	c := *a
+	c.MaxBuckets = 11
+	assert.NotEqual(t, m.computeTenantChecksum(a), m.computeTenantChecksum(&c))
 }

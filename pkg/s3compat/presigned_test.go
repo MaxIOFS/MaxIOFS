@@ -149,12 +149,6 @@ func (m *mockAuthManager) DeleteTenant(ctx context.Context, tenantID string) err
 func (m *mockAuthManager) ListTenantUsers(ctx context.Context, tenantID string) ([]*auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
 }
-func (m *mockAuthManager) IncrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	return fmt.Errorf("not implemented")
-}
-func (m *mockAuthManager) DecrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	return fmt.Errorf("not implemented")
-}
 func (m *mockAuthManager) IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
 	return fmt.Errorf("not implemented")
 }

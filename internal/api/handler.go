@@ -292,6 +292,12 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", noop).Methods("OPTIONS")
 }
 
+// BucketRoutingMiddleware sends a request about a bucket to the node the
+// bucket lives on.
+func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
+	return h.s3Handler.BucketRoutingMiddleware(next)
+}
+
 // S3ClientMiddleware redirects non-S3 client requests to the web console.
 // Applied in server.setupRoutes before S3 auth so Authorization: Bearer (console JWT)
 // on the same host does not yield 401 before the redirect runs.

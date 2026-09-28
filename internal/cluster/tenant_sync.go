@@ -31,8 +31,8 @@ type TenantData struct {
 	MaxBuckets              int               `json:"max_buckets"`
 	CurrentBuckets          int               `json:"current_buckets"`
 	Metadata                map[string]string `json:"metadata"`
-	CreatedAt               time.Time         `json:"created_at"`
-	UpdatedAt               time.Time         `json:"updated_at"`
+	CreatedAt               int64             `json:"created_at"` // unix seconds, as the tenants table keeps them
+	UpdatedAt               int64             `json:"updated_at"`
 }
 
 // TenantSyncManager handles automatic tenant synchronization between cluster nodes
@@ -307,7 +307,8 @@ func (m *TenantSyncManager) listLocalTenants(ctx context.Context) ([]*TenantData
 // computeTenantChecksum computes a SHA256 checksum of tenant data
 func (m *TenantSyncManager) computeTenantChecksum(tenant *TenantData) string {
 	// Create deterministic representation
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%s|%s",
+	// Usage is each node's own and is not part of what is synchronized.
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%s",
 		tenant.ID,
 		tenant.Name,
 		tenant.DisplayName,
@@ -317,8 +318,7 @@ func (m *TenantSyncManager) computeTenantChecksum(tenant *TenantData) string {
 		tenant.MaxStorageBytes,
 		tenant.MaxBandwidthBytesPerSec,
 		tenant.MaxBuckets,
-		tenant.CurrentBuckets,
-		tenant.UpdatedAt.Format(time.RFC3339),
+		tenant.UpdatedAt,
 		formatMetadata(tenant.Metadata),
 	)
 

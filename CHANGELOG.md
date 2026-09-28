@@ -49,6 +49,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changing the tags, ACL, retention or legal hold of a restored object keeps its restore status; it was erased.
 - The performance collector is created once per process. Each server construction replaced it while its throughput ticker was reading it, and left another ticker running.
 - In a bucket whose versioning is suspended, a write without a version ID over a version kept from before adds its size to bucket and tenant usage; it subtracted the kept version's size. Over a delete marker it counts the key again. The bucket statistics recount includes such an object.
+- In a bucket whose versioning is suspended, DELETE without a version ID adds a delete marker and keeps the versions from before, as in AWS S3; only a current object without a version ID is removed. It deleted the current version permanently, a version from before included, and added no marker.
+- Creating a bucket whose name has a removal still pending finishes that removal first. The startup sweep deleted the new bucket's directory; it now keeps the directory of a bucket that exists.
+- An object ACL belongs to the version it was set on. ACLs were also kept per key, so the next object at the key, by overwrite, new version or after a delete, inherited the previous object's ACL. ACLs kept per key by earlier releases are moved into the object at startup.
+- Tenant synchronisation read `created_at` and `updated_at`, stored as unix seconds, as timestamps and failed for every tenant; tenants did not synchronise between nodes.
+- Tenant synchronisation no longer copies storage usage and bucket count: each node counts what it stores. A synchronised tenant took the sending node's counters.
+- Storage usage changes no longer update the tenant's `updated_at`, which orders configuration between nodes: a write on one node made that node's older configuration win.
+- A tenant's bucket limit counts the tenant's buckets on every node, each once; the stored counter was per node and drifted. In the console a limit of 0 is no limit; it refused every bucket.
+- The console shows each tenant's bucket count and storage for the whole cluster. The tenant list computed them from the first 10,000 objects of each bucket on the local node.
+- The bucket statistics pass sets each tenant's storage on the node to what its buckets hold.
+- Every S3 request about a bucket goes to the node that holds it. Only twelve operations were forwarded; the others (tagging, ACLs, policy, lifecycle, CORS, encryption, multipart uploads, CopyObject, DeleteObjects, ListObjectVersions, retention, DeleteBucket and more) ran on the receiving node and failed with `NoSuchBucket`.
+- Every console request about a bucket's settings or objects goes to the node that holds it. Setting changes went to the coordinator, which answered `404` unless it held the bucket; most other requests ran on the receiving node.
+- Creating a bucket whose name another node holds answers `409`, from the S3 API and the console. A second bucket of that name was created on the receiving node.
+- Bucket permissions are granted on the coordinator for a bucket held by any node. The coordinator looked for the bucket among its own.
 
 ### Removed
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
@@ -61,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rollback tests for raw replica overwrites and failed encryption migration restores.
 - HA tests for mirror writes with a node down, the catch-up of a returning node (window, deletes, retries) and quota error codes.
 - Bucket migration tests between two complete nodes: every version and its state moved and verified, writes held and writes under way waited for, failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target, stale locations.
+- Cluster routing tests with an AWS SDK client and the console between two complete nodes: bucket operations reach the node that holds the bucket, bucket names are unique across nodes, bucket permissions find a bucket on another node.
+- Tests for suspended DELETE, bucket creation over a pending removal, object ACL ownership and migration, and tenant usage and synchronisation between nodes.
 
 ## [1.7.0] - 2026-09-18
 

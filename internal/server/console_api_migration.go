@@ -25,9 +25,6 @@ func (s *Server) handleMigrateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bucketName := mux.Vars(r)["bucket"]
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	var req struct {
 		TargetNodeID string `json:"target_node_id"`

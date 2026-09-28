@@ -81,8 +81,6 @@ type Manager interface {
 	UpdateTenant(ctx context.Context, tenant *Tenant) error
 	DeleteTenant(ctx context.Context, tenantID string) error
 	ListTenantUsers(ctx context.Context, tenantID string) ([]*User, error)
-	IncrementTenantBucketCount(ctx context.Context, tenantID string) error
-	DecrementTenantBucketCount(ctx context.Context, tenantID string) error
 	IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 	DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
 	CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error
@@ -1433,14 +1431,6 @@ func (am *authManager) ListTenantUsers(ctx context.Context, tenantID string) ([]
 	return am.store.ListTenantUsers(tenantID)
 }
 
-func (am *authManager) IncrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	return am.store.IncrementTenantBucketCount(tenantID)
-}
-
-func (am *authManager) DecrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	return am.store.DecrementTenantBucketCount(tenantID)
-}
-
 func (am *authManager) IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
 	if err := am.store.IncrementTenantStorage(tenantID, bytes); err != nil {
 		return err
@@ -1459,6 +1449,12 @@ func (am *authManager) IncrementTenantStorage(ctx context.Context, tenantID stri
 
 func (am *authManager) DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
 	return am.store.DecrementTenantStorage(tenantID, bytes)
+}
+
+// SetTenantStorage sets the bytes this node stores for a tenant, as counted
+// from its buckets.
+func (am *authManager) SetTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
+	return am.store.SetTenantStorage(tenantID, bytes)
 }
 
 func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID string, additionalBytes int64) error {

@@ -116,7 +116,7 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 	// Store bucket metadata in the active metadata store.
 	metaBucket := toMetadataBucket(bucket)
 
-	if err := bm.metadataStore.CreateBucket(ctx, metaBucket); err != nil {
+	if err := CreateEntry(ctx, bm.metadataStore, bm.storage, metaBucket); err != nil {
 		if err == metadata.ErrBucketAlreadyExists {
 			return ErrBucketAlreadyExists
 		}

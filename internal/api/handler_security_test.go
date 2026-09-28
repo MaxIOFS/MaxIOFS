@@ -728,16 +728,6 @@ func (m *MockAuthManager) ListTenantUsers(ctx context.Context, tenantID string) 
 	return args.Get(0).([]*auth.User), args.Error(1)
 }
 
-func (m *MockAuthManager) IncrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	args := m.Called(ctx, tenantID)
-	return args.Error(0)
-}
-
-func (m *MockAuthManager) DecrementTenantBucketCount(ctx context.Context, tenantID string) error {
-	args := m.Called(ctx, tenantID)
-	return args.Error(0)
-}
-
 func (m *MockAuthManager) IncrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error {
 	args := m.Called(ctx, tenantID, bytes)
 	return args.Error(0)

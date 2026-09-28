@@ -62,12 +62,6 @@ func (s *Server) handleGetBucketQuota(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// In a cluster the bucket (and its cached usage + quota config) lives on its
-	// owner node; proxy there so we read/enforce against the authoritative totals.
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
-
 	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionGetBucketQuota)
 	if !ok {
 		return
@@ -100,12 +94,6 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Route to the bucket's owner node so the quota is persisted where the bucket
-	// metadata lives.
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionPutBucketQuota)
 	if !ok {
@@ -199,11 +187,6 @@ func (s *Server) handleDeleteBucketQuota(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Route to the bucket's owner node.
-	if s.proxyConsoleRequest(w, r, bucketName) {
-		return
-	}
 
 	tenantID, ok := s.authorizeBucketQuota(w, r, bucketName, auth.ActionPutBucketQuota)
 	if !ok {

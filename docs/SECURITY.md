@@ -502,6 +502,8 @@ S3-compatible Access Control Lists for bucket and object-level permissions.
 
 Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL_CONTROL) are also supported.
 
+An object ACL belongs to the version it was set on. The next object written at the key, by overwrite, as a new version or after a delete, starts `private`.
+
 ---
 
 ## PublicAccessBlock

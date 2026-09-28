@@ -234,48 +234,6 @@ func TestSetAndGetBucketACL(t *testing.T) {
 	})
 }
 
-// TestSetAndGetObjectACL tests object ACL operations
-func TestSetAndGetObjectACL(t *testing.T) {
-	store := setupTestStore(t)
-	manager := NewManager(store)
-	ctx := context.Background()
-
-	t.Run("Set and get object ACL", func(t *testing.T) {
-		acl := &ACL{
-			Owner: Owner{
-				ID:          "owner-456",
-				DisplayName: "Object Owner",
-			},
-			Grants: []Grant{
-				{
-					Grantee: Grantee{
-						Type:        GranteeTypeCanonicalUser,
-						ID:          "owner-456",
-						DisplayName: "Object Owner",
-					},
-					Permission: PermissionFullControl,
-				},
-			},
-		}
-
-		err := manager.SetObjectACL(ctx, "tenant-1", "test-bucket", "test-object.txt", acl)
-		assert.NoError(t, err)
-
-		retrieved, err := manager.GetObjectACL(ctx, "tenant-1", "test-bucket", "test-object.txt")
-		assert.NoError(t, err)
-		assert.NotNil(t, retrieved)
-		assert.Equal(t, "owner-456", retrieved.Owner.ID)
-		assert.Equal(t, "Object Owner", retrieved.Owner.DisplayName)
-	})
-
-	t.Run("Get non-existent object ACL returns default", func(t *testing.T) {
-		retrieved, err := manager.GetObjectACL(ctx, "tenant-1", "test-bucket", "nonexistent-object.txt")
-		assert.NoError(t, err)
-		assert.NotNil(t, retrieved)
-		assert.Equal(t, CannedACLPrivate, retrieved.CannedACL)
-	})
-}
-
 // TestGetCannedACL tests GetCannedACL method
 func TestGetCannedACL(t *testing.T) {
 	store := setupTestStore(t)

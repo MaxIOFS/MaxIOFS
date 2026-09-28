@@ -17,7 +17,9 @@ type aclManager struct {
 // Storage key prefixes
 const (
 	bucketACLPrefix = "acl:bucket:"
-	objectACLPrefix = "acl:object:"
+	// ObjectACLPrefix held object ACLs by key before they were kept with
+	// each version; only the migration that moves them reads it.
+	ObjectACLPrefix = "acl:object:"
 )
 
 // GetBucketACL retrieves the ACL for a bucket
@@ -66,58 +68,6 @@ func (m *aclManager) SetBucketACL(ctx context.Context, tenantID, bucketName stri
 		"canned_acl": acl.CannedACL,
 		"grants":     len(acl.Grants),
 	}).Debug("Bucket ACL set successfully")
-
-	return nil
-}
-
-// GetObjectACL retrieves the ACL for an object
-func (m *aclManager) GetObjectACL(ctx context.Context, tenantID, bucketName, objectKey string) (*ACL, error) {
-	key := m.objectACLKey(tenantID, bucketName, objectKey)
-
-	data, err := m.kvStore.GetRaw(ctx, key)
-	if err != nil {
-		if err == metadata.ErrNotFound {
-			logrus.WithFields(logrus.Fields{
-				"tenant": tenantID,
-				"bucket": bucketName,
-				"object": objectKey,
-			}).Debug("ACL not found, returning default private ACL")
-			return CreateDefaultACL("maxiofs", "MaxIOFS"), nil
-		}
-		return nil, fmt.Errorf("failed to get object ACL: %w", err)
-	}
-
-	var acl ACL
-	if err := json.Unmarshal(data, &acl); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal object ACL: %w", err)
-	}
-	return &acl, nil
-}
-
-// SetObjectACL sets the ACL for an object
-func (m *aclManager) SetObjectACL(ctx context.Context, tenantID, bucketName, objectKey string, acl *ACL) error {
-	if acl == nil {
-		return ErrInvalidACL
-	}
-
-	key := m.objectACLKey(tenantID, bucketName, objectKey)
-
-	data, err := json.Marshal(acl)
-	if err != nil {
-		return fmt.Errorf("failed to marshal ACL: %w", err)
-	}
-
-	if err := m.kvStore.PutRaw(ctx, key, data); err != nil {
-		return fmt.Errorf("failed to set object ACL: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant":     tenantID,
-		"bucket":     bucketName,
-		"object":     objectKey,
-		"canned_acl": acl.CannedACL,
-		"grants":     len(acl.Grants),
-	}).Debug("Object ACL set successfully")
 
 	return nil
 }
@@ -238,12 +188,4 @@ func (m *aclManager) bucketACLKey(tenantID, bucketName string) string {
 		return fmt.Sprintf("%s%s", bucketACLPrefix, bucketName)
 	}
 	return fmt.Sprintf("%s%s:%s", bucketACLPrefix, tenantID, bucketName)
-}
-
-// objectACLKey generates the storage key for an object ACL
-func (m *aclManager) objectACLKey(tenantID, bucketName, objectKey string) string {
-	if tenantID == "" {
-		return fmt.Sprintf("%s%s:%s", objectACLPrefix, bucketName, objectKey)
-	}
-	return fmt.Sprintf("%s%s:%s:%s", objectACLPrefix, tenantID, bucketName, objectKey)
 }

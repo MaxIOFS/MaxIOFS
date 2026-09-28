@@ -81,3 +81,27 @@ func TestForceDeleteAlsoRecordsThePendingRemoval(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, pending)
 }
+
+// A bucket created where a deleted one left its directory, before creation
+// removed such leftovers, owns the directory: the sweep keeps it and clears
+// only the record.
+func TestSweepKeepsTheDirectoryOfABucketCreatedSince(t *testing.T) {
+	backend, store, cleanup := setupSweepTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "reborn", OwnerID: "u"}))
+	require.NoError(t, backend.CreateBucket(ctx, "reborn"))
+	require.NoError(t, store.DeleteBucket(ctx, "", "reborn"))
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "reborn", OwnerID: "u"}))
+	require.NoError(t, backend.Put(ctx, refOf("reborn", "new.bin"), strings.NewReader("new bytes"), nil))
+
+	finishPendingBucketRemovals(ctx, backend, store)
+
+	exists, err := backend.Exists(ctx, refOf("reborn", "new.bin"))
+	require.NoError(t, err)
+	require.True(t, exists, "the bucket that lives there keeps its objects")
+	pending, err := store.PendingBucketRemovals(ctx)
+	require.NoError(t, err)
+	require.Empty(t, pending)
+}

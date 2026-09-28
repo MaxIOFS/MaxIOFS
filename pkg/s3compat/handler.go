@@ -338,6 +338,18 @@ func (c requestValuesShutdownContext) Value(key interface{}) interface{} {
 	return c.values.Value(key)
 }
 
+// BucketRoutingMiddleware sends a request about a bucket to the node the
+// bucket lives on, whatever the operation, and answers a request another node
+// sent here for a bucket this node no longer holds.
+func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bucket := mux.Vars(r)["bucket"]; bucket != "" && h.proxyBucketRequest(w, r, bucket) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // proxyBucketRequest checks if the given bucket should be routed to a remote cluster node
 // and, if so, proxies the request there, writing the response to w and returning true.
 // Returns false when the request should be handled locally.
@@ -411,6 +423,28 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 
 	proxyClient.CopyResponseToWriter(w, resp) //nolint:errcheck
 	return true
+}
+
+// tenantBucketCount is the number of buckets a tenant has, on every node of
+// the cluster.
+func (h *Handler) tenantBucketCount(ctx context.Context, tenantID string) (int64, error) {
+	if h.bucketAggregator != nil && h.clusterManager != nil && h.clusterManager.IsClusterEnabled() {
+		buckets, err := h.bucketAggregator.ListAllBucketsFromAllNodes(ctx, tenantID)
+		if err != nil {
+			return 0, err
+		}
+		// With replication every node lists every bucket.
+		names := make(map[string]struct{}, len(buckets))
+		for _, b := range buckets {
+			names[b.Name] = struct{}{}
+		}
+		return int64(len(names)), nil
+	}
+	buckets, err := h.bucketManager.ListBuckets(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(buckets)), nil
 }
 
 // bucketLeftThisNode reports whether a request forwarded here as the node
@@ -770,17 +804,25 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if tenant has reached max buckets
-		if tenant.MaxBuckets > 0 && tenant.CurrentBuckets >= tenant.MaxBuckets {
-			logrus.WithFields(logrus.Fields{
-				"bucket":         bucketName,
-				"tenantID":       tenantID,
-				"currentBuckets": tenant.CurrentBuckets,
-				"maxBuckets":     tenant.MaxBuckets,
-			}).Warn("Tenant bucket quota exceeded")
-			h.writeError(w, "QuotaExceeded",
-				fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.",
-					tenant.CurrentBuckets, tenant.MaxBuckets), bucketName, r)
-			return
+		if tenant.MaxBuckets > 0 {
+			count, err := h.tenantBucketCount(r.Context(), tenantID)
+			if err != nil {
+				logrus.WithError(err).WithField("tenantID", tenantID).Error("Failed to count the tenant's buckets")
+				h.writeError(w, "InternalError", "Failed to verify tenant quota", bucketName, r)
+				return
+			}
+			if count >= int64(tenant.MaxBuckets) {
+				logrus.WithFields(logrus.Fields{
+					"bucket":         bucketName,
+					"tenantID":       tenantID,
+					"currentBuckets": count,
+					"maxBuckets":     tenant.MaxBuckets,
+				}).Warn("Tenant bucket quota exceeded")
+				h.writeError(w, "QuotaExceeded",
+					fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.",
+						count, tenant.MaxBuckets), bucketName, r)
+				return
+			}
 		}
 	}
 
@@ -878,10 +920,6 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: HeadBucket")
 
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
-
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -929,10 +967,6 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjects")
-
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1071,10 +1105,6 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListObjectsV2")
-
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
@@ -1249,9 +1279,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: GetObject")
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -1418,10 +1445,6 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
 
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
-
 	if copySource := r.Header.Get("x-amz-copy-source"); copySource != "" {
 		logrus.WithFields(logrus.Fields{
 			"bucket":      bucketName,
@@ -1561,9 +1584,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	objectKey := getObjectKey(r)
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	versionID := r.URL.Query().Get("versionId")
 
@@ -1652,10 +1672,6 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: HeadObject")
 
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
-
 	user, userExists := auth.GetUserFromContext(r.Context())
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -1741,9 +1757,6 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) {
 		return
 	}
@@ -1760,9 +1773,6 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketVersioning) {
 		return
 	}
@@ -1812,9 +1822,6 @@ func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketVersioning) {
 		return
@@ -1886,9 +1893,6 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	bucketName := vars["bucket"]
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -1990,9 +1994,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	}).Info("S3 API: PutObjectLockConfiguration - START")
 
 	// Cluster routing: proxy to the node that owns this bucket if not local
-	if h.proxyBucketRequest(w, r, bucketName) {
-		return
-	}
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration) {
 		return

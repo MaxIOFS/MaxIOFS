@@ -117,7 +117,6 @@ type objectManager struct {
 	storage       storage.Backend
 	config        config.StorageConfig
 	metadataStore metadata.Store
-	aclManager    acl.Manager
 	encryptor     encryption.Encryptor
 	kekProvider   kek.Provider
 	bucketManager interface {
@@ -156,16 +155,10 @@ func WithKEKProvider(p kek.Provider) Option {
 }
 
 func NewManager(storage storage.Backend, metadataStore metadata.Store, config config.StorageConfig, opts ...Option) Manager {
-	var aclMgr acl.Manager
-	if kvStore, ok := metadataStore.(metadata.RawKVStore); ok {
-		aclMgr = acl.NewManager(kvStore)
-	}
-
 	om := &objectManager{
 		storage:       storage,
 		config:        config,
 		metadataStore: metadataStore,
-		aclManager:    aclMgr,
 		encryptor:     encryption.NewAESGCMEncryptor(encryption.DefaultEncryptionConfig()),
 		bucketManager: nil, // Will be set later via SetBucketManager
 		completions:   make(map[string]*completionFuture),
@@ -767,6 +760,7 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		return "", err
 	}
 	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
+	suspended := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Suspended"
 
 	// Determine if we're deleting a specific version or creating a delete marker
 	var specificVersionID string
@@ -781,13 +775,40 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 	if specificVersionID != "" {
 		// DELETE with versionId → Permanent deletion of specific version
 		return "", om.deleteSpecificVersion(ctx, bucket, key, specificVersionID, bypassGovernance)
-	} else if versioningEnabled || markerCopy {
+	} else if versioningEnabled || suspended || markerCopy {
 		// DELETE without versionId + versioning enabled → Create delete marker
+		if suspended {
+			if err := om.removeCurrentWithoutVersion(ctx, bucket, key, bypassGovernance); err != nil {
+				return "", err
+			}
+		}
 		return om.createDeleteMarker(ctx, bucket, key)
 	} else {
 		// DELETE without versioning → Legacy behavior (permanent delete)
 		return "", om.deletePermanently(ctx, bucket, key, bypassGovernance)
 	}
+}
+
+// removeCurrentWithoutVersion is the first half of a delete in a bucket whose
+// versioning is suspended: the current object, when it has no version ID, has
+// no version to be kept as and is removed; the delete marker that follows
+// hides the versions kept from before. A copy of a delete marker removes it
+// only when the marker is the newer of the two.
+func (om *objectManager) removeCurrentWithoutVersion(ctx context.Context, bucket, key string, bypassGovernance bool) error {
+	current, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if errors.Is(err, metadata.ErrObjectNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.VersionID != "" || isMetadataDeleteMarker(current) {
+		return nil
+	}
+	if markedAt, ok := replicatedLastModifiedFromContext(ctx); ok && markedAt.Unix() <= current.LastModified.Unix() {
+		return nil
+	}
+	return om.deletePermanently(ctx, bucket, key, bypassGovernance)
 }
 
 // createDeleteMarker creates a delete marker for a versioned object
@@ -1733,21 +1754,7 @@ func (om *objectManager) GetObjectACL(ctx context.Context, bucket, key string, v
 	if obj.ACL != nil {
 		return obj.ACL, nil
 	}
-
-	if len(versionID) > 0 && versionID[0] != "" {
-		return om.convertFromACLManagerType(acl.CreateDefaultACL("maxiofs", "MaxIOFS")), nil
-	}
-
-	tenantID, bucketName := om.parseBucketPath(bucket)
-
-	// Get ACL from ACL manager
-	aclData, err := om.aclManager.GetObjectACL(ctx, tenantID, bucketName, key)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert from acl.ACL to object.ACL
-	return om.convertFromACLManagerType(aclData), nil
+	return fromACLManagerType(acl.CreateDefaultACL("maxiofs", "MaxIOFS")), nil
 }
 
 func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, objectACL *ACL, versionID ...string) error {
@@ -1758,26 +1765,11 @@ func (om *objectManager) SetObjectACL(ctx context.Context, bucket, key string, o
 	}
 
 	obj.ACL = objectACL
-	if err := om.metadataStore.PutObject(ctx, toMetadataObject(obj)); err != nil {
-		return err
-	}
-
-	if len(versionID) > 0 && versionID[0] != "" {
-		return nil
-	}
-
-	// Parse bucket path to extract tenantID and bucketName
-	tenantID, bucketName := om.parseBucketPath(bucket)
-
-	// Convert from object.ACL to acl.ACL
-	aclData := om.convertToACLManagerType(objectACL)
-
-	// Set ACL using ACL manager
-	return om.aclManager.SetObjectACL(ctx, tenantID, bucketName, key, aclData)
+	return om.metadataStore.PutObject(ctx, toMetadataObject(obj))
 }
 
-// convertFromACLManagerType converts acl.ACL to object.ACL
-func (om *objectManager) convertFromACLManagerType(aclData *acl.ACL) *ACL {
+// fromACLManagerType converts acl.ACL to object.ACL
+func fromACLManagerType(aclData *acl.ACL) *ACL {
 	if aclData == nil {
 		return nil
 	}
@@ -1800,35 +1792,6 @@ func (om *objectManager) convertFromACLManagerType(aclData *acl.ACL) *ACL {
 		Owner: Owner{
 			ID:          aclData.Owner.ID,
 			DisplayName: aclData.Owner.DisplayName,
-		},
-		Grants: grants,
-	}
-}
-
-// convertToACLManagerType converts object.ACL to acl.ACL
-func (om *objectManager) convertToACLManagerType(objACL *ACL) *acl.ACL {
-	if objACL == nil {
-		return nil
-	}
-
-	grants := make([]acl.Grant, len(objACL.Grants))
-	for i, g := range objACL.Grants {
-		grants[i] = acl.Grant{
-			Grantee: acl.Grantee{
-				Type:         acl.GranteeType(g.Grantee.Type),
-				ID:           g.Grantee.ID,
-				DisplayName:  g.Grantee.DisplayName,
-				EmailAddress: g.Grantee.EmailAddress,
-				URI:          g.Grantee.URI,
-			},
-			Permission: acl.Permission(g.Permission),
-		}
-	}
-
-	return &acl.ACL{
-		Owner: acl.Owner{
-			ID:          objACL.Owner.ID,
-			DisplayName: objACL.Owner.DisplayName,
 		},
 		Grants: grants,
 	}

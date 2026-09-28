@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
@@ -40,8 +39,8 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 		MaxBuckets              int               `json:"max_buckets"`
 		CurrentBuckets          int               `json:"current_buckets"`
 		Metadata                map[string]string `json:"metadata"`
-		CreatedAt               time.Time         `json:"created_at"`
-		UpdatedAt               time.Time         `json:"updated_at"`
+		CreatedAt               int64             `json:"created_at"`
+		UpdatedAt               int64             `json:"updated_at"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&tenantData); err != nil {
@@ -98,8 +97,8 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 	MaxBuckets              int               `json:"max_buckets"`
 	CurrentBuckets          int               `json:"current_buckets"`
 	Metadata                map[string]string `json:"metadata"`
-	CreatedAt               time.Time         `json:"created_at"`
-	UpdatedAt               time.Time         `json:"updated_at"`
+	CreatedAt               int64             `json:"created_at"`
+	UpdatedAt               int64             `json:"updated_at"`
 }) error {
 	// Marshal metadata to JSON
 	metadataJSON, err := json.Marshal(tenant.Metadata)
@@ -116,16 +115,17 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 
 	if exists {
 		// LWW: only apply if the incoming record is strictly newer than the local one.
-		var localUpdatedAt time.Time
+		var localUpdatedAt int64
 		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, tenant.ID).Scan(&localUpdatedAt); err != nil {
 			return fmt.Errorf("failed to read local tenant updated_at: %w", err)
 		}
-		if !tenant.UpdatedAt.After(localUpdatedAt) {
+		if tenant.UpdatedAt <= localUpdatedAt {
 			logrus.WithField("tenant_id", tenant.ID).Debug("Skipping tenant update: local record is newer or equal (LWW)")
 			return nil
 		}
 
 		// Update existing tenant — preserve source updated_at so all nodes agree on the timestamp.
+		// Usage is what this node stores and is not taken from another node.
 		_, err = s.db.ExecContext(ctx, `
 			UPDATE tenants SET
 				name = ?,
@@ -135,9 +135,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 				max_access_keys = ?,
 				max_storage_bytes = ?,
 				max_bandwidth_bytes_per_sec = ?,
-				current_storage_bytes = ?,
 				max_buckets = ?,
-				current_buckets = ?,
 				metadata = ?,
 				updated_at = ?
 			WHERE id = ?
@@ -149,9 +147,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.MaxAccessKeys,
 			tenant.MaxStorageBytes,
 			tenant.MaxBandwidthBytesPerSec,
-			tenant.CurrentStorageBytes,
 			tenant.MaxBuckets,
-			tenant.CurrentBuckets,
 			string(metadataJSON),
 			tenant.UpdatedAt,
 			tenant.ID,
@@ -162,13 +158,14 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 
 		logrus.WithField("tenant_id", tenant.ID).Debug("Updated existing tenant")
 	} else {
-		// Insert new tenant (preserve original created_at and updated_at from source)
+		// Insert new tenant (preserve original created_at and updated_at from source).
+		// This node stores nothing of it yet.
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO tenants (
 				id, name, display_name, description, status,
 				max_access_keys, max_storage_bytes, max_bandwidth_bytes_per_sec, current_storage_bytes,
 				max_buckets, current_buckets, metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)
 		`,
 			tenant.ID,
 			tenant.Name,
@@ -178,9 +175,7 @@ func (s *Server) upsertTenant(ctx context.Context, tenant *struct {
 			tenant.MaxAccessKeys,
 			tenant.MaxStorageBytes,
 			tenant.MaxBandwidthBytesPerSec,
-			tenant.CurrentStorageBytes,
 			tenant.MaxBuckets,
-			tenant.CurrentBuckets,
 			string(metadataJSON),
 			tenant.CreatedAt,
 			tenant.UpdatedAt,

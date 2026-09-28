@@ -366,85 +366,6 @@ func TestListTenantUsers(t *testing.T) {
 // Tests for Tenant Quota Functions
 // ========================================
 
-func TestIncrementTenantBucketCount(t *testing.T) {
-	manager, tmpDir := setupTestAuthManager(t)
-	defer cleanupTestAuthManager(t, tmpDir)
-
-	ctx := context.Background()
-
-	// Create a test tenant
-	tenant := &Tenant{
-		ID:          generateTestID(),
-		Name:        "bucket-count-tenant-test",
-		DisplayName: "Bucket Count Tenant",
-		Status:      "active",
-		CreatedAt:   time.Now().Unix(),
-		UpdatedAt:   time.Now().Unix(),
-	}
-	err := manager.CreateTenant(ctx, tenant)
-	if err != nil {
-		t.Fatalf("Failed to create tenant: %v", err)
-	}
-
-	// Increment bucket count
-	err = manager.IncrementTenantBucketCount(ctx, tenant.ID)
-	if err != nil {
-		t.Errorf("IncrementTenantBucketCount() unexpected error: %v", err)
-	}
-
-	// Verify the increment
-	updated, err := manager.GetTenant(ctx, tenant.ID)
-	if err != nil {
-		t.Fatalf("Failed to get tenant: %v", err)
-	}
-
-	if updated.CurrentBuckets != 1 {
-		t.Errorf("IncrementTenantBucketCount() CurrentBuckets = %d, want %d", updated.CurrentBuckets, 1)
-	}
-}
-
-func TestDecrementTenantBucketCount(t *testing.T) {
-	manager, tmpDir := setupTestAuthManager(t)
-	defer cleanupTestAuthManager(t, tmpDir)
-
-	ctx := context.Background()
-
-	// Create a test tenant
-	tenant := &Tenant{
-		ID:          generateTestID(),
-		Name:        "bucket-decrement-tenant-test",
-		DisplayName: "Bucket Decrement Tenant",
-		Status:      "active",
-		CreatedAt:   time.Now().Unix(),
-		UpdatedAt:   time.Now().Unix(),
-	}
-	err := manager.CreateTenant(ctx, tenant)
-	if err != nil {
-		t.Fatalf("Failed to create tenant: %v", err)
-	}
-
-	// Increment and then decrement
-	err = manager.IncrementTenantBucketCount(ctx, tenant.ID)
-	if err != nil {
-		t.Fatalf("Failed to increment: %v", err)
-	}
-
-	err = manager.DecrementTenantBucketCount(ctx, tenant.ID)
-	if err != nil {
-		t.Errorf("DecrementTenantBucketCount() unexpected error: %v", err)
-	}
-
-	// Verify the decrement
-	updated, err := manager.GetTenant(ctx, tenant.ID)
-	if err != nil {
-		t.Fatalf("Failed to get tenant: %v", err)
-	}
-
-	if updated.CurrentBuckets != 0 {
-		t.Errorf("DecrementTenantBucketCount() CurrentBuckets = %d, want %d", updated.CurrentBuckets, 0)
-	}
-}
-
 func TestIncrementTenantStorage(t *testing.T) {
 	manager, tmpDir := setupTestAuthManager(t)
 	defer cleanupTestAuthManager(t, tmpDir)
@@ -712,4 +633,49 @@ func TestRecordSuccessfulLogin(t *testing.T) {
 
 	// Verify failed attempts are reset (we can't directly check this without accessing the store,
 	// but at least we verify the function doesn't error)
+}
+
+// A tenant's storage counts what is stored, over the limit or not; the limit is
+// enforced before a write. Counting is not a configuration change: updated_at,
+// which orders configuration changes between nodes, is left alone.
+func TestTenantStorageCountsWhatIsStored(t *testing.T) {
+	manager, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	ctx := context.Background()
+	tenant := &Tenant{ID: "t-count", Name: "t-count", Status: "active", MaxStorageBytes: 100}
+	if err := manager.CreateTenant(ctx, tenant); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	before, err := manager.GetTenant(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("GetTenant: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond) // updated_at has a resolution of one second
+
+	if err := manager.IncrementTenantStorage(ctx, tenant.ID, 150); err != nil {
+		t.Fatalf("IncrementTenantStorage over the limit: %v", err)
+	}
+	if err := manager.DecrementTenantStorage(ctx, tenant.ID, 20); err != nil {
+		t.Fatalf("DecrementTenantStorage: %v", err)
+	}
+	after, err := manager.GetTenant(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("GetTenant: %v", err)
+	}
+	if after.CurrentStorageBytes != 130 {
+		t.Errorf("CurrentStorageBytes = %d, want 130", after.CurrentStorageBytes)
+	}
+	if after.UpdatedAt != before.UpdatedAt {
+		t.Errorf("UpdatedAt changed from %d to %d by usage", before.UpdatedAt, after.UpdatedAt)
+	}
+
+	setter := manager.(interface {
+		SetTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+	})
+	if err := setter.SetTenantStorage(ctx, tenant.ID, 42); err != nil {
+		t.Fatalf("SetTenantStorage: %v", err)
+	}
+	if got, _ := manager.GetTenant(ctx, tenant.ID); got.CurrentStorageBytes != 42 {
+		t.Errorf("CurrentStorageBytes = %d after set, want 42", got.CurrentStorageBytes)
+	}
 }

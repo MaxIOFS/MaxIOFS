@@ -88,9 +88,11 @@ full anti-entropy cycle within an hour of starting.
 
 **The control plane (web console, port 8081) elects a coordinator**, so that two
 nodes cannot edit the same entity at the same instant and quietly disagree about
-the result. Configuration — users, access keys, policies, roles, tenants — is
-written on the elected node; a change made on any other node is forwarded to it,
-which is invisible to whoever is using the console.
+the result. Configuration — users, access keys, policies, roles, tenants, bucket
+permissions — is written on the elected node; a change made on any other node is
+forwarded to it, which is invisible to whoever is using the console. A bucket's
+own settings and objects are kept by the node that holds the bucket: console
+requests about them are forwarded to that node and do not need the coordinator.
 
 **When the coordinator dies, the nodes that are still alive hold an election and
 one of them takes over.** The majority is counted over the nodes that answer,
@@ -168,7 +170,8 @@ Each MaxIOFS node exposes three independent ports:
 - Tracks nodes in SQLite database (`cluster_config`, `cluster_nodes`)
 
 **2. Smart Router**
-- Routes S3 requests to correct node
+- Routes every S3 and console request about a bucket to the node that holds it
+- Bucket names are unique in the cluster: creating a bucket another node holds answers `409`
 - Automatic failover to healthy nodes
 - Caches the node each remote bucket lives on (5-minute TTL)
 - Proxies requests to remote nodes when needed
@@ -898,9 +901,10 @@ groups:
 
 **Symptoms:** The console answers `503` with *"the cluster is choosing a
 coordinator for configuration changes"*, or *"this node is no longer the
-coordinator"*, on anything that saves. **S3 traffic is unaffected** — objects
+coordinator"*, on configuration changes. **S3 traffic is unaffected** — objects
 upload and download normally, which is the clue that this is the control plane
-and not the cluster as a whole.
+and not the cluster as a whole. A bucket's settings and objects in the console
+are unaffected too.
 
 **Diagnosis:**
 ```bash

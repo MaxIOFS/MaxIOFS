@@ -101,36 +101,32 @@ func coordinatorExemptPath(path string) bool {
 		// Node-to-node traffic carries its own coordination, and gating it
 		// would stop the cluster from healing itself.
 		"/api/internal/",
-
-		// Object and bucket data, which is owned per bucket rather than
-		// globally, and needs no arbitration.
-		"/objects",
-		"/upload",
-		"/download",
-
-		// A bucket migration runs on the node the bucket lives on, which the
-		// request is forwarded to from wherever it arrives.
-		"/migrate",
 	}
 
 	for _, prefix := range exempt {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}
-		if hasPathSegment(path, prefix) {
-			return true
-		}
 	}
-	return false
+
+	// A bucket's own state is kept by the node that holds the bucket, which the
+	// request is routed to, and needs no arbitration.
+	return bucketScopedPath(path)
 }
 
-// hasPathSegment reports whether a path contains the given "/name" as a whole
-func hasPathSegment(path, segment string) bool {
-	name := strings.TrimPrefix(segment, "/")
-	for _, part := range strings.Split(path, "/") {
-		if part == name {
-			return true
+// bucketScopedPath reports whether a console path addresses a bucket's own
+// state: anything under /buckets/{bucket} except its permissions, which are
+// cluster configuration.
+func bucketScopedPath(path string) bool {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if part != "buckets" {
+			continue
 		}
+		if i+1 >= len(parts) || parts[i+1] == "" {
+			return false
+		}
+		return i+2 >= len(parts) || parts[i+2] != "permissions"
 	}
 	return false
 }

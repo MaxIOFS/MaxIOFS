@@ -68,6 +68,33 @@ func TestGate_ObjectTrafficIsNeverBlocked(t *testing.T) {
 	}
 }
 
+// TestGate_BucketStateGoesToItsNode: a bucket's own state is kept by the node
+// that holds the bucket and needs no coordinator; its permissions are cluster
+// configuration and do.
+func TestGate_BucketStateGoesToItsNode(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/buckets/b",
+		"/api/v1/buckets/b/versioning",
+		"/api/v1/buckets/b/objects/k/permissions",
+		"/api/v1/buckets/permissions/policy",
+		"/api/v1/cluster/buckets/b/migrate",
+	} {
+		assert.True(t, bucketScopedPath(path), path)
+		assert.True(t, coordinatorExemptPath(path), path)
+	}
+	for _, path := range []string{
+		"/api/v1/buckets",
+		"/api/v1/buckets/",
+		"/api/v1/buckets/b/permissions",
+		"/api/v1/buckets/b/permissions/revoke",
+		"/api/v1/buckets/objects/permissions",
+		"/api/v1/users/u",
+	} {
+		assert.False(t, bucketScopedPath(path), path)
+		assert.False(t, coordinatorExemptPath(path), path)
+	}
+}
+
 // TestGate_ConfigurationWritesAreGated is the positive case: the changes that
 // two nodes could make at once are the ones that need one writer.
 func TestGate_ConfigurationWritesAreGated(t *testing.T) {
