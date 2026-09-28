@@ -88,7 +88,8 @@ func TestWriteExplicitProtectionAtFirstCommit(t *testing.T) {
 	h.Set("x-amz-object-lock-legal-hold", "ON")
 	o, err := m.PutObject(t.Context(), "locked", "key", strings.NewReader("protected"), h)
 	require.NoError(t, err)
-	require.Equal(t, until, o.Retention.RetainUntilDate)
+	// The same instant; the header's zone decides the location it is parsed in.
+	require.WithinDuration(t, until, o.Retention.RetainUntilDate, 0)
 	_, err = m.DeleteObject(t.Context(), "locked", "key", false, o.VersionID)
 	require.ErrorIs(t, err, ErrObjectUnderLegalHold)
 }
