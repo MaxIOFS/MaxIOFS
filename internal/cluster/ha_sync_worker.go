@@ -3,12 +3,15 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -40,6 +43,7 @@ type HASyncWorker struct {
 	objMgr    object.Manager
 	bucketMgr bucket.Manager
 	mgr       *Manager
+	keys      keyLister
 
 	bgwork.Worker
 	mu      sync.Mutex
@@ -58,13 +62,21 @@ func (w *HASyncWorker) Stop() {
 	w.Worker.Stop()
 }
 
+// keyLister lists a bucket's keys from the index, including keys whose latest
+// version is a delete marker.
+type keyLister interface {
+	ListObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int) ([]*metadata.ObjectMetadata, string, error)
+}
+
 // NewHASyncWorker creates a worker.  Call Start once at server startup, then
-// call Trigger whenever the replication factor changes.
-func NewHASyncWorker(objMgr object.Manager, bucketMgr bucket.Manager, mgr *Manager) *HASyncWorker {
+// call Trigger whenever the replication factor changes. keys is the metadata
+// index the sync walks.
+func NewHASyncWorker(objMgr object.Manager, bucketMgr bucket.Manager, mgr *Manager, keys keyLister) *HASyncWorker {
 	return &HASyncWorker{
 		objMgr:    objMgr,
 		bucketMgr: bucketMgr,
 		mgr:       mgr,
+		keys:      keys,
 		running:   make(map[string]context.CancelFunc),
 	}
 }
@@ -304,18 +316,18 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			result, listErr := w.objMgr.ListObjects(ctx, bp, "", "", marker, syncPageSize)
+			entries, nextMarker, listErr := w.keys.ListObjects(ctx, bp, "", marker, syncPageSize)
 			if listErr != nil {
 				logrus.WithError(listErr).WithField("bucket", bp).
 					Warn("HASyncWorker: list objects error, skipping bucket")
 				break
 			}
 
-			for _, obj := range result.Objects {
+			for _, obj := range entries {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if putErr := w.syncObject(ctx, client, node, localID, bp, obj.Key); putErr != nil {
+				if putErr := w.syncKey(ctx, client, node, localID, bp, obj.Key); putErr != nil {
 					logrus.WithError(putErr).WithFields(logrus.Fields{
 						"bucket": bp, "key": obj.Key, "node_id": node.ID,
 					}).Warn("HASyncWorker: object sync failed, skipping")
@@ -331,10 +343,10 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 				}
 			}
 
-			if !result.IsTruncated {
+			if nextMarker == "" {
 				break
 			}
-			marker = result.NextMarker
+			marker = nextMarker
 		}
 	}
 
@@ -348,59 +360,56 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 	return nil
 }
 
-func (w *HASyncWorker) syncObject(
-	ctx context.Context,
-	client *ProxyClient,
-	node *Node,
-	localID, bucketPath, key string,
-) error {
-	obj, reader, err := w.objMgr.GetObject(ctx, bucketPath, key)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
+// syncKey copies every version of key to node.
+func (w *HASyncWorker) syncKey(ctx context.Context, client *ProxyClient, node *Node, localID, bucket, key string) error {
+	_, err := sendKeyVersions(ctx, client, w.objMgr, node, localID, bucket, key)
+	return err
+}
 
-	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", node.Endpoint, escapeHAObjectKey(key))
-	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, node.NodeToken)
-	if err != nil {
-		return err
+// sendKeyVersions copies every version of key to node, oldest first, so that
+// the latest stays the latest there: stored versions with their IDs, lock
+// state and attributes, delete markers as delete markers with their IDs and
+// times, then the current object when it has no version ID — a bucket never
+// versioned, or a write while versioning was suspended. It returns the bytes
+// of data sent.
+func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string) (int64, error) {
+	versions, err := objects.GetObjectVersions(ctx, bucket, key)
+	if err != nil && !errors.Is(err, object.ErrObjectNotFound) {
+		return 0, err
 	}
-
-	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
-	req.Header.Set(HABucketHeader, bucketPath)
-	setHALastModified(req.Header, obj)
-	setHAChecksum(req.Header, obj)
-	SetHAObjectLock(req.Header, obj)
-	req.Header.Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		req.Header.Set("Content-Disposition", obj.ContentDisposition)
+	sort.SliceStable(versions, func(i, j int) bool {
+		a, b := versions[i].LastModified.Unix(), versions[j].LastModified.Unix()
+		if a != b {
+			return a < b
+		}
+		return versions[i].VersionID < versions[j].VersionID
+	})
+	var sent int64
+	for _, v := range versions {
+		var err error
+		if v.IsDeleteMarker {
+			err = sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
+		} else {
+			err = sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
+			sent += v.Size
+		}
+		if err != nil {
+			return sent, fmt.Errorf("version %s: %w", v.VersionID, err)
+		}
 	}
-	if obj.ContentEncoding != "" {
-		req.Header.Set("Content-Encoding", obj.ContentEncoding)
+	current, err := objects.GetObjectMetadata(ctx, bucket, key)
+	switch {
+	case errors.Is(err, object.ErrObjectNotFound):
+		return sent, nil
+	case err != nil:
+		return sent, err
+	case current.VersionID == "":
+		if err := sendObjectVersion(ctx, client, objects, node, localID, bucket, key, ""); err != nil {
+			return sent, err
+		}
+		sent += current.Size
 	}
-	if obj.CacheControl != "" {
-		req.Header.Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		req.Header.Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.StorageClass != "" {
-		req.Header.Set("x-amz-storage-class", obj.StorageClass)
-	}
-	for k, v := range obj.Metadata {
-		req.Header.Set("x-amz-meta-"+k, v)
-	}
-	req.ContentLength = obj.Size
-
-	resp, err := client.DoAuthenticatedRequest(req)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("replica returned HTTP %d", resp.StatusCode)
-	}
-	return nil
+	return sent, nil
 }
 
 // bucketPath returns the canonical bucket path used by object.Manager:

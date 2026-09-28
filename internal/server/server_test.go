@@ -20,7 +20,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
-	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +29,7 @@ var (
 	sharedServer    *Server
 	sharedTempDir   string
 	sharedServerMux sync.Mutex
+	sessionStart    time.Time
 	testCounter     int
 )
 
@@ -72,6 +72,7 @@ func TestMain(m *testing.M) {
 		},
 	}
 
+	sessionStart = time.Now()
 	sharedServer, err = New(cfg)
 	if err != nil {
 		os.RemoveAll(sharedTempDir)
@@ -308,9 +309,8 @@ func TestServerComponentInitialization(t *testing.T) {
 		// Verify start time is in the past (server was created before this test runs)
 		assert.True(t, server.startTime.Before(time.Now()), "Start time should be in the past")
 
-		// Verify it's a reasonable time (not too far in the past - within test session)
-		timeSinceStart := time.Since(server.startTime)
-		assert.Less(t, timeSinceStart, 5*time.Minute, "Start time should be within the test session")
+		// Set when this test session created the server
+		assert.False(t, server.startTime.Before(sessionStart), "Start time should be within the test session")
 	})
 }
 
@@ -4510,160 +4510,6 @@ func createClusterAuthenticatedRequest(method, url string, body io.Reader, nodeI
 	return req.WithContext(ctx)
 }
 
-// TestHandleReceiveObjectReplication tests receiving object replication from other nodes
-func TestHandleReceiveObjectReplication(t *testing.T) {
-	server := getSharedServer()
-
-	testCtx := context.Background()
-	tenantID := "test-tenant-obj-repl"
-	bucketName := "test-bucket-obj-repl"
-
-	// Create tenant and bucket
-	tenant := &auth.Tenant{
-		ID:              tenantID,
-		Name:            "Test Tenant Obj Repl",
-		Status:          "active",
-		MaxStorageBytes: 1000000000,
-	}
-	err := server.authManager.CreateTenant(testCtx, tenant)
-	require.NoError(t, err)
-
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
-	require.NoError(t, err)
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		req := httptest.NewRequest("PUT", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", strings.NewReader("test content"))
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("X-Object-Size", "12")
-		req.Header.Set("X-Object-ETag", "abc123")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectReplication(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should reject invalid object size header", func(t *testing.T) {
-		req := createClusterAuthenticatedRequest("PUT", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", strings.NewReader("test content"), "node-1")
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("X-Object-Size", "invalid")
-		req.Header.Set("X-Object-ETag", "abc123")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectReplication(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should accept object replication with valid node ID", func(t *testing.T) {
-		req := createClusterAuthenticatedRequest("PUT", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", strings.NewReader("test content"), "node-1")
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("X-Object-Size", "12")
-		req.Header.Set("X-Object-ETag", "abc123")
-		req.Header.Set("X-Object-Metadata", `{"source":"migration","owner":"tenant-test"}`)
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectReplication(rr, req)
-
-		require.Equal(t, http.StatusOK, rr.Code)
-
-		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "test.txt")
-		require.NoError(t, err)
-		require.NotNil(t, obj)
-		assert.Equal(t, "migration", obj.Metadata["source"])
-		assert.Equal(t, "tenant-test", obj.Metadata["owner"])
-	})
-
-	t.Run("should support keys with slashes", func(t *testing.T) {
-		req := createClusterAuthenticatedRequest("PUT", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/nested/path/test.txt", strings.NewReader("nested content"), "node-1")
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "nested/path/test.txt"})
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("X-Object-Size", "14")
-		req.Header.Set("X-Object-ETag", "etag-nested")
-		req.Header.Set("X-Object-Metadata", `{"path":"nested/path/test.txt"}`)
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectReplication(rr, req)
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "nested/path/test.txt")
-		require.NoError(t, err)
-		require.NotNil(t, obj)
-		assert.Equal(t, "nested/path/test.txt", obj.Metadata["path"])
-	})
-}
-
-// TestHandleReceiveObjectDeletion tests receiving object deletion replication
-func TestHandleReceiveObjectDeletion(t *testing.T) {
-	server := getSharedServer()
-
-	testCtx := context.Background()
-	tenantID := "test-tenant-obj-del-repl"
-	bucketName := "test-bucket-obj-del-repl"
-
-	// Create tenant and bucket
-	tenant := &auth.Tenant{
-		ID:              tenantID,
-		Name:            "Test Tenant Obj Del Repl",
-		Status:          "active",
-		MaxStorageBytes: 1000000000,
-	}
-	err := server.authManager.CreateTenant(testCtx, tenant)
-	require.NoError(t, err)
-
-	err = server.bucketManager.CreateBucket(testCtx, tenantID, bucketName, "")
-	require.NoError(t, err)
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		req := httptest.NewRequest("DELETE", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", nil)
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectDeletion(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should handle delete with valid node ID", func(t *testing.T) {
-		_, putErr := server.objectManager.PutObject(testCtx, tenantID+"/"+bucketName, "test.txt", strings.NewReader("test content"), http.Header{
-			"Content-Type": []string{"application/octet-stream"},
-		})
-		require.NoError(t, putErr)
-
-		req := createClusterAuthenticatedRequest("DELETE", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/test.txt", nil, "node-1")
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "test.txt"})
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveObjectDeletion(rr, req)
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		_, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "test.txt")
-		assert.ErrorIs(t, err, object.ErrObjectNotFound)
-	})
-
-	t.Run("should return object metadata for HEAD verification", func(t *testing.T) {
-		_, putErr := server.objectManager.PutObject(testCtx, tenantID+"/"+bucketName, "head-check.txt", strings.NewReader("head body"), http.Header{
-			"Content-Type": []string{"text/plain"},
-		})
-		require.NoError(t, putErr)
-		obj, err := server.objectManager.GetObjectMetadata(testCtx, tenantID+"/"+bucketName, "head-check.txt")
-		require.NoError(t, err)
-
-		req := createClusterAuthenticatedRequest("HEAD", "/api/internal/cluster/objects/"+tenantID+"/"+bucketName+"/head-check.txt", nil, "node-1")
-		req = mux.SetURLVars(req, map[string]string{"tenantID": tenantID, "bucket": bucketName, "key": "head-check.txt"})
-
-		rr := httptest.NewRecorder()
-		server.handleHeadReplicatedObject(rr, req)
-
-		require.Equal(t, http.StatusOK, rr.Code)
-		assert.Equal(t, obj.ETag, rr.Header().Get("X-Object-ETag"))
-		assert.Equal(t, "text/plain", rr.Header().Get("Content-Type"))
-	})
-}
-
 func TestHandleHAReceivePutPreservesVersionID(t *testing.T) {
 	server := getSharedServer()
 
@@ -4833,87 +4679,6 @@ func TestHandleReceiveUserSync(t *testing.T) {
 	})
 }
 
-// TestHandleReceiveBucketPermission tests receiving bucket permission sync
-func TestHandleReceiveBucketPermission(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		body := `{"bucket_name": "test-bucket", "user_id": "user-1", "permission": "read"}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/permissions/sync", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketPermission(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid}`
-		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/permissions/sync", strings.NewReader(body), "node-1")
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketPermission(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-}
-
-// TestHandleReceiveBucketACL tests receiving bucket ACL sync
-func TestHandleReceiveBucketACL(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		body := `{"bucket_name": "test-bucket", "acl": {}}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/acl/sync", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketACL(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid}`
-		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/acl/sync", strings.NewReader(body), "node-1")
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketACL(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-}
-
-// TestHandleReceiveBucketConfiguration tests receiving bucket configuration sync
-func TestHandleReceiveBucketConfiguration(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		body := `{"bucket_name": "test-bucket", "config_type": "versioning", "config_data": {}}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/bucket-config/sync", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketConfiguration(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid}`
-		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/bucket-config/sync", strings.NewReader(body), "node-1")
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketConfiguration(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-}
-
 // TestHandleReceiveAccessKeySync tests receiving access key synchronization
 func TestHandleReceiveAccessKeySync(t *testing.T) {
 	server := getSharedServer()
@@ -4936,33 +4701,6 @@ func TestHandleReceiveAccessKeySync(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		server.handleReceiveAccessKeySync(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-}
-
-// TestHandleReceiveBucketInventory tests receiving bucket inventory sync
-func TestHandleReceiveBucketInventory(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject request without cluster node ID", func(t *testing.T) {
-		body := `{"bucket_name": "test-bucket", "config": {}}`
-		req := httptest.NewRequest("POST", "/api/internal/cluster/inventory/sync", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketInventory(rr, req)
-
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid}`
-		req := createClusterAuthenticatedRequest("POST", "/api/internal/cluster/inventory/sync", strings.NewReader(body), "node-1")
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleReceiveBucketInventory(rr, req)
 
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 	})
@@ -5001,19 +4739,23 @@ func TestHandleReceiveBucketPermissionSync(t *testing.T) {
 
 func TestHandleGetMigration(t *testing.T) {
 	server := getSharedServer()
-	testUser := &auth.User{ID: "admin1", Username: "admin", Roles: []string{"admin"}, TenantID: "default"}
 
-	t.Run("should require authentication", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/migrations/123", nil)
+	t.Run("only a global administrator sees migrations", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/cluster/migrations/123", nil)
 		req = mux.SetURLVars(req, map[string]string{"id": "123"})
 		rr := httptest.NewRecorder()
 		server.handleGetMigration(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+
+		req = createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/123", nil, "default", "admin1", true)
+		req = mux.SetURLVars(req, map[string]string{"id": "123"})
+		rr = httptest.NewRecorder()
+		server.handleGetMigration(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code, "a tenant administrator is not a global one")
 	})
 
 	t.Run("should return bad request for invalid migration ID", func(t *testing.T) {
-		// "nonexistent" is not a valid numeric ID, so it returns BadRequest
-		req := createAuthenticatedRequest("GET", "/api/v1/migrations/nonexistent", nil, testUser.TenantID, testUser.ID, false)
+		req := createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/nonexistent", nil, "", "global-admin", true)
 		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent"})
 		rr := httptest.NewRecorder()
 		server.handleGetMigration(rr, req)
@@ -5021,7 +4763,7 @@ func TestHandleGetMigration(t *testing.T) {
 	})
 
 	t.Run("should return not found for nonexistent numeric migration", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/migrations/999999", nil, testUser.TenantID, testUser.ID, false)
+		req := createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/999999", nil, "", "global-admin", true)
 		req = mux.SetURLVars(req, map[string]string{"id": "999999"})
 		rr := httptest.NewRecorder()
 		server.handleGetMigration(rr, req)
@@ -5031,41 +4773,45 @@ func TestHandleGetMigration(t *testing.T) {
 
 func TestHandleListMigrations(t *testing.T) {
 	server := getSharedServer()
-	testUser := &auth.User{ID: "admin1", Username: "admin", Roles: []string{"admin"}, TenantID: "default"}
 
-	t.Run("should require authentication", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/migrations", nil)
+	t.Run("only a global administrator sees migrations", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		server.handleListMigrations(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		server.handleListMigrations(rr, httptest.NewRequest("GET", "/api/v1/cluster/migrations", nil))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+
+		rr = httptest.NewRecorder()
+		server.handleListMigrations(rr, createAuthenticatedRequest("GET", "/api/v1/cluster/migrations", nil, "default", "admin1", true))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
 	})
 
-	t.Run("should list migrations for authenticated user", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/migrations", nil, testUser.TenantID, testUser.ID, false)
+	t.Run("should list migrations for a global administrator", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		server.handleListMigrations(rr, req)
+		server.handleListMigrations(rr, createAuthenticatedRequest("GET", "/api/v1/cluster/migrations", nil, "", "global-admin", true))
 		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 }
 
 func TestHandleMigrateBucket(t *testing.T) {
 	server := getSharedServer()
-	testUser := &auth.User{ID: "admin1", Username: "admin", Roles: []string{"admin"}, TenantID: "default"}
-
-	t.Run("should require authentication", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/v1/buckets/test/migrate", nil)
+	migrate := func(tenantID string, admin bool, body string) int {
+		req := createAuthenticatedRequest("POST", "/api/v1/cluster/buckets/test/migrate", strings.NewReader(body), tenantID, "u", admin)
 		req = mux.SetURLVars(req, map[string]string{"bucket": "test"})
 		rr := httptest.NewRecorder()
 		server.handleMigrateBucket(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		return rr.Code
+	}
+
+	t.Run("only a global administrator migrates a bucket", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/api/v1/cluster/buckets/test/migrate", nil)
+		req = mux.SetURLVars(req, map[string]string{"bucket": "test"})
+		rr := httptest.NewRecorder()
+		server.handleMigrateBucket(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.Equal(t, http.StatusForbidden, migrate("default", true, `{"target_node_id":"n"}`))
 	})
 
-	t.Run("should reject invalid body", func(t *testing.T) {
-		req := createAuthenticatedRequest("POST", "/api/v1/buckets/test/migrate", strings.NewReader("invalid"), testUser.TenantID, testUser.ID, false)
-		req = mux.SetURLVars(req, map[string]string{"bucket": "test"})
-		rr := httptest.NewRecorder()
-		server.handleMigrateBucket(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	t.Run("without a cluster there is nowhere to move it", func(t *testing.T) {
+		assert.Equal(t, http.StatusBadRequest, migrate("", true, `{"target_node_id":"n"}`))
 	})
 }
 

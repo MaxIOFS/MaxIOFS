@@ -92,6 +92,17 @@ type BucketMetadata struct {
 	HA *BucketHA `json:"ha,omitempty"`
 }
 
+// BucketMovingKey marks, in a bucket's Metadata, a copy that is not where the
+// bucket lives: the one a migration is filling on the node it moves the bucket
+// to, or the one it leaves behind once the move is committed. Such a copy is
+// not listed and does not answer for the bucket.
+const BucketMovingKey = "cluster:migration"
+
+// Moving reports whether b is such a copy.
+func (b *BucketMetadata) Moving() bool {
+	return b != nil && b.Metadata[BucketMovingKey] != ""
+}
+
 // BucketQuota defines optional storage limits for a single bucket.
 type BucketQuota struct {
 	MaxSizeBytes   int64 `json:"max_size_bytes,omitempty"`   // hard cap on total stored bytes (0 = unlimited)

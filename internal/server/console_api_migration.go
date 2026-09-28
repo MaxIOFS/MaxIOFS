@@ -2,133 +2,94 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/sirupsen/logrus"
 )
 
-// handleMigrateBucket handles POST /api/v1/cluster/buckets/{bucket}/migrate
+// handleMigrateBucket handles POST /api/v1/cluster/buckets/{bucket}/migrate.
+// The migration runs on the node the bucket lives on; a request that reaches
+// another node is forwarded there. It answers 202 with the job, which moves
+// the bucket in the background.
 func (s *Server) handleMigrateBucket(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-
-	// Get user from context
-	user, ok := r.Context().Value("user").(*auth.User)
-	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+	if !s.isGlobalAdmin(s.getAuthUser(r)) {
+		s.writeError(w, "Only global administrators can migrate buckets", http.StatusForbidden)
+		return
+	}
+	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		s.writeError(w, "Cluster is not enabled", http.StatusBadRequest)
+		return
+	}
+	bucketName := mux.Vars(r)["bucket"]
+	if s.proxyConsoleRequest(w, r, bucketName) {
 		return
 	}
 
-	// Parse request body
 	var req struct {
 		TargetNodeID string `json:"target_node_id"`
-		DeleteSource bool   `json:"delete_source"`
-		VerifyData   bool   `json:"verify_data"`
+		DeleteSource *bool  `json:"delete_source"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	// Validate required fields
 	if req.TargetNodeID == "" {
 		s.writeError(w, "target_node_id is required", http.StatusBadRequest)
 		return
 	}
+	if req.DeleteSource != nil && !*req.DeleteSource {
+		s.writeError(w, "A migration moves the bucket: once the target holds it, it is removed from this node", http.StatusBadRequest)
+		return
+	}
 
-	// Verify bucket exists
-	exists, err := s.bucketManager.BucketExists(r.Context(), user.TenantID, bucketName)
+	job, err := s.bucketMigrator.Migrate(r.Context(), bucketName, req.TargetNodeID)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to check bucket existence")
-		s.writeError(w, "Failed to check bucket existence", http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, cluster.ErrMigrationNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, cluster.ErrMigrationInvalid):
+			status = http.StatusBadRequest
+		case errors.Is(err, cluster.ErrMigrationConflict):
+			status = http.StatusConflict
+		default:
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"bucket":      bucketName,
+				"target_node": req.TargetNodeID,
+			}).Error("Failed to start a bucket migration")
+		}
+		s.writeError(w, err.Error(), status)
 		return
 	}
 
-	if !exists {
-		s.writeError(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify cluster is enabled
-	if !s.clusterManager.IsClusterEnabled() {
-		s.writeError(w, "Cluster is not enabled", http.StatusBadRequest)
-		return
-	}
-
-	// Reject migration when HA replication is active: every node already holds all data,
-	// so migrating a bucket is undefined and would incorrectly delete source data.
-	if factor, err := s.clusterManager.GetReplicationFactor(r.Context()); err == nil && factor > 1 {
-		s.writeError(w, "Bucket migration is not available when HA replication is active (factor > 1). All nodes already hold a complete copy of all data.", http.StatusBadRequest)
-		return
-	}
-
-	// Create bucket location manager
-	bucketLocationCache := cluster.NewBucketLocationCache(5 * time.Minute)
-	defer bucketLocationCache.Stop()
-	localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-	locationMgr := cluster.NewBucketLocationManager(s.bucketManager, bucketLocationCache, localNodeID)
-
-	// Start migration (this runs synchronously for now)
-	// In future, this should be async with job tracking
-	job, err := s.clusterManager.MigrateBucket(
-		r.Context(),
-		locationMgr,
-		user.TenantID,
-		bucketName,
-		req.TargetNodeID,
-		req.DeleteSource,
-		req.VerifyData,
-	)
-
-	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket":      bucketName,
-			"target_node": req.TargetNodeID,
-			"tenant_id":   user.TenantID,
-		}).Error("Failed to migrate bucket")
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Return migration job
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	s.writeJSON(w, job)
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: job}) //nolint:errcheck
 }
 
-// handleListMigrations handles GET /api/v1/cluster/migrations
+// handleListMigrations handles GET /api/v1/cluster/migrations: the migrations
+// this node ran as their source.
 func (s *Server) handleListMigrations(w http.ResponseWriter, r *http.Request) {
-	// Get user from context
-	user, ok := r.Context().Value("user").(*auth.User)
-	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+	if !s.isGlobalAdmin(s.getAuthUser(r)) {
+		s.writeError(w, "Only global administrators can see bucket migrations", http.StatusForbidden)
 		return
 	}
 
-	// Check if bucket filter is provided
 	bucketName := r.URL.Query().Get("bucket")
 
 	var jobs []*cluster.MigrationJob
 	var err error
-
 	if bucketName != "" {
-		// Get migrations for specific bucket
 		jobs, err = s.clusterManager.GetMigrationJobsByBucket(r.Context(), bucketName)
 	} else {
-		// Get all migrations
 		jobs, err = s.clusterManager.ListMigrationJobs(r.Context())
 	}
-
 	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"bucket":    bucketName,
-			"tenant_id": user.TenantID,
-		}).Error("Failed to list migration jobs")
+		logrus.WithError(err).WithField("bucket", bucketName).Error("Failed to list migration jobs")
 		s.writeError(w, "Failed to list migration jobs", http.StatusInternalServerError)
 		return
 	}
@@ -141,27 +102,19 @@ func (s *Server) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 
 // handleGetMigration handles GET /api/v1/cluster/migrations/{id}
 func (s *Server) handleGetMigration(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["id"]
-
-	// Get user from context
-	_, ok := r.Context().Value("user").(*auth.User)
-	if !ok {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
+	if !s.isGlobalAdmin(s.getAuthUser(r)) {
+		s.writeError(w, "Only global administrators can see bucket migrations", http.StatusForbidden)
 		return
 	}
 
-	// Parse migration ID
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
 	if err != nil {
 		s.writeError(w, "Invalid migration ID", http.StatusBadRequest)
 		return
 	}
 
-	// Get migration job
 	job, err := s.clusterManager.GetMigrationJob(r.Context(), id)
 	if err != nil {
-		logrus.WithError(err).WithField("migration_id", id).Error("Failed to get migration job")
 		s.writeError(w, "Migration not found", http.StatusNotFound)
 		return
 	}

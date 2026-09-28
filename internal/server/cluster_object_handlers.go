@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,460 +13,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
-
-func buildClusterBucketPath(tenantID, bucket string) string {
-	if tenantID == "" {
-		return bucket
-	}
-	return tenantID + "/" + bucket
-}
-
-func applyReplicatedUserMetadata(headers http.Header, metadataJSON string) error {
-	if strings.TrimSpace(metadataJSON) == "" || metadataJSON == "{}" {
-		return nil
-	}
-
-	var metadataMap map[string]string
-	if err := json.Unmarshal([]byte(metadataJSON), &metadataMap); err != nil {
-		return fmt.Errorf("failed to parse replicated metadata: %w", err)
-	}
-
-	for key, value := range metadataMap {
-		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" {
-			continue
-		}
-		headers.Set("x-amz-meta-"+trimmedKey, value)
-	}
-
-	return nil
-}
-
-// handleReceiveObjectReplication handles incoming object replication from other nodes
-// This endpoint is authenticated with HMAC signatures
-// PUT /api/internal/cluster/objects/:tenantID/:bucket/:key
-func (s *Server) handleReceiveObjectReplication(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Get path parameters
-	vars := mux.Vars(r)
-	tenantID := vars["tenantID"]
-	bucket := vars["bucket"]
-	key := vars["key"]
-
-	// Get metadata from headers
-	contentType := r.Header.Get("Content-Type")
-	sizeStr := r.Header.Get("X-Object-Size")
-	metadata := r.Header.Get("X-Object-Metadata")
-	sourceVersionID := r.Header.Get("X-Source-Version-ID")
-
-	size, err := strconv.ParseInt(sizeStr, 10, 64)
-	if err != nil {
-		logrus.WithError(err).Error("Invalid object size header")
-		http.Error(w, "Invalid object size", http.StatusBadRequest)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id":      tenantID,
-		"bucket":         bucket,
-		"key":            key,
-		"source_node_id": sourceNodeID,
-		"source_version": sourceVersionID,
-		"size":           size,
-	}).Info("Receiving object replication")
-
-	if s.objectManager == nil {
-		logrus.Error("Object manager unavailable, refusing replicated object")
-		http.Error(w, "Object manager unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	bucketPath := buildClusterBucketPath(tenantID, bucket)
-
-	headers := http.Header{}
-	headers.Set("Content-Type", contentType)
-
-	if err := applyReplicatedUserMetadata(headers, metadata); err != nil {
-		logrus.WithError(err).Error("Failed to parse replicated object metadata")
-		http.Error(w, "Invalid object metadata", http.StatusBadRequest)
-		return
-	}
-
-	if _, err := s.objectManager.PutObject(ctx, bucketPath, key, r.Body, headers); err != nil {
-		logrus.WithError(err).Error("Failed to store replicated object")
-		http.Error(w, fmt.Sprintf("Failed to store object: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": tenantID,
-		"bucket":    bucket,
-		"key":       key,
-		"size":      size,
-	}).Info("Object replicated and stored successfully")
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Object replicated successfully",
-	})
-}
-
-// handleReceiveObjectDeletion handles incoming object deletion replication from other nodes
-// This endpoint is authenticated with HMAC signatures
-// DELETE /api/internal/cluster/objects/:tenantID/:bucket/:key
-func (s *Server) handleReceiveObjectDeletion(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Get path parameters
-	vars := mux.Vars(r)
-	tenantID := vars["tenantID"]
-	bucket := vars["bucket"]
-	key := vars["key"]
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id":      tenantID,
-		"bucket":         bucket,
-		"key":            key,
-		"source_node_id": sourceNodeID,
-	}).Info("Receiving object deletion replication")
-
-	if s.objectManager == nil {
-		logrus.Error("Object manager unavailable, refusing replicated deletion")
-		http.Error(w, "Object manager unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	bucketPath := buildClusterBucketPath(tenantID, bucket)
-	if _, err := s.objectManager.DeleteObject(ctx, bucketPath, key, false); err != nil {
-		// Deletion is idempotent, so an already-absent object is not a failure.
-		logrus.WithError(err).Warn("Failed to delete replicated object (may already be deleted)")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": tenantID,
-		"bucket":    bucket,
-		"key":       key,
-	}).Info("Object deletion replicated successfully")
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Object deleted successfully",
-	})
-}
-
-// handleHeadReplicatedObject returns metadata for a replicated object so migration
-// verification can confirm existence and ETag on the target node.
-func (s *Server) handleHeadReplicatedObject(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(r)
-	tenantID := vars["tenantID"]
-	bucket := vars["bucket"]
-	key := vars["key"]
-	bucketPath := buildClusterBucketPath(tenantID, bucket)
-
-	obj, err := s.objectManager.GetObjectMetadata(ctx, bucketPath, key)
-	if err != nil {
-		if err == object.ErrObjectNotFound {
-			http.Error(w, "Object not found", http.StatusNotFound)
-			return
-		}
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"tenant_id":      tenantID,
-			"bucket":         bucket,
-			"key":            key,
-			"source_node_id": sourceNodeID,
-		}).Error("Failed to load replicated object metadata")
-		http.Error(w, "Failed to load object metadata", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("X-Object-ETag", obj.ETag)
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("X-Object-Size", strconv.FormatInt(obj.Size, 10))
-	if !obj.LastModified.IsZero() {
-		w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-// handleReceiveBucketPermission handles incoming bucket permission from other nodes during migration
-// POST /api/internal/cluster/bucket-permissions
-func (s *Server) handleReceiveBucketPermission(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse permission data from JSON body
-	var permissionData struct {
-		ID              string `json:"id"`
-		BucketName      string `json:"bucket_name"`
-		BucketTenantID  string `json:"bucket_tenant_id"`
-		UserID          string `json:"user_id"`
-		TenantID        string `json:"tenant_id"`
-		PermissionLevel string `json:"permission_level"`
-		GrantedBy       string `json:"granted_by"`
-		GrantedAt       int64  `json:"granted_at"`
-		ExpiresAt       *int64 `json:"expires_at,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&permissionData); err != nil {
-		logrus.WithError(err).Error("Failed to decode permission data")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	logrus.WithFields(logrus.Fields{
-		"source_node_id": sourceNodeID,
-		"bucket":         permissionData.BucketName,
-		"permission_id":  permissionData.ID,
-		"user_id":        permissionData.UserID,
-	}).Info("Receiving bucket permission from migration")
-
-	// Upsert permission in database (INSERT OR REPLACE)
-	query := `
-		INSERT OR REPLACE INTO bucket_permissions
-		(id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err := s.db.ExecContext(ctx, query,
-		permissionData.ID,
-		permissionData.BucketName,
-		permissionData.BucketTenantID,
-		permissionData.UserID,
-		permissionData.TenantID,
-		permissionData.PermissionLevel,
-		permissionData.GrantedBy,
-		permissionData.GrantedAt,
-		permissionData.ExpiresAt,
-	)
-
-	if err != nil {
-		logrus.WithError(err).Error("Failed to store bucket permission")
-		http.Error(w, fmt.Sprintf("Failed to store permission: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"permission_id": permissionData.ID,
-		"bucket":        permissionData.BucketName,
-	}).Info("Bucket permission stored successfully")
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Bucket permission stored successfully",
-	})
-}
-
-// handleReceiveBucketACL handles incoming bucket ACL from other nodes during migration
-// POST /api/internal/cluster/bucket-acl
-func (s *Server) handleReceiveBucketACL(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse ACL data from JSON body
-	var aclData struct {
-		TenantID   string   `json:"tenant_id"`
-		BucketName string   `json:"bucket_name"`
-		ACL        *acl.ACL `json:"acl"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&aclData); err != nil {
-		logrus.WithError(err).Error("Failed to decode ACL data")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	logrus.WithFields(logrus.Fields{
-		"source_node_id": sourceNodeID,
-		"tenant_id":      aclData.TenantID,
-		"bucket":         aclData.BucketName,
-	}).Info("Receiving bucket ACL from migration")
-
-	// Get ACL manager from bucket manager
-	aclMgrInterface := s.bucketManager.GetACLManager()
-	if aclMgrInterface == nil {
-		logrus.Warn("ACL manager not available")
-		http.Error(w, "ACL manager not available", http.StatusInternalServerError)
-		return
-	}
-
-	// Type assert to acl.Manager
-	aclMgr, ok := aclMgrInterface.(acl.Manager)
-	if !ok {
-		logrus.Error("Failed to type assert ACL manager")
-		http.Error(w, "ACL manager type assertion failed", http.StatusInternalServerError)
-		return
-	}
-
-	// Store ACL using ACL manager
-	err := aclMgr.SetBucketACL(ctx, aclData.TenantID, aclData.BucketName, aclData.ACL)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to store bucket ACL")
-		http.Error(w, fmt.Sprintf("Failed to store ACL: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": aclData.TenantID,
-		"bucket":    aclData.BucketName,
-	}).Info("Bucket ACL stored successfully")
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Bucket ACL stored successfully",
-	})
-}
-
-// handleReceiveBucketConfiguration handles incoming bucket configuration from other nodes during migration
-// POST /api/internal/cluster/bucket-config
-func (s *Server) handleReceiveBucketConfiguration(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse bucket configuration data from JSON body
-	var configData struct {
-		TenantID     string  `json:"tenant_id"`
-		BucketName   string  `json:"bucket_name"`
-		Versioning   *string `json:"versioning,omitempty"`
-		ObjectLock   *string `json:"object_lock,omitempty"`
-		Encryption   *string `json:"encryption,omitempty"`
-		Lifecycle    *string `json:"lifecycle,omitempty"`
-		Tags         *string `json:"tags,omitempty"`
-		CORS         *string `json:"cors,omitempty"`
-		Policy       *string `json:"policy,omitempty"`
-		Notification *string `json:"notification,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-		logrus.WithError(err).Error("Failed to decode configuration data")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	logrus.WithFields(logrus.Fields{
-		"source_node_id": sourceNodeID,
-		"tenant_id":      configData.TenantID,
-		"bucket":         configData.BucketName,
-	}).Info("Receiving bucket configuration from migration")
-
-	// Update bucket configuration in database
-	query := `
-		UPDATE buckets
-		SET versioning = ?, object_lock = ?, encryption = ?, lifecycle = ?,
-		    tags = ?, cors = ?, policy = ?, notification = ?
-		WHERE name = ? AND tenant_id = ?
-	`
-
-	result, err := s.db.ExecContext(ctx, query,
-		configData.Versioning,
-		configData.ObjectLock,
-		configData.Encryption,
-		configData.Lifecycle,
-		configData.Tags,
-		configData.CORS,
-		configData.Policy,
-		configData.Notification,
-		configData.BucketName,
-		configData.TenantID,
-	)
-
-	if err != nil {
-		logrus.WithError(err).Error("Failed to update bucket configuration")
-		http.Error(w, fmt.Sprintf("Failed to update configuration: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to get rows affected")
-	} else if rowsAffected == 0 {
-		logrus.Warn("No bucket found to update configuration")
-		http.Error(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id": configData.TenantID,
-		"bucket":    configData.BucketName,
-	}).Info("Bucket configuration updated successfully")
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Bucket configuration updated successfully",
-	})
-}
 
 // handleReceiveAccessKeySync handles incoming access key synchronization from other nodes
 // POST /api/internal/cluster/access-key-sync
@@ -630,130 +183,6 @@ func (s *Server) handleReceiveBucketPermissionSync(w http.ResponseWriter, r *htt
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Bucket permission synchronized successfully",
-	})
-}
-
-// handleReceiveBucketInventory handles incoming bucket inventory configuration from other nodes during migration
-// POST /api/internal/cluster/bucket-inventory
-func (s *Server) handleReceiveBucketInventory(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get source node ID from context (set by auth middleware)
-	sourceNodeID, ok := ctx.Value("cluster_node_id").(string)
-	if !ok {
-		logrus.Warn("Cluster node ID not found in context")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse inventory configuration data from JSON body
-	var inventoryData struct {
-		TenantID          string   `json:"tenant_id"`
-		BucketName        string   `json:"bucket_name"`
-		Enabled           bool     `json:"enabled"`
-		Frequency         string   `json:"frequency"`
-		Format            string   `json:"format"`
-		DestinationBucket string   `json:"destination_bucket"`
-		DestinationPrefix string   `json:"destination_prefix"`
-		IncludedFields    []string `json:"included_fields"`
-		ScheduleTime      string   `json:"schedule_time"`
-		LastRunAt         *int64   `json:"last_run_at,omitempty"`
-		NextRunAt         *int64   `json:"next_run_at,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&inventoryData); err != nil {
-		logrus.WithError(err).Error("Failed to decode inventory configuration data")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	logrus.WithFields(logrus.Fields{
-		"source_node_id": sourceNodeID,
-		"tenant_id":      inventoryData.TenantID,
-		"bucket":         inventoryData.BucketName,
-	}).Info("Receiving bucket inventory configuration from migration")
-
-	// Check if configuration already exists
-	existingConfig, err := s.inventoryManager.GetConfig(ctx, inventoryData.BucketName, inventoryData.TenantID)
-	if err == nil {
-		// Update existing configuration
-		existingConfig.Enabled = inventoryData.Enabled
-		existingConfig.Frequency = inventoryData.Frequency
-		existingConfig.Format = inventoryData.Format
-		existingConfig.DestinationBucket = inventoryData.DestinationBucket
-		existingConfig.DestinationPrefix = inventoryData.DestinationPrefix
-		existingConfig.IncludedFields = inventoryData.IncludedFields
-		existingConfig.ScheduleTime = inventoryData.ScheduleTime
-		existingConfig.LastRunAt = inventoryData.LastRunAt
-		existingConfig.NextRunAt = inventoryData.NextRunAt
-
-		if err := s.inventoryManager.UpdateConfig(ctx, existingConfig); err != nil {
-			logrus.WithError(err).Error("Failed to update inventory configuration")
-			http.Error(w, fmt.Sprintf("Failed to update configuration: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"tenant_id": inventoryData.TenantID,
-			"bucket":    inventoryData.BucketName,
-		}).Info("Inventory configuration updated successfully")
-	} else {
-		// Create new configuration
-		includedFieldsJSON, err := json.Marshal(inventoryData.IncludedFields)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to marshal included fields")
-			http.Error(w, "Invalid included fields", http.StatusBadRequest)
-			return
-		}
-
-		// Generate new ID
-		id := fmt.Sprintf("inv_%s_%d", inventoryData.BucketName, time.Now().Unix())
-
-		query := `
-			INSERT INTO bucket_inventory_configs (
-				id, bucket_name, tenant_id, enabled, frequency, format,
-				destination_bucket, destination_prefix, included_fields, schedule_time,
-				last_run_at, next_run_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`
-
-		now := time.Now().Unix()
-		_, err = s.db.ExecContext(ctx, query,
-			id,
-			inventoryData.BucketName,
-			inventoryData.TenantID,
-			inventoryData.Enabled,
-			inventoryData.Frequency,
-			inventoryData.Format,
-			inventoryData.DestinationBucket,
-			inventoryData.DestinationPrefix,
-			string(includedFieldsJSON),
-			inventoryData.ScheduleTime,
-			inventoryData.LastRunAt,
-			inventoryData.NextRunAt,
-			now,
-			now,
-		)
-
-		if err != nil {
-			logrus.WithError(err).Error("Failed to create inventory configuration")
-			http.Error(w, fmt.Sprintf("Failed to create configuration: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"tenant_id": inventoryData.TenantID,
-			"bucket":    inventoryData.BucketName,
-		}).Info("Inventory configuration created successfully")
-	}
-
-	// Return success
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Inventory configuration migrated successfully",
 	})
 }
 
@@ -1504,6 +933,9 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if deleteMarkerVersionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, deleteMarkerVersionID)
+		if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok {
+			ctx = object.WithReplicatedLastModified(ctx, lm)
+		}
 	}
 
 	var err error
@@ -1541,10 +973,35 @@ func (s *Server) handleHAReceiveMetadataOp(w http.ResponseWriter, r *http.Reques
 	if err := s.applyHAMetadataOp(ctx, bucketPath, op); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "op": op.Op, "key": op.Key}).
 			Error("HA receive metadata-op failed")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), metadataOpStatus(err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// metadataOpStatus tells the sender whether a failed metadata change can ever
+// apply here: a 4xx means it cannot and must not be retried; a 5xx may pass
+// on a later attempt.
+func metadataOpStatus(err error) int {
+	var retention *object.RetentionError
+	var syntax *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	switch {
+	case errors.Is(err, object.ErrObjectNotFound), errors.Is(err, object.ErrBucketNotFound):
+		return http.StatusNotFound
+	case errors.As(err, &syntax), errors.As(err, &typeErr):
+		return http.StatusBadRequest
+	case errors.As(err, &retention),
+		errors.Is(err, object.ErrObjectUnderLegalHold),
+		errors.Is(err, object.ErrCannotShortenCompliance),
+		errors.Is(err, object.ErrCannotShortenGovernance),
+		errors.Is(err, object.ErrNoRetentionConfiguration),
+		errors.Is(err, object.ErrInvalidRetentionMode),
+		errors.Is(err, object.ErrInvalidLegalHoldStatus):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // applyHAMetadataOp dispatches a received metadata operation to the object manager.
@@ -1680,6 +1137,7 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-amz-meta-"+k, v)
 	}
 	cluster.SetHAObjectLock(w.Header(), obj)
+	cluster.SetHAAttributes(w.Header(), obj)
 	if obj.Size > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
 	}

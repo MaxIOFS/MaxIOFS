@@ -462,7 +462,11 @@ Write-Once-Read-Many compliance for regulatory requirements.
 (`x-amz-object-lock-mode`, `x-amz-object-lock-retain-until-date`,
 `x-amz-object-lock-legal-hold`), or the bucket default retention, are stored in
 the same metadata write as the object, so no copy of it exists unprotected.
-Invalid values reject the PUT with `InvalidRequest`. HA replicas receive the same
+Invalid values reject the PUT with `InvalidRequest`. Setting them on a write needs
+the same permissions as the dedicated APIs, as in AWS S3: `s3:PutObjectRetention`
+for a mode or retain-until date, `s3:PutObjectLegalHold` for a legal hold — on
+PUT, `CreateMultipartUpload`, CopyObject and console uploads. The bucket default
+retention needs neither. HA replicas receive the same
 retention and legal hold with the object. `CreateMultipartUpload` takes the same
 headers, validated when the upload is created and applied when it completes.
 

@@ -224,9 +224,7 @@
   "selectTargetNodeOption": "Selecionar nó alvo",
   "onlyHealthyNodesExcluding": "Apenas nós saudáveis (excluindo o nó de origem {{id}}) são exibidos",
   "onlyHealthyNodes": "Apenas nós saudáveis são exibidos",
-  "verifyDataIntegrity": "Verificar integridade dos dados após a migração",
-  "deleteSourceData": "Excluir dados de origem após migração bem-sucedida",
-  "migrationWarning": "Aviso: A migração moverá todos os dados do bucket para o nó alvo. Certifique-se de que o nó alvo tem espaço de armazenamento suficiente.",
+  "migrationWarning": "O bucket é movido: cada versão é copiada para o nó de destino e verificada, e depois removida deste nó. Enquanto é movido, o bucket não aceita gravações (as leituras continuam). Os uploads multipart em andamento devem ser concluídos ou cancelados antes. Verifique se o nó de destino tem espaço de armazenamento suficiente.",
   "startMigration": "Iniciar Migração",
 
   "selectBucketAndNode": "Por favor, selecione um bucket e um nó alvo",

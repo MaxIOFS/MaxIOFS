@@ -252,8 +252,9 @@ func (s *AntiEntropyScrubber) run(ctx context.Context) {
 }
 
 // runCatchUp compares every object modified since the earliest pending miss
-// with the peers, then sends each returning node the deletes it missed. What
-// fails is recorded as missed again, so the next health check retries it.
+// with the peers, then sends each returning node the deletes and the queued
+// metadata changes it missed. What fails is recorded as missed again, so the
+// next health check retries it.
 func (s *AntiEntropyScrubber) runCatchUp(ctx context.Context) {
 	s.mu.Lock()
 	pending := s.pending
@@ -302,6 +303,9 @@ func (s *AntiEntropyScrubber) runCatchUp(ctx context.Context) {
 		node, err := s.mgr.GetNode(ctx, nodeID)
 		if err == nil {
 			err = s.replayDeletes(ctx, client, node, localID, t.Add(-catchUpMargin))
+		}
+		if err == nil {
+			err = s.mgr.replayMetadataOps(ctx, client, node, localID)
 		}
 		if err != nil {
 			logrus.WithError(err).WithField("node_id", nodeID).
@@ -527,7 +531,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 
 	var errs error
 	for _, v := range versions {
-		errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, v[0], v[1], v[2], ""))
+		errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, v[0], v[1], v[2], "", time.Time{}))
 	}
 	batch := s.cycleBatchSize(ctx)
 	for bucketPath, deletes := range keys {
@@ -551,13 +555,13 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 				if !ok || !e.Found || e.LastModified > d.deletedAt {
 					continue
 				}
-				marker, live, err := s.deletedHere(ctx, bucketPath, d.key)
+				marker, markedAt, live, err := s.deletedHere(ctx, bucketPath, d.key)
 				if err != nil {
 					errs = errors.Join(errs, err)
 					continue
 				}
 				if !live {
-					errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, bucketPath, d.key, "", marker))
+					errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, bucketPath, d.key, "", marker, markedAt))
 				}
 			}
 		}
@@ -566,23 +570,23 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 }
 
 // deletedHere reports whether key is live on this node and, when it is not and
-// the bucket keeps versions, the delete marker that hides it.
-func (s *AntiEntropyScrubber) deletedHere(ctx context.Context, bucketPath, key string) (marker string, live bool, err error) {
+// the bucket keeps versions, the delete marker that hides it and its time.
+func (s *AntiEntropyScrubber) deletedHere(ctx context.Context, bucketPath, key string) (marker string, markedAt time.Time, live bool, err error) {
 	if _, err := s.objMgr.GetObjectMetadata(ctx, bucketPath, key); err == nil {
-		return "", true, nil
+		return "", time.Time{}, true, nil
 	} else if !errors.Is(err, object.ErrObjectNotFound) {
-		return "", false, err
+		return "", time.Time{}, false, err
 	}
 	versions, err := s.objMgr.GetObjectVersions(ctx, bucketPath, key)
 	if err != nil && !errors.Is(err, object.ErrObjectNotFound) {
-		return "", false, err
+		return "", time.Time{}, false, err
 	}
 	for _, v := range versions {
 		if v.IsLatest && v.IsDeleteMarker {
-			return v.VersionID, false, nil
+			return v.VersionID, v.LastModified, false, nil
 		}
 	}
-	return "", false, nil
+	return "", time.Time{}, false, nil
 }
 
 // modifiedSince keeps the objects modified at or after the unix time since.

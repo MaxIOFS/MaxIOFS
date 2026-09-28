@@ -224,9 +224,7 @@
   "selectTargetNodeOption": "Seleccionar nodo destino",
   "onlyHealthyNodesExcluding": "Solo se muestran nodos saludables (excluyendo el nodo origen {{id}})",
   "onlyHealthyNodes": "Solo se muestran nodos saludables",
-  "verifyDataIntegrity": "Verificar integridad de datos tras la migración",
-  "deleteSourceData": "Eliminar datos de origen tras la migración exitosa",
-  "migrationWarning": "Advertencia: La migración moverá todos los datos del bucket al nodo destino. Asegúrate de que el nodo destino tenga suficiente espacio de almacenamiento.",
+  "migrationWarning": "El bucket se mueve: cada versión se copia al nodo destino y se verifica, y después se elimina de este nodo. Mientras se mueve, el bucket no admite escrituras (las lecturas continúan). Las subidas multiparte en curso deben completarse o cancelarse antes. Asegúrate de que el nodo destino tenga espacio suficiente.",
   "startMigration": "Iniciar Migración",
 
   "selectBucketAndNode": "Por favor selecciona un bucket y un nodo destino",

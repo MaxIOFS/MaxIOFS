@@ -224,9 +224,7 @@
   "selectTargetNodeOption": "Select target node",
   "onlyHealthyNodesExcluding": "Only healthy nodes (excluding source node {{id}}) are shown",
   "onlyHealthyNodes": "Only healthy nodes are shown",
-  "verifyDataIntegrity": "Verify data integrity after migration",
-  "deleteSourceData": "Delete source data after successful migration",
-  "migrationWarning": "Warning: Migration will move all bucket data to the target node. Ensure the target node has sufficient storage space.",
+  "migrationWarning": "The bucket is moved: every version is copied to the target node and verified, then removed from this node. While it moves, the bucket takes no writes (reads continue). Multipart uploads in progress must be completed or aborted first. Ensure the target node has enough storage space.",
   "startMigration": "Start Migration",
 
   "selectBucketAndNode": "Please select a bucket and target node",

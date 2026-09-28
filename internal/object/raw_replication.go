@@ -135,10 +135,15 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	replicaMeta.Key = key
 	metaObj = &replicaMeta
 
+	landing := versionLanding{latest: true}
 	if versioned {
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, metaObj.VersionID, metaObj.LastModified, existingObjBeforeSave); err != nil {
+			return err
+		}
+		metaObj.IsLatest = landing.latest
 		version := &metadata.ObjectVersion{
 			VersionID:    metaObj.VersionID,
-			IsLatest:     true,
+			IsLatest:     landing.latest,
 			Key:          key,
 			Size:         metaObj.Size,
 			ETag:         metaObj.ETag,
@@ -159,6 +164,10 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	}
 	committed = true
 
+	if versioned {
+		om.updateUsageAfterReplicatedVersion(ctx, bucket, key, metaObj.Size, landing, existingObjBeforeSave)
+		return nil
+	}
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, metaObj.Size, versioned, existingObjBeforeSave)
 	om.updateTenantQuotaAfterPut(ctx, tenantID, key, metaObj.Size, versioned, existingObjBeforeSave)
 

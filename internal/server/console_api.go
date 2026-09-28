@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -332,6 +333,9 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	// A bucket being migrated off this node takes no writes until it moves.
+	router.Use(s.bucketWriteGate(consoleGateReads, refuseConsoleBucketWrite))
 
 	router.Use(s.pendingPasswordChangeMiddleware)
 
@@ -1286,6 +1290,13 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	}
 	// Prevent infinite proxy loops
 	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		if s.bucketLeftThisNode(r.Context(), bucketName) {
+			w.Header().Set(cluster.BucketNotHereHeader, "true")
+			w.Header().Set("Retry-After", "1")
+			s.writeError(w, "The bucket is no longer on the node this request was sent to; retry it",
+				http.StatusServiceUnavailable)
+			return true
+		}
 		return false
 	}
 
@@ -1341,6 +1352,10 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 		return true
 	}
 	defer resp.Body.Close()
+	if resp.Header.Get(cluster.BucketNotHereHeader) != "" {
+		resp.Header.Del(cluster.BucketNotHereHeader)
+		s.clusterRouter.InvalidateCache(bucketName)
+	}
 
 	// Copy response headers and status
 	for key, values := range resp.Header {
@@ -1351,6 +1366,16 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body) //nolint:errcheck
 	return true
+}
+
+// bucketLeftThisNode reports whether a request forwarded here as the node
+// holding bucket finds it gone: the sender remembered a stale location.
+func (s *Server) bucketLeftThisNode(ctx context.Context, bucket string) bool {
+	b, err := s.metadataStore.GetBucketByName(ctx, bucket)
+	if errors.Is(err, metadata.ErrBucketNotFound) {
+		return true
+	}
+	return err == nil && b.Moving()
 }
 
 // deriveConsoleURL builds the console API base URL for a remote node.
@@ -2228,6 +2253,14 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to upload objects") {
 		return
 	}
+	if (r.Header.Get("x-amz-object-lock-mode") != "" || r.Header.Get("x-amz-object-lock-retain-until-date") != "") &&
+		!s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention, "You do not have permission to set object retention") {
+		return
+	}
+	if r.Header.Get("x-amz-object-lock-legal-hold") != "" &&
+		!s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "You do not have permission to manage object legal hold") {
+		return
+	}
 
 	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
 	queryTenantID := r.URL.Query().Get("tenantId")
@@ -2257,9 +2290,10 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get Content-Length to check if upload would exceed quota
+		// Get Content-Length to check if upload would exceed quota; a
+		// MaxStorageBytes of 0 is unlimited.
 		contentLength := r.ContentLength
-		if contentLength > 0 {
+		if contentLength > 0 && tenant.MaxStorageBytes > 0 {
 			if tenant.CurrentStorageBytes+contentLength > tenant.MaxStorageBytes {
 				s.writeError(w, fmt.Sprintf("Tenant storage quota exceeded (%d/%d bytes). Cannot upload object.", tenant.CurrentStorageBytes, tenant.MaxStorageBytes), http.StatusForbidden)
 				return

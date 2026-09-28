@@ -3,6 +3,7 @@ package metrics
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -308,25 +309,32 @@ func calculatePercentile(sortedData []float64, percentile int) float64 {
 	return sortedData[lowerIndex]*(1-weight) + sortedData[upperIndex]*weight
 }
 
-// Global performance collector instance
-var globalPerformanceCollector *PerformanceCollector
+// The performance collector belongs to the process, not to a server.
+var (
+	globalPerformanceCollector atomic.Pointer[PerformanceCollector]
+	globalPerformanceOnce      sync.Once
+)
 
-// InitGlobalPerformanceCollector initializes the global performance collector
+// InitGlobalPerformanceCollector creates the process's performance collector
+// and its throughput ticker. Later calls keep the first collector.
 func InitGlobalPerformanceCollector(maxSamples int, retention time.Duration) {
-	globalPerformanceCollector = NewPerformanceCollector(maxSamples, retention)
+	globalPerformanceOnce.Do(func() {
+		collector := NewPerformanceCollector(maxSamples, retention)
+		globalPerformanceCollector.Store(collector)
 
-	// Start background goroutine to calculate throughput every 5 seconds
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+		// Start background goroutine to calculate throughput every 5 seconds
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
 
-		for range ticker.C {
-			globalPerformanceCollector.CalculateThroughput()
-		}
-	}()
+			for range ticker.C {
+				collector.CalculateThroughput()
+			}
+		}()
+	})
 }
 
 // GetGlobalPerformanceCollector returns the global performance collector
 func GetGlobalPerformanceCollector() *PerformanceCollector {
-	return globalPerformanceCollector
+	return globalPerformanceCollector.Load()
 }

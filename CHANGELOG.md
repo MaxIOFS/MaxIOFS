@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Invalid Object Lock headers on PUT are rejected with `InvalidRequest`; the object is not stored.
 - DELETE and batch delete on a missing bucket return 404 (`NoSuchBucket` in the S3 API).
 - A node that comes back after missing writes is caught up at once: the node that accepted them compares the objects modified since the first missed write and sends the deletes the peer missed.
+- `POST /api/v1/cluster/buckets/{bucket}/migrate` answers `202` and moves the bucket in the background, on the node it lives on; a request that reaches another node is forwarded there. `delete_source: false` is refused and `verify_data` is ignored: the source copy is always removed and the copy always verified.
+- While a bucket is migrated its writes answer `503` (S3 `ServiceUnavailable`, console `BUCKET_MIGRATING`), and lifecycle skips it; reads go on.
+- A node checks its own buckets before a cached location. A request forwarded to a node that no longer holds the bucket answers `503` with `X-MaxIOFS-Bucket-Not-Here`, and the forwarding node forgets the location.
 
 ### Fixed
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
@@ -25,12 +28,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bucket metadata read errors fail PUT, DELETE and quota checks instead of treating the bucket as unversioned or without quota.
 - PUT and raw replica writes fail when the existing object's metadata cannot be read, instead of overwriting it without a backup.
 - Every copy between nodes carries retention and legal hold with the object: replication (raw or not), the initial sync of a new replica, the anti-entropy push and pull, and the stale-node catch-up.
+- Metadata-only changes (tags, ACLs, retention, legal hold, user metadata, restore status) reach the other nodes before the request returns, in order. A node that is down or fails gets them queued and delivered in order when it is back; they were sent in the background to healthy nodes only and lost after three attempts.
+- The initial sync of a new replica copies every version of every key with its version ID, including delete markers and keys they hide; it copied only the latest version of visible keys, under new version IDs.
+- A version copied from another node never replaces a newer latest version, and one already present is not counted twice in bucket and tenant usage.
 - Two nodes with a replication factor of 2 keep accepting writes while one of them is down, as a mirror. Writes answered `503` until the peer returned.
 - A tenant quota refusal inside a write answers `403 QuotaExceeded` instead of `500` (S3 PUT, CopyObject, POST upload, console upload, rename and version restore). CopyObject and POST uploads also answer bucket quota and Object Lock errors with their S3 codes.
+- A multipart upload keeps user metadata apart from its storage fields and state: `x-amz-meta-content-type` no longer replaces the object's Content-Type, `x-amz-meta-x-amz-acl` no longer applies a canned ACL, and user metadata no longer enters the object's sidecar. An upload created before this release completes with its user metadata; a canned ACL it recorded is not applied, and the object is private.
+- Object Lock headers on a write need the permission to set them, as in AWS S3: `s3:PutObjectRetention` for a mode or retain-until date, `s3:PutObjectLegalHold` for a legal hold (S3 PUT, CreateMultipartUpload, CopyObject and console upload). `s3:PutObject` alone was enough. The bucket default retention needs neither.
+- CopyObject applies the Object Lock headers of the request to the copy; they were ignored.
+- A console upload to a tenant without a storage limit (`MaxStorageBytes` 0) is no longer refused as over quota.
 - `CreateMultipartUpload` applies `x-amz-object-lock-mode`, `x-amz-object-lock-retain-until-date` and `x-amz-object-lock-legal-hold`: validated when the upload is created, applied when it completes. They were ignored.
 - A write that misses HA quorum removes its local version even under the retention or legal hold it set; the client was told the write failed.
 - Encryption migration keeps a crash-recoverable backup of each object and restores it when the rewrite or its verification fails.
 - `docs/API.md` listed console routes that do not exist and missed many that do; its route tables now match the router.
+- Bucket migration moves the bucket. It read the objects from a SQLite table that does not exist and failed at its first step; its receiving side wrote configuration to another missing table. It copies every version and delete marker with ID, time, metadata, tags, ACL and lock state, the bucket configuration, ACL and database rows (shares, inventory, replication), verifies the copy, then removes the bucket from the source. A restart during the copy undoes it; one during the hand-over finishes it.
+- Bucket migration requires a global administrator; listing and reading migration jobs too.
+- Copies between nodes that re-encrypt the data (objects under a node's own key) carry tags, ACL, restore state and the multipart ETag; they were lost. Bytes that do not match the version's ETag are refused.
+- A copy of a version into a bucket whose versioning was suspended since is stored as that version; it replaced the current object. A copied delete marker stays a delete marker; it deleted the current object.
+- The initial sync of a new replica copies the current object without a version ID of a suspended bucket whose key also has older versions; it was skipped.
+- Changing the tags, ACL, retention or legal hold of a restored object keeps its restore status; it was erased.
+- The performance collector is created once per process. Each server construction replaced it while its throughput ticker was reading it, and left another ticker running.
+- In a bucket whose versioning is suspended, a write without a version ID over a version kept from before adds its size to bucket and tenant usage; it subtracted the kept version's size. Over a delete marker it counts the key again. The bucket statistics recount includes such an object.
+
+### Removed
+- Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
 
 ### Added
 - Write-path I/O accounting tests for PUT, overwrites, versioning and multipart uploads.
@@ -39,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Object Lock tests for PUT headers, HA replica transfers and quorum rollback of protected versions.
 - Rollback tests for raw replica overwrites and failed encryption migration restores.
 - HA tests for mirror writes with a node down, the catch-up of a returning node (window, deletes, retries) and quota error codes.
+- Bucket migration tests between two complete nodes: every version and its state moved and verified, writes held and writes under way waited for, failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target, stale locations.
 
 ## [1.7.0] - 2026-09-18
 

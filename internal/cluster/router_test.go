@@ -442,10 +442,6 @@ func TestRouteRequest_LocalBucket_NoCache(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, isLocal)
 	assert.Nil(t, node)
-
-	// Verify cache was updated
-	cachedNodeID := router.cache.Get("local-bucket")
-	assert.Equal(t, "local-node", cachedNodeID)
 }
 
 // TestRouteRequest_LocalBucket_WithCache tests routing local bucket with cache hit
@@ -572,9 +568,8 @@ func TestRouteRequest_CacheEviction(t *testing.T) {
 	assert.True(t, isLocal)
 	assert.Nil(t, node)
 
-	// Verify cache was updated to correct value
-	cachedNodeID := router.cache.Get("test-bucket")
-	assert.Equal(t, "local-node", cachedNodeID)
+	// The stale location is forgotten
+	assert.Empty(t, router.cache.Get("test-bucket"))
 }
 
 // TestRouteRequest_ConcurrentAccess tests concurrent access to router
@@ -618,4 +613,46 @@ func TestRouteRequest_ConcurrentAccess(t *testing.T) {
 			t.Fatal("Timeout waiting for concurrent requests")
 		}
 	}
+}
+
+// A bucket found here is served here, whatever node was remembered for it: the
+// node a bucket was migrated to must not send it back to the node it left.
+func TestRouteRequestPrefersTheBucketHere(t *testing.T) {
+	db, cleanup := setupRouterTestDB(t)
+	defer cleanup()
+	manager := createTestHealthManager(t, db)
+	ctx := context.Background()
+	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
+	require.NoError(t, err)
+	peer := &Node{Name: "peer", Endpoint: "http://peer.invalid", NodeToken: "t", Region: "us-east-1", Metadata: "{}"}
+	require.NoError(t, manager.AddNode(ctx, peer))
+	_, err = db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusHealthy, peer.ID)
+	require.NoError(t, err)
+
+	bucketMgr := NewMockBucketManager()
+	bucketMgr.AddBucket("moved-here", "tenant-1")
+	router := createTestRouter(t, manager, bucketMgr, NewMockReplicationManager(), "local-node")
+	router.cache.Set("moved-here", peer.ID)
+
+	node, isLocal, err := router.RouteRequest(ctx, "moved-here")
+	require.NoError(t, err)
+	assert.True(t, isLocal)
+	assert.Nil(t, node)
+}
+
+// A bucket that left this node is not served here because it once was.
+func TestRouteRequestForgetsABucketThatLeft(t *testing.T) {
+	db, cleanup := setupRouterTestDB(t)
+	defer cleanup()
+	manager := createTestHealthManager(t, db)
+	ctx := context.Background()
+	_, err := manager.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
+	require.NoError(t, err)
+
+	router := createTestRouter(t, manager, NewMockBucketManager(), NewMockReplicationManager(), "local-node")
+	router.cache.Set("left", "local-node")
+
+	_, isLocal, err := router.RouteRequest(ctx, "left")
+	require.Error(t, err)
+	assert.False(t, isLocal)
 }

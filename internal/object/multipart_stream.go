@@ -95,10 +95,9 @@ func (om *objectManager) storeEncryptedMultipartObject(ctx context.Context, ref 
 	if err != nil {
 		return err
 	}
-	meta := make(map[string]string, len(multipart.Metadata)+len(envelopeMeta)+7)
-	for k, v := range multipart.Metadata {
-		meta[k] = v
-	}
+	// The sidecar holds storage fields only, as a PUT's does: user metadata and
+	// upload state stay in the index.
+	meta := uploadStorageMetadata(multipart.Metadata)
 	for k, v := range envelopeMeta {
 		meta[k] = v
 	}

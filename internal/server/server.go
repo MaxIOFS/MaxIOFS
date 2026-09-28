@@ -70,6 +70,9 @@ type Server struct {
 	replicationManager  *replication.Manager
 	clusterManager      *cluster.Manager
 	clusterRouter       *cluster.Router
+	bucketGate          *cluster.BucketWriteGate
+	bucketMigrator      *cluster.BucketMigrator
+	migrationTarget     *cluster.MigrationTarget
 	bucketAggregator    *cluster.BucketAggregator
 	quotaAggregator     *cluster.QuotaAggregator
 	apiRateLimiter      *auth.APIRateLimiter // per-user S3 API rate limiter
@@ -463,15 +466,6 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL, clusterURL)
 
-	// Set storage backend and ACL manager for cluster operations (migrations)
-	clusterManager.SetStorage(storageBackend)
-
-	// Get ACL manager from bucket manager
-	aclMgrInterface := bucketManager.GetACLManager()
-	if aclMgrInterface != nil {
-		clusterManager.SetACLManager(aclMgrInterface.(acl.Manager))
-	}
-
 	// Get local node ID from cluster config (if cluster is initialized)
 	localNodeID := ""
 	clusterConfig, err := clusterManager.GetConfig(context.Background())
@@ -550,15 +544,21 @@ func New(cfg *config.Config) (*Server, error) {
 	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
 	staleReconciler.SetObjectManagers(objectManager, bucketManager)
 
-	clusterManager.SetBucketManager(bucketManager)
-
 	// Wrap objectManager with HA fanout when cluster is active
 	if clusterManager.IsClusterEnabled() {
 		objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
 	}
 
+	// Bucket migration: the gate that holds a migrating bucket's writes, and
+	// this node's side of a move as its source and as its target.
+	bucketGate := cluster.NewBucketWriteGate()
+	aclMgr, _ := bucketManager.GetACLManager().(acl.Manager)
+	bucketMigrator := cluster.NewBucketMigrator(clusterManager, objectManager, metadataStore, bucketManager, aclMgr, authManager, bucketGate)
+	migrationTarget := cluster.NewMigrationTarget(metadataStore, objectManager, bucketManager, aclMgr, storageBackend, db)
+	lifecycleWorker.SetWriteGate(bucketGate.Enter)
+
 	// Initialize HA initial-sync worker
-	haSyncWorker := supervise(reg, "haSync", cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager))
+	haSyncWorker := supervise(reg, "haSync", cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager, metadataStore))
 
 	// Initialize anti-entropy scrubber (PebbleStore implements RawKVStore for crash-safe checkpoints).
 	antiEntropyScrubber := supervise(reg, "antiEntropy", cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore))
@@ -614,6 +614,9 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterManager:          clusterManager,
 		clusterRouter:           clusterRouter,
 		clusterServer:           clusterServer,
+		bucketGate:              bucketGate,
+		bucketMigrator:          bucketMigrator,
+		migrationTarget:         migrationTarget,
 		haSyncWorker:            haSyncWorker,
 		antiEntropyScrubber:     antiEntropyScrubber,
 		deadNodeReconciler:      deadNodeReconciler,
@@ -733,6 +736,10 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	s.backfillBucketOwnerPolicies(ctx)
+
+	// Before serving: a bucket whose move was being committed takes no writes
+	// until the move is finished.
+	s.bucketMigrator.Start(ctx)
 
 	// Enable runtime profiling
 	runtime.SetBlockProfileRate(1)     // Enable block profiling
@@ -1195,27 +1202,30 @@ type clusterBucketManagerAdapter struct {
 	metaStore metadata.Store
 }
 
+// GetBucketTenant answers only for a bucket that lives here: a copy a
+// migration is filling or has left behind is not one.
 func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
 	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
 	if err != nil {
 		return "", err
 	}
+	if bucketMeta.Moving() {
+		return "", metadata.ErrBucketNotFound
+	}
 	return bucketMeta.TenantID, nil
 }
 
 func (a *clusterBucketManagerAdapter) BucketExists(ctx context.Context, tenant, bucket string) (bool, error) {
-	if tenant != "" {
-		return a.mgr.BucketExists(ctx, tenant, bucket)
-	}
-	// Empty tenant means "look across all tenants" — required by inter-node existence
-	// checks where the caller doesn't know the tenant. Scan via GetBucketByName.
-	if _, err := a.metaStore.GetBucketByName(ctx, bucket); err != nil {
+	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
+	if err != nil {
 		if err == metadata.ErrBucketNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	return true, nil
+	// Empty tenant means "look across all tenants" — required by inter-node existence
+	// checks where the caller doesn't know the tenant.
+	return (tenant == "" || bucketMeta.TenantID == tenant) && !bucketMeta.Moving(), nil
 }
 
 // clusterReplicationManagerAdapter adapts replication.Manager to cluster.ReplicationManager interface
@@ -1452,6 +1462,9 @@ func (s *Server) setupRoutes() error {
 		return enabled
 	}))
 
+	// A bucket being migrated off this node takes no writes until it moves.
+	s3Router.Use(s.bucketWriteGate(s3GateReads, refuseS3BucketWrite))
+
 	// S3 access logging: capture every request after auth so the user is in context.
 	s3Router.Use(s.s3AccessLoggingMiddleware())
 
@@ -1529,10 +1542,6 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
 	hmac.HandleFunc("/leader-lease", s.handleLeaderLease).Methods("POST")
 	hmac.PathPrefix("/console-write").HandlerFunc(s.handleCoordinatorWrite).Methods("POST", "PUT", "DELETE", "PATCH")
-	hmac.HandleFunc("/bucket-permissions", s.handleReceiveBucketPermission).Methods("POST")
-	hmac.HandleFunc("/bucket-acl", s.handleReceiveBucketACL).Methods("POST")
-	hmac.HandleFunc("/bucket-config", s.handleReceiveBucketConfiguration).Methods("POST")
-	hmac.HandleFunc("/bucket-inventory", s.handleReceiveBucketInventory).Methods("POST")
 	hmac.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
 	hmac.HandleFunc("/bucket-permission-delete-sync", s.handleReceiveBucketPermissionDeleteSync).Methods("POST")
 	hmac.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
@@ -1545,9 +1554,6 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/node-list-sync", s.handleReceiveNodeListSync).Methods("POST")
 	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
 	hmac.HandleFunc("/kek-sync", s.handleReceiveKEKSync).Methods("POST")
-	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleReceiveObjectReplication).Methods("PUT")
-	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleReceiveObjectDeletion).Methods("DELETE")
-	hmac.HandleFunc("/objects/{tenantID}/{bucket}/{key:.*}", s.handleHeadReplicatedObject).Methods("HEAD")
 	hmac.HandleFunc("/audit-logs", s.handleGetLocalAuditLogs).Methods("GET")
 	hmac.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
@@ -1555,6 +1561,10 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
 	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
 	hmac.HandleFunc("/ha/checksum-batch", s.handleHAChecksumBatch).Methods("POST")
+	hmac.HandleFunc("/migration/stage", s.handleMigrationStage).Methods("POST")
+	hmac.HandleFunc("/migration/manifest", s.handleMigrationManifest).Methods("POST")
+	hmac.HandleFunc("/migration/commit", s.handleMigrationCommit).Methods("POST")
+	hmac.HandleFunc("/migration/abort", s.handleMigrationAbort).Methods("POST")
 
 	logrus.WithField("address", s.clusterServer.Addr).Info("Cluster inter-node routes registered")
 }

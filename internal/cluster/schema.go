@@ -113,7 +113,10 @@ func InitSchema(db *sql.DB) error {
 	if err := applyDeadNodeMigration(db); err != nil {
 		return err
 	}
-	return applyReplicaCatchUpMigration(db)
+	if err := applyReplicaCatchUpMigration(db); err != nil {
+		return err
+	}
+	return applyMetadataQueueMigration(db)
 }
 
 // applyDeadNodeMigration adds the unavailable_since column needed for the
@@ -147,6 +150,22 @@ func applyDeadNodeMigration(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// applyMetadataQueueMigration creates the queue of metadata changes a replica
+// missed, delivered in order when it is back.
+func applyMetadataQueueMigration(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_pending_metadata_ops (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			node_id    TEXT NOT NULL,
+			bucket     TEXT NOT NULL,
+			op         TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_ha_pending_metadata_ops_node ON ha_pending_metadata_ops(node_id, id);
+	`)
+	return err
 }
 
 // applyReplicaCatchUpMigration adds replica_missed_since to cluster_nodes: the

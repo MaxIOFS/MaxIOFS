@@ -464,36 +464,6 @@ func TestLeaveCluster(t *testing.T) {
 	}
 }
 
-func TestSetStorage(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
-
-	// SetStorage should not panic and should set the storage
-	manager.SetStorage(nil)
-
-	// Verify storage is set (can't directly test private field, but no panic is success)
-	if manager.storage != nil {
-		t.Error("Expected storage to be nil after SetStorage(nil)")
-	}
-}
-
-func TestSetACLManager(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	manager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
-
-	// SetACLManager should not panic and should set the ACL manager
-	manager.SetACLManager(nil)
-
-	// Verify ACL manager is set (can't directly test private field, but no panic is success)
-	if manager.aclManager != nil {
-		t.Error("Expected aclManager to be nil after SetACLManager(nil)")
-	}
-}
-
 func TestUpdateNodeBucketCount(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

@@ -75,6 +75,14 @@ included, then sends the deletes the peer missed. A delete of a whole key is sen
 only if the peer's copy is not newer than the delete, so a key written on the
 other side of a partition is kept. What fails is recorded again and retried at
 the next health check. The catch-up runs even with the periodic scrub disabled.
+
+**Metadata-only changes** — tags, ACLs, retention, legal hold, user metadata,
+restore status — reach every live node before the request returns, so a
+client's successive changes arrive in order. A node that is down, fails, or
+still has changes waiting gets the change queued behind them, in SQLite, and the
+queue is delivered in order when the node is caught up. A change the node
+refuses (the object is gone, or its lock state no longer allows it) is dropped
+and logged; any other failure keeps the queue for the next attempt.
 With the periodic scrub enabled (the default), a node that restarts also runs a
 full anti-entropy cycle within an hour of starting.
 
@@ -162,7 +170,7 @@ Each MaxIOFS node exposes three independent ports:
 **2. Smart Router**
 - Routes S3 requests to correct node
 - Automatic failover to healthy nodes
-- Maintains bucket location cache (5-minute TTL)
+- Caches the node each remote bucket lives on (5-minute TTL)
 - Proxies requests to remote nodes when needed
 
 **3. Health Checker**
@@ -171,9 +179,9 @@ Each MaxIOFS node exposes three independent ports:
 - Updates status: healthy (<1s), degraded (1-5s), unavailable (>5s)
 
 **4. Bucket Location Cache**
-- In-memory cache with 5-minute TTL
-- Cache hit: 5ms latency, Cache miss: 50ms latency
-- Automatic invalidation on bucket operations
+- In-memory cache of the node each remote bucket lives on, 5-minute TTL
+- A bucket this node holds is served here, whatever the cache says
+- A forwarded request answered `503` with `X-MaxIOFS-Bucket-Not-Here` (the bucket left that node) removes the entry; the client's retry is routed again
 
 ---
 
@@ -409,7 +417,7 @@ Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
 ### Cache Configuration
 
 - **TTL**: 5 minutes (hardcoded)
-- To modify: Edit `internal/cluster/router.go` → `bucketCacheTTL`
+- To modify: Edit `NewRouter` in `internal/cluster/router.go`
 
 ---
 
@@ -440,10 +448,22 @@ Cluster replication enables **node-to-node replication** for HA. This is separat
 
 The object's retention and legal hold travel with it, in this transfer and in the
 decrypt/re-encrypt fallback below, so a replica is protected from its first
-write.
+write. The fallback also carries what its headers cannot: the ETag (a multipart
+ETag included), tags, ACL and restore state. The receiving node refuses bytes
+that do not hash to that ETag.
 
 The same holds for every other copy between nodes: the initial sync of a new
 replica, the anti-entropy push and pull, and the stale-node catch-up.
+
+The initial sync of a new replica copies every version of every key, oldest
+first and with its version ID — delete markers as delete markers, with their ID
+and time, including keys a delete marker hides. A copy that arrives after a
+newer version of the same key (an initial sync racing live writes) is stored as
+an older version and does not replace the latest; a version the replica already
+holds is replaced, not counted twice. In a bucket whose versioning was
+suspended, the versions kept from before are copied as versions and the current
+object without a version ID last; a copy is stored as the version it copies,
+whatever the receiving bucket's versioning status is.
 
 When fewer peers confirm than the replication factor needs (a factor of 3 with
 both peers failing), Node 1 answers `503 ServiceUnavailable` (`Retry-After: 30`)
@@ -566,343 +586,141 @@ POST /api/v1/cluster/replication
 
 ### Overview
 
-Bucket migration enables **moving entire buckets between cluster nodes** for capacity rebalancing, hardware maintenance, or performance optimization. This feature allows administrators to seamlessly relocate data without service interruption.
+A migration moves a bucket from the node it lives on to another node, in a cluster with replication factor 1. With a factor above 1 every node holds every bucket and a migration is refused.
 
-**Key Features:**
+A bucket moves whole:
 
-- ✅ Live bucket migration between nodes
-- ✅ Real-time progress tracking (objects and bytes)
-- ✅ Optional data integrity verification
-- ✅ Automatic bucket location updates
-- ✅ Optional source data deletion after successful migration
-- ✅ Web-based migration management dashboard
+- every version and delete marker, with its data, version ID, modification time, headers, user metadata, tags, ACL, retention, legal hold and restore state; multipart ETags; the current object without a version ID of a bucket whose versioning is suspended
+- the bucket configuration (versioning, Object Lock, policy, lifecycle, CORS, encryption, tags, quota, notification, logging, website, ownership controls) and the bucket ACL
+- the bucket's rows in the node database: shares, inventory configurations and reports, replication rules, queue and status
 
-### Use Cases
+Requirements:
 
-1. **Capacity Rebalancing** - Move buckets from full nodes to nodes with available space
-2. **Hardware Maintenance** - Evacuate data before decommissioning a node
-3. **Performance Optimization** - Relocate high-traffic buckets to faster/closer nodes
-4. **Geographic Redistribution** - Move data closer to users for better latency
-5. **Cost Optimization** - Consolidate data to reduce node count
+- global administrator
+- replication factor 1
+- target node healthy
+- no multipart upload in progress in the bucket: complete or abort them first (`409` otherwise)
 
 ### How It Works
 
-**Migration Workflow:**
+The migration runs on the node the bucket lives on; a console request that reaches another node is forwarded there. The request answers `202 Accepted` and the job runs in the background.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ 1. Count Objects & Calculate Total Size                │
-│    → Query objects table for bucket                    │
-│    → Store counts in migration job                     │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. Copy Objects to Target Node                         │
-│    → Iterate through all bucket objects                │
-│    → HTTP PUT to target node (HMAC authenticated)      │
-│    → Update progress every 10 objects                  │
-│    → Allow up to 10 errors before failing              │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. Verify Data Integrity (if enabled)                  │
-│    → Validate object count matches                     │
-│    → Validate total bytes (1% tolerance)               │
-│    → Sample verification: Check first 10 objects       │
-│    → Verify ETags match between nodes                  │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│ 4. Update Bucket Location                              │
-│    → Update Pebble metadata                            │
-│    → Update bucket location cache                      │
-│    → All future requests route to target node          │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│ 5. Delete Source Data (if enabled)                     │
-│    → Remove objects from source node                   │
-│    → Free up storage space                             │
-└─────────────────────────────────────────────────────────┘
-```
+1. **Hold writes.** New writes to the bucket are refused with `503`: S3 `ServiceUnavailable` with `Retry-After: 60`, console code `BUCKET_MIGRATING`. Writes under way finish first; the copy starts after them. Reads continue. Lifecycle skips the bucket.
+2. **Stage.** The target creates the bucket with its configuration and ACL, hidden: not listed, not routed to, `404` to peers.
+3. **Copy and verify.** Keys in pages of 1,000; each key's versions oldest first, delete markers as markers. After each page the target describes every key it holds: each version's ID and a digest of its ETag, size, modification time, headers, metadata, tags, ACL, lock state and restore state. Any difference fails the migration.
+4. **Commit.** Status `committing`. The target stores the bucket's rows and makes the bucket visible. The source hides its copy, deletes the bucket's rows, ACL and data, and stops counting the bucket's bytes in the tenant's usage on that node.
+5. **Complete.** The bucket takes writes again, on the target.
+
+A failure before step 4 leaves the bucket on the source unchanged: its writes are admitted again at once, the hidden copy on the target is removed (retried every 30 s until the target answers or leaves the cluster) and the status is `failed` with `error_message`.
+
+A failure during step 4 is retried every 30 s until the hand-over is done. A committed move is never undone.
+
+A restart of the source node:
+
+- `in_progress`: the migration is undone as above.
+- `committing`: the bucket's writes are held again before the node serves requests, and the hand-over is finished.
+
+Routing after the move: a node checks its own buckets before any cached location. A node that forwards a request to the node the bucket left receives `503` with `X-MaxIOFS-Bucket-Not-Here`, forgets the cached location, and the client's retry reaches the target.
 
 **Migration States:**
 
 | State | Description |
 |-------|-------------|
-| `pending` | Migration job created, waiting to start |
-| `in_progress` | Actively copying objects to target node |
-| `completed` | Successfully migrated all objects |
-| `failed` | Migration failed (check error_message) |
-| `cancelled` | Migration manually cancelled |
+| `in_progress` | Writes held; copying and verifying |
+| `committing` | Copy verified; handing the bucket over. Finished after a restart |
+| `completed` | The bucket lives on the target node |
+| `failed` | Nothing moved; the bucket stays on the source node (`error_message`) |
 
-### Configuring Migration
+### Starting a Migration
 
 **Via Web Console:**
 
-1. Navigate to Cluster → Migrations tab
-2. Click "Migrate Bucket" button
-3. Select source bucket from dropdown
-4. Select target node (only healthy nodes shown)
-5. Configure options:
-   - ✅ **Verify data integrity** - Validates ETags after migration (recommended)
-   - ✅ **Delete source data** - Removes objects from source after successful migration
-6. Click "Start Migration"
-7. Monitor progress in Migrations table
+1. Cluster → Migrations → **Migrate Bucket**
+2. Select the bucket (the buckets of the node the console is connected to) and the target node (healthy nodes only)
+3. **Start Migration**
 
 **Via API:**
 
 ```bash
-# Start bucket migration
 POST /api/v1/cluster/buckets/{bucket}/migrate
 {
-  "target_node_id": "uuid-target-node",
-  "verify_data": true,
-  "delete_source": false
+  "target_node_id": "uuid-target-node"
 }
 
-# Response: HTTP 202 Accepted
+# 202 Accepted
 {
-  "status": "success",
-  "message": "Migration started successfully",
+  "success": true,
   "data": {
     "id": 1,
     "bucket_name": "my-bucket",
     "source_node_id": "uuid-source-node",
     "target_node_id": "uuid-target-node",
-    "status": "pending",
-    "objects_total": 0,
+    "status": "in_progress",
+    "objects_total": 10000,
     "objects_migrated": 0,
-    "bytes_total": 0,
+    "bytes_total": 104857600,
     "bytes_migrated": 0,
+    "delete_source": true,
     "verify_data": true,
-    "delete_source": false,
-    "created_at": "2025-12-13T10:30:00Z"
+    "started_at": "2026-09-28T10:30:00Z"
   }
 }
 ```
+
+| Status | Cause |
+|--------|-------|
+| `202` | Migration started |
+| `400` | Cluster not enabled, replication factor above 1, target not in the cluster, target is the source, `delete_source: false` |
+| `403` | Not a global administrator |
+| `404` | The bucket does not live on this node |
+| `409` | Target not healthy, bucket already being migrated, multipart uploads in progress |
+
+`delete_source: false` is refused: a bucket lives on one node. The copy is always verified; `verify_data` is ignored.
 
 ### Monitoring Migration Progress
 
-**List All Migrations:**
-
 ```bash
-# Get all migrations
 GET /api/v1/cluster/migrations
-
-# Filter by bucket
 GET /api/v1/cluster/migrations?bucket=my-bucket
-
-# Response
-{
-  "status": "success",
-  "data": {
-    "migrations": [
-      {
-        "id": 1,
-        "bucket_name": "my-bucket",
-        "source_node_id": "uuid-source",
-        "target_node_id": "uuid-target",
-        "status": "in_progress",
-        "objects_total": 10000,
-        "objects_migrated": 3500,
-        "bytes_total": 104857600,
-        "bytes_migrated": 36700160,
-        "started_at": "2025-12-13T10:30:00Z",
-        "updated_at": "2025-12-13T10:35:00Z"
-      }
-    ],
-    "count": 1
-  }
-}
-```
-
-**Get Specific Migration:**
-
-```bash
 GET /api/v1/cluster/migrations/{id}
-
-# Response
-{
-  "status": "success",
-  "data": {
-    "id": 1,
-    "bucket_name": "my-bucket",
-    "source_node_id": "uuid-source",
-    "target_node_id": "uuid-target",
-    "status": "completed",
-    "objects_total": 10000,
-    "objects_migrated": 10000,
-    "bytes_total": 104857600,
-    "bytes_migrated": 104857600,
-    "verify_data": true,
-    "delete_source": false,
-    "started_at": "2025-12-13T10:30:00Z",
-    "completed_at": "2025-12-13T10:45:00Z",
-    "created_at": "2025-12-13T10:30:00Z",
-    "updated_at": "2025-12-13T10:45:00Z"
-  }
-}
 ```
 
-### Migration Dashboard
+Global administrators only. Jobs are recorded on the source node.
 
-**Migrations Table Columns:**
+| Field | Meaning |
+|-------|---------|
+| `objects_total`, `bytes_total` | The bucket's counters when the migration started; bytes include every version |
+| `objects_migrated` | Keys copied whose current version is visible |
+| `bytes_migrated` | Bytes of every version copied |
+| `error_message` | Cause of a failure; last error while retrying |
 
-- **ID** - Migration job identifier
-- **Bucket** - Bucket being migrated
-- **Source → Target** - Node IDs showing migration direction
-- **Status** - Current state with color coding (🟢 completed, 🔵 in progress, 🔴 failed)
-- **Progress** - Visual progress bar showing percentage and object counts
-- **Data Size** - Bytes migrated vs total (human-readable format)
-- **Started** - Migration start timestamp
-- **Actions** - View details button
+### Before Migrating
 
-**Progress Visualization:**
-
-```
-my-bucket    node-1 → node-2    [████████░░] 80%
-                                3,500 / 10,000 objects
-                                35 MB / 100 MB
-```
-
-### Best Practices
-
-**1. Pre-Migration Checklist:**
-
-```bash
-# Verify target node has sufficient space
-curl -X GET "http://localhost:8081/api/v1/cluster/nodes/{targetNodeId}" \
-  -H "Authorization: Bearer $TOKEN"
-# Check: capacity_used + bucket_size < capacity_total
-
-# Verify target node is healthy
-# Health status should be "healthy" (not degraded/unavailable)
-
-# Stop replication rules for the bucket (optional)
-# Prevents conflicts during migration
-```
-
-**2. Migration Settings:**
-
-- **Always enable** `verify_data: true` for production migrations
-- **Only enable** `delete_source: true` after confirming migration completed successfully
-- For large buckets (>100K objects), monitor network bandwidth and node CPU
-
-**3. Performance Considerations:**
-
-| Bucket Size | Expected Duration | Recommendation |
-|-------------|-------------------|----------------|
-| < 1,000 objects | < 5 minutes | Migrate anytime |
-| 1K - 10K objects | 5-30 minutes | Migrate during low-traffic periods |
-| 10K - 100K objects | 30m - 3 hours | Schedule during maintenance window |
-| > 100K objects | > 3 hours | Consider splitting bucket or increasing worker count |
-
-**4. Error Handling:**
-
-- Migration allows up to **10 errors** before failing
-- Check `error_message` field if status is `failed`
-- Common errors:
-  - Network timeout (check connectivity between nodes)
-  - Target node full (check capacity)
-  - Permission denied (verify HMAC authentication)
-
-**5. Rollback Plan:**
-
-If migration fails or needs to be reversed:
-
-```bash
-# Option 1: Migrate back to original node
-POST /api/v1/cluster/buckets/{bucket}/migrate
-{
-  "target_node_id": "original-node-id",
-  "verify_data": true,
-  "delete_source": false
-}
-
-# Option 2: Update bucket location manually (advanced)
-# Use BucketLocationManager to change primary node
-```
-
-### Prometheus Metrics
-
-**Migration-Specific Metrics:**
-
-```
-cluster_migrations_total
-cluster_migrations_active
-cluster_migrations_completed_total
-cluster_migrations_failed_total
-cluster_migration_objects_migrated_total
-cluster_migration_bytes_migrated_total
-cluster_migration_duration_seconds
-```
-
-### Recommended Alerts
-
-```yaml
-# alerts.yml
-groups:
-  - name: maxiofs_migrations
-    rules:
-      - alert: MigrationFailed
-        expr: cluster_migrations_failed_total > 0
-        for: 1m
-        severity: warning
-        annotations:
-          summary: "Bucket migration failed"
-
-      - alert: MigrationStalled
-        expr: cluster_migrations_active > 0 AND
-              increase(cluster_migration_objects_migrated_total[10m]) == 0
-        for: 10m
-        severity: warning
-        annotations:
-          summary: "Migration appears stalled"
-```
+- Free space on the target ≥ `bytes_total` of the bucket.
+- The bucket takes no writes for the duration of the migration; S3 clients retry `503` by default.
+- Complete or abort multipart uploads in progress.
 
 ### Troubleshooting Migrations
 
-**Migration Stuck at 0%:**
+| `error_message` contains | Cause |
+|--------------------------|-------|
+| `lives on this node` | A bucket of that name lives on the target |
+| `differs from this node's` | Verification failed; nothing moved. Check the target's log |
+| `multipart uploads in progress` | Complete or abort them |
+| `interrupted by a restart` | The source restarted during the copy; start the migration again |
+
+A job that stays `committing` means the target does not answer; the hand-over is retried every 30 s.
+
+**HMAC errors between nodes:**
 
 ```bash
-# Check source node logs
-journalctl -u maxiofs -n 100 | grep "migration"
-
-# Verify bucket exists
-curl -X GET "http://source-node:8081/api/v1/buckets/{bucket}" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Check migration job status
-sqlite3 /data/db/maxiofs.db "SELECT * FROM cluster_migrations WHERE id=1;"
-```
-
-**Migration Failed with HMAC Errors:**
-
-```bash
-# Verify cluster tokens match
+# Cluster tokens must match
 sqlite3 /data/node1/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
 sqlite3 /data/node2/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
 
-# Ensure clocks are synchronized (NTP)
+# Clocks must be synchronized (NTP)
 ssh node1 "date -u"
 ssh node2 "date -u"
-```
-
-**High Migration Duration:**
-
-```bash
-# Test network bandwidth between nodes
-scp large-file.bin target-node:/tmp/
-
-# Check if target node is under load
-ssh target-node "top -bn1 | grep maxiofs"
-
-# Consider migrating during off-peak hours
 ```
 
 ---
@@ -1187,16 +1005,16 @@ ssh node2 "date -u"
 curl -X GET "http://localhost:8081/api/v1/cluster/cache/stats" \
   -H "Authorization: Bearer $TOKEN"
 
-# Check bucket ownership
-curl -X GET "http://localhost:8081/api/v1/cluster/buckets/my-bucket/nodes" \
+# Buckets of this node
+curl -X GET "http://localhost:8081/api/v1/cluster/buckets" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 **Fixes:**
 ```bash
-# Clear cache
-curl -X DELETE "http://localhost:8081/api/v1/cluster/cache" \
-  -H "Authorization: Bearer $TOKEN"
+# Forget the cached location of one bucket
+curl -X POST "http://localhost:8081/api/v1/cluster/cache/invalidate" \
+  -H "Authorization: Bearer $TOKEN" -d '{"bucket":"my-bucket"}'
 ```
 
 ### 5. High Replication Lag

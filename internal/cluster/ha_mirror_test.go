@@ -2,8 +2,10 @@ package cluster
 
 import (
 	"context"
+	"encoding/base64"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -442,8 +444,8 @@ func TestInitialSyncCarriesObjectLock(t *testing.T) {
 		Key: "k", Size: 4,
 		Retention: &object.RetentionConfig{Mode: object.RetentionModeGovernance, RetainUntilDate: until},
 		LegalHold: &object.LegalHoldConfig{Status: object.LegalHoldStatusOn},
-	}}, nil, mgr)
-	require.NoError(t, w.syncObject(context.Background(), NewProxyClient(nil), nodes[0], "local", "bucket", "k"))
+	}}, nil, mgr, nil)
+	require.NoError(t, w.syncKey(context.Background(), NewProxyClient(nil), nodes[0], "local", "bucket", "k"))
 	got := <-received
 	assert.Equal(t, "true", got.Get(HAObjectLockHeader))
 	assert.Equal(t, object.RetentionModeGovernance, got.Get("x-amz-object-lock-mode"))
@@ -485,4 +487,129 @@ func TestPulledCopyKeepsThePeersObjectLock(t *testing.T) {
 	require.NotNil(t, obj.LegalHold)
 	assert.Equal(t, object.LegalHoldStatusOn, obj.LegalHold.Status)
 	assert.Equal(t, "1700000000.peer", obj.VersionID)
+}
+
+// syncRequest is what a replica received from the initial sync.
+type syncRequest struct {
+	method, key, version, marker, markedAt string
+}
+
+// The initial sync to a new replica copies every version of every key, oldest
+// first, with its ID — delete markers as delete markers, keys hidden by one
+// included — and a key of a bucket without versions as its one object.
+func TestInitialSyncCopiesEveryVersionOldestFirst(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: "vsync", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+	}))
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "usync"}))
+	put := func(bucket, key, body string) string {
+		obj, err := local.objects.PutObject(ctx, bucket, key, strings.NewReader(body), http.Header{})
+		require.NoError(t, err)
+		time.Sleep(1100 * time.Millisecond)
+		return obj.VersionID
+	}
+	del := func(bucket, key string) string {
+		marker, err := local.objects.DeleteObject(ctx, bucket, key, false)
+		require.NoError(t, err)
+		time.Sleep(1100 * time.Millisecond)
+		return marker
+	}
+	v1 := put("vsync", "k", "one")
+	v2 := put("vsync", "k", "two")
+	m1 := del("vsync", "k")
+	v3 := put("vsync", "k", "three")
+	g1 := put("vsync", "gone", "hidden")
+	gm := del("vsync", "gone")
+	put("usync", "u", "plain")
+
+	var mu sync.Mutex
+	var got []syncRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		key := r.URL.Path[strings.Index(r.URL.Path, "/ha/objects/")+len("/ha/objects/"):]
+		mu.Lock()
+		req := syncRequest{r.Method, r.Header.Get(HABucketHeader) + "/" + key,
+			r.Header.Get(HAObjectVersionHeader), r.Header.Get(HADeleteMarkerVersionHeader), ""}
+		if r.Method == http.MethodDelete {
+			req.markedAt = r.Header.Get(HALastModifiedHeader)
+		}
+		got = append(got, req)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	w := NewHASyncWorker(local.objects, local.buckets, mgr, local.store)
+	require.NoError(t, w.runSync(ctx, 0, nodes[0], "", ""))
+
+	markedAt := func(key, marker string) string {
+		versions, err := local.objects.GetObjectVersions(ctx, "vsync", key)
+		require.NoError(t, err)
+		for _, v := range versions {
+			if v.VersionID == marker {
+				return fmt.Sprintf("%d", v.LastModified.Unix())
+			}
+		}
+		t.Fatalf("marker %s not found", marker)
+		return ""
+	}
+	perKey := map[string][]syncRequest{}
+	for _, r := range got {
+		perKey[r.key] = append(perKey[r.key], r)
+	}
+	require.Equal(t, []syncRequest{
+		{"PUT", "vsync/k", v1, "", ""}, {"PUT", "vsync/k", v2, "", ""},
+		{"DELETE", "vsync/k", "", m1, markedAt("k", m1)}, {"PUT", "vsync/k", v3, "", ""},
+	}, perKey["vsync/k"])
+	require.Equal(t, []syncRequest{
+		{"PUT", "vsync/gone", g1, "", ""}, {"DELETE", "vsync/gone", "", gm, markedAt("gone", gm)},
+	}, perKey["vsync/gone"], "a key hidden by a delete marker keeps its versions")
+	require.Equal(t, []syncRequest{{"PUT", "usync/u", "", "", ""}}, perKey["usync/u"])
+}
+
+// A bucket whose versioning was suspended keeps the versions from before and
+// an object without a version ID written since: the sync sends the versions,
+// then that object, with the attributes its headers cannot carry.
+func TestInitialSyncCopiesTheObjectWrittenWhileSuspended(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	b := &metadata.BucketMetadata{Name: "ssync", Versioning: &metadata.VersioningMetadata{Status: "Enabled"}}
+	require.NoError(t, local.store.CreateBucket(ctx, b))
+	v1, err := local.objects.PutObject(ctx, "ssync", "k", strings.NewReader("before"), http.Header{})
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond)
+	b.Versioning.Status = "Suspended"
+	require.NoError(t, local.store.UpdateBucket(ctx, b))
+	current, err := local.objects.PutObject(ctx, "ssync", "k", strings.NewReader("since"), http.Header{})
+	require.NoError(t, err)
+	require.Empty(t, current.VersionID)
+	require.NoError(t, local.objects.SetObjectTagging(ctx, "ssync", "k", &object.TagSet{Tags: []object.Tag{{Key: "kept", Value: "yes"}}}))
+
+	var mu sync.Mutex
+	var got []syncRequest
+	var attributes string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		mu.Lock()
+		got = append(got, syncRequest{method: r.Method, version: r.Header.Get(HAObjectVersionHeader)})
+		if r.Header.Get(HAObjectVersionHeader) == "" {
+			attributes = r.Header.Get(HAObjectAttributesHeader)
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	w := NewHASyncWorker(local.objects, local.buckets, mgr, local.store)
+	require.NoError(t, w.runSync(ctx, 0, nodes[0], "", ""))
+
+	require.Equal(t, []syncRequest{{method: "PUT", version: v1.VersionID}, {method: "PUT"}}, got)
+	data, err := base64.StdEncoding.DecodeString(attributes)
+	require.NoError(t, err)
+	var sent object.ReplicatedAttributes
+	require.NoError(t, json.Unmarshal(data, &sent))
+	require.Equal(t, current.ETag, sent.ETag)
+	require.Equal(t, []object.Tag{{Key: "kept", Value: "yes"}}, sent.Tags.Tags)
 }

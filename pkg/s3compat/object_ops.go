@@ -759,6 +759,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "AccessDenied", "Access Denied", destKey, r)
 		return
 	}
+	if !h.requireObjectLockHeaderActions(w, r, destBucket, destKey) {
+		return
+	}
 
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
 	// Get source object, requesting a specific version if indicated in the copy source.
@@ -864,6 +867,12 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 		for k, v := range sourceObj.Metadata {
 			headers.Set("X-Amz-Meta-"+k, v)
+		}
+	}
+	// Object Lock headers apply to the copy whatever the metadata directive.
+	for _, name := range objectLockHeaders {
+		if v := r.Header.Get(name); v != "" {
+			headers.Set(name, v)
 		}
 	}
 

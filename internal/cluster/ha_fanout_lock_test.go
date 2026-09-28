@@ -25,6 +25,10 @@ func (m *lockedObjectManager) GetObject(context.Context, string, string, ...stri
 	return m.obj, io.NopCloser(strings.NewReader("body")), nil
 }
 
+func (m *lockedObjectManager) GetObjectMetadata(context.Context, string, string) (*object.Object, error) {
+	return m.obj, nil
+}
+
 // fanoutToRecorder replicates obj to one peer and returns the headers the peer
 // received.
 func fanoutToRecorder(t *testing.T, obj *object.Object) http.Header {

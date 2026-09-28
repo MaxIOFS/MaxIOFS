@@ -3,15 +3,23 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,6 +29,10 @@ type MigrationStatus string
 const (
 	MigrationStatusPending    MigrationStatus = "pending"
 	MigrationStatusInProgress MigrationStatus = "in_progress"
+	// MigrationStatusCommitting: the copy is complete and verified and the
+	// bucket is being handed over. From here the move is finished, never
+	// undone, also after a restart.
+	MigrationStatusCommitting MigrationStatus = "committing"
 	MigrationStatusCompleted  MigrationStatus = "completed"
 	MigrationStatusFailed     MigrationStatus = "failed"
 	MigrationStatusCancelled  MigrationStatus = "cancelled"
@@ -51,8 +63,9 @@ func (cm *Manager) CreateMigrationJob(ctx context.Context, job *MigrationJob) er
 	query := `
 		INSERT INTO cluster_migrations (
 			bucket_name, source_node_id, target_node_id, status,
-			delete_source, verify_data, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			objects_total, bytes_total, delete_source, verify_data, started_at,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`
 
 	deleteSource := 0
@@ -69,8 +82,11 @@ func (cm *Manager) CreateMigrationJob(ctx context.Context, job *MigrationJob) er
 		job.SourceNodeID,
 		job.TargetNodeID,
 		job.Status,
+		job.ObjectsTotal,
+		job.BytesTotal,
 		deleteSource,
 		verifyData,
+		job.StartedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create migration job: %w", err)
@@ -126,22 +142,16 @@ func (cm *Manager) UpdateMigrationJob(ctx context.Context, job *MigrationJob) er
 	return nil
 }
 
-// GetMigrationJob retrieves a migration job by ID
-func (cm *Manager) GetMigrationJob(ctx context.Context, id int64) (*MigrationJob, error) {
-	query := `
-		SELECT id, bucket_name, source_node_id, target_node_id, status,
-		       objects_total, objects_migrated, bytes_total, bytes_migrated,
-		       delete_source, verify_data, started_at, completed_at,
-		       created_at, updated_at, error_message
-		FROM cluster_migrations
-		WHERE id = ?
-	`
+const migrationJobColumns = `id, bucket_name, source_node_id, target_node_id, status,
+	objects_total, objects_migrated, bytes_total, bytes_migrated,
+	delete_source, verify_data, started_at, completed_at,
+	created_at, updated_at, error_message`
 
+func scanMigrationJob(row interface{ Scan(...any) error }) (*MigrationJob, error) {
 	job := &MigrationJob{}
 	var deleteSource, verifyData int
 	var startedAt, completedAt sql.NullTime
-
-	err := cm.db.QueryRowContext(ctx, query, id).Scan(
+	if err := row.Scan(
 		&job.ID,
 		&job.BucketName,
 		&job.SourceNodeID,
@@ -158,14 +168,9 @@ func (cm *Manager) GetMigrationJob(ctx context.Context, id int64) (*MigrationJob
 		&job.CreatedAt,
 		&job.UpdatedAt,
 		&job.ErrorMessage,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("migration job not found")
-		}
-		return nil, fmt.Errorf("failed to get migration job: %w", err)
+	); err != nil {
+		return nil, err
 	}
-
 	job.DeleteSource = deleteSource == 1
 	job.VerifyData = verifyData == 1
 	if startedAt.Valid {
@@ -174,23 +179,11 @@ func (cm *Manager) GetMigrationJob(ctx context.Context, id int64) (*MigrationJob
 	if completedAt.Valid {
 		job.CompletedAt = &completedAt.Time
 	}
-
 	return job, nil
 }
 
-// ListMigrationJobs retrieves all migration jobs
-func (cm *Manager) ListMigrationJobs(ctx context.Context) ([]*MigrationJob, error) {
-	query := `
-		SELECT id, bucket_name, source_node_id, target_node_id, status,
-		       objects_total, objects_migrated, bytes_total, bytes_migrated,
-		       delete_source, verify_data, started_at, completed_at,
-		       created_at, updated_at, error_message
-		FROM cluster_migrations
-		ORDER BY created_at DESC
-		LIMIT 100
-	`
-
-	rows, err := cm.db.QueryContext(ctx, query)
+func (cm *Manager) queryMigrationJobs(ctx context.Context, where string, args ...any) ([]*MigrationJob, error) {
+	rows, err := cm.db.QueryContext(ctx, `SELECT `+migrationJobColumns+` FROM cluster_migrations `+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list migration jobs: %w", err)
 	}
@@ -198,1076 +191,567 @@ func (cm *Manager) ListMigrationJobs(ctx context.Context) ([]*MigrationJob, erro
 
 	var jobs []*MigrationJob
 	for rows.Next() {
-		job := &MigrationJob{}
-		var deleteSource, verifyData int
-		var startedAt, completedAt sql.NullTime
-
-		err := rows.Scan(
-			&job.ID,
-			&job.BucketName,
-			&job.SourceNodeID,
-			&job.TargetNodeID,
-			&job.Status,
-			&job.ObjectsTotal,
-			&job.ObjectsMigrated,
-			&job.BytesTotal,
-			&job.BytesMigrated,
-			&deleteSource,
-			&verifyData,
-			&startedAt,
-			&completedAt,
-			&job.CreatedAt,
-			&job.UpdatedAt,
-			&job.ErrorMessage,
-		)
+		job, err := scanMigrationJob(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan migration job: %w", err)
 		}
-
-		job.DeleteSource = deleteSource == 1
-		job.VerifyData = verifyData == 1
-		if startedAt.Valid {
-			job.StartedAt = &startedAt.Time
-		}
-		if completedAt.Valid {
-			job.CompletedAt = &completedAt.Time
-		}
-
 		jobs = append(jobs, job)
 	}
-
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating migration jobs: %w", err)
 	}
-
 	return jobs, nil
+}
+
+// GetMigrationJob retrieves a migration job by ID
+func (cm *Manager) GetMigrationJob(ctx context.Context, id int64) (*MigrationJob, error) {
+	job, err := scanMigrationJob(cm.db.QueryRowContext(ctx,
+		`SELECT `+migrationJobColumns+` FROM cluster_migrations WHERE id = ?`, id))
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("migration job not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get migration job: %w", err)
+	}
+	return job, nil
+}
+
+// ListMigrationJobs retrieves all migration jobs
+func (cm *Manager) ListMigrationJobs(ctx context.Context) ([]*MigrationJob, error) {
+	return cm.queryMigrationJobs(ctx, `ORDER BY created_at DESC LIMIT 100`)
 }
 
 // GetMigrationJobsByBucket retrieves migration jobs for a specific bucket
 func (cm *Manager) GetMigrationJobsByBucket(ctx context.Context, bucketName string) ([]*MigrationJob, error) {
-	query := `
-		SELECT id, bucket_name, source_node_id, target_node_id, status,
-		       objects_total, objects_migrated, bytes_total, bytes_migrated,
-		       delete_source, verify_data, started_at, completed_at,
-		       created_at, updated_at, error_message
-		FROM cluster_migrations
-		WHERE bucket_name = ?
-		ORDER BY created_at DESC
-	`
-
-	rows, err := cm.db.QueryContext(ctx, query, bucketName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get migration jobs for bucket: %w", err)
-	}
-	defer rows.Close()
-
-	var jobs []*MigrationJob
-	for rows.Next() {
-		job := &MigrationJob{}
-		var deleteSource, verifyData int
-		var startedAt, completedAt sql.NullTime
-
-		err := rows.Scan(
-			&job.ID,
-			&job.BucketName,
-			&job.SourceNodeID,
-			&job.TargetNodeID,
-			&job.Status,
-			&job.ObjectsTotal,
-			&job.ObjectsMigrated,
-			&job.BytesTotal,
-			&job.BytesMigrated,
-			&deleteSource,
-			&verifyData,
-			&startedAt,
-			&completedAt,
-			&job.CreatedAt,
-			&job.UpdatedAt,
-			&job.ErrorMessage,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan migration job: %w", err)
-		}
-
-		job.DeleteSource = deleteSource == 1
-		job.VerifyData = verifyData == 1
-		if startedAt.Valid {
-			job.StartedAt = &startedAt.Time
-		}
-		if completedAt.Valid {
-			job.CompletedAt = &completedAt.Time
-		}
-
-		jobs = append(jobs, job)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating migration jobs: %w", err)
-	}
-
-	return jobs, nil
+	return cm.queryMigrationJobs(ctx, `WHERE bucket_name = ? ORDER BY created_at DESC`, bucketName)
 }
 
-// MigrateBucket migrates a bucket from one node to another
-func (m *Manager) MigrateBucket(ctx context.Context, locationMgr *BucketLocationManager, tenantID, bucketName, targetNodeID string, deleteSource, verifyData bool) (*MigrationJob, error) {
-	// Get bucket location (source node) using BucketLocationManager
-	sourceNodeID, err := locationMgr.GetBucketLocation(ctx, tenantID, bucketName)
+// unfinishedMigrationJobs returns the jobs a restart left running.
+func (cm *Manager) unfinishedMigrationJobs(ctx context.Context) ([]*MigrationJob, error) {
+	return cm.queryMigrationJobs(ctx, `WHERE status IN (?, ?, ?) ORDER BY id`,
+		MigrationStatusPending, MigrationStatusInProgress, MigrationStatusCommitting)
+}
+
+// migrationPageSize is how many keys are copied and then verified together.
+const migrationPageSize = 1000
+
+// errNodeGone: the node a migration talks to has left the cluster.
+var errNodeGone = errors.New("the node is no longer in the cluster")
+
+// migrationStepError is a step the target of a migration refused.
+type migrationStepError struct {
+	status  int
+	message string
+}
+
+func (e *migrationStepError) Error() string {
+	return fmt.Sprintf("the target answered %d: %s", e.status, e.message)
+}
+
+func stepStatus(err error) int {
+	var stepErr *migrationStepError
+	if errors.As(err, &stepErr) {
+		return stepErr.status
+	}
+	return 0
+}
+
+// tenantUsage is the tenant storage a bucket that leaves the node stops using.
+type tenantUsage interface {
+	DecrementTenantStorage(ctx context.Context, tenantID string, bytes int64) error
+}
+
+// BucketMigrator moves buckets from this node to others, in a cluster whose
+// buckets each live on one node. A bucket moves whole: every version and
+// delete marker with its metadata, tags, ACL and lock state, the bucket's
+// configuration and ACL, and its rows in the node's database. Its writes are
+// held from the start of the copy until the move is committed or undone;
+// reads go on.
+type BucketMigrator struct {
+	mgr     *Manager
+	objects object.Manager
+	store   metadata.Store
+	buckets bucketRemover
+	acls    acl.Manager
+	usage   tenantUsage
+	gate    *BucketWriteGate
+	retry   time.Duration
+
+	mu      sync.Mutex
+	ctx     context.Context
+	running map[string]bool
+	wg      sync.WaitGroup
+}
+
+// NewBucketMigrator returns the source side of migrations on this node. usage
+// may be nil.
+func NewBucketMigrator(mgr *Manager, objects object.Manager, store metadata.Store, buckets bucketRemover, acls acl.Manager, usage tenantUsage, gate *BucketWriteGate) *BucketMigrator {
+	return &BucketMigrator{
+		mgr:     mgr,
+		objects: objects,
+		store:   store,
+		buckets: buckets,
+		acls:    acls,
+		usage:   usage,
+		gate:    gate,
+		retry:   30 * time.Second,
+		running: make(map[string]bool),
+	}
+}
+
+// SetRetryInterval sets how long a step that failed waits before it is tried
+// again: removing the copy of a failed migration, or handing a bucket over.
+func (bm *BucketMigrator) SetRetryInterval(d time.Duration) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	bm.retry = d
+}
+
+func (bm *BucketMigrator) retryInterval() time.Duration {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	return bm.retry
+}
+
+// Start takes over the migrations a restart interrupted, and must run before
+// the node serves requests: a move being committed has its bucket's writes
+// held again and is finished; one still copying is undone. ctx bounds every
+// migration of this node.
+func (bm *BucketMigrator) Start(ctx context.Context) {
+	bm.mu.Lock()
+	bm.ctx = ctx
+	bm.mu.Unlock()
+
+	jobs, err := bm.mgr.unfinishedMigrationJobs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bucket location: %w", err)
+		logrus.WithError(err).Error("Could not read the bucket migrations a restart interrupted")
+		return
 	}
+	for _, job := range jobs {
+		if !bm.reserve(job.BucketName) {
+			continue
+		}
+		if job.Status == MigrationStatusCommitting {
+			_ = bm.gate.Freeze(ctx, job.BucketName)
+			bm.launch(job, bm.finish)
+			continue
+		}
+		bm.launch(job, func(job *MigrationJob) {
+			bm.fail(job, errors.New("interrupted by a restart of the node"))
+		})
+	}
+}
 
-	logrus.WithFields(logrus.Fields{
-		"bucket":    bucketName,
-		"tenant_id": tenantID,
-		"source":    sourceNodeID,
-		"target":    targetNodeID,
-	}).Info("Initiating bucket migration")
+// Wait returns once no migration runs on this node.
+func (bm *BucketMigrator) Wait() {
+	bm.wg.Wait()
+}
 
-	// Validate target node exists and is healthy
-	targetNode, err := m.GetNode(ctx, targetNodeID)
+func (bm *BucketMigrator) lifetime() context.Context {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	return bm.ctx
+}
+
+func (bm *BucketMigrator) reserve(bucketName string) bool {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	if bm.running[bucketName] {
+		return false
+	}
+	bm.running[bucketName] = true
+	return true
+}
+
+func (bm *BucketMigrator) release(bucketName string) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	delete(bm.running, bucketName)
+}
+
+// launch runs step for a job whose bucket is reserved, and releases it after.
+func (bm *BucketMigrator) launch(job *MigrationJob, step func(*MigrationJob)) {
+	bm.wg.Add(1)
+	go func() {
+		defer bm.wg.Done()
+		defer bm.release(job.BucketName)
+		step(job)
+	}()
+}
+
+// Migrate starts moving bucketName from this node to targetNodeID and returns
+// the job that follows it.
+func (bm *BucketMigrator) Migrate(ctx context.Context, bucketName, targetNodeID string) (*MigrationJob, error) {
+	if bm.lifetime() == nil {
+		return nil, fmt.Errorf("bucket migrations are not running on this node")
+	}
+	if !bm.mgr.IsClusterEnabled() {
+		return nil, fmt.Errorf("%w: the cluster is not enabled", ErrMigrationInvalid)
+	}
+	factor, err := bm.mgr.GetReplicationFactor(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("target node not found: %w", err)
+		return nil, err
 	}
-
-	if targetNode.HealthStatus != HealthStatusHealthy {
-		return nil, fmt.Errorf("target node is not healthy: %s", targetNode.HealthStatus)
+	if factor > 1 {
+		return nil, fmt.Errorf("%w: with a replication factor of %d every node holds every bucket", ErrMigrationInvalid, factor)
 	}
-
-	// Validate source node
-	sourceNode, err := m.GetNode(ctx, sourceNodeID)
+	b, err := bm.store.GetBucketByName(ctx, bucketName)
+	if errors.Is(err, metadata.ErrBucketNotFound) || (err == nil && b.Moving()) {
+		return nil, fmt.Errorf("%w: bucket %s does not live on this node", ErrMigrationNotFound, bucketName)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("source node not found: %w", err)
+		return nil, err
+	}
+	localID, err := bm.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if targetNodeID == localID {
+		return nil, fmt.Errorf("%w: bucket %s already lives on this node", ErrMigrationInvalid, bucketName)
+	}
+	target, err := bm.mgr.GetNode(ctx, targetNodeID)
+	if errors.Is(err, ErrNodeNotFound) {
+		return nil, fmt.Errorf("%w: node %s is not in the cluster", ErrMigrationInvalid, targetNodeID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if target.HealthStatus != HealthStatusHealthy {
+		return nil, fmt.Errorf("%w: node %s is %s", ErrMigrationConflict, target.Name, target.HealthStatus)
+	}
+	if !bm.reserve(bucketName) {
+		return nil, fmt.Errorf("%w: bucket %s is already being migrated", ErrMigrationConflict, bucketName)
+	}
+	if err := bm.refuseOpenUploads(ctx, b); err != nil {
+		bm.release(bucketName)
+		return nil, err
 	}
 
-	if sourceNode.HealthStatus != HealthStatusHealthy {
-		return nil, fmt.Errorf("source node is not healthy: %s", sourceNode.HealthStatus)
-	}
-
-	// Check if source and target are the same
-	if sourceNodeID == targetNodeID {
-		return nil, fmt.Errorf("source and target nodes cannot be the same")
-	}
-
-	// Create migration job
 	now := time.Now()
 	job := &MigrationJob{
 		BucketName:   bucketName,
-		SourceNodeID: sourceNodeID,
+		SourceNodeID: localID,
 		TargetNodeID: targetNodeID,
-		Status:       MigrationStatusPending,
-		DeleteSource: deleteSource,
-		VerifyData:   verifyData,
+		Status:       MigrationStatusInProgress,
+		ObjectsTotal: b.ObjectCount,
+		BytesTotal:   b.TotalSize,
+		DeleteSource: true,
+		VerifyData:   true,
 		StartedAt:    &now,
 	}
-
-	if err := m.CreateMigrationJob(ctx, job); err != nil {
-		return nil, fmt.Errorf("failed to create migration job: %w", err)
+	if err := bm.mgr.CreateMigrationJob(ctx, job); err != nil {
+		bm.release(bucketName)
+		return nil, err
 	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id": job.ID,
-		"bucket":       bucketName,
-		"source":       sourceNodeID,
-		"target":       targetNodeID,
-	}).Info("Starting bucket migration")
-
-	// Update status to in_progress
-	job.Status = MigrationStatusInProgress
-	if err := m.UpdateMigrationJob(ctx, job); err != nil {
-		return nil, fmt.Errorf("failed to update migration job status: %w", err)
-	}
-
-	// Execute migration
-	if err := m.executeMigration(ctx, locationMgr, tenantID, job); err != nil {
-		job.Status = MigrationStatusFailed
-		job.ErrorMessage = err.Error()
-		now := time.Now()
-		job.CompletedAt = &now
-		m.UpdateMigrationJob(ctx, job)
-		return job, fmt.Errorf("migration failed: %w", err)
-	}
-
-	// Mark as completed
-	job.Status = MigrationStatusCompleted
-	now = time.Now()
-	job.CompletedAt = &now
-	if err := m.UpdateMigrationJob(ctx, job); err != nil {
-		return job, fmt.Errorf("migration completed but failed to update status: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id": job.ID,
-		"bucket":       bucketName,
-	}).Info("Bucket migration completed successfully")
-
+	bm.launch(job, bm.run)
 	return job, nil
 }
 
-// executeMigration performs the actual migration steps
-func (m *Manager) executeMigration(ctx context.Context, locationMgr *BucketLocationManager, tenantID string, job *MigrationJob) error {
-	logrus.WithField("migration_id", job.ID).Info("Executing migration steps")
-
-	// Step 1: Count objects and calculate total size
-	logrus.WithField("migration_id", job.ID).Info("Counting objects in bucket")
-	objectCount, totalSize, err := m.countBucketObjects(ctx, tenantID, job.BucketName)
+// refuseOpenUploads: an upload in progress holds parts that exist only here
+// and cannot be completed once the bucket moves.
+func (bm *BucketMigrator) refuseOpenUploads(ctx context.Context, b *metadata.BucketMetadata) error {
+	uploads, err := bm.objects.ListMultipartUploads(ctx, pathOf(b))
 	if err != nil {
-		return fmt.Errorf("failed to count objects: %w", err)
+		return err
 	}
-
-	job.ObjectsTotal = objectCount
-	job.BytesTotal = totalSize
-	if err := m.UpdateMigrationJob(ctx, job); err != nil {
-		logrus.WithError(err).Warn("Failed to update job with object counts")
+	if len(uploads) > 0 {
+		return fmt.Errorf("%w: bucket %s has %d multipart uploads in progress; complete or abort them first",
+			ErrMigrationConflict, b.Name, len(uploads))
 	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id":  job.ID,
-		"object_count":  objectCount,
-		"total_size_mb": totalSize / 1024 / 1024,
-	}).Info("Object counting completed")
-
-	// Step 2: Copy all objects from source to target
-	if objectCount > 0 {
-		logrus.WithFields(logrus.Fields{
-			"migration_id": job.ID,
-			"bucket":       job.BucketName,
-			"source":       job.SourceNodeID,
-			"target":       job.TargetNodeID,
-		}).Info("Copying objects to target node")
-
-		if err := m.copyBucketObjects(ctx, tenantID, job); err != nil {
-			return fmt.Errorf("failed to copy objects: %w", err)
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"migration_id":      job.ID,
-			"objects_migrated":  job.ObjectsMigrated,
-			"bytes_migrated_mb": job.BytesMigrated / 1024 / 1024,
-		}).Info("Object copying completed")
-	} else {
-		logrus.WithField("migration_id", job.ID).Info("No objects to migrate (empty bucket)")
-	}
-
-	// Step 3: Migrate bucket permissions
-	logrus.WithField("migration_id", job.ID).Info("Migrating bucket permissions")
-	if err := m.migrateBucketPermissions(ctx, tenantID, job); err != nil {
-		return fmt.Errorf("failed to migrate bucket permissions: %w", err)
-	}
-	logrus.WithField("migration_id", job.ID).Info("Bucket permissions migrated successfully")
-
-	// Step 3.5: Migrate bucket ACLs
-	logrus.WithField("migration_id", job.ID).Info("Migrating bucket ACLs")
-	if err := m.migrateBucketACLs(ctx, tenantID, job); err != nil {
-		return fmt.Errorf("failed to migrate bucket ACLs: %w", err)
-	}
-	logrus.WithField("migration_id", job.ID).Info("Bucket ACLs migrated successfully")
-
-	// Step 4: Migrate bucket configuration (tags, lifecycle, etc.)
-	logrus.WithField("migration_id", job.ID).Info("Migrating bucket configuration")
-	if err := m.migrateBucketConfiguration(ctx, tenantID, job); err != nil {
-		return fmt.Errorf("failed to migrate bucket configuration: %w", err)
-	}
-	logrus.WithField("migration_id", job.ID).Info("Bucket configuration migrated successfully")
-
-	// Step 5: Verify data integrity (if requested)
-	if job.VerifyData && objectCount > 0 {
-		logrus.WithField("migration_id", job.ID).Info("Verifying data integrity")
-		if err := m.verifyMigration(ctx, tenantID, job); err != nil {
-			return fmt.Errorf("data verification failed: %w", err)
-		}
-		logrus.WithField("migration_id", job.ID).Info("Data verification completed successfully")
-	}
-
-	// Step 5: Update bucket location metadata
-	logrus.WithField("migration_id", job.ID).Info("Updating bucket location")
-	if err := locationMgr.SetBucketLocation(ctx, tenantID, job.BucketName, job.TargetNodeID); err != nil {
-		return fmt.Errorf("failed to update bucket location: %w", err)
-	}
-	logrus.WithFields(logrus.Fields{
-		"migration_id": job.ID,
-		"bucket":       job.BucketName,
-		"new_location": job.TargetNodeID,
-	}).Info("Bucket location updated successfully")
-
-	// Step 6: Optionally delete from source
-	if job.DeleteSource {
-		logrus.WithFields(logrus.Fields{
-			"migration_id": job.ID,
-			"bucket":       job.BucketName,
-		}).Warn("Deleting bucket data from source node after successful migration")
-
-		if m.bucketManager == nil {
-			return fmt.Errorf("bucket manager not set on cluster manager; cannot delete source data")
-		}
-		if err := m.bucketManager.ForceDeleteBucket(ctx, tenantID, job.BucketName); err != nil {
-			return fmt.Errorf("failed to delete source bucket after migration: %w", err)
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"migration_id": job.ID,
-			"bucket":       job.BucketName,
-		}).Info("Source bucket deleted successfully")
-	}
-
 	return nil
 }
 
-// countBucketObjects counts all objects in a bucket and calculates total size
-func (m *Manager) countBucketObjects(ctx context.Context, tenantID, bucketName string) (int64, int64, error) {
-	query := `
-		SELECT COUNT(*), COALESCE(SUM(size), 0)
-		FROM objects
-		WHERE bucket = ? AND tenant_id = ? AND deleted_at IS NULL
-	`
-
-	var count, totalSize int64
-	err := m.db.QueryRowContext(ctx, query, bucketName, tenantID).Scan(&count, &totalSize)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to count objects: %w", err)
+// run holds the bucket's writes, copies it and hands it over.
+func (bm *BucketMigrator) run(job *MigrationJob) {
+	ctx := bm.lifetime()
+	if err := bm.gate.Freeze(ctx, job.BucketName); err != nil {
+		bm.fail(job, err)
+		return
 	}
-
-	return count, totalSize, nil
+	if err := bm.copyBucket(ctx, job); err != nil {
+		bm.fail(job, err)
+		return
+	}
+	bm.finish(job)
 }
 
-// copyBucketObjects copies all objects from source to target node
-func (m *Manager) copyBucketObjects(ctx context.Context, tenantID string, job *MigrationJob) error {
-	// Get target node info
-	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
+// copyBucket fills the copy on the target and checks it, a page of keys at a
+// time.
+func (bm *BucketMigrator) copyBucket(ctx context.Context, job *MigrationJob) error {
+	b, err := bm.store.GetBucketByName(ctx, job.BucketName)
 	if err != nil {
-		return fmt.Errorf("failed to get target node: %w", err)
+		return err
+	}
+	if err := bm.refuseOpenUploads(ctx, b); err != nil {
+		return err
+	}
+	target, localID, err := bm.peer(ctx, job.TargetNodeID)
+	if err != nil {
+		return err
+	}
+	bucketACL, err := bm.acls.GetBucketACL(ctx, b.TenantID, b.Name)
+	if err != nil {
+		return fmt.Errorf("read the bucket ACL: %w", err)
+	}
+	stage := MigrationStage{JobID: job.ID, SourceNodeID: localID, Bucket: b, ACL: bucketACL}
+	if err := bm.call(ctx, target, localID, "stage", stage, nil); err != nil {
+		return fmt.Errorf("prepare the copy on %s: %w", target.Name, err)
 	}
 
-	// Get authentication credentials
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get local node ID: %w", err)
-	}
-
-	nodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get node token: %w", err)
-	}
-
-	// Query all objects in the bucket
-	query := `
-		SELECT key, size, etag, content_type, version_id, metadata
-		FROM objects
-		WHERE bucket = ? AND tenant_id = ? AND deleted_at IS NULL
-		ORDER BY created_at ASC
-	`
-
-	rows, err := m.db.QueryContext(ctx, query, job.BucketName, tenantID)
-	if err != nil {
-		return fmt.Errorf("failed to query objects: %w", err)
-	}
-	defer rows.Close()
-
-	proxyClient := NewProxyClient(m.GetTLSConfig())
-	objectsCopied := int64(0)
-	bytesCopied := int64(0)
-	errors := 0
-	maxErrors := 10 // Allow some failures but continue
-
-	for rows.Next() {
-		var key, etag, contentType, versionID, metadata string
-		var size int64
-
-		if err := rows.Scan(&key, &size, &etag, &contentType, &versionID, &metadata); err != nil {
-			logrus.WithError(err).Warn("Failed to scan object")
-			errors++
-			if errors >= maxErrors {
-				return fmt.Errorf("too many errors scanning objects")
-			}
-			continue
+	path := pathOf(b)
+	client := NewProxyClient(bm.mgr.GetTLSConfig())
+	marker := ""
+	for {
+		entries, next, err := bm.store.ListObjects(ctx, path, "", marker, migrationPageSize)
+		if err != nil {
+			return fmt.Errorf("list the keys: %w", err)
 		}
-
-		// Copy this object to target node
-		if err := m.copyObject(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName, key, size, etag, contentType, versionID, metadata); err != nil {
-			logrus.WithError(err).WithField("object_key", key).Error("Failed to copy object")
-			errors++
-			if errors >= maxErrors {
-				return fmt.Errorf("too many errors copying objects (latest: %w)", err)
+		keys := make([]string, 0, len(entries))
+		for _, e := range entries {
+			sent, err := sendKeyVersions(ctx, client, bm.objects, target, localID, path, e.Key)
+			if err != nil {
+				return fmt.Errorf("copy %s: %w", e.Key, err)
 			}
-			continue
-		}
-
-		// Update progress
-		objectsCopied++
-		bytesCopied += size
-
-		// Update job progress every 10 objects or if it's the last one
-		if objectsCopied%10 == 0 {
-			job.ObjectsMigrated = objectsCopied
-			job.BytesMigrated = bytesCopied
-			if err := m.UpdateMigrationJob(ctx, job); err != nil {
-				logrus.WithError(err).Warn("Failed to update migration progress")
+			keys = append(keys, e.Key)
+			job.BytesMigrated += sent
+			if e.ETag != "" {
+				job.ObjectsMigrated++
 			}
 		}
-
-		logrus.WithFields(logrus.Fields{
-			"migration_id": job.ID,
-			"object_key":   key,
-			"size":         size,
-			"progress":     fmt.Sprintf("%d/%d", objectsCopied, job.ObjectsTotal),
-		}).Debug("Object copied successfully")
-	}
-
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating objects: %w", err)
-	}
-
-	// Final progress update
-	job.ObjectsMigrated = objectsCopied
-	job.BytesMigrated = bytesCopied
-	if err := m.UpdateMigrationJob(ctx, job); err != nil {
-		logrus.WithError(err).Warn("Failed to update final migration progress")
-	}
-
-	if errors > 0 {
-		logrus.WithFields(logrus.Fields{
-			"migration_id": job.ID,
-			"error_count":  errors,
-			"total":        objectsCopied,
-		}).Warn("Migration completed with some errors")
-	}
-
-	return nil
-}
-
-// copyObject copies a single object to the target node
-func (m *Manager) copyObject(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucket, key string, size int64, etag, contentType, versionID, metadata string) error {
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/objects/%s/%s/%s",
-		targetEndpoint,
-		url.PathEscape(tenantID),
-		url.PathEscape(bucket),
-		key,
-	)
-
-	// Check if storage is available
-	if m.storage == nil {
-		return fmt.Errorf("storage backend not initialized")
-	}
-
-	ref := storage.ObjectRef{Bucket: bucket, Key: key}
-	if versionID != "" && versionID != "null" {
-		ref.VersionID = versionID
-	}
-
-	objectReader, _, err := m.storage.Get(ctx, ref)
-	if err != nil {
-		return fmt.Errorf("failed to read object from storage: %w", err)
-	}
-	defer objectReader.Close()
-
-	// Create authenticated request with actual object data
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "PUT", url, objectReader, localNodeID, nodeToken)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add metadata headers
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-Object-Size", fmt.Sprintf("%d", size))
-	req.Header.Set("X-Object-ETag", etag)
-	req.Header.Set("X-Object-Metadata", metadata)
-	req.Header.Set("X-Source-Version-ID", versionID)
-	req.ContentLength = size
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to send object: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
-}
-
-// migrateBucketPermissions migrates bucket permissions to the target node
-func (m *Manager) migrateBucketPermissions(ctx context.Context, tenantID string, job *MigrationJob) error {
-	// Query all permissions for this bucket
-	query := `
-		SELECT id, bucket_name, bucket_tenant_id, user_id, tenant_id, permission_level, granted_by, granted_at, expires_at
-		FROM bucket_permissions
-		WHERE bucket_name = ? AND bucket_tenant_id = ?
-	`
-
-	rows, err := m.db.QueryContext(ctx, query, job.BucketName, tenantID)
-	if err != nil {
-		return fmt.Errorf("failed to query bucket permissions: %w", err)
-	}
-	defer rows.Close()
-
-	// Get target node info
-	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
-	if err != nil {
-		return fmt.Errorf("failed to get target node: %w", err)
-	}
-
-	// Get authentication credentials
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get local node ID: %w", err)
-	}
-
-	nodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get node token: %w", err)
-	}
-
-	proxyClient := NewProxyClient(m.GetTLSConfig())
-	permissionCount := 0
-
-	// Iterate through all permissions and send them to target node
-	for rows.Next() {
-		var id, bucketName, bucketTenantID, userID, tenantIDVal, permissionLevel, grantedBy string
-		var grantedAt, expiresAt sql.NullInt64
-
-		if err := rows.Scan(&id, &bucketName, &bucketTenantID, &userID, &tenantIDVal, &permissionLevel, &grantedBy, &grantedAt, &expiresAt); err != nil {
-			logrus.WithError(err).Warn("Failed to scan bucket permission")
-			continue
+		if err := bm.verify(ctx, target, localID, path, keys); err != nil {
+			return err
 		}
-
-		// Send permission to target node
-		if err := m.sendBucketPermission(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken,
-			id, bucketName, bucketTenantID, userID, tenantIDVal, permissionLevel, grantedBy, grantedAt.Int64, expiresAt); err != nil {
-			logrus.WithError(err).WithField("permission_id", id).Error("Failed to send bucket permission")
-			continue
+		if err := bm.mgr.UpdateMigrationJob(ctx, job); err != nil {
+			logrus.WithError(err).WithField("migration_id", job.ID).Warn("Could not record the migration's progress")
 		}
-
-		permissionCount++
-	}
-
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating bucket permissions: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id":      job.ID,
-		"permissions_count": permissionCount,
-	}).Info("Bucket permissions migration completed")
-
-	return nil
-}
-
-// sendBucketPermission sends a bucket permission to the target node
-func (m *Manager) sendBucketPermission(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken string,
-	id, bucketName, bucketTenantID, userID, tenantID, permissionLevel, grantedBy string, grantedAt int64, expiresAt sql.NullInt64) error {
-
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/bucket-permissions", targetEndpoint)
-
-	// Create permission data
-	permissionData := map[string]interface{}{
-		"id":               id,
-		"bucket_name":      bucketName,
-		"bucket_tenant_id": bucketTenantID,
-		"user_id":          userID,
-		"tenant_id":        tenantID,
-		"permission_level": permissionLevel,
-		"granted_by":       grantedBy,
-		"granted_at":       grantedAt,
-	}
-
-	if expiresAt.Valid {
-		permissionData["expires_at"] = expiresAt.Int64
-	}
-
-	// Marshal to JSON
-	jsonData, err := json.Marshal(permissionData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal permission data: %w", err)
-	}
-
-	// Create authenticated request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to send permission: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
-}
-
-// migrateBucketACLs migrates bucket ACLs to the target node
-func (m *Manager) migrateBucketACLs(ctx context.Context, tenantID string, job *MigrationJob) error {
-	// Check if ACL manager is available
-	if m.aclManager == nil {
-		logrus.Warn("ACL manager not available, skipping ACL migration")
-		return nil
-	}
-
-	// Get bucket ACL
-	bucketACL, err := m.aclManager.GetBucketACL(ctx, tenantID, job.BucketName)
-	if err != nil {
-		return fmt.Errorf("failed to get bucket ACL: %w", err)
-	}
-
-	// If it's the default ACL, no need to migrate
-	if bucketACL.CannedACL == "private" && len(bucketACL.Grants) == 0 {
-		logrus.WithField("bucket", job.BucketName).Debug("Default ACL, skipping migration")
-		return nil
-	}
-
-	// Get target node info
-	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
-	if err != nil {
-		return fmt.Errorf("failed to get target node: %w", err)
-	}
-
-	// Get authentication credentials
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get local node ID: %w", err)
-	}
-
-	nodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get node token: %w", err)
-	}
-
-	// Send ACL to target node
-	proxyClient := NewProxyClient(m.GetTLSConfig())
-	if err := m.sendBucketACL(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName, bucketACL); err != nil {
-		return fmt.Errorf("failed to send bucket ACL: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id": job.ID,
-		"bucket":       job.BucketName,
-		"canned_acl":   bucketACL.CannedACL,
-		"grants":       len(bucketACL.Grants),
-	}).Info("Bucket ACL migrated successfully")
-
-	return nil
-}
-
-// sendBucketACL sends bucket ACL to the target node
-func (m *Manager) sendBucketACL(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string, acl interface{}) error {
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/bucket-acl", targetEndpoint)
-
-	// Create ACL data
-	aclData := map[string]interface{}{
-		"tenant_id":   tenantID,
-		"bucket_name": bucketName,
-		"acl":         acl,
-	}
-
-	// Marshal to JSON
-	jsonData, err := json.Marshal(aclData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal ACL data: %w", err)
-	}
-
-	// Create authenticated request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to send ACL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
-}
-
-// migrateBucketConfiguration migrates bucket configuration (tags, lifecycle, versioning, etc.) to the target node
-func (m *Manager) migrateBucketConfiguration(ctx context.Context, tenantID string, job *MigrationJob) error {
-	// Get bucket metadata from database
-	query := `
-		SELECT versioning, object_lock, encryption, lifecycle, tags, cors, policy, notification
-		FROM buckets
-		WHERE name = ? AND tenant_id = ?
-	`
-
-	var versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification sql.NullString
-
-	err := m.db.QueryRowContext(ctx, query, job.BucketName, tenantID).Scan(
-		&versioning, &objectLock, &encryption, &lifecycle, &tags, &cors, &policy, &notification,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			logrus.WithField("bucket", job.BucketName).Warn("Bucket not found in database")
+		if next == "" {
 			return nil
 		}
-		return fmt.Errorf("failed to get bucket configuration: %w", err)
+		marker = next
+	}
+}
+
+// verify checks that the target holds keys as this node does.
+func (bm *BucketMigrator) verify(ctx context.Context, target *Node, localID, path string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	var theirs map[string][]VersionManifest
+	if err := bm.call(ctx, target, localID, "manifest", MigrationManifestRequest{Bucket: path, Keys: keys}, &theirs); err != nil {
+		return fmt.Errorf("read the copy back from %s: %w", target.Name, err)
+	}
+	for _, key := range keys {
+		ours, err := KeyManifest(ctx, bm.objects, path, key)
+		if err != nil {
+			return fmt.Errorf("describe %s: %w", key, err)
+		}
+		if !slices.Equal(ours, theirs[key]) {
+			return fmt.Errorf("the copy of %s on %s differs from this node's", key, target.Name)
+		}
+	}
+	return nil
+}
+
+// finish hands the bucket over. Once the job is marked committing the move is
+// completed, retrying until it is, and never undone.
+func (bm *BucketMigrator) finish(job *MigrationJob) {
+	ctx := bm.lifetime()
+	if job.Status != MigrationStatusCommitting {
+		job.Status = MigrationStatusCommitting
+		if err := bm.mgr.UpdateMigrationJob(ctx, job); err != nil {
+			bm.fail(job, fmt.Errorf("record the hand-over: %w", err))
+			return
+		}
+	}
+	for {
+		err := bm.commit(ctx, job)
+		if err == nil {
+			break
+		}
+		if stepStatus(err) == http.StatusNotFound || errors.Is(err, errNodeGone) {
+			// The copy is not on the target any more. Nothing was handed over
+			// while this node still holds the bucket in full.
+			if b, gErr := bm.store.GetBucketByName(ctx, job.BucketName); gErr == nil && !b.Moving() {
+				bm.fail(job, err)
+				return
+			}
+		}
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"migration_id": job.ID,
+			"bucket":       job.BucketName,
+		}).Error("Could not hand the migrated bucket over; retrying")
+		if !sleepContext(ctx, bm.retryInterval()) {
+			return
+		}
 	}
 
-	// Get target node info
-	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
-	if err != nil {
-		return fmt.Errorf("failed to get target node: %w", err)
+	bm.gate.Thaw(job.BucketName)
+	now := time.Now()
+	job.Status = MigrationStatusCompleted
+	job.CompletedAt = &now
+	job.ErrorMessage = ""
+	if err := bm.mgr.UpdateMigrationJob(context.WithoutCancel(ctx), job); err != nil {
+		logrus.WithError(err).WithField("migration_id", job.ID).Warn("Could not record the migration as completed")
 	}
-
-	// Get authentication credentials
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get local node ID: %w", err)
-	}
-
-	nodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get node token: %w", err)
-	}
-
-	// Send configuration to target node
-	proxyClient := NewProxyClient(m.GetTLSConfig())
-	if err := m.sendBucketConfiguration(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName,
-		versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification); err != nil {
-		return fmt.Errorf("failed to send bucket configuration: %w", err)
-	}
-
 	logrus.WithFields(logrus.Fields{
 		"migration_id": job.ID,
 		"bucket":       job.BucketName,
-	}).Info("Bucket configuration migrated successfully")
+		"target":       job.TargetNodeID,
+	}).Info("Bucket migrated")
+}
 
-	// Step 4.5: Migrate bucket inventory configuration (if exists)
-	logrus.WithField("migration_id", job.ID).Info("Migrating bucket inventory configuration")
-	if err := m.migrateBucketInventory(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job); err != nil {
-		// Don't fail migration if inventory config doesn't exist or can't be migrated
-		logrus.WithError(err).Warn("Failed to migrate bucket inventory configuration (non-critical)")
-	} else {
-		logrus.WithField("migration_id", job.ID).Info("Bucket inventory configuration migrated successfully")
+// commit makes the target's copy the bucket, then removes it from here: first
+// hidden, so no request is answered from it, then deleted with its rows and
+// ACL. Each step can be repeated.
+func (bm *BucketMigrator) commit(ctx context.Context, job *MigrationJob) error {
+	b, err := bm.store.GetBucketByName(ctx, job.BucketName)
+	if errors.Is(err, metadata.ErrBucketNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	target, localID, err := bm.peer(ctx, job.TargetNodeID)
+	if err != nil {
+		return err
+	}
+	rows, err := readBucketRows(ctx, bm.mgr.db, b.Name)
+	if err != nil {
+		return err
+	}
+	commit := MigrationCommit{JobID: job.ID, SourceNodeID: localID, Bucket: b.Name, Rows: rows}
+	if err := bm.call(ctx, target, localID, "commit", commit, nil); err != nil {
+		return fmt.Errorf("commit the copy on %s: %w", target.Name, err)
 	}
 
+	if !b.Moving() {
+		hidden := *b
+		hidden.Metadata = make(map[string]string, len(b.Metadata)+1)
+		for k, v := range b.Metadata {
+			hidden.Metadata[k] = v
+		}
+		hidden.Metadata[metadata.BucketMovingKey] = outgoingMarker(target.ID, job.ID)
+		if err := bm.store.UpdateBucket(ctx, &hidden); err != nil {
+			return err
+		}
+		if bm.usage != nil && b.TenantID != "" && b.TotalSize > 0 {
+			if err := bm.usage.DecrementTenantStorage(ctx, b.TenantID, b.TotalSize); err != nil {
+				logrus.WithError(err).WithField("tenant_id", b.TenantID).Warn("Could not release the migrated bucket's storage from the tenant on this node")
+			}
+		}
+	}
+	if err := deleteBucketRows(ctx, bm.mgr.db, b.Name); err != nil {
+		return err
+	}
+	if err := bm.acls.DeleteBucketACL(ctx, b.TenantID, b.Name); err != nil {
+		return err
+	}
+	if err := bm.buckets.ForceDeleteBucket(ctx, b.TenantID, b.Name); err != nil && !errors.Is(err, bucket.ErrBucketNotFound) {
+		return err
+	}
 	return nil
 }
 
-// sendBucketConfiguration sends bucket configuration to the target node
-func (m *Manager) sendBucketConfiguration(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string,
-	versioning, objectLock, encryption, lifecycle, tags, cors, policy, notification sql.NullString) error {
+// fail undoes a migration that did not reach its hand-over: the bucket takes
+// writes again at once, and the copy on the target is removed, retrying until
+// the target answers or leaves the cluster.
+func (bm *BucketMigrator) fail(job *MigrationJob, cause error) {
+	ctx := bm.lifetime()
+	bm.gate.Thaw(job.BucketName)
+	job.ErrorMessage = cause.Error()
+	logrus.WithError(cause).WithFields(logrus.Fields{
+		"migration_id": job.ID,
+		"bucket":       job.BucketName,
+		"target":       job.TargetNodeID,
+	}).Error("Bucket migration failed; the bucket stays on this node")
 
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/bucket-config", targetEndpoint)
-
-	// Create configuration data
-	configData := map[string]interface{}{
-		"tenant_id":   tenantID,
-		"bucket_name": bucketName,
-	}
-
-	if versioning.Valid {
-		configData["versioning"] = versioning.String
-	}
-	if objectLock.Valid {
-		configData["object_lock"] = objectLock.String
-	}
-	if encryption.Valid {
-		configData["encryption"] = encryption.String
-	}
-	if lifecycle.Valid {
-		configData["lifecycle"] = lifecycle.String
-	}
-	if tags.Valid {
-		configData["tags"] = tags.String
-	}
-	if cors.Valid {
-		configData["cors"] = cors.String
-	}
-	if policy.Valid {
-		configData["policy"] = policy.String
-	}
-	if notification.Valid {
-		configData["notification"] = notification.String
+	for {
+		err := bm.abort(ctx, job)
+		if err == nil || errors.Is(err, errNodeGone) || stepStatus(err) == http.StatusConflict {
+			break
+		}
+		logrus.WithError(err).WithField("migration_id", job.ID).Warn("Could not remove the copy on the target; retrying")
+		if !sleepContext(ctx, bm.retryInterval()) {
+			// A restart finds the job unfinished and removes the copy then.
+			if uErr := bm.mgr.UpdateMigrationJob(context.WithoutCancel(ctx), job); uErr != nil {
+				logrus.WithError(uErr).WithField("migration_id", job.ID).Warn("Could not record the migration's failure")
+			}
+			return
+		}
 	}
 
-	// Marshal to JSON
-	jsonData, err := json.Marshal(configData)
+	now := time.Now()
+	job.Status = MigrationStatusFailed
+	job.CompletedAt = &now
+	if err := bm.mgr.UpdateMigrationJob(context.WithoutCancel(ctx), job); err != nil {
+		logrus.WithError(err).WithField("migration_id", job.ID).Warn("Could not record the migration's failure")
+	}
+}
+
+func (bm *BucketMigrator) abort(ctx context.Context, job *MigrationJob) error {
+	target, localID, err := bm.peer(ctx, job.TargetNodeID)
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration data: %w", err)
+		return err
 	}
+	return bm.call(ctx, target, localID, "abort",
+		MigrationAbort{JobID: job.ID, SourceNodeID: localID, Bucket: job.BucketName}, nil)
+}
 
-	// Create authenticated request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
+func (bm *BucketMigrator) peer(ctx context.Context, nodeID string) (*Node, string, error) {
+	node, err := bm.mgr.GetNode(ctx, nodeID)
+	if errors.Is(err, ErrNodeNotFound) {
+		return nil, "", errNodeGone
+	}
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, "", err
 	}
+	localID, err := bm.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return node, localID, nil
+}
 
+// call runs one step of a migration on the target. The body is signed by its
+// digest, so a large one is not limited to what a signed request buffers.
+func (bm *BucketMigrator) call(ctx context.Context, target *Node, localID, step string, in, out any) error {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(body)
+	client := NewProxyClient(bm.mgr.GetTLSConfig())
+	url := strings.TrimRight(target.Endpoint, "/") + "/api/internal/cluster/migration/" + step
+	req, err := client.CreateAuthenticatedRequestWithDigest(ctx, http.MethodPost, url, bytes.NewReader(body),
+		localID, target.NodeToken, "sha256:"+hex.EncodeToString(sum[:]))
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
+	req.ContentLength = int64(len(body))
+	resp, err := client.DoAuthenticatedRequest(req)
 	if err != nil {
-		return fmt.Errorf("failed to send configuration: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
-
-	// Check response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &migrationStepError{status: resp.StatusCode, message: strings.TrimSpace(string(msg))}
 	}
-
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
 	return nil
 }
 
-// verifyMigration verifies that all objects were copied correctly
-func (m *Manager) verifyMigration(ctx context.Context, tenantID string, job *MigrationJob) error {
-	// Verify object count matches
-	if job.ObjectsMigrated != job.ObjectsTotal {
-		return fmt.Errorf("object count mismatch: migrated %d but expected %d", job.ObjectsMigrated, job.ObjectsTotal)
+// sleepContext waits for d and reports whether ctx is still live.
+func sleepContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
-
-	// Verify total bytes matches (allow small discrepancies due to metadata)
-	byteDiff := job.BytesTotal - job.BytesMigrated
-	if byteDiff < 0 {
-		byteDiff = -byteDiff
-	}
-	percentDiff := float64(byteDiff) / float64(job.BytesTotal) * 100
-	if percentDiff > 1.0 { // Allow 1% difference
-		return fmt.Errorf("bytes mismatch: migrated %d bytes but expected %d bytes (%.2f%% difference)",
-			job.BytesMigrated, job.BytesTotal, percentDiff)
-	}
-
-	// Query target node to verify objects exist
-	// Get target node info
-	targetNode, err := m.GetNode(ctx, job.TargetNodeID)
-	if err != nil {
-		return fmt.Errorf("failed to get target node: %w", err)
-	}
-
-	// Get authentication credentials
-	localNodeID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get local node ID: %w", err)
-	}
-
-	nodeToken, err := m.GetLocalNodeToken(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get node token: %w", err)
-	}
-
-	proxyClient := NewProxyClient(m.GetTLSConfig())
-
-	// Sample verification: Check first 10 objects exist on target
-	query := `
-		SELECT key, etag
-		FROM objects
-		WHERE bucket = ? AND tenant_id = ? AND deleted_at IS NULL
-		ORDER BY created_at ASC
-		LIMIT 10
-	`
-
-	rows, err := m.db.QueryContext(ctx, query, job.BucketName, tenantID)
-	if err != nil {
-		return fmt.Errorf("failed to query sample objects: %w", err)
-	}
-	defer rows.Close()
-
-	verifiedCount := 0
-	for rows.Next() {
-		var key, sourceETag string
-		if err := rows.Scan(&key, &sourceETag); err != nil {
-			return fmt.Errorf("failed to scan object: %w", err)
-		}
-
-		// Verify this object exists on target node with same ETag
-		if err := m.verifyObjectOnTarget(ctx, proxyClient, targetNode.Endpoint, localNodeID, nodeToken, tenantID, job.BucketName, key, sourceETag); err != nil {
-			return fmt.Errorf("verification failed for object %s: %w", key, err)
-		}
-
-		verifiedCount++
-	}
-
-	if err = rows.Err(); err != nil {
-		return fmt.Errorf("error iterating sample objects: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"migration_id":     job.ID,
-		"verified_samples": verifiedCount,
-		"total_objects":    job.ObjectsTotal,
-	}).Info("Sample verification completed")
-
-	return nil
-}
-
-// verifyObjectOnTarget checks if an object exists on the target node with the expected ETag
-func (m *Manager) verifyObjectOnTarget(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucket, key, expectedETag string) error {
-	// Build URL for HEAD request
-	url := fmt.Sprintf("%s/api/internal/cluster/objects/%s/%s/%s",
-		targetEndpoint,
-		url.PathEscape(tenantID),
-		url.PathEscape(bucket),
-		key,
-	)
-
-	// Create authenticated HEAD request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "HEAD", url, nil, localNodeID, nodeToken)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to verify object: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check if object exists
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("object not found on target node")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
-
-	// Verify ETag matches (if provided)
-	if expectedETag != "" {
-		targetETag := resp.Header.Get("X-Object-ETag")
-		if targetETag == "" {
-			targetETag = resp.Header.Get("ETag")
-		}
-		if targetETag != expectedETag {
-			return fmt.Errorf("ETag mismatch: source=%s, target=%s", expectedETag, targetETag)
-		}
-	}
-
-	return nil
-}
-
-// migrateBucketInventory migrates bucket inventory configuration to the target node
-func (m *Manager) migrateBucketInventory(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID string, job *MigrationJob) error {
-	// Query inventory configuration for this bucket
-	query := `
-		SELECT id, bucket_name, tenant_id, enabled, frequency, format,
-		       destination_bucket, destination_prefix, included_fields, schedule_time,
-		       last_run_at, next_run_at
-		FROM bucket_inventory_configs
-		WHERE bucket_name = ? AND tenant_id = ?
-	`
-
-	var id, bucketName, tenantIDVal, frequency, format, destinationBucket, destinationPrefix, includedFields, scheduleTime string
-	var enabled int
-	var lastRunAt, nextRunAt sql.NullInt64
-
-	err := m.db.QueryRowContext(ctx, query, job.BucketName, tenantID).Scan(
-		&id, &bucketName, &tenantIDVal, &enabled, &frequency, &format,
-		&destinationBucket, &destinationPrefix, &includedFields, &scheduleTime,
-		&lastRunAt, &nextRunAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// No inventory configuration exists - this is normal
-			logrus.WithField("bucket", job.BucketName).Debug("No inventory configuration found for bucket")
-			return nil
-		}
-		return fmt.Errorf("failed to get inventory configuration: %w", err)
-	}
-
-	// Parse included fields JSON
-	var includedFieldsArray []string
-	if err := json.Unmarshal([]byte(includedFields), &includedFieldsArray); err != nil {
-		return fmt.Errorf("failed to parse included fields: %w", err)
-	}
-
-	// Send inventory configuration to target node
-	if err := m.sendBucketInventory(ctx, proxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName,
-		enabled == 1, frequency, format, destinationBucket, destinationPrefix, includedFieldsArray, scheduleTime, lastRunAt, nextRunAt); err != nil {
-		return fmt.Errorf("failed to send inventory configuration: %w", err)
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"bucket":    bucketName,
-		"tenant_id": tenantID,
-		"frequency": frequency,
-	}).Info("Inventory configuration migrated successfully")
-
-	return nil
-}
-
-// sendBucketInventory sends bucket inventory configuration to the target node
-func (m *Manager) sendBucketInventory(ctx context.Context, proxyClient *ProxyClient, targetEndpoint, localNodeID, nodeToken, tenantID, bucketName string,
-	enabled bool, frequency, format, destinationBucket, destinationPrefix string, includedFields []string, scheduleTime string, lastRunAt, nextRunAt sql.NullInt64) error {
-
-	// Build URL for internal cluster API
-	url := fmt.Sprintf("%s/api/internal/cluster/bucket-inventory", targetEndpoint)
-
-	// Create inventory data
-	inventoryData := map[string]interface{}{
-		"tenant_id":          tenantID,
-		"bucket_name":        bucketName,
-		"enabled":            enabled,
-		"frequency":          frequency,
-		"format":             format,
-		"destination_bucket": destinationBucket,
-		"destination_prefix": destinationPrefix,
-		"included_fields":    includedFields,
-		"schedule_time":      scheduleTime,
-	}
-
-	if lastRunAt.Valid {
-		inventoryData["last_run_at"] = lastRunAt.Int64
-	}
-	if nextRunAt.Valid {
-		inventoryData["next_run_at"] = nextRunAt.Int64
-	}
-
-	// Marshal to JSON
-	jsonData, err := json.Marshal(inventoryData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal inventory data: %w", err)
-	}
-
-	// Create authenticated request
-	req, err := proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(jsonData), localNodeID, nodeToken)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := proxyClient.DoAuthenticatedRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to send inventory configuration: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
 }

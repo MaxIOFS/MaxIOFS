@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **284 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **290 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -163,14 +163,14 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 36 test files
+### `internal/cluster/` — 37 test files
 
 | File | Description |
 |------|-------------|
 | `access_key_sync_test.go` | Cross-node access key synchronization |
 | `anti_entropy_test.go` | HA anti-entropy worker and reconciliation |
 | `bucket_aggregator_test.go` | Multi-node bucket list aggregation |
-| `bucket_location_test.go` | Bucket location cache and routing |
+| `bucket_gate_test.go` | Freezing a bucket refuses new writes and returns once the writes under way end; a freeze given up leaves the bucket writable |
 | `bucket_permission_sync_test.go` | Bucket permission replication |
 | `cache_test.go` | Cluster cache invalidation |
 | `circuit_breaker_test.go` | Circuit breaker for unhealthy nodes |
@@ -178,7 +178,8 @@ npx vitest run --coverage
 | `deletion_log_test.go` | Tombstone-based deletion sync |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
 | `ha_fanout_lock_test.go` | The legacy (non-raw) HA transfer carries the object's retention and legal hold; without lock state it sends no lock header |
-| `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again |
+| `ha_metadata_queue_test.go` | A metadata change reaches a healthy replica before the request returns; it is queued for a replica that is down, fails or has changes waiting, never for one that refuses it; the queue is replayed in order, dropping refused changes and stopping at a failure; removed nodes leave no queue |
+| `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again. The initial sync copies every version oldest first with its ID, delete markers with their time, and lock state; in a suspended bucket, the current object without a version ID last, with its ETag and tags |
 | `ha_quorum_test.go` | HA write quorum behavior |
 | `ha_read_test.go` | HA read fallback and ordered retry |
 | `ha_rollback_lock_test.go` | A write that misses HA quorum (factor 3, both peers failing) removes its local version even under COMPLIANCE retention and a legal hold |
@@ -187,8 +188,8 @@ npx vitest run --coverage
 | `idp_provider_sync_test.go` | IDP provider configuration sync |
 | `leader_test.go` | Leader lease granted when free, refused while held, a stale term is fenced |
 | `manager_test.go` | Cluster manager core operations |
-| `migration_integration_test.go` | Bucket migration end-to-end |
-| `migration_test.go` | Migration unit operations |
+| `migration_rows_test.go` | A bucket's database rows move typed and once however often applied; generated IDs never replace the target's rows; rows naming another bucket, table or column are refused. The verification digest covers what a client reads of a version |
+| `migration_test.go` | Migration job records |
 | `proxy_bounds_test.go` | Every proxy client entry point is bounded (no unbounded read/timeout) |
 | `proxy_client_test.go` | The proxy's HTTP client bounds reachability, not transfer size; keeps TLS and pooling |
 | `proxy_content_length_test.go` | A proxied request carries `Content-Length` to the target node |
@@ -197,7 +198,7 @@ npx vitest run --coverage
 | `proxy_test.go` | Request proxying to remote nodes |
 | `quota_aggregator_test.go` | Cross-node quota aggregation |
 | `quota_integration_test.go` | Quota enforcement in cluster |
-| `router_test.go` | Request routing to bucket owner |
+| `router_test.go` | Request routing to bucket owner; a bucket found here is served here whatever location was cached, and one that left is not |
 | `shared_state_test.go` | TLS state is race-free; the leader manager's `Stop` is idempotent; start doesn't replace the proxy client |
 | `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes) |
 | `storage_pressure_test.go` | Storage-pressure health state |
@@ -260,12 +261,13 @@ npx vitest run --coverage
 |------|-------------|
 | `migrate_test.go` | Layout v1 → v2 migration: moves every object and version, idempotent, resumes after an interruption, dry run, refuses duplicate or tenant-like bucket names, reports inconsistencies, prunes the old tree once per directory, purges implicit folder objects |
 
-### `internal/lifecycle/` — 2 test files
+### `internal/lifecycle/` — 3 test files
 
 | File | Description |
 |------|-------------|
 | `expiration_test.go` | Lifecycle expiration behavior |
 | `worker_test.go` | Lifecycle rule evaluation and object expiration |
+| `write_gate_test.go` | A bucket whose writes are held is skipped; the others are processed inside the gate |
 
 ### `internal/logging/` — 5 test files
 
@@ -326,7 +328,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 46 test files
+### `internal/object/` — 48 test files
 
 | File | Description |
 |------|-------------|
@@ -362,6 +364,8 @@ npx vitest run --coverage
 | `raw_replication_test.go` | Replica-side raw ciphertext write, plain and versioned |
 | `raw_replication_rollback_test.go` | A failed raw replica overwrite restores the previous data and sidecar, including existing versions |
 | `read_snapshot_test.go` | A reader keeps the generation it opened across a concurrent overwrite |
+| `replica_versions_test.go` | Versions copied from another node, raw or not, land in order whatever order they arrive in: an older copy or delete marker never replaces the latest, a repeated copy is not counted twice |
+| `replica_copy_test.go` | A copy into a bucket whose versioning was suspended is stored as the version it copies, never replaces the current object (not even one of the same second), and a copied delete marker stays one; a copy carries its ETag, tags, ACL and restore state and is refused when its bytes do not match; changing tags or ACL keeps the restore status; a write while suspended keeps the bytes of the version it covers |
 | `reconcile_serialization_test.go` | Reconcile takes the same per-key lock as normal operations and does not race a concurrent PUT |
 | `review_part_crash_faultcheck_test.go` | An acknowledged multipart part survives a process kill during a replacement upload |
 | `search_objects_test.go` | Object search and listing |
@@ -374,7 +378,7 @@ npx vitest run --coverage
 | `write_audit_test.go` | PUT applies the bucket default retention; a bucket read failure fails closed; concurrent writes respect the quota; a failed encryption-migration restore keeps its backup |
 | `write_cost_test.go` | Write-path cost accounting (backend calls, bytes, metadata lookups) for new, overwrite, versioned and part writes; the disk workload is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#write-path-cost-accounting)) |
 | `write_quota_test.go` | Quota reservations: concurrent writers never over-admit and all fitting writers are admitted; a finished or refused write is not counted twice; a slow tenant check blocks nobody; freeing space is allowed over the limit; a versioned overwrite is charged in full |
-| `write_rollback_test.go` | Undoing a write deletes the protected version it created; a client delete of that version is still refused. Multipart uploads keep the Object Lock headers of their creation, validated then, and user metadata cannot set them |
+| `write_rollback_test.go` | Undoing a write deletes the protected version it created; a client delete of that version is still refused. Multipart uploads keep the Object Lock headers of their creation, validated then; user metadata stays user metadata — it cannot set the lock state, the Content-Type, the canned ACL or sidecar fields — including for uploads created before the upgrade |
 | `write_safety_test.go` | Reservations are released on success and failure; a failed write stays retryable; quota is accounted per bucket; Object Lock headers are applied at the first commit; a failed bucket lookup on delete preserves the object |
 
 ### `internal/presigned/` — 1 test file
@@ -413,7 +417,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 37 test files
+### `internal/server/` — 38 test files
 
 | File | Description |
 |------|-------------|
@@ -421,8 +425,9 @@ npx vitest run --coverage
 | `bucket_quota_handlers_test.go` | A bucket quota is authorized against its own tenant, not `?tenantId=` |
 | `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
+| `cluster_migration_test.go` | Bucket migration between two complete nodes: every version and its state moved and verified with the bucket's configuration, ACL and rows; writes refused while it runs and writes under way waited for; failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target; hidden copies answer for nothing; stale locations are forgotten; the console endpoint |
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold |
-| `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default |
+| `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
 | `console_idp_test.go` | Console IDP management endpoints |
@@ -444,7 +449,7 @@ npx vitest run --coverage
 | `leader_gate_test.go` | Reads, sign-in and cluster traffic are never blocked by the leader gate |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
-| `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not |
+| `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not. A console upload's Object Lock headers need their own permission; a tenant without a storage limit can upload |
 | `pending_password_change_test.go` | A pending forced password change leaves only the intended way out |
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |
@@ -496,7 +501,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 36 test files
+### `pkg/s3compat/` — 38 test files
 
 | File | Description |
 |------|-------------|
@@ -516,11 +521,12 @@ npx vitest run --coverage
 | `iam_authorization_test.go` | An IAM read policy does not authorize a write or delete; version actions are resource-scoped |
 | `inventory_test.go` | S3 inventory API compatibility |
 | `multipart_faultcheck_test.go` | Concurrent part uploads to different/the same part number over real HTTP; abort during a disconnected upload |
-| `multipart_object_lock_test.go` | `CreateMultipartUpload` refuses Object Lock headers it cannot honour with `InvalidRequest` |
+| `multipart_object_lock_test.go` | `CreateMultipartUpload` refuses Object Lock headers it cannot honour with `InvalidRequest`; a canned ACL comes from `x-amz-acl` only, never from user metadata |
 | `multipart_ownership_test.go` | A foreign multipart upload is refused; the owner's own upload keeps working |
 | `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
 | `multipart_retention_test.go` | Default retention applied to an S3 multipart completion |
 | `notifications_test.go` | Bucket notification webhook dispatch |
+| `object_lock_permissions_test.go` | Object Lock headers on PUT, CreateMultipartUpload and CopyObject need `s3:PutObjectRetention` / `s3:PutObjectLegalHold`; the bucket default needs neither; a copy carries the retention it asked for |
 | `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously |
 | `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
 | `quota_write_errors_test.go` | A tenant quota refusal inside a PUT and a bucket quota refusal on CopyObject answer 403 `QuotaExceeded`; a failure to check the quota is not a refusal |
@@ -528,6 +534,7 @@ npx vitest run --coverage
 | `presigned_test.go` | S3 pre-signed request handling (SigV2 + SigV4) |
 | `proxy_fallthrough_test.go` | A request whose body was already consumed is not handled locally; reads may still fall through |
 | `s3_test.go` | S3 protocol compatibility tests |
+| `stale_location_test.go` | A node told the bucket is no longer where it forwarded the request forgets that location and passes the retryable answer on |
 | `select_streaming_test.go` | `SelectObjectContent` loaders don't scale memory with input size; schema can grow mid-stream |
 | `select_test.go` | `SelectObjectContent` — event stream encoding, CSV/JSON loaders, SQL queries, batch flushing |
 | `sts_compound_test.go` | Compound operations within one STS session |
@@ -782,10 +789,10 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 46 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 37 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive |
-| Cluster | 36 | Sync, replication, routing, HA quorum, rollback and catch-up, migration, health |
-| S3 Compat | 36 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
+| Object | 48 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 38 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, bucket migration between two nodes |
+| Cluster | 37 | Sync, replication, routing, HA quorum, rollback and catch-up, migration, health |
+| S3 Compat | 38 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 11 | Filesystem, staged commit, layout v2, benchmarks |
@@ -800,6 +807,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **284** | |
+| **Total Go** | **290** | |
 | Frontend | 10 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer |
 | Performance | 4 | Upload, download, mixed, common |

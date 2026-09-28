@@ -224,9 +224,7 @@
   "selectTargetNodeOption": "Sélectionner le nœud cible",
   "onlyHealthyNodesExcluding": "Seuls les nœuds sains (excluant le nœud source {{id}}) sont affichés",
   "onlyHealthyNodes": "Seuls les nœuds sains sont affichés",
-  "verifyDataIntegrity": "Vérifier l'intégrité des données après la migration",
-  "deleteSourceData": "Supprimer les données source après une migration réussie",
-  "migrationWarning": "Avertissement : La migration déplacera toutes les données du bucket vers le nœud cible. Assurez-vous que le nœud cible dispose d'un espace de stockage suffisant.",
+  "migrationWarning": "Le bucket est déplacé : chaque version est copiée sur le nœud cible et vérifiée, puis supprimée de ce nœud. Pendant le déplacement, le bucket n'accepte aucune écriture (les lectures continuent). Les téléversements multipart en cours doivent être terminés ou annulés avant. Assurez-vous que le nœud cible dispose d'un espace de stockage suffisant.",
   "startMigration": "Démarrer la migration",
 
   "selectBucketAndNode": "Veuillez sélectionner un bucket et un nœud cible",

@@ -197,7 +197,7 @@ or a support contract with an SLA.
 - Read fallback with ordered retry, anti-entropy, dead-node redistribution, storage-pressure health state
 - Elected coordinator for configuration changes; a surviving node takes over when it fails
 - HMAC-authenticated inter-node replication
-- Bucket migration between nodes (full data + metadata + settings)
+- Bucket migration between nodes (factor 1): every version with its metadata, tags, ACL and lock state, the bucket's configuration, ACL and database rows; the copy is verified before the source is removed, and the bucket takes no writes while it moves
 - 6-entity sync (users, tenants, access keys, bucket permissions, IDP providers, group mappings)
 - Tombstone-based deletion sync — prevents entity resurrection in bidirectional sync
 - JWT secret cluster sync — sessions valid across all nodes
@@ -349,7 +349,7 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,300+ backend tests (284 files)
+go test ./...                          # 4,300+ backend tests (290 files)
 cd web/frontend && npm run test        # 110 frontend tests
 ```
 

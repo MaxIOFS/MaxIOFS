@@ -826,7 +826,10 @@ func (s *Server) handleBucketExists(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Failed to check bucket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = bucketMeta
+	if bucketMeta.Moving() {
+		s.writeError(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
 
 	s.writeClusterJSON(w, map[string]interface{}{
 		"exists": true,

@@ -123,6 +123,9 @@ legal-hold status, or any of these headers on a bucket without Object Lock.
 Without them, the bucket default retention applies. `CreateMultipartUpload`
 takes the same headers, validated when the upload is created and applied when it
 completes; without them the completed object gets the bucket default retention.
+CopyObject applies them to the copy. As in AWS S3, a mode or retain-until date
+needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
+`s3:PutObject`; without them the request answers `403 AccessDenied`.
 
 ### ACL Operations
 
@@ -715,11 +718,15 @@ plus 20%.
 
 ### Cluster Migrations
 
+Global administrators only. See [CLUSTER.md](CLUSTER.md#bucket-migration).
+
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Start bucket migration |
-| GET | `/api/v1/cluster/migrations` | List migrations |
-| GET | `/api/v1/cluster/migrations/{id}` | Get migration details |
+| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Move the bucket to `target_node_id`. Runs on the node the bucket lives on; answers `202` with the job. `400`: cluster not enabled, factor above 1, unknown target, target is the source, `delete_source: false`. `404`: the bucket does not live on this node. `409`: target not healthy, migration running, multipart uploads in progress |
+| GET | `/api/v1/cluster/migrations` | Jobs this node ran as source (`?bucket=` filters). Status `in_progress`, `committing`, `completed` or `failed` |
+| GET | `/api/v1/cluster/migrations/{id}` | One job |
+
+While a bucket is migrated, its writes answer `503` (S3 `ServiceUnavailable`, console code `BUCKET_MIGRATING`) with `Retry-After: 60`; reads go on.
 
 ### Notifications (SSE)
 
@@ -761,7 +768,7 @@ plus 20%.
 </Error>
 ```
 
-Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`; a write to a bucket being migrated, with `Retry-After: 60`; a request that reached a node the bucket has left, with `Retry-After: 1`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
 
 ### Console API (JSON)
 
@@ -772,7 +779,7 @@ Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`
 }
 ```
 
-HTTP status codes: 200 (success), 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 429 (rate limited), 500 (server error)
+HTTP status codes: 200 (success), 202 (accepted, runs in the background), 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 429 (rate limited), 500 (server error), 503 (maintenance mode: code `MAINTENANCE_MODE`; bucket being migrated: code `BUCKET_MIGRATING`)
 
 ---
 

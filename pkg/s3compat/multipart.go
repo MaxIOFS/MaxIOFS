@@ -111,6 +111,9 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject) {
 		return
 	}
+	if !h.requireObjectLockHeaderActions(w, r, bucketName, objectKey) {
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload
@@ -601,9 +604,7 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 	var storedCannedACL string
 	if h.metadataStore != nil {
 		if uploadMeta, metaErr := h.metadataStore.GetMultipartUpload(r.Context(), uploadID); metaErr == nil && uploadMeta != nil {
-			if uploadMeta.Metadata != nil {
-				storedCannedACL = uploadMeta.Metadata["x-amz-acl"]
-			}
+			storedCannedACL = object.UploadCannedACL(uploadMeta.Metadata)
 		}
 	}
 

@@ -129,6 +129,7 @@ type Handler struct {
 	}
 	clusterRouter interface {
 		RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
+		InvalidateCache(bucket string)
 	}
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
@@ -271,6 +272,7 @@ func (h *Handler) SetBucketAggregator(ba interface {
 // SetClusterRouter sets the cluster router for routing bucket operations to the correct node.
 func (h *Handler) SetClusterRouter(cr interface {
 	RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
+	InvalidateCache(bucket string)
 }) {
 	h.clusterRouter = cr
 }
@@ -345,6 +347,13 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 	}
 	// Prevent infinite proxy loops
 	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		if h.bucketLeftThisNode(r.Context(), bucketName) {
+			w.Header().Set(cluster.BucketNotHereHeader, "true")
+			w.Header().Set("Retry-After", "1")
+			h.writeError(w, "ServiceUnavailable",
+				"The bucket is no longer on the node this request was sent to; retry it", bucketName, r)
+			return true
+		}
 		return false
 	}
 
@@ -395,9 +404,26 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 		return true
 	}
 	defer resp.Body.Close()
+	if resp.Header.Get(cluster.BucketNotHereHeader) != "" {
+		resp.Header.Del(cluster.BucketNotHereHeader)
+		h.clusterRouter.InvalidateCache(bucketName)
+	}
 
 	proxyClient.CopyResponseToWriter(w, resp) //nolint:errcheck
 	return true
+}
+
+// bucketLeftThisNode reports whether a request forwarded here as the node
+// holding bucket finds it gone: the sender remembered a stale location.
+func (h *Handler) bucketLeftThisNode(ctx context.Context, bucket string) bool {
+	if h.metadataStore == nil {
+		return false
+	}
+	b, err := h.metadataStore.GetBucketByName(ctx, bucket)
+	if errors.Is(err, metadata.ErrBucketNotFound) {
+		return true
+	}
+	return err == nil && b.Moving()
 }
 
 // SetMetadataStore sets the metadata store for accessing object versions
@@ -1442,6 +1468,9 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			"bucketTenant": tenantID,
 		}).Warn("ACL permission denied for PutObject - cross-tenant access")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return
+	}
+	if !h.requireObjectLockHeaderActions(w, r, bucketName, objectKey) {
 		return
 	}
 
@@ -3695,6 +3724,29 @@ func (h *Handler) requireBucketS3Action(w http.ResponseWriter, r *http.Request, 
 	}
 	h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
 	return false
+}
+
+// objectLockHeaders are the Object Lock headers a write can carry.
+var objectLockHeaders = []string{
+	"x-amz-object-lock-mode", "x-amz-object-lock-retain-until-date", "x-amz-object-lock-legal-hold",
+}
+
+// requireObjectLockHeaderActions asserts the permissions that Object Lock
+// headers on a write need beyond the write itself, as in AWS S3:
+// s3:PutObjectRetention for a mode or retain-until date, s3:PutObjectLegalHold
+// for a legal hold. The bucket default retention needs neither.
+func (h *Handler) requireObjectLockHeaderActions(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) bool {
+	if r.Header.Get("x-amz-object-lock-mode") != "" || r.Header.Get("x-amz-object-lock-retain-until-date") != "" {
+		if !h.requireObjectS3ActionOnVersion(w, r, bucketName, objectKey, auth.ActionPutObjectRetention, "") {
+			return false
+		}
+	}
+	if r.Header.Get("x-amz-object-lock-legal-hold") != "" {
+		if !h.requireObjectS3ActionOnVersion(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "") {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action string) bool {

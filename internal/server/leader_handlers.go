@@ -107,6 +107,10 @@ func coordinatorExemptPath(path string) bool {
 		"/objects",
 		"/upload",
 		"/download",
+
+		// A bucket migration runs on the node the bucket lives on, which the
+		// request is forwarded to from wherever it arrives.
+		"/migrate",
 	}
 
 	for _, prefix := range exempt {

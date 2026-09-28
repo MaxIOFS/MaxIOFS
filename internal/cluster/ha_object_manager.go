@@ -1,15 +1,16 @@
 package cluster
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -30,6 +31,10 @@ const HALastModifiedHeader = "X-HA-Last-Modified"
 // are the primary's stored state: the replica keeps them as they are and adds
 // no bucket default.
 const HAObjectLockHeader = "X-HA-Object-Lock"
+
+// HAObjectAttributesHeader carries, base64 JSON, what a legacy transfer's
+// headers cannot: the version's ETag, tags, ACL and restore state.
+const HAObjectAttributesHeader = "X-HA-Object-Attributes"
 
 // Raw (ciphertext) replication headers.
 const HARawHeader = "X-HA-Raw"
@@ -55,6 +60,14 @@ func SetHAObjectLock(h http.Header, obj *object.Object) {
 	}
 	if obj.LegalHold != nil && obj.LegalHold.Status == object.LegalHoldStatusOn {
 		h.Set("x-amz-object-lock-legal-hold", object.LegalHoldStatusOn)
+	}
+}
+
+// SetHAAttributes forwards the attributes of obj a legacy transfer's headers
+// do not carry.
+func SetHAAttributes(h http.Header, obj *object.Object) {
+	if data, err := json.Marshal(object.AttributesOf(obj)); err == nil {
+		h.Set(HAObjectAttributesHeader, base64.StdEncoding.EncodeToString(data))
 	}
 }
 
@@ -112,10 +125,17 @@ func isHARollback(ctx context.Context) bool {
 }
 
 // ReplicaWriteContext marks a write as a copy of another node's object and
-// carries what the transfer headers pin: the version ID, the modification time
-// and, when the sender marks it complete, the object-lock state.
+// carries what the transfer headers pin: the version ID, the modification
+// time, the attributes and, when the sender marks it complete, the object-lock
+// state.
 func ReplicaWriteContext(ctx context.Context, h http.Header) context.Context {
-	ctx = WithHAReplicaContext(ctx)
+	ctx = object.WithReplicaCopy(WithHAReplicaContext(ctx))
+	if encoded := h.Get(HAObjectAttributesHeader); encoded != "" {
+		var a object.ReplicatedAttributes
+		if data, err := base64.StdEncoding.DecodeString(encoded); err == nil && json.Unmarshal(data, &a) == nil {
+			ctx = object.WithReplicatedAttributes(ctx, a)
+		}
+	}
 	if versionID := h.Get(HAObjectVersionHeader); versionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, versionID)
 	}
@@ -349,92 +369,91 @@ func (h *HAObjectManager) fanoutPut(ctx context.Context, bucket, key, versionID 
 	client := NewProxyClient(h.mgr.GetTLSConfig())
 	ch := make(chan fanoutResult, len(targets))
 
-	// Raw (ciphertext) transfer capability of the underlying manager.
-	rawAccessor, _ := h.Manager.(object.RawObjectAccessor)
-
 	for _, node := range targets {
 		go func(n *Node) {
-			if rawAccessor != nil {
-				sent, rawErr := h.sendRawReplica(ctx, client, rawAccessor, n, localID, bucket, key, versionID)
-				if sent {
-					ch <- fanoutResult{n.ID, rawErr}
-					return
-				}
-				// Not eligible (plaintext/legacy/local-KEK object) or the
-				// replica declined raw — fall through to the legacy path.
-			}
-
-			// RACE-04: pin the re-read to the version that was just written.
-			// Without versionID, a concurrent PutObject could have created a newer
-			// version by now, and we would replicate the wrong data.
-			var obj *object.Object
-			var reader io.ReadCloser
-			var readErr error
-			if versionID != "" {
-				obj, reader, readErr = h.Manager.GetObject(ctx, bucket, key, versionID)
-			} else {
-				obj, reader, readErr = h.Manager.GetObject(ctx, bucket, key)
-			}
-			if readErr != nil {
-				ch <- fanoutResult{n.ID, fmt.Errorf("re-read for fanout: %w", readErr)}
-				return
-			}
-			defer reader.Close()
-
-			url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
-			req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
-			if err != nil {
-				ch <- fanoutResult{n.ID, err}
-				return
-			}
-			req.Header.Set("X-MaxIOFS-HA-Replica", "true")
-			req.Header.Set(HABucketHeader, bucket)
-			if obj.VersionID != "" {
-				req.Header.Set(HAObjectVersionHeader, obj.VersionID)
-			}
-			setHALastModified(req.Header, obj)
-			setHAChecksum(req.Header, obj)
-			SetHAObjectLock(req.Header, obj)
-			req.Header.Set("Content-Type", obj.ContentType)
-			if obj.ContentDisposition != "" {
-				req.Header.Set("Content-Disposition", obj.ContentDisposition)
-			}
-			if obj.ContentEncoding != "" {
-				req.Header.Set("Content-Encoding", obj.ContentEncoding)
-			}
-			if obj.CacheControl != "" {
-				req.Header.Set("Cache-Control", obj.CacheControl)
-			}
-			if obj.ContentLanguage != "" {
-				req.Header.Set("Content-Language", obj.ContentLanguage)
-			}
-			if obj.StorageClass != "" {
-				req.Header.Set("x-amz-storage-class", obj.StorageClass)
-			}
-			for k, v := range obj.Metadata {
-				req.Header.Set("x-amz-meta-"+k, v)
-			}
-			req.ContentLength = obj.Size
-
-			resp, err := client.DoAuthenticatedRequest(req)
-			if err != nil {
-				ch <- fanoutResult{n.ID, err}
-				return
-			}
-			resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				ch <- fanoutResult{n.ID, fmt.Errorf("status %d", resp.StatusCode)}
-				return
-			}
-			ch <- fanoutResult{n.ID, nil}
+			ch <- fanoutResult{n.ID, sendObjectVersion(ctx, client, h.Manager, n, localID, bucket, key, versionID)}
 		}(node)
 	}
 
 	return h.collectAndCheckQuorum(ctx, ch, len(targets), needed, modified, "PUT", bucket, key)
 }
 
+// sendObjectVersion copies one version of key — the latest when versionID is
+// empty — to node n: the stored ciphertext when n can decrypt it, otherwise the
+// plaintext with every field the receiver keeps.
+func sendObjectVersion(ctx context.Context, client *ProxyClient, objects object.Manager, n *Node, localID, bucket, key, versionID string) error {
+	if raw, ok := objects.(object.RawObjectAccessor); ok {
+		if sent, err := sendRawReplica(ctx, client, raw, n, localID, bucket, key, versionID); sent {
+			return err
+		}
+		// Not eligible (plaintext/legacy/local-KEK object) or the replica
+		// declined raw — fall through to the legacy path.
+	}
+
+	// RACE-04: pin the re-read to the version that was just written.
+	// Without versionID, a concurrent PutObject could have created a newer
+	// version by now, and we would replicate the wrong data.
+	var obj *object.Object
+	var reader io.ReadCloser
+	var readErr error
+	if versionID != "" {
+		obj, reader, readErr = objects.GetObject(ctx, bucket, key, versionID)
+	} else {
+		obj, reader, readErr = objects.GetObject(ctx, bucket, key)
+	}
+	if readErr != nil {
+		return fmt.Errorf("re-read for fanout: %w", readErr)
+	}
+	defer reader.Close()
+
+	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
+	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
+	req.Header.Set(HABucketHeader, bucket)
+	if obj.VersionID != "" {
+		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
+	}
+	setHALastModified(req.Header, obj)
+	setHAChecksum(req.Header, obj)
+	SetHAObjectLock(req.Header, obj)
+	SetHAAttributes(req.Header, obj)
+	req.Header.Set("Content-Type", obj.ContentType)
+	if obj.ContentDisposition != "" {
+		req.Header.Set("Content-Disposition", obj.ContentDisposition)
+	}
+	if obj.ContentEncoding != "" {
+		req.Header.Set("Content-Encoding", obj.ContentEncoding)
+	}
+	if obj.CacheControl != "" {
+		req.Header.Set("Cache-Control", obj.CacheControl)
+	}
+	if obj.ContentLanguage != "" {
+		req.Header.Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.StorageClass != "" {
+		req.Header.Set("x-amz-storage-class", obj.StorageClass)
+	}
+	for k, v := range obj.Metadata {
+		req.Header.Set("x-amz-meta-"+k, v)
+	}
+	req.ContentLength = obj.Size
+
+	resp, err := client.DoAuthenticatedRequest(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // sendRawReplica attempts the ciphertext transfer of the pinned version to
-func (h *HAObjectManager) sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string) (sent bool, err error) {
+func sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string) (sent bool, err error) {
 	reader, sidecar, metaObj, readErr := raw.GetObjectRaw(ctx, bucket, key, versionID)
 	if readErr != nil {
 		// Let the legacy path surface the read error consistently.
@@ -509,7 +528,7 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specifi
 
 	for _, node := range targets {
 		go func(n *Node) {
-			ch <- fanoutResult{n.ID, sendHADelete(ctx, client, n, localID, bucket, key, specificVersionID, deleteMarkerVersionID)}
+			ch <- fanoutResult{n.ID, sendHADelete(ctx, client, n, localID, bucket, key, specificVersionID, deleteMarkerVersionID, time.Time{})}
 		}(node)
 	}
 
@@ -518,8 +537,8 @@ func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specifi
 
 // sendHADelete replays a delete on node n: one version when specificVersionID
 // is set, otherwise the key, with deleteMarkerVersionID pinning the marker a
-// versioned bucket creates.
-func sendHADelete(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key, specificVersionID, deleteMarkerVersionID string) error {
+// versioned bucket creates and markedAt, when known, its time.
+func sendHADelete(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key, specificVersionID, deleteMarkerVersionID string, markedAt time.Time) error {
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "DELETE", url, nil, localID, n.NodeToken)
 	if err != nil {
@@ -532,6 +551,9 @@ func sendHADelete(ctx context.Context, client *ProxyClient, n *Node, localID, bu
 	}
 	if deleteMarkerVersionID != "" {
 		req.Header.Set(HADeleteMarkerVersionHeader, deleteMarkerVersionID)
+		if !markedAt.IsZero() && markedAt.Unix() > 0 {
+			req.Header.Set(HALastModifiedHeader, strconv.FormatInt(markedAt.Unix(), 10))
+		}
 	}
 	resp, err := client.DoAuthenticatedRequest(req)
 	if err != nil {
@@ -583,6 +605,11 @@ type HAMetadataOp struct {
 	Data      json.RawMessage `json:"data,omitempty"`
 }
 
+// fanoutMetadata delivers a metadata-only change to every other live node
+// before the request returns, so a client's successive changes arrive in
+// order. A node that is not healthy, that fails, or that still has changes
+// waiting gets the change queued behind them instead; the queue is delivered
+// in order when the node is caught up.
 func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op HAMetadataOp) {
 	if !h.mgr.IsClusterEnabled() {
 		return
@@ -595,11 +622,11 @@ func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op 
 	if err != nil {
 		return
 	}
-	healthy, err := h.mgr.GetHealthyNodes(ctx)
+	nodes, err := h.mgr.ListNodes(ctx)
 	if err != nil {
+		logrus.WithError(err).Error("HA metadata fanout: cannot list nodes; replicas may diverge")
 		return
 	}
-
 	body, err := json.Marshal(op)
 	if err != nil {
 		logrus.WithError(err).Warn("HA metadata fanout: failed to marshal op")
@@ -607,62 +634,34 @@ func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op 
 	}
 
 	client := NewProxyClient(h.mgr.GetTLSConfig())
-	for _, n := range healthy {
-		if n.ID == localID {
+	var wg sync.WaitGroup
+	for _, n := range nodes {
+		if n.ID == localID || n.HealthStatus == HealthStatusDead {
 			continue
 		}
-		go h.fanoutMetadataToNode(client, n, bucket, localID, op, body)
-	}
-}
-
-// fanoutMetadataToNode sends a metadata op to a single replica with up to 3
-// attempts and a 5-second per-attempt timeout. On permanent failure it logs at
-// Error level so the divergence is visible in the operator log.
-func (h *HAObjectManager) fanoutMetadataToNode(client *ProxyClient, node *Node, bucket, localID string, op HAMetadataOp, body []byte) {
-	const maxAttempts = 3
-	const perAttemptTimeout = 5 * time.Second
-	const baseRetryDelay = 200 * time.Millisecond
-
-	url := fmt.Sprintf("%s/api/internal/cluster/ha/metadata-op", node.Endpoint)
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		opCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
-		req, err := client.CreateAuthenticatedRequest(opCtx, "POST", url, bytes.NewReader(body), localID, node.NodeToken)
-		if err != nil {
-			cancel()
-			logrus.WithError(err).WithField("node_id", node.ID).Warn("HA metadata fanout: request creation failed")
-			return
+		if n.HealthStatus != HealthStatusHealthy || h.mgr.hasQueuedMetadataOps(ctx, n.ID) {
+			h.mgr.queueMetadataOp(ctx, n.ID, bucket, body)
+			continue
 		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set(HABucketHeader, bucket)
-		resp, err := client.DoAuthenticatedRequest(req)
-		cancel()
-
-		if err == nil && resp.StatusCode < 300 {
-			resp.Body.Close()
-			return
-		}
-
-		if err != nil {
-			if attempt < maxAttempts {
-				time.Sleep(baseRetryDelay * time.Duration(attempt))
-				continue
+		wg.Add(1)
+		go func(n *Node) {
+			defer wg.Done()
+			err := sendMetadataOp(ctx, client, n, localID, bucket, body)
+			switch {
+			case err == nil:
+			case errors.Is(err, errMetadataOpRefused):
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"node_id": n.ID, "op": op.Op, "bucket": bucket, "key": op.Key,
+				}).Error("HA metadata fanout: a replica refused the change")
+			default:
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"node_id": n.ID, "op": op.Op, "bucket": bucket, "key": op.Key,
+				}).Warn("HA metadata fanout: queued for a replica that did not take it")
+				h.mgr.queueMetadataOp(ctx, n.ID, bucket, body)
 			}
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"node_id": node.ID, "op": op.Op, "bucket": bucket, "attempts": attempt,
-			}).Error("HA metadata fanout: all retries exhausted — metadata may be diverged on this replica")
-			return
-		}
-		// Non-2xx response
-		resp.Body.Close()
-		if attempt < maxAttempts {
-			time.Sleep(baseRetryDelay * time.Duration(attempt))
-			continue
-		}
-		logrus.WithFields(logrus.Fields{
-			"node_id": node.ID, "op": op.Op, "bucket": bucket, "status": resp.StatusCode, "attempts": attempt,
-		}).Error("HA metadata fanout: all retries exhausted — metadata may be diverged on this replica")
+		}(n)
 	}
+	wg.Wait()
 }
 
 // UpdateObjectMetadata fans out user-metadata updates.

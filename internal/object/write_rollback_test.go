@@ -134,3 +134,59 @@ func TestMultipartUploadKeepsItsObjectLock(t *testing.T) {
 		require.ErrorIs(t, err, ErrNoRetentionConfiguration)
 	})
 }
+
+// User metadata of a multipart upload cannot stand for its storage fields,
+// its canned ACL or the sidecar's fields: it stays user metadata.
+func TestMultipartUserMetadataStaysUserMetadata(t *testing.T) {
+	m, _, s := setupManagerWithConfigKey(t)
+	ctx := t.Context()
+	require.NoError(t, s.CreateBucket(ctx, &metadata.BucketMetadata{Name: "mpmeta"}))
+	h := http.Header{}
+	h.Set("Content-Type", "text/plain")
+	h.Set("x-amz-meta-content-type", "fake/type")
+	h.Set("x-amz-meta-x-amz-acl", "public-read")
+	h.Set("x-amz-meta-last_modified", "1")
+	h.Set("x-amz-meta-owner", "backup")
+	upload, err := m.CreateMultipartUpload(ctx, "mpmeta", "k", h)
+	require.NoError(t, err)
+	require.Empty(t, UploadCannedACL(upload.Metadata), "user metadata is not a canned ACL")
+	part, err := m.UploadPart(ctx, upload.UploadID, 1, strings.NewReader("part"))
+	require.NoError(t, err)
+	obj, err := m.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.NoError(t, err)
+
+	require.Equal(t, "text/plain", obj.ContentType)
+	require.Equal(t, map[string]string{
+		"content-type": "fake/type", "x-amz-acl": "public-read", "last_modified": "1", "owner": "backup",
+	}, obj.Metadata)
+	sidecar, err := m.storage.GetMetadata(ctx, m.objectRef("mpmeta", "k"))
+	require.NoError(t, err)
+	for k := range sidecar {
+		require.False(t, strings.HasPrefix(k, "x-amz-meta-") || strings.Contains(k, ":") || k == "owner",
+			"user metadata and upload state stay out of the sidecar, found %q", k)
+	}
+	require.NotEqual(t, "1", sidecar["last_modified"])
+	require.Equal(t, "text/plain", sidecar["content-type"])
+}
+
+// An upload created before user metadata kept its prefix still completes with
+// its user metadata; its old canned-ACL key is neither user metadata nor ACL.
+func TestMultipartUploadCreatedBeforeTheUpgrade(t *testing.T) {
+	m, _, s := setupManagerWithConfigKey(t)
+	ctx := t.Context()
+	require.NoError(t, s.CreateBucket(ctx, &metadata.BucketMetadata{Name: "mplegacy"}))
+	upload, err := m.CreateMultipartUpload(ctx, "mplegacy", "k", http.Header{})
+	require.NoError(t, err)
+	record, err := s.GetMultipartUpload(ctx, upload.UploadID)
+	require.NoError(t, err)
+	record.Metadata = map[string]string{"content-type": "text/plain", "owner": "backup", "x-amz-acl": "public-read"}
+	require.NoError(t, s.CreateMultipartUpload(ctx, record))
+
+	require.Empty(t, UploadCannedACL(record.Metadata))
+	part, err := m.UploadPart(ctx, upload.UploadID, 1, strings.NewReader("part"))
+	require.NoError(t, err)
+	obj, err := m.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.NoError(t, err)
+	require.Equal(t, "text/plain", obj.ContentType)
+	require.Equal(t, map[string]string{"owner": "backup"}, obj.Metadata)
+}

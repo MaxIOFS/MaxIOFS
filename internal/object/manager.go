@@ -517,6 +517,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		return nil, err
 	}
 	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
+	if isReplicaCopy(ctx) {
+		// A copy is a version when the version it copies is one.
+		_, versioningEnabled = replicatedVersionIDFromContext(ctx)
+	}
 	retention, legalHold, err := writeObjectLock(ctx, bucketMeta, headers)
 	if err != nil {
 		return nil, err
@@ -576,6 +580,9 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	tempFile.Close()
 
 	originalETag := hex.EncodeToString(hasher.Sum(nil))
+	if err := checkReplicaDigest(ctx, originalETag); err != nil {
+		return nil, err
+	}
 
 	var checksumValue string
 	if checksumHasher != nil {
@@ -676,12 +683,22 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if !isFolderMarker {
 		object.SSEAlgorithm = "AES256"
 	}
+	applyReplicatedAttributes(ctx, object)
+
+	// A copy from another node, pinned to its version, may arrive after a
+	// newer write or be one already here.
+	landing := versionLanding{latest: true}
+	_, replicated := replicatedVersionIDFromContext(ctx)
+	if versioningEnabled && replicated {
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, versionID, object.LastModified, existingObjBeforeSave); err != nil {
+			return nil, err
+		}
+	}
 
 	if versioningEnabled {
-
 		version := &metadata.ObjectVersion{
 			VersionID:    versionID,
-			IsLatest:     true,
+			IsLatest:     landing.latest,
 			Key:          key,
 			Size:         size,
 			ETag:         object.ETag,
@@ -707,6 +724,10 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	releaseQuota()
 
 	// Update bucket metrics using helper function
+	if versioningEnabled && replicated {
+		om.updateUsageAfterReplicatedVersion(ctx, bucket, key, size, landing, existingObjBeforeSave)
+		return object, nil
+	}
 	om.updateBucketMetricsAfterPut(ctx, tenantID, bucketName, bucket, key, size, versioningEnabled, existingObjBeforeSave)
 
 	// Update tenant storage quota using helper function
@@ -753,10 +774,14 @@ func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, b
 		specificVersionID = versionID[0]
 	}
 
+	// A copy of a delete marker stays a delete marker in a bucket whose
+	// versioning has been suspended since.
+	_, markerCopy := replicatedVersionIDFromContext(ctx)
+
 	if specificVersionID != "" {
 		// DELETE with versionId → Permanent deletion of specific version
 		return "", om.deleteSpecificVersion(ctx, bucket, key, specificVersionID, bypassGovernance)
-	} else if versioningEnabled {
+	} else if versioningEnabled || markerCopy {
 		// DELETE without versionId + versioning enabled → Create delete marker
 		return om.createDeleteMarker(ctx, bucket, key)
 	} else {
@@ -773,21 +798,33 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 
 	// Generate delete marker versionID
 	deleteMarkerVersionID := generateVersionID()
+	markedAt := time.Now()
+	landing := versionLanding{latest: true}
 	if replicatedVersionID, ok := replicatedVersionIDFromContext(ctx); ok {
 		if err := validateReplicatedVersionID(replicatedVersionID); err != nil {
 			return "", err
 		}
 		deleteMarkerVersionID = replicatedVersionID
+		if lm, ok := replicatedLastModifiedFromContext(ctx); ok {
+			markedAt = lm
+		}
+		var err error
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, deleteMarkerVersionID, markedAt, existingLatest); err != nil {
+			return "", err
+		}
+		if landing.replaced != nil {
+			return deleteMarkerVersionID, nil
+		}
 	}
 
 	// Create delete marker version entry
 	deleteMarker := &metadata.ObjectVersion{
 		VersionID:    deleteMarkerVersionID,
-		IsLatest:     true,
+		IsLatest:     landing.latest,
 		Key:          key,
 		Size:         0,
 		ETag:         "",
-		LastModified: time.Now(),
+		LastModified: markedAt,
 		StorageClass: StorageClassStandard,
 	}
 
@@ -797,7 +834,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		Key:          key,
 		VersionID:    deleteMarkerVersionID,
 		Size:         0,
-		LastModified: time.Now(),
+		LastModified: markedAt,
 		ETag:         "",
 		ContentType:  "",
 		StorageClass: StorageClassStandard,
@@ -810,7 +847,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		return "", fmt.Errorf("failed to create delete marker: %w", err)
 	}
 
-	if om.bucketManager != nil && wasVisible {
+	if om.bucketManager != nil && wasVisible && landing.latest {
 		tenantID, bucketName := om.parseBucketPath(bucket)
 		if err := om.bucketManager.DecrementObjectCount(ctx, tenantID, bucketName, 0); err != nil {
 			logrus.WithFields(logrus.Fields{
@@ -1811,18 +1848,8 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 
 	// Extract metadata from headers (storage fields + x-amz-meta-* only)
 	storageMetadata, userMetadata := om.extractMetadataFromHeaders(headers)
-	metadata := make(map[string]string, len(storageMetadata)+len(userMetadata))
-	for k, v := range storageMetadata {
-		metadata[k] = v
-	}
-	for k, v := range userMetadata {
-		metadata[k] = v
-	}
-	// Preserve x-amz-acl as internal multipart state so CompleteMultipartUpload
-	// can apply the canned ACL after the object is written.
-	if acl := headers.Get("x-amz-acl"); acl != "" {
-		metadata["x-amz-acl"] = acl
-	}
+	// The canned ACL is applied once the object is written.
+	metadata := uploadMetadata(storageMetadata, userMetadata, headers.Get("x-amz-acl"))
 	if hasObjectLockHeaders(headers) {
 		bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
 		if err != nil {
@@ -2128,7 +2155,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		LastModified: time.Unix(lastModified, 0),
 		ETag:         multipartETag,
 		ContentType:  contentType,
-		Metadata:     filterStorageMetadataKeys(multipart.Metadata),
+		Metadata:     uploadUserMetadata(multipart.Metadata),
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
 		SSEAlgorithm: "AES256",
@@ -2530,25 +2557,6 @@ func storageClassOrDefault(sc string) string {
 	return sc
 }
 
-// filterStorageMetadataKeys returns a copy of m without system/storage keys that
-// should not appear as user metadata (x-amz-meta-*) in S3 responses.
-func filterStorageMetadataKeys(m map[string]string) map[string]string {
-	storageKeys := map[string]bool{
-		"content-type": true, "content-disposition": true,
-		"content-encoding": true, "cache-control": true,
-		"content-language": true, "storage-class": true,
-		"x-amz-acl":    true,
-		uploadLockMode: true, uploadLockUntil: true, uploadLockHold: true,
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		if !storageKeys[k] {
-			out[k] = v
-		}
-	}
-	return out
-}
-
 // newEnvelope generates a fresh per-object DEK and returns it together with
 func (om *objectManager) newEnvelope() ([]byte, map[string]string, error) {
 	kekKey, kekVersion := om.kekProvider.CurrentKEK()
@@ -2697,9 +2705,9 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 	}
 
 	if !versioningEnabled {
-		isNewObject := existingObjBeforeSave == nil
+		wasVisible := existingObjBeforeSave != nil && !isMetadataDeleteMarker(existingObjBeforeSave)
 
-		if isNewObject {
+		if !wasVisible {
 			if err := om.bucketManager.IncrementObjectCount(ctx, tenantID, bucketName, size); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"bucket_path": bucket,
@@ -2710,7 +2718,7 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 				}).Warn("Failed to increment bucket object count")
 			}
 		} else {
-			sizeDiff := size - existingObjBeforeSave.Size
+			sizeDiff := size - overwrittenInPlace(existingObjBeforeSave)
 			if sizeDiff != 0 {
 				if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, sizeDiff); err != nil {
 					logrus.WithError(err).WithFields(logrus.Fields{
@@ -2737,20 +2745,24 @@ func (om *objectManager) updateBucketMetricsAfterPut(ctx context.Context, tenant
 	}
 }
 
+// overwrittenInPlace is the size a write without a version ID frees: that of
+// the object it replaces when that object has no version ID either. A version
+// kept from before versioning was suspended, or a delete marker, stays.
+func overwrittenInPlace(existing *metadata.ObjectMetadata) int64 {
+	if existing == nil || existing.VersionID != "" {
+		return 0
+	}
+	return existing.Size
+}
+
 func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID, key string, size int64, versioningEnabled bool, existingObjBeforeSave *metadata.ObjectMetadata) {
 	if om.authManager == nil || tenantID == "" {
 		return
 	}
 
-	var sizeToAdd int64
+	sizeToAdd := size
 	if !versioningEnabled {
-		if existingObjBeforeSave == nil {
-			sizeToAdd = size
-		} else {
-			sizeToAdd = size - existingObjBeforeSave.Size
-		}
-	} else {
-		sizeToAdd = size
+		sizeToAdd -= overwrittenInPlace(existingObjBeforeSave)
 	}
 
 	logrus.WithFields(logrus.Fields{

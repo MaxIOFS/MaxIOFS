@@ -16,9 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/kek"
-	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,9 +31,6 @@ type Manager struct {
 	healthCheckInterval time.Duration
 	bgwork.Worker
 	log               *logrus.Entry
-	storage           storage.Backend
-	aclManager        acl.Manager
-	bucketManager     bucketManagerForMigration
 	tlsConfig         atomic.Pointer[tls.Config]
 	clusterHTTPClient atomic.Pointer[http.Client]
 
@@ -76,10 +71,8 @@ func (m *Manager) SetStoragePressureEmitter(fn StoragePressureEmitter) {
 	m.storagePressureFn = fn
 }
 
-// bucketManagerForMigration is the minimal bucket.Manager interface needed for source deletion.
-type bucketManagerForMigration interface {
-	ForceDeleteBucket(ctx context.Context, tenantID, name string) error
-}
+// ErrNodeNotFound: no node of the cluster has the ID.
+var ErrNodeNotFound = errors.New("node not found")
 
 // NewManager creates a new cluster manager.
 // publicAPIURL is the S3 API URL (port 8080); clusterURL is the inter-node URL (port 8082).
@@ -123,21 +116,6 @@ func (m *Manager) repairEmptyNodeTokens() {
 	if n, _ := result.RowsAffected(); n > 0 {
 		m.log.WithField("rows_fixed", n).Info("Repaired cluster nodes with missing node_token")
 	}
-}
-
-// SetStorage sets the storage backend for the cluster manager
-func (m *Manager) SetStorage(s storage.Backend) {
-	m.storage = s
-}
-
-// SetACLManager sets the ACL manager for the cluster manager
-func (m *Manager) SetACLManager(aclMgr acl.Manager) {
-	m.aclManager = aclMgr
-}
-
-// SetBucketManager sets the bucket manager used for source deletion during migrations.
-func (m *Manager) SetBucketManager(bm bucketManagerForMigration) {
-	m.bucketManager = bm
 }
 
 // InitializeCluster initializes a new cluster with this node.
@@ -444,7 +422,7 @@ func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("node not found")
+		return nil, ErrNodeNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node: %w", err)
@@ -541,6 +519,7 @@ func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to remove node: %w", err)
 	}
+	m.dropQueuedMetadataOps(ctx, nodeID)
 
 	m.log.WithFields(logrus.Fields{
 		"node_id": nodeID,

@@ -363,10 +363,12 @@ func (bm *badgerBucketManager) ListBuckets(ctx context.Context, tenantID string)
 		return nil, err
 	}
 
-	// Convert to bucket.Bucket
-	buckets := make([]Bucket, len(metaBuckets))
-	for i, mb := range metaBuckets {
-		buckets[i] = *fromMetadataBucket(mb)
+	buckets := make([]Bucket, 0, len(metaBuckets))
+	for _, mb := range metaBuckets {
+		if mb.Moving() {
+			continue
+		}
+		buckets = append(buckets, *fromMetadataBucket(mb))
 	}
 
 	return buckets, nil

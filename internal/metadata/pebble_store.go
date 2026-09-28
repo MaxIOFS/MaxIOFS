@@ -638,7 +638,9 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 	// Size and count answer different questions. Every version occupies disk, so
 	// size sums them all; a bucket "holds" the keys you can currently see, so
 	// count is per visible key. The current entry mirrors the latest version,
-	// which is why size reads the versions and never both.
+	// which is why size reads the versions and not it — unless it has no
+	// version ID: an object written while versioning was suspended is not
+	// among the versions the key kept from before.
 	for iter.First(); iter.Valid(); iter.Next() {
 		var obj ObjectMetadata
 		if err := json.Unmarshal(iter.Value(), &obj); err != nil {
@@ -655,6 +657,9 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 				if countsTowardBucketStorage(obj.Key, v.ETag, v.Size) {
 					totalSize += v.Size
 				}
+			}
+			if obj.VersionID == "" && countsTowardBucketStorage(obj.Key, obj.ETag, obj.Size) {
+				totalSize += obj.Size
 			}
 			continue
 		}

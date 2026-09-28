@@ -224,9 +224,7 @@
   "selectTargetNodeOption": "选择目标节点",
   "onlyHealthyNodesExcluding": "仅显示健康节点（不包括源节点 {{id}}）",
   "onlyHealthyNodes": "仅显示健康节点",
-  "verifyDataIntegrity": "迁移后验证数据完整性",
-  "deleteSourceData": "迁移成功后删除源数据",
-  "migrationWarning": "警告：迁移将把所有存储桶数据移动到目标节点，请确保目标节点有足够的存储空间。",
+  "migrationWarning": "存储桶将被移动：每个版本都会复制到目标节点并经过验证，然后从本节点删除。移动期间存储桶不接受写入（读取不受影响）。进行中的分段上传必须先完成或中止。请确保目标节点有足够的存储空间。",
   "startMigration": "开始迁移",
 
   "selectBucketAndNode": "请选择存储桶和目标节点",

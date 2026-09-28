@@ -106,7 +106,7 @@ func TestMultipartUploadFiltersRequestHeadersFromFinalUserMetadata(t *testing.T)
 
 	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
 	require.NoError(t, err)
-	require.Equal(t, "public-read", upload.Metadata["x-amz-acl"], "multipart state must preserve canned ACL for S3 handler")
+	require.Equal(t, "public-read", UploadCannedACL(upload.Metadata), "multipart state must preserve canned ACL for S3 handler")
 	require.NotContains(t, upload.Metadata, "authorization")
 	require.NotContains(t, upload.Metadata, "user-agent")
 	require.NotContains(t, upload.Metadata, "x-amz-date")

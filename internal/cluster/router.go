@@ -10,6 +10,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// BucketNotHereHeader answers a request forwarded for a bucket the node does
+// not hold: the location the sender remembered is stale, as after the bucket
+// was migrated.
+const BucketNotHereHeader = "X-MaxIOFS-Bucket-Not-Here"
+
 // Router handles routing of S3 operations to appropriate cluster nodes
 type Router struct {
 	manager            *Manager
@@ -274,16 +279,15 @@ func (r *Router) RouteRequest(ctx context.Context, bucket string) (*Node, bool, 
 		return nil, true, nil // true = bucket is local
 	}
 
-	// 1. Check cache first
-	cachedNodeID := r.cache.Get(bucket)
-	if cachedNodeID != "" {
-		if cachedNodeID == r.localNodeID {
-			// Cache says bucket is local
-			r.log.WithField("bucket", bucket).Debug("Cache hit: bucket is local")
-			return nil, true, nil
-		}
+	// A migration moves a bucket, so the local copy is checked before any
+	// remembered location: the node it moved to must not keep forwarding it to
+	// the node it left.
+	if _, err := r.bucketManager.GetBucketTenant(ctx, bucket); err == nil {
+		r.cache.Delete(bucket)
+		return nil, true, nil
+	}
 
-		// Cache says bucket is on remote node
+	if cachedNodeID := r.cache.Get(bucket); cachedNodeID != "" && cachedNodeID != r.localNodeID {
 		node, err := r.manager.GetNode(ctx, cachedNodeID)
 		if err == nil && r.isNodeHealthy(node) {
 			r.log.WithFields(logrus.Fields{
@@ -292,21 +296,10 @@ func (r *Router) RouteRequest(ctx context.Context, bucket string) (*Node, bool, 
 			}).Debug("Cache hit: routing to remote node")
 			return node, false, nil
 		}
-
-		// Node not found or unhealthy, invalidate cache
-		r.cache.Delete(bucket)
 	}
+	r.cache.Delete(bucket)
 
-	// 2. Cache miss - check if bucket exists locally
-	_, err := r.bucketManager.GetBucketTenant(ctx, bucket)
-	if err == nil {
-		// Bucket exists locally
-		r.cache.Set(bucket, r.localNodeID)
-		r.log.WithField("bucket", bucket).Debug("Bucket found locally, updating cache")
-		return nil, true, nil
-	}
-
-	// 3. Bucket not local - find it in the cluster
+	// Bucket not local - find it in the cluster
 	node, err := r.GetHealthyNodeForBucket(ctx, bucket)
 	if err != nil {
 		return nil, false, err

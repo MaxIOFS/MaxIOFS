@@ -28,6 +28,8 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 		ChecksumAlgorithm:  o.ChecksumAlgorithm,
 		ChecksumValue:      o.ChecksumValue,
 		SSEAlgorithm:       o.SSEAlgorithm,
+		RestoreStatus:      o.RestoreStatus,
+		RestoreExpiresAt:   o.RestoreExpiresAt,
 	}
 
 	// Object Lock - Retention

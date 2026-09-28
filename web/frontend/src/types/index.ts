@@ -1205,7 +1205,7 @@ export interface ListNodesResponse {
 }
 
 // Cluster Migration Types
-export type MigrationStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+export type MigrationStatus = 'pending' | 'in_progress' | 'committing' | 'completed' | 'failed' | 'cancelled';
 
 export interface MigrationJob {
   id: number;
@@ -1228,8 +1228,6 @@ export interface MigrationJob {
 
 export interface MigrateBucketRequest {
   target_node_id: string;
-  delete_source: boolean;
-  verify_data: boolean;
 }
 
 export interface ListMigrationsResponse {

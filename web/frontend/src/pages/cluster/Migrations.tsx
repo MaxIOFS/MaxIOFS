@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import type { MigrationJob, MigrateBucketRequest, ClusterNode, BucketWithReplication } from '@/types';
 
+const isActive = (status: string) =>
+  status === 'pending' || status === 'in_progress' || status === 'committing';
+
 interface MigrationsTabProps {
   migrations: MigrationJob[];
   buckets: BucketWithReplication[];
@@ -31,7 +34,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
 
   const filteredMigrations = migrations.filter(m => {
     if (filter === 'all') return true;
-    if (filter === 'active') return m.status === 'pending' || m.status === 'in_progress';
+    if (filter === 'active') return isActive(m.status);
     if (filter === 'completed') return m.status === 'completed';
     if (filter === 'failed') return m.status === 'failed' || m.status === 'cancelled';
     return true;
@@ -41,6 +44,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
     const colors = {
       pending: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
       in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+      committing: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
       completed: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
       failed: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
       cancelled: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
@@ -102,7 +106,7 @@ export function MigrationsTab({ migrations, buckets, nodes, onMigrate, onViewDet
                   : 'bg-gray-100 dark:bg-gray-700 text-foreground hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              {t('activeMigrations', { count: migrations.filter(m => m.status === 'pending' || m.status === 'in_progress').length })}
+              {t('activeMigrations', { count: migrations.filter(m => isActive(m.status)).length })}
             </button>
             <button
               onClick={() => setFilter('completed')}
@@ -270,8 +274,6 @@ function MigrateBucketDialog({
   const { t } = useTranslation('cluster');
   const [bucket, setBucket] = useState(selectedBucket || '');
   const [targetNodeId, setTargetNodeId] = useState('');
-  const [deleteSource, setDeleteSource] = useState(false);
-  const [verifyData, setVerifyData] = useState(true);
 
   const selectedBucketData = buckets.find(b => b.name === bucket);
   const sourceNodeId = selectedBucketData?.primary_node || '';
@@ -290,9 +292,7 @@ function MigrateBucketDialog({
     }
 
     const request: MigrateBucketRequest = {
-      target_node_id: targetNodeId,
-      delete_source: deleteSource,
-      verify_data: verifyData
+      target_node_id: targetNodeId
     };
 
     onSubmit(bucket, request);
@@ -347,28 +347,6 @@ function MigrateBucketDialog({
                 ? t('onlyHealthyNodesExcluding', { id: sourceNodeId })
                 : t('onlyHealthyNodes')}
             </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={verifyData}
-                onChange={(e) => setVerifyData(e.target.checked)}
-                className="rounded border-border"
-              />
-              <span className="text-sm text-foreground">{t('verifyDataIntegrity')}</span>
-            </label>
-
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={deleteSource}
-                onChange={(e) => setDeleteSource(e.target.checked)}
-                className="rounded border-border"
-              />
-              <span className="text-sm text-foreground">{t('deleteSourceData')}</span>
-            </label>
           </div>
 
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
@@ -435,7 +413,8 @@ export default function ClusterMigrations() {
   const handleViewDetails = async (id: number) => {
     try {
       const migration = await APIClient.getMigration(id);
-      alert(`Migration ${id}: ${migration.status}\nObjects: ${migration.objects_migrated}/${migration.objects_total}`);
+      const error = migration.error_message ? `\n${migration.error_message}` : '';
+      alert(`Migration ${id}: ${migration.status}\nObjects: ${migration.objects_migrated}/${migration.objects_total}${error}`);
     } catch (err) {
       console.error('Failed to get migration details:', err);
     }

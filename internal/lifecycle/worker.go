@@ -18,6 +18,7 @@ type Worker struct {
 	objectManager    object.Manager
 	metadataStore    metadata.Store
 	defaultAbortDays func() int
+	writeGate        func(bucket string) (leave func(), ok bool)
 	ticker           *time.Ticker
 	stopChan         chan struct{}
 	stopOnce         sync.Once
@@ -38,6 +39,13 @@ func NewWorker(bucketManager bucket.Manager, objectManager object.Manager, metad
 // buckets that carry no AbortIncompleteMultipartUpload rule of their own.
 func (w *Worker) SetDefaultAbortIncompleteDays(days func() int) {
 	w.defaultAbortDays = days
+}
+
+// SetWriteGate puts each bucket's pass through enter: a bucket whose
+// writes are held, as while it is migrated, is skipped, and whoever holds them
+// waits for a pass under way.
+func (w *Worker) SetWriteGate(enter func(bucket string) (leave func(), ok bool)) {
+	w.writeGate = enter
 }
 
 // bucketAbortsIncompleteUploads reports whether the bucket already decides for
@@ -121,33 +129,49 @@ func (w *Worker) processLifecyclePolicies(ctx context.Context) {
 	}
 
 	for _, bkt := range buckets {
-		// Get bucket details to check for lifecycle config
-		bucketInfo, err := w.bucketManager.GetBucketInfo(ctx, bkt.TenantID, bkt.Name)
-		if err != nil {
-			logrus.WithError(err).WithField("bucket", bkt.Name).Warn("Failed to get bucket info")
+		if w.writeGate == nil {
+			w.processBucket(ctx, bkt)
 			continue
 		}
-
-		if !w.bucketAbortsIncompleteUploads(bucketInfo) {
-			w.applyDefaultAbortIncomplete(ctx, bkt.TenantID, bkt.Name)
-		}
-
-		// Skip if no lifecycle configuration
-		if bucketInfo.Lifecycle == nil || len(bucketInfo.Lifecycle.Rules) == 0 {
+		leave, ok := w.writeGate(bkt.Name)
+		if !ok {
 			continue
 		}
-
-		// Process each lifecycle rule
-		for _, rule := range bucketInfo.Lifecycle.Rules {
-			if rule.Status != "Enabled" {
-				continue
-			}
-
-			w.processLifecycleRule(ctx, bkt.TenantID, bkt.Name, rule)
-		}
+		func() {
+			defer leave()
+			w.processBucket(ctx, bkt)
+		}()
 	}
 
 	logrus.Debug("Lifecycle policy processing completed")
+}
+
+// processBucket applies the lifecycle rules of one bucket.
+func (w *Worker) processBucket(ctx context.Context, bkt bucket.Bucket) {
+	// Get bucket details to check for lifecycle config
+	bucketInfo, err := w.bucketManager.GetBucketInfo(ctx, bkt.TenantID, bkt.Name)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bkt.Name).Warn("Failed to get bucket info")
+		return
+	}
+
+	if !w.bucketAbortsIncompleteUploads(bucketInfo) {
+		w.applyDefaultAbortIncomplete(ctx, bkt.TenantID, bkt.Name)
+	}
+
+	// Skip if no lifecycle configuration
+	if bucketInfo.Lifecycle == nil || len(bucketInfo.Lifecycle.Rules) == 0 {
+		return
+	}
+
+	// Process each lifecycle rule
+	for _, rule := range bucketInfo.Lifecycle.Rules {
+		if rule.Status != "Enabled" {
+			continue
+		}
+
+		w.processLifecycleRule(ctx, bkt.TenantID, bkt.Name, rule)
+	}
 }
 
 // processLifecycleRule processes a single lifecycle rule for a bucket
