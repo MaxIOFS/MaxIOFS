@@ -85,6 +85,8 @@
   "statusDead": "已宕机",
   "statusStoragePressure": "存储压力",
   "thisNode": "（此节点）",
+  "encryptionSecretMismatch": "加密密钥不同",
+  "encryptionSecretMismatchHint": "此节点无法解密其他节点存储的凭据。协调节点会在一分钟内向其发送密钥；如果问题仍然存在，请检查两个节点的日志。",
 
   "clusterDegradedTitle": "集群已降级",
   "clusterDegradedFallback": "集群无法维持配置的复制因子，请添加容量或降低复制因子。",

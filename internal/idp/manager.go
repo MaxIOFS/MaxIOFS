@@ -13,18 +13,26 @@ import (
 
 // Manager orchestrates identity provider operations
 type Manager struct {
-	store        *Store
-	cryptoSecret string            // For encrypting bind passwords/secrets
-	providers    map[string]Provider // Cached active provider instances
-	mu           sync.RWMutex
+	store     *Store
+	secret    func() string       // returns the key bind passwords and client secrets are encrypted with
+	providers map[string]Provider // Cached active provider instances
+	mu        sync.RWMutex
+}
+
+// cryptoSecret is the current key; none leaves secrets unencrypted.
+func (m *Manager) cryptoSecret() string {
+	if m.secret == nil {
+		return ""
+	}
+	return m.secret()
 }
 
 // NewManager creates a new IDP manager
-func NewManager(store *Store, cryptoSecret string) *Manager {
+func NewManager(store *Store, secret func() string) *Manager {
 	return &Manager{
-		store:        store,
-		cryptoSecret: cryptoSecret,
-		providers:    make(map[string]Provider),
+		store:     store,
+		secret:    secret,
+		providers: make(map[string]Provider),
 	}
 }
 
@@ -334,7 +342,7 @@ func (m *Manager) getOrCreateProvider(providerID string) (Provider, error) {
 	m.decryptConfig(&idp.Config)
 
 	// Create provider instance
-	provider, err := NewProvider(idp, m.cryptoSecret)
+	provider, err := NewProvider(idp, m.cryptoSecret())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider instance: %w", err)
 	}
@@ -349,7 +357,7 @@ func (m *Manager) getOrCreateProvider(providerID string) (Provider, error) {
 // encryptConfig encrypts sensitive fields in the config
 func (m *Manager) encryptConfig(config *ProviderConfig) error {
 	if config.LDAP != nil && config.LDAP.BindPassword != "" {
-		encrypted, err := Encrypt(config.LDAP.BindPassword, m.cryptoSecret)
+		encrypted, err := Encrypt(config.LDAP.BindPassword, m.cryptoSecret())
 		if err != nil {
 			return err
 		}
@@ -357,7 +365,7 @@ func (m *Manager) encryptConfig(config *ProviderConfig) error {
 	}
 
 	if config.OAuth2 != nil && config.OAuth2.ClientSecret != "" {
-		encrypted, err := Encrypt(config.OAuth2.ClientSecret, m.cryptoSecret)
+		encrypted, err := Encrypt(config.OAuth2.ClientSecret, m.cryptoSecret())
 		if err != nil {
 			return err
 		}
@@ -370,7 +378,7 @@ func (m *Manager) encryptConfig(config *ProviderConfig) error {
 // decryptConfig decrypts sensitive fields in the config
 func (m *Manager) decryptConfig(config *ProviderConfig) {
 	if config.LDAP != nil && config.LDAP.BindPassword != "" {
-		decrypted, err := Decrypt(config.LDAP.BindPassword, m.cryptoSecret)
+		decrypted, err := Decrypt(config.LDAP.BindPassword, m.cryptoSecret())
 		if err != nil {
 			logrus.WithError(err).Warn("Failed to decrypt LDAP bind password")
 			return
@@ -379,7 +387,7 @@ func (m *Manager) decryptConfig(config *ProviderConfig) {
 	}
 
 	if config.OAuth2 != nil && config.OAuth2.ClientSecret != "" {
-		decrypted, err := Decrypt(config.OAuth2.ClientSecret, m.cryptoSecret)
+		decrypted, err := Decrypt(config.OAuth2.ClientSecret, m.cryptoSecret())
 		if err != nil {
 			logrus.WithError(err).Warn("Failed to decrypt OAuth client secret")
 			return

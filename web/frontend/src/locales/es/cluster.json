@@ -85,6 +85,8 @@
   "statusDead": "Muerto",
   "statusStoragePressure": "Presión de almacenamiento",
   "thisNode": "(Este nodo)",
+  "encryptionSecretMismatch": "Clave de cifrado distinta",
+  "encryptionSecretMismatchHint": "Este nodo no puede descifrar las credenciales que guardan los demás. El coordinador le envía su clave en menos de un minuto; si persiste, revisa los logs de ambos nodos.",
 
   "clusterDegradedTitle": "Clúster degradado",
   "clusterDegradedFallback": "El clúster no puede mantener el factor de replicación configurado. Añade capacidad o reduce el factor.",

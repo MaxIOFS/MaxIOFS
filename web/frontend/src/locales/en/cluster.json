@@ -85,6 +85,8 @@
   "statusDead": "Dead",
   "statusStoragePressure": "Storage pressure",
   "thisNode": "(This node)",
+  "encryptionSecretMismatch": "Different encryption secret",
+  "encryptionSecretMismatchHint": "This node cannot decrypt the credentials the others store. The coordinator sends it its secret within a minute; if this persists, check the logs of both nodes.",
 
   "clusterDegradedTitle": "Cluster degraded",
   "clusterDegradedFallback": "The cluster cannot maintain the configured replication factor. Add capacity or lower the factor.",

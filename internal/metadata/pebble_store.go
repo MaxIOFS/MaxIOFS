@@ -257,23 +257,10 @@ func (s *PebbleStore) CreateBucket(ctx context.Context, bucket *BucketMetadata) 
 	}
 
 	// Check global uniqueness — bucket names must be unique across all tenants
-	prefix := []byte("bucket:")
-	iter, err := s.pebbleIter(prefix)
-	if err != nil {
+	if taken, err := s.bucketNameTaken(bucket.Name); err != nil {
 		return err
-	}
-	defer iter.Close() //nolint:errcheck
-
-	for iter.First(); iter.Valid(); iter.Next() {
-		var existing BucketMetadata
-		if jsonErr := json.Unmarshal(iter.Value(), &existing); jsonErr == nil {
-			if existing.Name == bucket.Name {
-				return ErrBucketAlreadyExists
-			}
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("failed during bucket uniqueness check: %w", err)
+	} else if taken {
+		return ErrBucketAlreadyExists
 	}
 
 	now := time.Now()
@@ -354,6 +341,78 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 	}
 	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
 	return nil
+}
+
+// ApplyBucketReplica stores a bucket's configuration as another node of the
+// cluster holds it, when it is newer than this node's: the times it carries are
+// kept, and so are this node's usage counters. A bucket new to this node is
+// created. It reports whether the bucket was stored.
+func (s *PebbleStore) ApplyBucketReplica(ctx context.Context, bucket *BucketMetadata) (bool, error) {
+	if bucket == nil {
+		return false, fmt.Errorf("bucket metadata cannot be nil")
+	}
+	s.bucketCreateMu.Lock()
+	defer s.bucketCreateMu.Unlock()
+
+	key := bucketKey(bucket.TenantID, bucket.Name)
+	mu := s.getBucketMetricsMutex(key)
+	mu.Lock()
+	defer mu.Unlock()
+
+	stored := *bucket
+	stored.ObjectCount, stored.TotalSize = 0, 0
+	current, err := s.pebbleGet(key)
+	switch err {
+	case nil:
+		var local BucketMetadata
+		if err := json.Unmarshal(current, &local); err != nil {
+			return false, fmt.Errorf("failed to unmarshal bucket: %w", err)
+		}
+		if !bucket.UpdatedAt.After(local.UpdatedAt) {
+			return false, nil
+		}
+		stored.ObjectCount, stored.TotalSize = local.ObjectCount, local.TotalSize
+	case pebble.ErrNotFound:
+		// Bucket names are unique across tenants.
+		taken, err := s.bucketNameTaken(bucket.Name)
+		if err != nil {
+			return false, err
+		}
+		if taken {
+			return false, ErrBucketAlreadyExists
+		}
+	default:
+		return false, fmt.Errorf("failed to check bucket existence: %w", err)
+	}
+
+	data, err := json.Marshal(&stored)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal bucket: %w", err)
+	}
+	if err := s.db.Set(key, data, pebble.Sync); err != nil {
+		return false, fmt.Errorf("failed to store bucket: %w", err)
+	}
+	s.deletedBuckets.Delete(bucketPathForMutation(bucket.TenantID, bucket.Name))
+	return true, nil
+}
+
+// bucketNameTaken reports whether a bucket of that name exists in any tenant.
+func (s *PebbleStore) bucketNameTaken(name string) (bool, error) {
+	iter, err := s.pebbleIter([]byte("bucket:"))
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close() //nolint:errcheck
+	for iter.First(); iter.Valid(); iter.Next() {
+		var existing BucketMetadata
+		if json.Unmarshal(iter.Value(), &existing) == nil && existing.Name == name {
+			return true, nil
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return false, fmt.Errorf("failed during bucket uniqueness check: %w", err)
+	}
+	return false, nil
 }
 
 // DeleteBucket deletes a bucket from the store.
@@ -594,9 +653,10 @@ func (s *PebbleStore) UpdateBucketMetrics(ctx context.Context, tenantID, bucketN
 		return fmt.Errorf("failed to unmarshal bucket: %w", err)
 	}
 
+	// UpdatedAt dates the configuration, which nodes compare; usage is each
+	// node's own and leaves it alone.
 	bucket.ObjectCount += objectCountDelta
 	bucket.TotalSize += sizeDelta
-	bucket.UpdatedAt = time.Now()
 
 	if bucket.ObjectCount < 0 {
 		bucket.ObjectCount = 0
@@ -691,7 +751,6 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 
 	bucket.ObjectCount = objectCount
 	bucket.TotalSize = totalSize
-	bucket.UpdatedAt = time.Now()
 
 	newData, err := json.Marshal(&bucket)
 	if err != nil {

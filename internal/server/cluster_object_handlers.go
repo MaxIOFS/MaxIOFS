@@ -951,6 +951,29 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleHABucketState applies what another node reports about a bucket: its
+// configuration and ACL, or its deletion.
+// POST /api/internal/cluster/ha/bucket-state
+func (s *Server) handleHABucketState(w http.ResponseWriter, r *http.Request) {
+	var st cluster.BucketState
+	if err := json.NewDecoder(r.Body).Decode(&st); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	err := s.bucketStateReceiver.Apply(cluster.WithHAReplicaContext(r.Context()), &st)
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, cluster.ErrBucketNameTaken):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, cluster.ErrInvalidBucketState):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		logrus.WithError(err).Error("HA: failed to apply a bucket from another node")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // handleHAReceiveMetadataOp receives a metadata-only operation fanout.
 // POST /api/internal/ha/metadata-op
 // Bucket path is in X-HA-Bucket header; body is JSON cluster.HAMetadataOp.

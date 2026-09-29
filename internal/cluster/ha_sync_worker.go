@@ -44,6 +44,7 @@ type HASyncWorker struct {
 	bucketMgr bucket.Manager
 	mgr       *Manager
 	keys      keyLister
+	buckets   *BucketStates
 
 	bgwork.Worker
 	mu      sync.Mutex
@@ -79,6 +80,12 @@ func NewHASyncWorker(objMgr object.Manager, bucketMgr bucket.Manager, mgr *Manag
 		keys:      keys,
 		running:   make(map[string]context.CancelFunc),
 	}
+}
+
+// SetBucketStates makes a sync send the new replica every bucket before the
+// objects that go into them.
+func (w *HASyncWorker) SetBucketStates(b *BucketStates) {
+	w.buckets = b
 }
 
 // Start resumes any sync jobs that were still running when the server last stopped.
@@ -282,6 +289,10 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 		return fmt.Errorf("get local node ID: %w", err)
 	}
 	client := NewProxyClient(w.mgr.GetTLSConfig())
+
+	if err := w.buckets.SyncNode(ctx, client, node, localID); err != nil {
+		return fmt.Errorf("send buckets: %w", err)
+	}
 
 	// List every bucket across all tenants.
 	buckets, err := w.bucketMgr.ListBuckets(ctx, "")

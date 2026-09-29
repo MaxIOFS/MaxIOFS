@@ -30,6 +30,13 @@ import (
 // set up.
 func newClusterTestNode(t *testing.T) *Server {
 	t.Helper()
+	return newClusterTestNodeWith(t, nil)
+}
+
+// newClusterTestNodeWith is newClusterTestNode with its configuration changed
+// by tweak before the server is built.
+func newClusterTestNodeWith(t *testing.T, tweak func(*config.Config)) *Server {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "maxiofs-migration-node-*")
 	require.NoError(t, err)
 	cfg := &config.Config{
@@ -46,6 +53,9 @@ func newClusterTestNode(t *testing.T) *Server {
 			EncryptionSecret: "test-secret-key",
 		},
 		Audit: config.AuditConfig{RetentionDays: 7, DBPath: filepath.Join(dir, "audit.db")},
+	}
+	if tweak != nil {
+		tweak(cfg)
 	}
 	srv, err := New(cfg)
 	require.NoError(t, err)

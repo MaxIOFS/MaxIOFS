@@ -20,7 +20,7 @@ type Worker struct {
 	objectAdapter           ObjectAdapter
 	objectManager           ObjectManager
 	s3ClientFactory         S3ClientFactory
-	credentialEncryptionKey string // AES-256-GCM key for decrypting destination_secret_key
+	credentialEncryptionKey func() string // returns the AES-256-GCM key destination_secret_key is decrypted with
 }
 
 // NewWorker creates a new replication worker
@@ -50,7 +50,7 @@ func NewWorkerWithS3Factory(id int, queue <-chan *QueueItem, db *sql.DB, objectA
 }
 
 // newWorkerWithEncryption creates a worker with credential encryption support (used by Manager)
-func newWorkerWithEncryption(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter, objectManager ObjectManager, factory S3ClientFactory, credentialEncryptionKey string) *Worker {
+func newWorkerWithEncryption(id int, queue <-chan *QueueItem, db *sql.DB, objectAdapter ObjectAdapter, objectManager ObjectManager, factory S3ClientFactory, credentialEncryptionKey func() string) *Worker {
 	w := NewWorkerWithS3Factory(id, queue, db, objectAdapter, objectManager, factory)
 	w.credentialEncryptionKey = credentialEncryptionKey
 	return w
@@ -276,7 +276,7 @@ func (w *Worker) getRule(ctx context.Context, ruleID string) (*ReplicationRule, 
 		return nil, err
 	}
 	// Decrypt and validate the destination secret key before use.
-	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, w.credentialEncryptionKey)
+	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, currentKey(w.credentialEncryptionKey))
 	return rule, err
 }
 

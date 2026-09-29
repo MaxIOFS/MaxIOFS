@@ -31,6 +31,30 @@ func getAllMigrations() []Migration {
 		migration18_v160_IAMSTS(),
 		migration19_v160_ForcedPasswordChange(),
 		migration20_v170_IAMPolicyTenant(),
+		migration21_v180_EncryptionSecret(),
+	}
+}
+
+// migration21_v180_EncryptionSecret creates the table that keeps the secret
+// the server encrypts stored credentials with, so it no longer depends on the
+// configuration each start.
+func migration21_v180_EncryptionSecret() Migration {
+	return Migration{
+		Version:     21,
+		Description: "v1.8.0 - Create encryption_secret table (key for stored credentials)",
+		Up: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`
+				CREATE TABLE IF NOT EXISTS encryption_secret (
+					id INTEGER PRIMARY KEY CHECK (id = 1),
+					secret TEXT NOT NULL,
+					updated_at INTEGER NOT NULL
+				)
+			`)
+			return err
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

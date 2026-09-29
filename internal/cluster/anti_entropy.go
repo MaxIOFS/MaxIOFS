@@ -76,6 +76,7 @@ type AntiEntropyScrubber struct {
 	bucketMgr bucket.Manager
 	mgr       *Manager
 	rawKV     metadata.RawKVStore
+	buckets   *BucketStates
 
 	bgwork.Worker
 	mu        sync.Mutex
@@ -101,6 +102,12 @@ func NewAntiEntropyScrubber(objMgr object.Manager, bucketMgr bucket.Manager, mgr
 		caughtUp:  make(chan struct{}, 1),
 		pending:   make(map[string]time.Time),
 	}
+}
+
+// SetBucketStates makes every cycle start by sending the peers every bucket,
+// so the objects it compares have a bucket to go into.
+func (s *AntiEntropyScrubber) SetBucketStates(b *BucketStates) {
+	s.buckets = b
 }
 
 // CatchUp brings a node that is back up to date with the writes and deletes
@@ -214,6 +221,10 @@ func (s *AntiEntropyScrubber) ListRecentRuns(ctx context.Context, limit int) ([]
 // ---------------------------------------------------------------------------
 
 func (s *AntiEntropyScrubber) run(ctx context.Context) {
+	// The buckets first, whether or not the periodic scrub is enabled: a peer
+	// that lacks one refuses every object written into it.
+	s.buckets.SyncPeers(ctx)
+
 	// Random jitter (5-60 min) before the first cycle so multi-node clusters
 	// do not all start scanning at the same instant after a synchronized boot.
 	jitter := time.Duration(5+rand.Intn(56)) * time.Minute
@@ -329,6 +340,8 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 	if err != nil || factor <= 1 {
 		return err == nil
 	}
+
+	s.buckets.SyncPeers(ctx)
 
 	cp, runID, err := s.beginCycle(ctx, resume, since)
 	if err != nil {

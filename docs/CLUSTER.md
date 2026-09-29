@@ -69,9 +69,10 @@ writing with one node down and answers `503 ServiceUnavailable`
 
 **A node that missed writes is caught up as soon as it is back.** The node that
 accepted them records, per peer, the time of the earliest write that peer
-missed. When a health check finds the peer healthy again, it compares every
-object modified since then with the peer and sends what differs, lock state
-included, then sends the deletes the peer missed. A delete of a whole key is sent
+missed. When a health check finds the peer healthy again, it sends the peer
+every bucket (see [Buckets](#buckets)), compares every object modified since
+then with the peer and sends what differs, lock state included, then sends the
+deletes the peer missed. A delete of a whole key is sent
 only if the peer's copy is not newer than the delete, so a key written on the
 other side of a partition is kept. What fails is recorded again and retried at
 the next health check. The catch-up runs even with the periodic scrub disabled.
@@ -481,6 +482,26 @@ Because every node can unwrap any object's DEK, replication never decrypts
 in transit. Objects wrapped with a node-local (pre-join) key transparently
 fall back to the legacy decrypt-on-source / re-encrypt-on-destination path
 until the background worker re-wraps them to the shared key.
+
+**Encryption secret**: the secret identity provider secrets, replication
+destination keys and share link keys are encrypted with is the cluster's on
+every node. A node that joins takes it from the join package and re-encrypts
+what it stores. Every minute the coordinator compares each healthy node's
+fingerprint of the secret with its own and gives its secret to a node that
+differs; a node takes it only from the coordinator it knows. The Nodes page
+marks a node that holds another secret.
+
+### Buckets
+
+With a replication factor above 1 every node holds every bucket.
+
+- Creating a bucket, changing its configuration or ACL, and deleting it reach every other node before the request returns. Usage (object count, size) is each node's own and is not sent.
+- A node that is down or does not take the change is recorded as having missed a write. When it is caught up, it is sent every bucket and every deletion before the objects. A new replica, and every peer at the start of an anti-entropy cycle and when a node starts, is sent them too. A cluster whose buckets exist only on the node that created them converges this way after the upgrade.
+- Two versions of a bucket are ordered by the time of the change; a deletion by the time it was made, to the nanosecond, so a bucket created again right after its deletion exists again.
+- A node keeps its copy of a bucket deleted elsewhere when the copy changed after the deletion, holds an object written in the second of the deletion or later, or holds an object under retention or a legal hold. Such a copy is kept and logged; otherwise the copy is removed with its objects.
+- A bucket whose name another tenant holds on a node is refused there and logged.
+- Deletions are kept 7 days, as the deletion log. A node down longer can bring back a bucket deleted meanwhile.
+- Lifecycle: the coordinator expires objects, and its deletes reach the other nodes. Every node aborts the incomplete multipart uploads started on it.
 
 ### HMAC Authentication
 

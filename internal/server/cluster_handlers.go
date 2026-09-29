@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -113,6 +114,21 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 			logrus.WithError(err).Error("Failed to adopt cluster encryption keys")
 			s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusConflict)
 			return
+		}
+	}
+
+	// The credentials this node stores are re-encrypted with the cluster's
+	// secret, which it keeps from now on.
+	if pkg.EncryptionSecret != "" && s.encSecret != nil {
+		unreadable, err := s.encSecret.Adopt(r.Context(), pkg.EncryptionSecret)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to adopt the cluster encryption secret")
+			s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if len(unreadable) > 0 {
+			logrus.WithField("credentials", unreadable).
+				Error("Stored credentials no encryption secret decrypts; enter them again")
 		}
 	}
 
@@ -242,6 +258,9 @@ func (s *Server) handleGetClusterConfig(w http.ResponseWriter, r *http.Request) 
 type clusterNodeResponse struct {
 	cluster.Node
 	IsLocal bool `json:"is_local"`
+	// EncryptionSecretMatches tells whether the node holds this node's
+	// encryption secret; absent when the node could not be asked.
+	EncryptionSecretMatches *bool `json:"encryption_secret_matches,omitempty"`
 }
 
 // handleListClusterNodes lists all nodes in the cluster.
@@ -269,11 +288,43 @@ func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) 
 		}
 		enriched = append(enriched, entry)
 	}
+	s.compareEncryptionSecrets(r.Context(), enriched)
 
 	s.writeJSON(w, map[string]interface{}{
 		"nodes": enriched,
 		"total": len(enriched),
 	})
+}
+
+// compareEncryptionSecrets asks every healthy node for the fingerprint of its
+// encryption secret and records whether it matches this node's.
+func (s *Server) compareEncryptionSecrets(ctx context.Context, nodes []clusterNodeResponse) {
+	if s.encSecret == nil {
+		return
+	}
+	own := s.encSecret.Fingerprint()
+	var wg sync.WaitGroup
+	for i := range nodes {
+		e := &nodes[i]
+		if e.IsLocal {
+			matches := true
+			e.EncryptionSecretMatches = &matches
+			continue
+		}
+		if e.Node.HealthStatus != cluster.HealthStatusHealthy {
+			continue
+		}
+		wg.Add(1)
+		go func(e *clusterNodeResponse) {
+			defer wg.Done()
+			node := e.Node
+			if fingerprint, err := s.clusterManager.EncryptionSecretFingerprint(ctx, &node); err == nil {
+				matches := fingerprint == own
+				e.EncryptionSecretMatches = &matches
+			}
+		}(e)
+	}
+	wg.Wait()
 }
 
 // handleAddClusterNode adds a remote standalone node to this cluster.
@@ -451,6 +502,9 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		APIURL:         remoteAPIURL,
 		Nodes:          cluster.NodesToJoinPackage(nodes),
 		EncryptionKeys: clusterKeys,
+	}
+	if s.encSecret != nil {
+		pkg.EncryptionSecret = s.encSecret.Current()
 	}
 
 	// Step 4: Push the join package to Node B via 8081

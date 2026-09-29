@@ -28,21 +28,71 @@ func CreateEntry(ctx context.Context, store metadata.Store, backend storage.Back
 	} else if !errors.Is(err, metadata.ErrBucketNotFound) {
 		return err
 	}
-	path := meta.Name
-	if meta.TenantID != "" {
-		path = meta.TenantID + "/" + meta.Name
+	if err := finishPendingRemoval(ctx, store, backend, entryPath(meta)); err != nil {
+		return err
 	}
+	return store.CreateBucket(ctx, meta)
+}
+
+// replicaStore stores a bucket as another node of the cluster holds it.
+type replicaStore interface {
+	ApplyBucketReplica(ctx context.Context, bucket *metadata.BucketMetadata) (bool, error)
+}
+
+// ApplyReplicaEntry stores meta as another node of the cluster holds it, when
+// it is newer than this node's copy, and reports whether it was stored and
+// whether the bucket is new here. A new bucket gets its directory, after the
+// removal of an earlier bucket at the same path, as CreateEntry does.
+func ApplyReplicaEntry(ctx context.Context, store metadata.Store, backend storage.Backend, meta *metadata.BucketMetadata) (applied, created bool, err error) {
+	rs, ok := store.(replicaStore)
+	if !ok {
+		return false, false, fmt.Errorf("the metadata store cannot hold replicated buckets")
+	}
+	createMu.Lock()
+	defer createMu.Unlock()
+
+	if _, err := store.GetBucket(ctx, meta.TenantID, meta.Name); err == nil {
+		applied, err := rs.ApplyBucketReplica(ctx, meta)
+		return applied, false, err
+	} else if !errors.Is(err, metadata.ErrBucketNotFound) {
+		return false, false, err
+	}
+
+	path := entryPath(meta)
+	if err := finishPendingRemoval(ctx, store, backend, path); err != nil {
+		return false, false, err
+	}
+	if applied, err := rs.ApplyBucketReplica(ctx, meta); err != nil || !applied {
+		return applied, false, err
+	}
+	if err := backend.CreateBucket(ctx, path); err != nil {
+		if delErr := store.DeleteBucket(ctx, meta.TenantID, meta.Name); delErr != nil && !errors.Is(delErr, metadata.ErrBucketNotFound) {
+			return false, false, errors.Join(err, delErr)
+		}
+		return false, false, err
+	}
+	return true, true, nil
+}
+
+// finishPendingRemoval removes the directory an earlier bucket at path left
+// behind when its deletion did not finish.
+func finishPendingRemoval(ctx context.Context, store metadata.Store, backend storage.Backend, path string) error {
 	pending, err := store.PendingBucketRemovals(ctx)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(pending, path) {
-		if err := backend.DeleteBucket(ctx, path); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
-			return fmt.Errorf("the directory of an earlier bucket %s could not be removed: %w", path, err)
-		}
-		if err := store.ClearBucketRemoval(ctx, path); err != nil {
-			return err
-		}
+	if !slices.Contains(pending, path) {
+		return nil
 	}
-	return store.CreateBucket(ctx, meta)
+	if err := backend.DeleteBucket(ctx, path); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
+		return fmt.Errorf("the directory of an earlier bucket %s could not be removed: %w", path, err)
+	}
+	return store.ClearBucketRemoval(ctx, path)
+}
+
+func entryPath(meta *metadata.BucketMetadata) string {
+	if meta.TenantID == "" {
+		return meta.Name
+	}
+	return meta.TenantID + "/" + meta.Name
 }

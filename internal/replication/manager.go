@@ -154,7 +154,7 @@ func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
 	rule.UpdatedAt = time.Now()
 
 	// Encrypt the destination secret key before storing
-	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, currentKey(m.config.CredentialEncryptionKey))
 	if err != nil {
 		return fmt.Errorf("failed to encrypt destination secret key: %w", err)
 	}
@@ -201,7 +201,7 @@ func (m *Manager) GetRule(ctx context.Context, ruleID string) (*ReplicationRule,
 		return rule, err
 	}
 	// Decrypt and validate the destination secret key.
-	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, currentKey(m.config.CredentialEncryptionKey))
 	return rule, err
 }
 
@@ -236,7 +236,7 @@ func (m *Manager) ListRules(ctx context.Context, tenantID string) ([]*Replicatio
 			return nil, err
 		}
 		// Decrypt and validate the destination secret key.
-		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, currentKey(m.config.CredentialEncryptionKey)); err != nil {
 			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
 		}
 		rules = append(rules, rule)
@@ -275,7 +275,7 @@ func (m *Manager) GetRulesForBucket(ctx context.Context, bucketName string) ([]*
 			return nil, err
 		}
 		// Decrypt and validate the destination secret key.
-		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey); err != nil {
+		if rule.DestinationSecretKey, err = decryptAndValidateCredential(rule.DestinationSecretKey, currentKey(m.config.CredentialEncryptionKey)); err != nil {
 			return nil, fmt.Errorf("failed to decrypt secret key for rule %s: %w", rule.ID, err)
 		}
 		rules = append(rules, rule)
@@ -292,7 +292,7 @@ func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
 	rule.UpdatedAt = time.Now()
 
 	// Encrypt the destination secret key before storing
-	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, m.config.CredentialEncryptionKey)
+	encryptedSecret, err := encryptCredential(rule.DestinationSecretKey, currentKey(m.config.CredentialEncryptionKey))
 	if err != nil {
 		return fmt.Errorf("failed to encrypt destination secret key: %w", err)
 	}

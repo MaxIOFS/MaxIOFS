@@ -70,6 +70,7 @@ storage:
 auth:
   enable_auth: true
   jwt_secret: ""                  # Auto-generated if empty (32 chars, random)
+  encryption_secret: ""           # Seed only: stored in the database on first start, ignored afterwards
 
 # Audit logging
 audit:
@@ -154,6 +155,7 @@ All settings can be set via `MAXIOFS_` prefixed environment variables:
 **Auth:**
 - `MAXIOFS_AUTH_ENABLE_AUTH` — Enable authentication
 - `MAXIOFS_AUTH_JWT_SECRET` — JWT signing secret
+- `MAXIOFS_AUTH_ENCRYPTION_SECRET` — One-time seed only: read on the first start to become the secret stored credentials are encrypted with, never consulted again (the secret lives in the database). Without it, an explicit JWT secret is used, or else one is generated
 
 **Cluster:**
 - `MAXIOFS_CLUSTER_LISTEN` — Cluster inter-node listen address (default: `:8082`)

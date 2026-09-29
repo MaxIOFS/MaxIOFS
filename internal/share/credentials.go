@@ -1,13 +1,16 @@
 package share
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const shareEncryptionPrefix = "enc1:"
@@ -92,4 +95,57 @@ func deriveShareCredentialKey(passphrase string) []byte {
 	h.Write([]byte("maxiofs-share-credential-v1:"))
 	h.Write([]byte(passphrase))
 	return h.Sum(nil)
+}
+
+// Reencrypt rewrites, inside tx, the share keys encrypted with from as
+// encrypted with to, and names the shares whose key neither decrypts. With
+// from equal to to it only names them. A key stored before encryption is left
+// as it is.
+func Reencrypt(ctx context.Context, tx *sql.Tx, from, to string) ([]string, error) {
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("an encryption secret is required")
+	}
+	type stored struct{ id, bucket, key, secret string }
+	rows, err := tx.QueryContext(ctx, `SELECT id, bucket_name, object_key, secret_key FROM shares`)
+	if err != nil {
+		return nil, err
+	}
+	var all []stored
+	for rows.Next() {
+		var r stored
+		if err := rows.Scan(&r.id, &r.bucket, &r.key, &r.secret); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var unreadable []string
+	for _, r := range all {
+		if !strings.HasPrefix(r.secret, shareEncryptionPrefix) {
+			continue
+		}
+		plain, err := decryptShareCredential(r.secret, from)
+		if err != nil {
+			if _, err := decryptShareCredential(r.secret, to); err != nil {
+				unreadable = append(unreadable, fmt.Sprintf("share link of %s/%s", r.bucket, r.key))
+			}
+			continue
+		}
+		if from == to {
+			continue
+		}
+		encrypted, err := encryptShareCredential(plain, to)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE shares SET secret_key = ? WHERE id = ?`, encrypted, r.id); err != nil {
+			return nil, err
+		}
+	}
+	return unreadable, nil
 }

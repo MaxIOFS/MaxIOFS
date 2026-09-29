@@ -1127,6 +1127,7 @@ export interface ClusterNode {
   created_at: string;
   updated_at: string;
   is_local?: boolean; // true only for the node that handled this response
+  encryption_secret_matches?: boolean; // absent when the node could not be asked
 }
 
 export interface ClusterStatus {

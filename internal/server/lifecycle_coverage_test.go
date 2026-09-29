@@ -31,6 +31,7 @@ var lifecycleRelease = map[string]string{
 	"antiEntropyScrubber": "registry: antiEntropy",
 	"deadNodeReconciler":  "registry: deadNodeReconciler",
 	"leaderMgr":           "registry: leader",
+	"encSecretSync":       "registry: encryptionSecretSync",
 	"tenantSyncMgr":       "registry: tenantSync",
 	"userSyncMgr":         "registry: userSync",
 	"accessKeySyncMgr":    "registry: accessKeySync",

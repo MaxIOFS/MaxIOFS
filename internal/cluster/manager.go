@@ -235,6 +235,8 @@ type ClusterJoinPackage struct {
 	APIURL         string             `json:"api_url"`       // Node B's S3 API public URL
 	Nodes          []*JoinPackageNode `json:"nodes"`
 	EncryptionKeys []kek.KeyRecord    `json:"encryption_keys,omitempty"`
+	// EncryptionSecret is the secret stored credentials are encrypted with.
+	EncryptionSecret string `json:"encryption_secret,omitempty"`
 }
 
 // AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.

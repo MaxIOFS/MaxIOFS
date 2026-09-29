@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **296 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **305 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -158,13 +158,13 @@ npx vitest run --coverage
 | File | Description |
 |------|-------------|
 | `bucket_name_uniqueness_test.go` | A bucket name already taken in another tenant is rejected |
-| `create_entry_test.go` | Creating a bucket whose name has a removal pending finishes the removal first; creating one that exists touches nothing |
+| `create_entry_test.go` | Creating a bucket whose name has a removal pending finishes the removal first, a bucket from another node included; creating one that exists touches nothing |
 | `delete_bucket_test.go` | Bucket deletion with object cleanup |
 | `integration_test.go` | Bucket CRUD + versioning integration |
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 37 test files
+### `internal/cluster/` — 38 test files
 
 | File | Description |
 |------|-------------|
@@ -178,6 +178,7 @@ npx vitest run --coverage
 | `dead_node_reconciler_test.go` | Dead-node replica redistribution |
 | `deletion_log_test.go` | Tombstone-based deletion sync |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
+| `ha_bucket_state_test.go` | Bucket deletions are pruned with the deletion log, the later of two deletions winning |
 | `ha_fanout_lock_test.go` | The legacy (non-raw) HA transfer carries the object's retention and legal hold; without lock state it sends no lock header |
 | `ha_metadata_queue_test.go` | A metadata change reaches a healthy replica before the request returns; it is queued for a replica that is down, fails or has changes waiting, never for one that refuses it; the queue is replayed in order, dropping refused changes and stopping at a failure; removed nodes leave no queue |
 | `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again. The initial sync copies every version oldest first with its ID, delete markers with their time, and lock state; in a suspended bucket, the current object without a version ID last, with its ETag and tags |
@@ -201,7 +202,7 @@ npx vitest run --coverage
 | `quota_integration_test.go` | Quota enforcement in cluster |
 | `router_test.go` | Request routing to bucket owner; a bucket found here is served here whatever location was cached, and one that left is not |
 | `shared_state_test.go` | TLS state is race-free; the leader manager's `Stop` is idempotent; start doesn't replace the proxy client |
-| `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes) |
+| `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes), over the tables as production defines them |
 | `storage_pressure_test.go` | Storage-pressure health state |
 | `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
 | `user_sync_test.go` | User sync across nodes |
@@ -230,12 +231,19 @@ npx vitest run --coverage
 |------|-------------|
 | `migrations_test.go` | SQLite schema migrations, version tracking |
 
-### `internal/idp/` — 5 test files
+### `internal/encsecret/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `store_test.go` | The secret is stored once (configured, fallback or generated) and kept across starts; adoption re-encrypts every stored credential and stores the secret in one transaction, a failure changes neither; a check writes nothing; fingerprints |
+
+### `internal/idp/` — 6 test files
 
 | File | Description |
 |------|-------------|
 | `crypto_test.go` | AES-256-GCM encryption for IDP secrets |
 | `manager_test.go` | IDP provider CRUD, user authorization |
+| `reencrypt_test.go` | Bind passwords and client secrets move to a new secret; the rest of the configuration is kept; what no secret decrypts is named and left |
 | `store_test.go` | IDP persistent storage operations |
 | `ldap/ldap_test.go` | LDAP bind, search, group resolution |
 | `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping |
@@ -262,10 +270,11 @@ npx vitest run --coverage
 |------|-------------|
 | `migrate_test.go` | Layout v1 → v2 migration: moves every object and version, idempotent, resumes after an interruption, dry run, refuses duplicate or tenant-like bucket names, reports inconsistencies, prunes the old tree once per directory, purges implicit folder objects |
 
-### `internal/lifecycle/` — 3 test files
+### `internal/lifecycle/` — 4 test files
 
 | File | Description |
 |------|-------------|
+| `expiration_gate_test.go` | A node the gate stops expires nothing and still aborts its own multipart uploads; the pass deletes through the manager set after construction |
 | `expiration_test.go` | Lifecycle expiration behavior |
 | `worker_test.go` | Lifecycle rule evaluation and object expiration |
 | `write_gate_test.go` | A bucket whose writes are held is skipped; the others are processed inside the gate |
@@ -280,11 +289,12 @@ npx vitest run --coverage
 | `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
-### `internal/metadata/` — 17 test files
+### `internal/metadata/` — 18 test files
 
 | File | Description |
 |------|-------------|
 | `bucket_concurrency_test.go` | A bucket configuration update does not lose concurrent metric increments |
+| `bucket_replica_test.go` | A bucket from another node is stored with its times when newer, keeping this node's usage; an older or equal version changes nothing; a name another tenant holds is refused. Usage does not change `UpdatedAt` |
 | `close_idempotent_test.go` | `Close` is idempotent |
 | `delete_bucket_if_empty_test.go` | A bucket holding a folder-marker object is not empty |
 | `lastmodified_test.go` | `PutObject` keeps a caller-provided `LastModified` and stamps the current time only when it is unset |
@@ -400,7 +410,7 @@ npx vitest run --coverage
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
 | `review_faultcheck_test.go` | Reconcile takes the same per-key lock as a live overwrite and does not race it; a same-size same-second overwrite is still detected |
 
-### `internal/replication/` — 8 test files
+### `internal/replication/` — 9 test files
 
 | File | Description |
 |------|-------------|
@@ -408,6 +418,7 @@ npx vitest run --coverage
 | `credentials_test.go` | AES-256-GCM credential encryption round-trip, wrong key, legacy plaintext, `deriveCredentialKey` |
 | `manager_sync_test.go` | `SyncBucket`, `SyncRule` (lock contention), `processScheduledRules`, `cleanup` |
 | `manager_test.go` | Replication rule management |
+| `reencrypt_test.go` | Destination keys move to a new secret; the manager reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 | `replication_e2e_test.go` | End-to-end replication with `require.Eventually` |
 | `s3client_test.go` | S3 replication client behavior |
 | `status_retention_test.go` | Old replication status copies are dropped; failures are kept |
@@ -420,7 +431,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 40 test files
+### `internal/server/` — 42 test files
 
 | File | Description |
 |------|-------------|
@@ -440,9 +451,11 @@ npx vitest run --coverage
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for |
 | `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints |
+| `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |
 | `encryption_worker_test.go` | Background encryption pass, its manual-run endpoint, and shutdown tracking |
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
 | `group_handlers_test.go` | A group member add is rejected across a different tenant scope; group delete removes policies atomically |
+| `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only |
 | `iam_admin_test.go` | Tenant scope separates administrators; who a policy grants administration to |
 | `iam_aws_api_test.go` | AWS IAM XML actions route to the IAM handler and require the IAM-manage capability |
 | `iam_tenant_isolation_test.go` | A tenant cannot reach another tenant's IAM role; a global administrator reaches every tenant's |
@@ -462,7 +475,7 @@ npx vitest run --coverage
 | `server_test.go` | Server startup, shutdown, configuration |
 | `sts_aws_api_test.go` | AWS STS XML actions: missing/unknown action, `GetSessionToken` signature and credential issuance |
 | `sts_federation_test.go` | STS federation disabled by default; requires a provider ID; rejects a malformed body |
-| `tenant_usage_test.go` | Tenant synchronisation keeps each node's usage; the bucket limit and the console count the tenant's buckets on every node; the statistics pass corrects the tenant's storage |
+| `tenant_usage_test.go` | Tenant synchronisation keeps each node's usage; the bucket limit and the console count the tenant's buckets on every node; the statistics pass corrects the tenant's storage; a tenant deletion from another node keeps a tenant changed after it |
 | `worker_shutdown_test.go` | `goWorker` shutdown waits for every tracked worker and refuses new ones once shutdown starts |
 
 ### `internal/settings/` — 1 test file
@@ -471,11 +484,12 @@ npx vitest run --coverage
 |------|-------------|
 | `manager_test.go` | Dynamic settings CRUD, defaults, validation |
 
-### `internal/share/` — 1 test file
+### `internal/share/` — 2 test files
 
 | File | Description |
 |------|-------------|
 | `manager_test.go` | Pre-signed share link generation and access |
+| `reencrypt_test.go` | Share keys move to a new secret; the store reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 
 ### `internal/storage/` — 11 test files
 

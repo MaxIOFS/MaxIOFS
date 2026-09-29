@@ -373,9 +373,14 @@ listings. See `maxiofs recover --help` and the runbook in
 - S3 API compatible: No client changes needed
 - SSE-C / external KMS (Vault, AWS KMS) are planned on top of the envelope
 
-### IDP Secrets Encryption (AES-256-GCM)
+### Stored Credentials Encryption (AES-256-GCM)
 
-OAuth client secrets and LDAP bind passwords are encrypted at rest in the SQLite database using AES-256-GCM authenticated encryption. The encryption key is derived from the server's configuration.
+OAuth client secrets, LDAP bind passwords, replication destination secret keys and share link keys are encrypted at rest in the SQLite database with AES-256-GCM, with a key derived from the encryption secret.
+
+- The secret lives in the database (`encryption_secret` table), like the KEK. It is stored on the first start from `auth.encryption_secret`, or else from an explicit `auth.jwt_secret`, or else generated; the configuration is not read again, and a configured value that differs is reported at startup.
+- At every start the server names, in its log, the stored credentials the secret does not decrypt: they have to be entered again.
+- In a cluster every node holds the cluster's secret: a node that joins takes it, and the coordinator gives it to a node that holds another. The node re-encrypts what it stores in the same transaction.
+- The secret is never returned by the API. Neither is the JWT signing secret: the settings endpoints do not list, read or change it.
 
 ---
 

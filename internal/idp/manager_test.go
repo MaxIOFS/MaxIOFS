@@ -31,7 +31,7 @@ func setupTestManager(t *testing.T) (*Manager, func()) {
 	require.NoError(t, migrationManager.Migrate())
 
 	store := NewStore(db)
-	manager := NewManager(store, "test-crypto-secret-key-for-tests")
+	manager := NewManager(store, func() string { return "test-crypto-secret-key-for-tests" })
 
 	cleanup := func() {
 		db.Close()

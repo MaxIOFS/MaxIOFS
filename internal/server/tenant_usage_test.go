@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -152,4 +153,38 @@ func TestTenantBucketCountCoversTheCluster(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+}
+
+// A tenant deletion from another node removes the tenant and its users here,
+// unless the tenant changed here after the deletion.
+func TestTenantDeletionFromAnotherNodeKeepsANewerTenant(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	now := time.Now().Unix()
+	deleteSync := func(id string, deletedAt int64) {
+		t.Helper()
+		body := `{"id":"` + id + `","deleted_at":` + strconv.FormatInt(deletedAt, 10) + `}`
+		req := httptest.NewRequest(http.MethodPost, "/api/internal/cluster/tenant-delete-sync", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), "cluster_node_id", "peer"))
+		w := httptest.NewRecorder()
+		server.handleReceiveTenantDeleteSync(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+	for _, id := range []string{"t-del-newer", "t-del-older"} {
+		require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{ID: id, Name: id, Status: "active", CreatedAt: now, UpdatedAt: now}))
+		require.NoError(t, server.authManager.CreateUser(ctx, &auth.User{ID: id + "-user", Username: id + "-user", TenantID: id,
+			Status: auth.UserStatusActive, Roles: []string{auth.RoleUser}, CreatedAt: now, UpdatedAt: now}))
+	}
+
+	deleteSync("t-del-newer", now-3600)
+	_, err := server.authManager.GetTenant(ctx, "t-del-newer")
+	assert.NoError(t, err, "changed after the deletion, the tenant is kept")
+	_, err = server.authManager.GetUser(ctx, "t-del-newer-user")
+	assert.NoError(t, err, "and so are its users")
+
+	deleteSync("t-del-older", now+3600)
+	_, err = server.authManager.GetTenant(ctx, "t-del-older")
+	assert.Error(t, err, "a tenant not changed since is deleted")
+	_, err = server.authManager.GetUser(ctx, "t-del-older-user")
+	assert.Error(t, err)
 }

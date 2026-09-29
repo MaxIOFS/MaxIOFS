@@ -116,7 +116,10 @@ func InitSchema(db *sql.DB) error {
 	if err := applyReplicaCatchUpMigration(db); err != nil {
 		return err
 	}
-	return applyMetadataQueueMigration(db)
+	if err := applyMetadataQueueMigration(db); err != nil {
+		return err
+	}
+	return applyBucketTombstoneMigration(db)
 }
 
 // applyDeadNodeMigration adds the unavailable_since column needed for the
@@ -164,6 +167,19 @@ func applyMetadataQueueMigration(db *sql.DB) error {
 			created_at INTEGER NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_ha_pending_metadata_ops_node ON ha_pending_metadata_ops(node_id, id);
+	`)
+	return err
+}
+
+// applyBucketTombstoneMigration creates the record of the buckets deleted on
+// this node or reported deleted by another, dated to the nanosecond like a
+// bucket's configuration so the two can be ordered.
+func applyBucketTombstoneMigration(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_bucket_tombstones (
+			path       TEXT PRIMARY KEY,
+			deleted_at INTEGER NOT NULL
+		);
 	`)
 	return err
 }

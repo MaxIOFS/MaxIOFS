@@ -85,6 +85,8 @@
   "statusDead": "Mort",
   "statusStoragePressure": "Pression de stockage",
   "thisNode": "(Ce nœud)",
+  "encryptionSecretMismatch": "Clé de chiffrement différente",
+  "encryptionSecretMismatchHint": "Ce nœud ne peut pas déchiffrer les identifiants stockés par les autres. Le coordinateur lui envoie sa clé en moins d'une minute ; si cela persiste, consultez les journaux des deux nœuds.",
 
   "clusterDegradedTitle": "Cluster dégradé",
   "clusterDegradedFallback": "Le cluster ne peut pas maintenir le facteur de réplication configuré. Ajoutez de la capacité ou réduisez le facteur.",

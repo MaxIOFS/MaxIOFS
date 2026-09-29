@@ -85,6 +85,8 @@
   "statusDead": "Inativo",
   "statusStoragePressure": "Pressão de armazenamento",
   "thisNode": "(Este nó)",
+  "encryptionSecretMismatch": "Chave de criptografia diferente",
+  "encryptionSecretMismatchHint": "Este nó não consegue descriptografar as credenciais armazenadas pelos outros. O coordenador envia sua chave em até um minuto; se persistir, verifique os logs de ambos os nós.",
 
   "clusterDegradedTitle": "Cluster degradado",
   "clusterDegradedFallback": "O cluster não consegue manter o fator de replicação configurado. Adicione capacidade ou reduza o fator.",

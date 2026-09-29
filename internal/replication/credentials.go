@@ -1,14 +1,17 @@
 package replication
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,6 +21,14 @@ import (
 var ErrDecryptionFailed = errors.New("credential decryption failed")
 
 const credentialEncryptionPrefix = "enc1:"
+
+// currentKey is the key key returns; none leaves credentials unencrypted.
+func currentKey(key func() string) string {
+	if key == nil {
+		return ""
+	}
+	return key()
+}
 
 // encryptCredential encrypts a plaintext credential string using AES-256-GCM.
 func encryptCredential(plaintext, encryptionKey string) (string, error) {
@@ -117,4 +128,58 @@ func deriveCredentialKey(passphrase string) []byte {
 	h.Write([]byte("maxiofs-replication-credential-v1:"))
 	h.Write([]byte(passphrase))
 	return h.Sum(nil)
+}
+
+// ReencryptCredentials rewrites, inside tx, the destination keys encrypted
+// with from as encrypted with to, and names the rules whose key neither
+// decrypts. With from equal to to it only names them. A key stored before
+// encryption is left as it is.
+func ReencryptCredentials(ctx context.Context, tx *sql.Tx, from, to string) ([]string, error) {
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("an encryption secret is required")
+	}
+	type stored struct{ id, source, endpoint, bucket, secret string }
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, source_bucket, destination_endpoint, destination_bucket, destination_secret_key FROM replication_rules`)
+	if err != nil {
+		return nil, err
+	}
+	var all []stored
+	for rows.Next() {
+		var r stored
+		if err := rows.Scan(&r.id, &r.source, &r.endpoint, &r.bucket, &r.secret); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var unreadable []string
+	for _, r := range all {
+		if !strings.HasPrefix(r.secret, credentialEncryptionPrefix) {
+			continue
+		}
+		plain, err := decryptCredential(r.secret, from)
+		if err != nil {
+			if _, err := decryptCredential(r.secret, to); err != nil {
+				unreadable = append(unreadable, fmt.Sprintf("replication rule %s (%s to %s/%s)", r.id, r.source, r.endpoint, r.bucket))
+			}
+			continue
+		}
+		if from == to {
+			continue
+		}
+		encrypted, err := encryptCredential(plain, to)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE replication_rules SET destination_secret_key = ? WHERE id = ?`, encrypted, r.id); err != nil {
+			return nil, err
+		}
+	}
+	return unreadable, nil
 }

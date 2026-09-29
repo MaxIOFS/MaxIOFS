@@ -29,6 +29,11 @@ import (
 func TestEncryptionWorkerPass(t *testing.T) {
 	server := getSharedServer()
 	ctx := context.Background()
+	// No load backoff: the pass waits for an idle node, and how busy the
+	// machine running the tests is must not decide whether this test ends.
+	systemMetrics := server.systemMetrics
+	server.systemMetrics = nil
+	t.Cleanup(func() { server.systemMetrics = systemMetrics })
 
 	bucketName := "encworker-bucket"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{

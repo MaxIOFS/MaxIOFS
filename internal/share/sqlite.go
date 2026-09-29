@@ -11,13 +11,21 @@ import (
 
 // SQLiteStore implements Store interface using SQLite
 type SQLiteStore struct {
-	db            *sql.DB
-	encryptionKey string // AES-256-GCM key for encrypting secret_key at rest
+	db  *sql.DB
+	key func() string // the AES-256-GCM key secret_key is encrypted with at rest
+}
+
+// encryptionKey is the current key; none leaves secret_key unencrypted.
+func (s *SQLiteStore) encryptionKey() string {
+	if s.key == nil {
+		return ""
+	}
+	return s.key()
 }
 
 // NewSQLiteStore creates a new SQLite store
-func NewSQLiteStore(db *sql.DB, encryptionKey string) (Store, error) {
-	store := &SQLiteStore{db: db, encryptionKey: encryptionKey}
+func NewSQLiteStore(db *sql.DB, key func() string) (Store, error) {
+	store := &SQLiteStore{db: db, key: key}
 	if err := store.initialize(); err != nil {
 		return nil, err
 	}
@@ -180,7 +188,7 @@ func (s *SQLiteStore) CreateShare(ctx context.Context, share *Share) error {
 	`
 
 	// Encrypt secret_key before persisting
-	encryptedSecret, err := encryptShareCredential(share.SecretKey, s.encryptionKey)
+	encryptedSecret, err := encryptShareCredential(share.SecretKey, s.encryptionKey())
 	if err != nil {
 		return fmt.Errorf("failed to encrypt share secret key: %w", err)
 	}
@@ -370,7 +378,7 @@ func (s *SQLiteStore) scanShare(scanner interface {
 	}
 
 	// Decrypt secret_key after reading from database
-	plain, err := decryptShareCredential(share.SecretKey, s.encryptionKey)
+	plain, err := decryptShareCredential(share.SecretKey, s.encryptionKey())
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt share secret key: %w", err)
 	}

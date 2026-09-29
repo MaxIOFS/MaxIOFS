@@ -223,7 +223,15 @@ const getHealthIcon = (status: HealthStatus) => {
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.endpoint}</span></TableCell>
-                    <TableCell className="whitespace-nowrap">{getHealthBadge(node.health_status)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {getHealthBadge(node.health_status)}
+                      {node.encryption_secret_matches === false && (
+                        <div className="mt-1 flex items-center gap-1 text-xs text-error-600 dark:text-error-400" title={t('encryptionSecretMismatchHint')}>
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {t('encryptionSecretMismatch')}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.latency_ms}ms</span></TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.bucket_count}</span></TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.priority}</span></TableCell>

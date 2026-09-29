@@ -85,6 +85,8 @@
   "statusDead": "停止",
   "statusStoragePressure": "ストレージ圧迫",
   "thisNode": "（このノード）",
+  "encryptionSecretMismatch": "暗号化シークレットが異なります",
+  "encryptionSecretMismatchHint": "このノードは他のノードが保存する認証情報を復号できません。コーディネーターが1分以内にシークレットを送信します。解消しない場合は両ノードのログを確認してください。",
 
   "clusterDegradedTitle": "クラスターが劣化しています",
   "clusterDegradedFallback": "クラスターが設定されたレプリケーションファクターを維持できません。ストレージを拡張するかレプリケーションファクターを下げてください。",

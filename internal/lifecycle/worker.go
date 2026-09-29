@@ -19,6 +19,7 @@ type Worker struct {
 	metadataStore    metadata.Store
 	defaultAbortDays func() int
 	writeGate        func(bucket string) (leave func(), ok bool)
+	expires          func() bool
 	ticker           *time.Ticker
 	stopChan         chan struct{}
 	stopOnce         sync.Once
@@ -46,6 +47,20 @@ func (w *Worker) SetDefaultAbortIncompleteDays(days func() int) {
 // waits for a pass under way.
 func (w *Worker) SetWriteGate(enter func(bucket string) (leave func(), ok bool)) {
 	w.writeGate = enter
+}
+
+// SetObjectManager replaces the object manager the worker deletes through,
+// before Start: in a cluster, the one that sends the deletes to the other nodes.
+func (w *Worker) SetObjectManager(om object.Manager) {
+	w.objectManager = om
+}
+
+// SetExpirationGate decides, at each pass, whether this node expires objects.
+// With every node holding every bucket, one node expires them and the others
+// receive its deletes. Incomplete multipart uploads are aborted on every node:
+// each one lives on the node it was started on.
+func (w *Worker) SetExpirationGate(expires func() bool) {
+	w.expires = expires
 }
 
 // bucketAbortsIncompleteUploads reports whether the bucket already decides for
@@ -164,10 +179,16 @@ func (w *Worker) processBucket(ctx context.Context, bkt bucket.Bucket) {
 		return
 	}
 
+	expires := w.expires == nil || w.expires()
+
 	// Process each lifecycle rule
 	for _, rule := range bucketInfo.Lifecycle.Rules {
 		if rule.Status != "Enabled" {
 			continue
+		}
+		if !expires {
+			rule.NoncurrentVersionExpiration = nil
+			rule.Expiration = nil
 		}
 
 		w.processLifecycleRule(ctx, bkt.TenantID, bkt.Name, rule)

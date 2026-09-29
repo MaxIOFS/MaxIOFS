@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `POST /api/v1/cluster/buckets/{bucket}/migrate` answers `202` and moves the bucket in the background, on the node it lives on; a request that reaches another node is forwarded there. `delete_source: false` is refused and `verify_data` is ignored: the source copy is always removed and the copy always verified.
 - While a bucket is migrated its writes answer `503` (S3 `ServiceUnavailable`, console `BUCKET_MIGRATING`), and lifecycle skips it; reads go on.
 - A node checks its own buckets before a cached location. A request forwarded to a node that no longer holds the bucket answers `503` with `X-MaxIOFS-Bucket-Not-Here`, and the forwarding node forgets the location.
+- With a replication factor above 1, the coordinator expires objects by lifecycle rules and its deletes reach the other nodes; every node aborts the incomplete multipart uploads started on it. Expiration ran on the node the rule was set on, and its deletes did not reach the others.
+- A bucket's `UpdatedAt` dates its configuration: object writes and statistics recounts no longer change it.
+- The secret stored credentials are encrypted with (identity provider secrets, replication destination keys, share link keys) lives in the database, like the KEK. The first start stores `auth.encryption_secret`, or else an explicit `auth.jwt_secret`, or else a generated one; the configuration is not read again. The JWT secret no longer encrypts anything. Migration 21.
+- In a cluster every node holds the cluster's encryption secret: a node that joins takes it and re-encrypts what it stores; the coordinator gives it to a node that holds another. The Nodes page marks a node that holds another secret.
+- At startup the log names the stored credentials the encryption secret does not decrypt.
 
 ### Fixed
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
@@ -62,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every console request about a bucket's settings or objects goes to the node that holds it. Setting changes went to the coordinator, which answered `404` unless it held the bucket; most other requests ran on the receiving node.
 - Creating a bucket whose name another node holds answers `409`, from the S3 API and the console. A second bucket of that name was created on the receiving node.
 - Bucket permissions are granted on the coordinator for a bucket held by any node. The coordinator looked for the bucket among its own.
+- With a replication factor above 1, buckets reach every node. Creating a bucket, changing its configuration or ACL, and deleting it are sent to the other nodes before the request returns; a node that missed them is sent every bucket before the objects when it is caught up, when it becomes a replica, at every anti-entropy cycle and when a node starts. A bucket existed only on the node that created it: the other nodes refused its objects, so each write was kept on one node, and its configuration applied on one node. A cluster in that state converges after the upgrade.
+- A tenant deletion received from another node no longer removes a tenant changed here after the deletion, with its users and access keys. The tenants table keeps change times as unix seconds and they were read as timestamps, so the deletion always won.
+- The reconciliation of a node back from a partition read the tenants' change times the same way and failed whenever a tenant existed.
+- Stored credentials are decrypted after a restart when neither `auth.jwt_secret` nor `auth.encryption_secret` is configured. They were encrypted with a JWT secret generated anew each start, so a restart made share links, replication destination keys and identity provider secrets unreadable. Those stored before this release have to be entered again; the log names them.
+- The settings API no longer returns the JWT signing secret; the console showed it under Security.
 
 ### Removed
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
@@ -76,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bucket migration tests between two complete nodes: every version and its state moved and verified, writes held and writes under way waited for, failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target, stale locations.
 - Cluster routing tests with an AWS SDK client and the console between two complete nodes: bucket operations reach the node that holds the bucket, bucket names are unique across nodes, bucket permissions find a bucket on another node.
 - Tests for suspended DELETE, bucket creation over a pending removal, object ACL ownership and migration, and tenant usage and synchronisation between nodes.
+- HA bucket tests between two complete nodes: every bucket change reaches the other node, in both directions; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data; refusals. Lifecycle expiration on the coordinator only.
+- Encryption secret tests: stored once and kept across restarts; adoption re-encrypts every stored credential in one transaction; each component's credentials re-encrypted; a real join between two nodes; the coordinator gives its secret and no other node can; the settings never show the JWT secret.
 
 ## [1.7.0] - 2026-09-18
 

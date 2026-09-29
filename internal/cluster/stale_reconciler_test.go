@@ -51,7 +51,7 @@ func setupReconcilerDB(t *testing.T) (*sql.DB, *Manager, *StaleReconciler, func(
 // and the per-entity push methods.
 func createEntityTablesForReconciler(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
-		// tenants — updated_at is a TIMESTAMP column (time.Time when scanned)
+		// tenants — updated_at stored as INTEGER (Unix seconds)
 		`CREATE TABLE IF NOT EXISTS tenants (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
@@ -64,8 +64,8 @@ func createEntityTablesForReconciler(ctx context.Context, db *sql.DB) error {
 			max_buckets INTEGER DEFAULT 10,
 			current_buckets INTEGER DEFAULT 0,
 			metadata TEXT DEFAULT '{}',
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
 		)`,
 		// users — updated_at stored as INTEGER (Unix seconds)
 		`CREATE TABLE IF NOT EXISTS users (
@@ -299,7 +299,7 @@ func TestBuildLocalSnapshot_WithEntities(t *testing.T) {
 	// One of each entity type
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('t1', 'Tenant1', 'active', ?, ?)`,
-		now, now)
+		nowUnix, nowUnix)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx,
@@ -374,14 +374,14 @@ func TestEntityIsNewerThanTombstone(t *testing.T) {
 	futureUnix := future.Unix()
 	tombstoneAt := time.Now().Unix() // tombstone is "now"
 
-	// Tenants (TIMESTAMP column)
+	// Tenants (INTEGER column)
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('t-old', 'Old', 'active', ?, ?)`,
-		past, past)
+		pastUnix, pastUnix)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('t-new', 'New', 'active', ?, ?)`,
-		future, future)
+		futureUnix, futureUnix)
 	require.NoError(t, err)
 
 	// Users (INTEGER column)
@@ -669,7 +669,7 @@ func TestReconcile_ModeOffline_DoesNotPushEntities(t *testing.T) {
 	now := time.Now()
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('t1', 'T1', 'active', ?, ?)`,
-		now, now)
+		now.Unix(), now.Unix())
 	require.NoError(t, err)
 
 	var mu sync.Mutex

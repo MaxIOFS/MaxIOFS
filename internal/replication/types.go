@@ -113,6 +113,6 @@ type ReplicationConfig struct {
 	MaxRetries              int           `json:"max_retries"`
 	CleanupInterval         time.Duration `json:"cleanup_interval"`
 	RetentionDays           int           `json:"retention_days"`
-	CredentialEncryptionKey string        `json:"-"` // never serialise the key
+	CredentialEncryptionKey func() string `json:"-"` // returns the current key; never serialised
 	AllowInternalEndpoints  bool          `json:"allow_internal_endpoints"`
 }

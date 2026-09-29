@@ -567,8 +567,15 @@ func (m *Manager) GetBool(key string) (bool, error) {
 	}
 }
 
+// secretSettings are rows of system_settings that hold secrets. They are
+// never listed, read or changed through the settings of this manager.
+var secretSettings = map[string]bool{"jwt_secret": true}
+
 // GetSetting retrieves a full setting object
 func (m *Manager) GetSetting(key string) (*Setting, error) {
+	if secretSettings[key] {
+		return nil, fmt.Errorf("setting not found: %s", key)
+	}
 	var setting Setting
 	query := `
 	SELECT key, value, type, category, description, editable, created_at, updated_at
@@ -700,6 +707,9 @@ func (m *Manager) ListAll() ([]Setting, error) {
 		setting.CreatedAt = time.Unix(createdAt, 0)
 		setting.UpdatedAt = time.Unix(updatedAt, 0)
 
+		if secretSettings[setting.Key] {
+			continue
+		}
 		settings = append(settings, setting)
 	}
 
@@ -743,6 +753,9 @@ func (m *Manager) ListByCategory(category string) ([]Setting, error) {
 		setting.CreatedAt = time.Unix(createdAt, 0)
 		setting.UpdatedAt = time.Unix(updatedAt, 0)
 
+		if secretSettings[setting.Key] {
+			continue
+		}
 		settings = append(settings, setting)
 	}
 

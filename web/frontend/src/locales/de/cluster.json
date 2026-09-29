@@ -85,6 +85,8 @@
   "statusDead": "Ausgefallen",
   "statusStoragePressure": "Speicherdruck",
   "thisNode": "(Dieser Knoten)",
+  "encryptionSecretMismatch": "Abweichender Verschlüsselungsschlüssel",
+  "encryptionSecretMismatchHint": "Dieser Knoten kann die von den anderen gespeicherten Zugangsdaten nicht entschlüsseln. Der Koordinator sendet ihm innerhalb einer Minute seinen Schlüssel; bleibt es bestehen, prüfen Sie die Logs beider Knoten.",
 
   "clusterDegradedTitle": "Cluster beeinträchtigt",
   "clusterDegradedFallback": "Der Cluster kann den konfigurierten Replikationsfaktor nicht aufrechterhalten. Fügen Sie Kapazität hinzu oder reduzieren Sie den Faktor.",

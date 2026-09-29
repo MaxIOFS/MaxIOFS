@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -26,10 +27,17 @@ func (stuckDirectoryBackend) DeleteBucket(context.Context, string) error {
 }
 
 func setupCreateEntryTest(t *testing.T) (storage.Backend, metadata.Store) {
+	backend, store, _ := setupCreateEntryTestAt(t)
+	return backend, store
+}
+
+// setupCreateEntryTestAt also returns the storage root.
+func setupCreateEntryTestAt(t *testing.T) (storage.Backend, metadata.Store, string) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "maxiofs-create-entry-*")
 	require.NoError(t, err)
-	backend, err := storage.NewBackend(config.StorageConfig{Backend: "filesystem", Root: filepath.Join(dir, "storage")})
+	storageRoot := filepath.Join(dir, "storage")
+	backend, err := storage.NewBackend(config.StorageConfig{Backend: "filesystem", Root: storageRoot})
 	require.NoError(t, err)
 	store, err := metadata.NewPebbleStore(metadata.PebbleOptions{DataDir: filepath.Join(dir, "metadata"), Logger: logrus.StandardLogger()})
 	require.NoError(t, err)
@@ -37,7 +45,7 @@ func setupCreateEntryTest(t *testing.T) (storage.Backend, metadata.Store) {
 		store.Close()
 		os.RemoveAll(dir)
 	})
-	return backend, store
+	return backend, store, storageRoot
 }
 
 // A bucket deleted while its directory could not be removed leaves the
@@ -80,6 +88,53 @@ func TestCreatingABucketThatExistsTouchesNothing(t *testing.T) {
 	err := NewManager(backend, store).CreateBucket(ctx, "", "alive", "u")
 	require.ErrorIs(t, err, ErrBucketAlreadyExists)
 	exists, err := backend.Exists(ctx, live)
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
+// A bucket another node holds is created here as a new bucket is: what an
+// earlier bucket at its path left is removed first, and it gets its directory.
+// A later version replaces its configuration; the objects stay.
+func TestAReplicatedBucketIsCreatedAsANewOne(t *testing.T) {
+	backend, store, storageRoot := setupCreateEntryTestAt(t)
+	ctx := context.Background()
+	leftover := storage.ObjectRef{Bucket: "copied", Key: "leftover.bin"}
+	require.NoError(t, NewManager(backend, store).CreateBucket(ctx, "", "copied", "u"))
+	require.NoError(t, backend.Put(ctx, leftover, strings.NewReader("old bytes"), nil))
+	require.NoError(t, store.DeleteBucket(ctx, "", "copied"))
+	remote := &metadata.BucketMetadata{Name: "copied", OwnerID: "u", UpdatedAt: time.Now()}
+
+	_, _, err := ApplyReplicaEntry(ctx, store, stuckDirectoryBackend{backend}, remote)
+	require.Error(t, err)
+	_, err = store.GetBucketByName(ctx, "copied")
+	require.ErrorIs(t, err, metadata.ErrBucketNotFound, "not created over what it could not remove")
+
+	applied, created, err := ApplyReplicaEntry(ctx, store, backend, remote)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.True(t, created)
+	exists, err := backend.Exists(ctx, leftover)
+	require.NoError(t, err)
+	require.False(t, exists, "the bucket starts empty")
+	// The directory carries the marker the storage layout records a bucket's
+	// path in.
+	marker, err := os.ReadFile(filepath.Join(storageRoot, storage.BucketDirName("copied"), ".maxiofs-bucket"))
+	require.NoError(t, err)
+	require.Equal(t, "copied", string(marker))
+	kept := storage.ObjectRef{Bucket: "copied", Key: "kept.bin"}
+	require.NoError(t, backend.Put(ctx, kept, strings.NewReader("new bytes"), nil), "its directory exists")
+
+	later := *remote
+	later.UpdatedAt = remote.UpdatedAt.Add(time.Second)
+	later.Tags = map[string]string{"k": "v"}
+	applied, created, err = ApplyReplicaEntry(ctx, store, backend, &later)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.False(t, created)
+	got, err := store.GetBucket(ctx, "", "copied")
+	require.NoError(t, err)
+	require.Equal(t, "v", got.Tags["k"])
+	exists, err = backend.Exists(ctx, kept)
 	require.NoError(t, err)
 	require.True(t, exists)
 }

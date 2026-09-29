@@ -95,25 +95,10 @@ func BuildLocalSnapshot(ctx context.Context, nodeID string, db *sql.DB) (*StateS
 	return snap, nil
 }
 
-// snapshotTenantStamps reads (id, updated_at) from the tenants table.
-// tenants.updated_at is a TIMESTAMP column that SQLite returns as time.Time.
+// snapshotTenantStamps reads (id, updated_at) from the tenants table, which
+// keeps unix seconds.
 func snapshotTenantStamps(ctx context.Context, db *sql.DB) ([]EntityStamp, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, updated_at FROM tenants")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var stamps []EntityStamp
-	for rows.Next() {
-		var id string
-		var updatedAt time.Time
-		if err := rows.Scan(&id, &updatedAt); err != nil {
-			return nil, err
-		}
-		stamps = append(stamps, EntityStamp{ID: id, UpdatedAt: updatedAt.Unix()})
-	}
-	return stamps, rows.Err()
+	return snapshotInt64Stamps(ctx, db, "SELECT id, updated_at FROM tenants")
 }
 
 // snapshotInt64Stamps executes a query returning exactly (id TEXT, ts INTEGER)

@@ -79,9 +79,9 @@ auth:
   jwt_secret: ""
 
   # Encrypts the secrets of identity providers, replication targets and share
-  # links before they are stored. Not an S3 credential. Falls back to
-  # jwt_secret when empty, and changing it makes what was stored with the
-  # previous value unreadable.
+  # links before they are stored. Not an S3 credential. Stored in the database
+  # on first start, from this value, or else from jwt_secret, or else
+  # generated; ignored afterwards. In a cluster every node holds the cluster's.
   encryption_secret: ""
 
 audit:

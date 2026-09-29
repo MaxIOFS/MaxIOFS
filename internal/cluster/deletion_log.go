@@ -171,11 +171,11 @@ func DeletionTime(ctx context.Context, db *sql.DB, entityType, entityID string) 
 func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
 	switch entityType {
 	case EntityTypeTenant:
-		var updatedAt time.Time
+		var updatedAt int64
 		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
 			return false // entity not found or error → tombstone wins
 		}
-		return updatedAt.Unix() > deletedAt
+		return updatedAt > deletedAt
 
 	case EntityTypeUser:
 		var updatedAt int64
@@ -248,6 +248,11 @@ func RunDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge tim
 				log.WithError(err).Error("Failed to cleanup old deletions")
 			} else if count > 0 {
 				log.WithField("count", count).Info("Cleaned up old deletion log entries")
+			}
+			if count, err := cleanupBucketTombstones(ctx, db, maxAge); err != nil {
+				log.WithError(err).Error("Failed to clean up old bucket deletions")
+			} else if count > 0 {
+				log.WithField("count", count).Info("Cleaned up old bucket deletions")
 			}
 		}
 	}

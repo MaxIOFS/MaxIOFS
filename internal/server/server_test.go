@@ -170,6 +170,7 @@ func TestServerNewRegistersManagedComponents(t *testing.T) {
 		"stsSessionSync",
 		"iamSync",
 		"leader",
+		"encryptionSecretSync",
 		"bucketPermissionSync",
 		"idpProviderSync",
 		"groupMappingSync",
