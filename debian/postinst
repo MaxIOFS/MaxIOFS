@@ -29,6 +29,8 @@ case "$1" in
             # Fresh install - create from example
             echo "Creating initial config.yaml from example..."
             cp /etc/maxiofs/config.example.yaml /etc/maxiofs/config.yaml
+            # Adjust data_dir for system installation
+            sed -i 's|data_dir: "./data"|data_dir: "/var/lib/maxiofs"|' /etc/maxiofs/config.yaml
         else
             # Config exists and no backup needed
             echo "Preserving existing config.yaml (contains service credentials and secrets)"

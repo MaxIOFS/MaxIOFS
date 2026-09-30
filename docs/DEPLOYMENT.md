@@ -130,9 +130,8 @@ RestartSec=5s
 TimeoutStopSec=600
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/maxiofs
+# Read-only system and configuration; data wherever config.yaml puts it.
+ProtectSystem=full
 LimitNOFILE=65536
 
 [Install]

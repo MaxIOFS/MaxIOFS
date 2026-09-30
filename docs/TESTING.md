@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **311 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **314 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -164,7 +164,7 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 39 test files
+### `internal/cluster/` — 40 test files
 
 | File | Description |
 |------|-------------|
@@ -176,7 +176,8 @@ npx vitest run --coverage
 | `cache_test.go` | Cluster cache invalidation |
 | `circuit_breaker_test.go` | Circuit breaker for unhealthy nodes |
 | `dead_node_reconciler_test.go` | Dead-node replica redistribution |
-| `deletion_log_test.go` | Tombstone-based deletion sync |
+| `deletion_log_test.go` | Tombstone-based deletion sync: a deletion keeps its time and the later of two records; each node is sent each deletion once, in order, and again when it changes |
+| `deletion_order_test.go` | A deletion is dated after the last change of what it removes; entities of every type and their deletions are ordered by time, the same second keeping the entity; an earlier release's deletion log is repaired once; the IAM payload carries deletion times |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
 | `ha_bucket_state_test.go` | Bucket deletions are pruned with the deletion log, the later of two deletions winning |
 | `ha_row_state_test.go` | Rows of the replicated tables, on the real schema with foreign keys: the order of versions, deletions and content; a stored row keeps the rows that reference it; a report follows its configuration; rows that may not coexist converge on one; refusals; expired shares; a change dated after any version held; a synchronization sends every row and deletion in batches; old versions are forgotten |
@@ -434,12 +435,13 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 44 test files
+### `internal/server/` — 46 test files
 
 | File | Description |
 |------|-------------|
 | `bucket_aggregation_test.go` | Multi-node bucket aggregation API |
 | `bucket_quota_handlers_test.go` | A bucket quota is authorized against its own tenant, not `?tenantId=` |
+| `bucket_ownership_test.go` | A bucket a client deletes, forced or not, takes its shares, rules, inventory, permissions, policies, notification configuration and integrity scans: a share link of the old bucket opens nothing in a new one; a new bucket starts without what a former one left; the state of deleted buckets is dropped at start; with a factor of 2 on every node |
 | `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too; the directory of a bucket created since is kept |
 | `bucket_routing_test.go` | Between two complete nodes, every S3 request (AWS SDK client) and console request about a bucket reaches the node that holds it; bucket names are unique across nodes; bucket permissions stay with the coordinator and find a bucket on another node |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
@@ -452,6 +454,7 @@ npx vitest run --coverage
 | `console_proxy_test.go` | The console proxy client bounds reachability checks, not transfer size |
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth |
+| `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for |
 | `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints |
 | `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |

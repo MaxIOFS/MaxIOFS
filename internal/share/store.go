@@ -14,4 +14,7 @@ type Store interface {
 	ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error)
 	DeleteShare(ctx context.Context, shareID string) error
 	DeleteExpiredShares(ctx context.Context) error
+	// DeleteBucketShares deletes every share of a bucket, expired ones too,
+	// and returns their IDs.
+	DeleteBucketShares(ctx context.Context, bucketName, tenantID string) ([]string, error)
 }

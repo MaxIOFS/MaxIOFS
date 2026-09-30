@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
@@ -36,7 +37,7 @@ func (s *Server) handleReceiveIAMSync(w http.ResponseWriter, r *http.Request) {
 	applied += s.applyIAMAttachments(ctx, payload.Attachments)
 	applied += s.applyIAMInlinePolicies(ctx, payload.Inline)
 
-	removed := s.applyIAMDeletions(ctx, payload.Deletions, sourceNodeID)
+	removed := s.applyIAMDeletions(ctx, &payload, sourceNodeID)
 
 	logrus.WithFields(logrus.Fields{
 		"source_node_id": sourceNodeID,
@@ -51,7 +52,7 @@ func (s *Server) handleReceiveIAMSync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) applyIAMPolicies(ctx context.Context, policies []*cluster.IAMPolicyData) int {
 	applied := 0
 	for _, p := range policies {
-		if tombstoned, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIAMPolicy, p.Name); tombstoned {
+		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIAMPolicy, p.Name, p.UpdatedAt) {
 			continue
 		}
 		if !s.iamIncomingIsNewer(ctx, `SELECT updated_at FROM iam_policies WHERE name = ?`, p.Name, p.UpdatedAt) {
@@ -88,7 +89,7 @@ func (s *Server) applyIAMPolicies(ctx context.Context, policies []*cluster.IAMPo
 func (s *Server) applyIAMRoles(ctx context.Context, roles []*cluster.IAMRoleData) int {
 	applied := 0
 	for _, role := range roles {
-		if tombstoned, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIAMRole, role.Name); tombstoned {
+		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIAMRole, role.Name, role.UpdatedAt) {
 			continue
 		}
 		if !s.iamIncomingIsNewer(ctx, `SELECT updated_at FROM iam_roles WHERE name = ?`, role.Name, role.UpdatedAt) {
@@ -111,8 +112,8 @@ func (s *Server) applyIAMRoles(ctx context.Context, roles []*cluster.IAMRoleData
 func (s *Server) applyIAMAttachments(ctx context.Context, attachments []*cluster.IAMAttachmentData) int {
 	applied := 0
 	for _, a := range attachments {
-		id := iamAttachmentTombstoneID(a.PolicyName, a.TargetType, a.TargetID)
-		if tombstoned, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIAMAttachment, id); tombstoned {
+		id := cluster.IAMAttachmentID(a.PolicyName, a.TargetType, a.TargetID)
+		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIAMAttachment, id, a.AttachedAt) {
 			continue
 		}
 		if _, err := s.db.ExecContext(ctx, `
@@ -131,8 +132,8 @@ func (s *Server) applyIAMAttachments(ctx context.Context, attachments []*cluster
 func (s *Server) applyIAMInlinePolicies(ctx context.Context, inline []*cluster.IAMInlinePolicyData) int {
 	applied := 0
 	for _, p := range inline {
-		id := iamInlineTombstoneID(p.TargetType, p.TargetID, p.Name)
-		if tombstoned, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIAMInlinePolicy, id); tombstoned {
+		id := cluster.IAMInlinePolicyID(p.TargetType, p.TargetID, p.Name)
+		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIAMInlinePolicy, id, p.UpdatedAt) {
 			continue
 		}
 
@@ -158,11 +159,21 @@ func (s *Server) applyIAMInlinePolicies(ctx context.Context, inline []*cluster.I
 	return applied
 }
 
-func (s *Server) applyIAMDeletions(ctx context.Context, deletions map[string][]string, sourceNodeID string) int {
+// applyIAMDeletions records the deletions a peer sends and removes each
+// entity this node holds that did not change after its deletion. An earlier
+// release sends no time: the deletion log carries it.
+func (s *Server) applyIAMDeletions(ctx context.Context, payload *cluster.IAMSyncPayload, sourceNodeID string) int {
 	removed := 0
-	for entityType, ids := range deletions {
+	for entityType, ids := range payload.Deletions {
 		for _, id := range ids {
-			if err := cluster.RecordDeletion(ctx, s.db, entityType, id, sourceNodeID); err != nil {
+			deletedAt := payload.DeletedAt[entityType][id]
+			if deletedAt <= 0 {
+				deletedAt = cluster.DeletionTime(ctx, s.db, entityType, id)
+			}
+			if deletedAt <= 0 || cluster.EntityIsNewerThanTombstone(ctx, s.db, entityType, id, deletedAt) {
+				continue
+			}
+			if err := cluster.RecordDeletion(ctx, s.db, entityType, id, sourceNodeID, deletedAt); err != nil {
 				logrus.WithError(err).Warn("Failed to record IAM tombstone")
 			}
 			if s.deleteIAMEntityLocally(ctx, entityType, id) {
@@ -185,7 +196,7 @@ func (s *Server) deleteIAMEntityLocally(ctx context.Context, entityType, id stri
 	case cluster.EntityTypeIAMRole:
 		_, err = s.db.ExecContext(ctx, `DELETE FROM iam_roles WHERE name = ?`, id)
 	case cluster.EntityTypeIAMAttachment:
-		policyName, targetType, targetID, ok := splitIAMCompositeID(id)
+		policyName, targetType, targetID, ok := cluster.SplitIAMID(id)
 		if !ok {
 			return false
 		}
@@ -194,7 +205,7 @@ func (s *Server) deleteIAMEntityLocally(ctx context.Context, entityType, id stri
 			WHERE policy_name = ? AND target_type = ? AND target_id = ?
 		`, policyName, targetType, targetID)
 	case cluster.EntityTypeIAMInlinePolicy:
-		targetType, targetID, name, ok := splitIAMCompositeID(id)
+		targetType, targetID, name, ok := cluster.SplitIAMID(id)
 		if !ok {
 			return false
 		}
@@ -224,21 +235,55 @@ func (s *Server) iamIncomingIsNewer(ctx context.Context, query, key string, inco
 
 // --- tombstone recording, used by the IAM handler ---
 
-// recordIAMDeletion writes the tombstone that stops a deleted IAM entity from
-// being resurrected by a peer that still has it, and pushes the change out.
-// Outside a cluster it is a cheap no-op row.
-func (s *Server) recordIAMDeletion(ctx context.Context, entityType, entityID string) {
+// iamDeletion is an IAM entity a request is about to delete, with the time of
+// its last change, read while it is still there.
+type iamDeletion struct {
+	entityType, id string
+	lastChange     int64
+}
+
+// changedAt returns when this node's copy of an entity last changed (unix
+// seconds), read before a deletion dates itself after it; 0 when unknown.
+func (s *Server) changedAt(ctx context.Context, entityType, id string) int64 {
+	if s.db == nil {
+		return 0
+	}
+	at, _ := cluster.EntityUpdatedAt(ctx, s.db, entityType, id)
+	return at
+}
+
+// iamAboutToDelete reads when each named IAM entity last changed, before the
+// request deletes it.
+func (s *Server) iamAboutToDelete(ctx context.Context, entityType string, ids ...string) []iamDeletion {
+	out := make([]iamDeletion, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, iamDeletion{entityType: entityType, id: id, lastChange: s.changedAt(ctx, entityType, id)})
+	}
+	return out
+}
+
+// recordIAMDeletions writes, once the entities are gone, the tombstones that
+// stop a peer that still has them from bringing them back, each dated after
+// the entity's last change, and pushes them out.
+func (s *Server) recordIAMDeletions(ctx context.Context, deletions ...[]iamDeletion) {
 	nodeID := ""
 	if s.clusterManager != nil {
 		if id, err := s.clusterManager.GetLocalNodeID(ctx); err == nil {
 			nodeID = id
 		}
 	}
-	if err := cluster.RecordDeletion(ctx, s.db, entityType, entityID, nodeID); err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"entity_type": entityType,
-			"entity_id":   entityID,
-		}).Warn("Failed to record IAM deletion tombstone")
+	for _, list := range deletions {
+		for _, d := range list {
+			if s.db == nil {
+				break
+			}
+			if err := cluster.RecordDeletion(ctx, s.db, d.entityType, d.id, nodeID, cluster.DeletedAfter(d.lastChange)); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"entity_type": d.entityType,
+					"entity_id":   d.id,
+				}).Warn("Failed to record IAM deletion tombstone")
+			}
+		}
 	}
 	s.triggerIAMSync(ctx)
 }
@@ -257,66 +302,96 @@ func (s *Server) triggerIAMSync(ctx context.Context) {
 	}
 }
 
-// iamInlinePolicyNames and iamAttachedPolicyNames read what is about to be
-func (s *Server) iamInlinePolicyNames(ctx context.Context, im auth.IAMManager, targetType, targetID string) []string {
-	if targetID == "" {
+// sqlQueryer is a database or a transaction.
+type sqlQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// iamHeldByTarget reads, from q, the inline policies and attachments an
+// identity about to be deleted holds, with the time each last changed.
+func iamHeldByTarget(ctx context.Context, q sqlQueryer, targetType, targetID string) []iamDeletion {
+	var out []iamDeletion
+	for _, part := range []struct {
+		entityType, query string
+		id                func(name string) string
+	}{
+		{cluster.EntityTypeIAMInlinePolicy,
+			`SELECT name, updated_at FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
+			func(name string) string { return cluster.IAMInlinePolicyID(targetType, targetID, name) }},
+		{cluster.EntityTypeIAMAttachment,
+			`SELECT policy_name, attached_at FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
+			func(name string) string { return cluster.IAMAttachmentID(name, targetType, targetID) }},
+	} {
+		rows, err := q.QueryContext(ctx, part.query, targetType, targetID)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var name string
+			var at int64
+			if rows.Scan(&name, &at) == nil {
+				out = append(out, iamDeletion{entityType: part.entityType, id: part.id(name), lastChange: at})
+			}
+		}
+		rows.Close()
+	}
+	return out
+}
+
+// iamHeldByTargets is iamHeldByTarget on the server's database.
+func (s *Server) iamHeldByTargets(ctx context.Context, targetType, targetID string) []iamDeletion {
+	if s.db == nil {
 		return nil
 	}
-	policies, err := im.ListIAMInlinePolicies(ctx, targetType, targetID)
+	return iamHeldByTarget(ctx, s.db, targetType, targetID)
+}
+
+// iamHeldByTenantUsers reads what the users of a tenant about to be deleted
+// hold.
+func (s *Server) iamHeldByTenantUsers(ctx context.Context, tenantID string) []iamDeletion {
+	if s.db == nil {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM users WHERE tenant_id = ?`, tenantID)
 	if err != nil {
 		return nil
 	}
-	names := make([]string, 0, len(policies))
-	for _, p := range policies {
-		names = append(names, p.Name)
-	}
-	return names
-}
-
-func (s *Server) iamAttachedPolicyNames(ctx context.Context, im auth.IAMManager, targetType, targetID string) []string {
-	if targetID == "" {
-		return nil
-	}
-	policies, err := im.ListAttachedIAMPolicies(ctx, targetType, targetID)
-	if err != nil {
-		return nil
-	}
-	names := make([]string, 0, len(policies))
-	for _, p := range policies {
-		names = append(names, p.Name)
-	}
-	return names
-}
-
-func iamAttachmentTombstoneID(policyName, targetType, targetID string) string {
-	return policyName + "/" + targetType + "/" + targetID
-}
-
-func iamInlineTombstoneID(targetType, targetID, name string) string {
-	return targetType + "/" + targetID + "/" + name
-}
-
-// splitIAMCompositeID reverses the three-part tombstone identifiers above.
-func splitIAMCompositeID(id string) (string, string, string, bool) {
-	first := indexByte(id, '/')
-	if first < 0 {
-		return "", "", "", false
-	}
-	second := indexByte(id[first+1:], '/')
-	if second < 0 {
-		return "", "", "", false
-	}
-	second += first + 1
-	return id[:first], id[first+1 : second], id[second+1:], true
-}
-
-func indexByte(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
 		}
 	}
-	return -1
+	rows.Close()
+	var out []iamDeletion
+	for _, id := range ids {
+		out = append(out, iamHeldByTarget(ctx, s.db, auth.IAMTargetUser, id)...)
+	}
+	return out
+}
+
+// iamHeldBy reads the inline policies and attachments an identity about to be
+// deleted holds, with the time each last changed.
+func (s *Server) iamHeldBy(ctx context.Context, im auth.IAMManager, targetType, targetID string) (inline, attached []iamDeletion) {
+	if targetID == "" {
+		return nil, nil
+	}
+	if policies, err := im.ListIAMInlinePolicies(ctx, targetType, targetID); err == nil {
+		for _, p := range policies {
+			inline = append(inline, s.iamAboutToDelete(ctx, cluster.EntityTypeIAMInlinePolicy,
+				cluster.IAMInlinePolicyID(targetType, targetID, p.Name))...)
+		}
+	}
+	if policies, err := im.ListAttachedIAMPolicies(ctx, targetType, targetID); err == nil {
+		for _, p := range policies {
+			attached = append(attached, s.iamAboutToDelete(ctx, cluster.EntityTypeIAMAttachment,
+				cluster.IAMAttachmentID(p.Name, targetType, targetID))...)
+		}
+	}
+	return inline, attached
 }
 
 func nullableString(s string) interface{} {

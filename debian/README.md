@@ -238,10 +238,9 @@ The systemd service includes security hardening:
 
 - `PrivateTmp=true`: Isolated /tmp directory
 - `NoNewPrivileges=true`: Prevents privilege escalation
-- `ProtectSystem=strict`: Read-only /usr, /boot, /efi
-- `ProtectHome=true`: Inaccessible /home directories
-- `ReadWritePaths=/var/lib/maxiofs /var/log/maxiofs`: Only necessary paths writable
-- `CapabilityBoundingSet=`: Minimal capabilities
+- `ProtectSystem=full`: Read-only /usr, /boot, /efi and /etc. Data and logs may live on any path the `maxiofs` user can write, as `config.yaml` sets them: the unit names no data path, so an upgrade needs no change to it
+- `ProtectKernelTunables`, `ProtectKernelModules`, `ProtectControlGroups`, `RestrictRealtime`, `RestrictNamespaces`: No access to kernel settings, modules, cgroups, realtime scheduling or namespaces
+- `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`: Network sockets only
 - `SystemCallFilter=@system-service`: Restricted system calls
 
 ## Production Deployment

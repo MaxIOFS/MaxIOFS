@@ -751,6 +751,13 @@ func New(cfg *config.Config) (*Server, error) {
 	}); ok {
 		bom.SetBucketOwnerPolicyCallback(server.recordBucketOwnerPolicy)
 	}
+	if brm, ok := bucketManager.(interface {
+		SetBucketRemovedCallback(cb func(ctx context.Context, tenantID, name string))
+	}); ok {
+		brm.SetBucketRemovedCallback(server.dropBucketLocalState)
+	}
+	server.dropOrphanedBucketState(context.Background())
+	server.bucketManager = &clientBuckets{Manager: server.bucketManager, s: server}
 
 	// Setup routes
 	if err := server.setupRoutes(); err != nil {

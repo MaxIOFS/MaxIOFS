@@ -57,16 +57,16 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
     { value: 'system', icon: Monitor, label: t('themeSystem') },
   ];
 
-  const languageOptions: { value: Language; flag: string; label: string }[] = [
-    { value: 'en', flag: '🇬🇧', label: t('languageEnglish') },
-    { value: 'es', flag: '🇪🇸', label: t('languageSpanish') },
-    { value: 'fr', flag: '🇫🇷', label: t('languageFrench') },
-    { value: 'de', flag: '🇩🇪', label: t('languageGerman') },
-    { value: 'it', flag: '🇮🇹', label: t('languageItalian') },
-    { value: 'pt', flag: '🇧🇷', label: t('languagePortuguese') },
-    { value: 'zh', flag: '🇨🇳', label: t('languageChinese') },
-    { value: 'ja', flag: '🇯🇵', label: t('languageJapanese') },
-    { value: 'ru', flag: '🇷🇺', label: t('languageRussian') },
+  const languageOptions: { value: Language; label: string }[] = [
+    { value: 'en', label: t('languageEnglish') },
+    { value: 'es', label: t('languageSpanish') },
+    { value: 'fr', label: t('languageFrench') },
+    { value: 'de', label: t('languageGerman') },
+    { value: 'it', label: t('languageItalian') },
+    { value: 'pt', label: t('languagePortuguese') },
+    { value: 'zh', label: t('languageChinese') },
+    { value: 'ja', label: t('languageJapanese') },
+    { value: 'ru', label: t('languageRussian') },
   ];
 
   return (
@@ -119,9 +119,9 @@ export function UserPreferences({ disabled = false }: UserPreferencesProps) {
                 : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            {languageOptions.map(({ value, flag, label }) => (
+            {languageOptions.map(({ value, label }) => (
               <option key={value} value={value}>
-                {flag} {label}
+                {label}
               </option>
             ))}
           </select>

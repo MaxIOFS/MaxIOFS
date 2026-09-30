@@ -260,6 +260,7 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 
 	linkedCount, _ := s.idpManager.CountLinkedUsers(r.Context(), providerID, existing.Type)
 
+	providerChanged := s.changedAt(r.Context(), cluster.EntityTypeIDPProvider, providerID)
 	if err := s.idpManager.DeleteProvider(r.Context(), providerID); err != nil {
 		logrus.WithError(err).Error("Failed to delete identity provider")
 		s.writeError(w, "Failed to delete identity provider", http.StatusInternalServerError)
@@ -271,7 +272,7 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeIDPProvider, providerID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeIDPProvider, providerID, nodeID, cluster.DeletedAfter(providerChanged)); err != nil {
 			logrus.WithError(err).WithField("provider_id", providerID).Warn("Failed to record IDP provider deletion tombstone")
 		}
 	}
@@ -647,6 +648,7 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 
 	mappingID := mux.Vars(r)["mapId"]
 
+	mappingChanged := s.changedAt(r.Context(), cluster.EntityTypeGroupMapping, mappingID)
 	if err := s.idpManager.DeleteGroupMapping(r.Context(), mappingID); err != nil {
 		s.writeError(w, "Failed to delete group mapping", http.StatusInternalServerError)
 		return
@@ -657,7 +659,7 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroupMapping, mappingID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeGroupMapping, mappingID, nodeID, cluster.DeletedAfter(mappingChanged)); err != nil {
 			logrus.WithError(err).WithField("mapping_id", mappingID).Warn("Failed to record group mapping deletion tombstone")
 		}
 	}

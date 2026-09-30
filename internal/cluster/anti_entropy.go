@@ -505,9 +505,9 @@ func (s *AntiEntropyScrubber) executeCycle(ctx context.Context, cp *ScrubCheckpo
 
 // replayDeletes sends node the deletes recorded here since the given time. A
 // version delete names one version and is always sent. A delete of a whole key
-// is sent only while the key is still deleted here and node's copy is not newer
-// than the delete — the rule the scrubber applies to deletes — so a key the
-// node wrote after the delete, during a partition, is kept.
+// is sent only while the key is still deleted here and node's copy was written
+// before the second of the delete — the rule the scrubber applies to deletes —
+// so a key the node wrote after the delete, during a partition, is kept.
 func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyClient, node *Node, localID string, since time.Time) error {
 	type keyDelete struct {
 		key       string
@@ -565,7 +565,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 			}
 			for _, d := range chunk {
 				e, ok := there[d.key]
-				if !ok || !e.Found || e.LastModified > d.deletedAt {
+				if !ok || !e.Found || e.LastModified >= d.deletedAt {
 					continue
 				}
 				marker, markedAt, live, err := s.deletedHere(ctx, bucketPath, d.key)
@@ -717,13 +717,14 @@ const (
 // last_modified tolerance.
 // deletedAt is when the cluster recorded a delete for this key, or 0 if it
 // never did. Without it "the peer does not have it" and "the peer deleted it"
-// are the same observation, and the scrubber resurrects deleted objects.
+// are the same observation, and the scrubber resurrects deleted objects. A
+// copy written in the second of the delete or later is kept.
 func classifyDivergence(local *object.Object, peer *ChecksumEntry, deletedAt int64) (divergenceKind, reconcileAction) {
 	if local == nil {
 		return divNone, actNone
 	}
 	if peer == nil || !peer.Found {
-		if deletedAt > 0 && local.LastModified.Unix() <= deletedAt {
+		if deletedAt > 0 && local.LastModified.Unix() < deletedAt {
 			return divPeerMissing, actDeleteLocal
 		}
 		return divPeerMissing, actPushToPeer

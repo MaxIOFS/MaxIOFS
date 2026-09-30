@@ -382,6 +382,34 @@ func (m *Manager) DeleteRule(ctx context.Context, tenantID, ruleID string) error
 	return nil
 }
 
+// DeleteBucketRules deletes every rule whose source is the bucket, with its
+// queue and status.
+func (m *Manager) DeleteBucketRules(ctx context.Context, tenantID, bucket string) error {
+	rows, err := m.db.QueryContext(ctx, `SELECT id FROM replication_rules WHERE source_bucket = ? AND tenant_id = ?`, bucket, tenantID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := m.DeleteRule(ctx, tenantID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // QueueObject queues an object for replication across all matching enabled rules.
 // When called from SyncRule (scheduled/batch), all modes are matched.
 // Use QueueRealtimeObject for hooks from PutObject/DeleteObject.

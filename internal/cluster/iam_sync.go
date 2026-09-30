@@ -71,6 +71,8 @@ type IAMSyncPayload struct {
 	Attachments []*IAMAttachmentData   `json:"attachments"`
 	Inline      []*IAMInlinePolicyData `json:"inline_policies"`
 	Deletions   map[string][]string    `json:"deletions,omitempty"`
+	// DeletedAt is when each deletion was made (unix seconds), by type and id.
+	DeletedAt map[string]map[string]int64 `json:"deleted_at,omitempty"`
 }
 
 // IAMSyncManager replicates IAM entities across cluster nodes.
@@ -189,7 +191,7 @@ func (m *IAMSyncManager) syncAll(ctx context.Context) {
 // buildPayload collects the local IAM state. Returns nil when there is nothing
 // worth sending.
 func (m *IAMSyncManager) buildPayload(ctx context.Context) (*IAMSyncPayload, error) {
-	payload := &IAMSyncPayload{Deletions: map[string][]string{}}
+	payload := &IAMSyncPayload{Deletions: map[string][]string{}, DeletedAt: map[string]map[string]int64{}}
 
 	policies, err := m.listPolicies(ctx)
 	if err != nil {
@@ -216,6 +218,10 @@ func (m *IAMSyncManager) buildPayload(ctx context.Context) (*IAMSyncPayload, err
 		}
 		for _, entry := range entries {
 			payload.Deletions[entityType] = append(payload.Deletions[entityType], entry.EntityID)
+			if payload.DeletedAt[entityType] == nil {
+				payload.DeletedAt[entityType] = map[string]int64{}
+			}
+			payload.DeletedAt[entityType][entry.EntityID] = entry.DeletedAt
 		}
 	}
 

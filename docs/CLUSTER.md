@@ -563,23 +563,18 @@ All 6 entity types are **automatically synchronized** across all cluster nodes e
 - User sessions work correctly after node failover
 - IDP/SSO configurations available on all nodes
 
-### Tombstone-Based Deletion Sync (v0.9.0-beta)
+### Deletions
 
-Deletions are synchronized using a **tombstone-based** approach to prevent entity resurrection in bidirectional sync.
+A deletion is recorded in `cluster_deletion_log` so a node that still holds the entity does not bring it back. It covers users, tenants, access keys, bucket permissions, identity providers, group mappings, groups, STS sessions, IAM policies, roles, attachments and inline policies, and objects.
 
-**Problem solved:** Without tombstones, if you delete a user on Node1, Node2 still has it and would push it back to Node1 on the next sync cycle — causing the deleted entity to reappear indefinitely.
+- A deletion keeps the time it was made on the node that made it, dated after the last change that node knew of what it deleted. Two records of the same deletion keep the later time.
+- An entity and a deletion of it are ordered by time on every node: a copy changed after the deletion is taken, one changed before it is refused, and a deletion removes a copy only if the copy did not change after it. At the same second the entity is kept. Access keys, bucket permissions and STS sessions keep no change time: any deletion of them wins.
+- An object deleted once and written again is kept and sent to the nodes that lack it; a copy written in the second of the deletion counts as written after it.
+- Deleting a user, a tenant or a group records the deletion of the IAM policies they held.
+- Each node sends every other node the deletions it has not taken yet, in the order they were recorded, every 30 seconds (`POST /api/internal/cluster/deletion-log-sync`). A new node is sent the last 7 days.
+- Deletions are forgotten after 7 days. A node away longer can bring back what was deleted meanwhile.
 
-**How it works:**
-1. When an entity is deleted on any node, a tombstone is recorded in `cluster_deletion_log`
-2. Tombstones are synced to all other nodes alongside regular entity sync
-3. When a node receives an entity via sync, it checks for a tombstone — if found, the entity is rejected
-4. Tombstones are automatically cleaned up after 7 days
-5. Endpoint: `POST /api/internal/cluster/deletion-log-sync` (HMAC-authenticated)
-
-**Key design decisions:**
-- Tombstones are authoritative: a deletion entry always wins over an item
-- Single table for all 6 entity types (not 6 separate tables)
-- 7-day TTL is safe because all nodes will have processed the deletion by then
+A bucket deleted by a client takes with it its shares, replication rules, inventory configurations, permissions and the policies naming it; a bucket created by a client starts without what a former bucket of the name left. Every node that removes a bucket, for any reason, drops its notification configuration and integrity scans.
 
 ### Stale Node Reconciler
 

@@ -375,13 +375,79 @@ func createClusterDeletionLogTable(ctx context.Context, db *sql.DB) error {
 		entity_id TEXT NOT NULL,
 		deleted_by_node_id TEXT NOT NULL,
 		deleted_at INTEGER NOT NULL,
+		seq INTEGER NOT NULL DEFAULT 0,
 		UNIQUE(entity_type, entity_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_deletion_log_type ON cluster_deletion_log(entity_type);
 	CREATE INDEX IF NOT EXISTS idx_deletion_log_deleted_at ON cluster_deletion_log(deleted_at);
+	CREATE TABLE IF NOT EXISTS cluster_deletion_log_delivery (
+		node_id TEXT PRIMARY KEY,
+		delivered_seq INTEGER NOT NULL
+	);
 	`
-	_, err := db.ExecContext(ctx, query)
+	if _, err := db.ExecContext(ctx, query); err != nil {
+		return err
+	}
+	if err := applyDeletionLogSeqMigration(ctx, db); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_deletion_log_seq ON cluster_deletion_log(seq)`)
 	return err
+}
+
+// applyDeletionLogSeqMigration adds to a deletion log of an earlier release
+// the sequence it is sent to the other nodes in. That log holds no deletion
+// times: every received deletion was dated when it arrived, again every 30
+// seconds. So its object deletions are dropped, keeping a copy rather than
+// removing it on a wrong time, and so are the deletions of IAM entities this
+// node holds again.
+func applyDeletionLogSeqMigration(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('cluster_deletion_log') WHERE name = 'seq'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, stmt := range []string{
+		`ALTER TABLE cluster_deletion_log ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`,
+		`UPDATE cluster_deletion_log SET seq = rowid`,
+		`DELETE FROM cluster_deletion_log WHERE entity_type IN ('` + EntityTypeObject + `', '` + EntityTypeObjectVersion + `')`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("deletion log: %w", err)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT entity_type, entity_id FROM cluster_deletion_log WHERE entity_type IN (?, ?, ?, ?)`,
+		EntityTypeIAMPolicy, EntityTypeIAMRole, EntityTypeIAMInlinePolicy, EntityTypeIAMAttachment)
+	if err != nil {
+		return fmt.Errorf("deletion log: %w", err)
+	}
+	var held [][2]string
+	for rows.Next() {
+		var entityType, entityID string
+		if err := rows.Scan(&entityType, &entityID); err != nil {
+			rows.Close()
+			return err
+		}
+		held = append(held, [2]string{entityType, entityID})
+	}
+	rows.Close()
+	for _, e := range held {
+		if _, ok := EntityUpdatedAt(ctx, tx, e[0], e[1]); !ok {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?`, e[0], e[1]); err != nil {
+			return fmt.Errorf("deletion log: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // GetGlobalConfig retrieves a global configuration value from the cluster config table.

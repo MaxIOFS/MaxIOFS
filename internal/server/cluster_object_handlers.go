@@ -226,8 +226,8 @@ func (s *Server) handleReceiveIDPProviderSync(w http.ResponseWriter, r *http.Req
 		"provider_type":  providerData.Type,
 	}).Info("Receiving IDP provider from synchronization")
 
-	// Skip if this entity has been deleted (tombstone exists)
-	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, providerData.ID); hasDeletion {
+	// Skip a copy older than a deletion this node recorded.
+	if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIDPProvider, providerData.ID, providerData.UpdatedAt) {
 		logrus.WithField("provider_id", providerData.ID).Debug("Skipping sync for deleted IDP provider (tombstone exists)")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
@@ -388,7 +388,7 @@ func (s *Server) handleReceiveIDPProviderDeleteSync(w http.ResponseWriter, r *ht
 	rowsAffected, _ := result.RowsAffected()
 
 	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, sourceNodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 		logrus.WithError(err).WithField("provider_id", deleteData.ID).Warn("Failed to record IDP provider deletion tombstone")
 	}
 
@@ -446,8 +446,8 @@ func (s *Server) handleReceiveGroupMappingSync(w http.ResponseWriter, r *http.Re
 		"external_group": mappingData.ExternalGroupName,
 	}).Info("Receiving group mapping from synchronization")
 
-	// Skip if this entity has been deleted (tombstone exists)
-	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, mappingData.ID); hasDeletion {
+	// Skip a copy older than a deletion this node recorded.
+	if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeGroupMapping, mappingData.ID, mappingData.UpdatedAt) {
 		logrus.WithField("mapping_id", mappingData.ID).Debug("Skipping sync for deleted group mapping (tombstone exists)")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
@@ -610,7 +610,7 @@ func (s *Server) handleReceiveGroupMappingDeleteSync(w http.ResponseWriter, r *h
 	rowsAffected, _ := result.RowsAffected()
 
 	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, sourceNodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 		logrus.WithError(err).WithField("mapping_id", deleteData.ID).Warn("Failed to record group mapping deletion tombstone")
 	}
 
@@ -683,7 +683,7 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 
 	alreadyHasTombstone, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID)
 	if rowsAffected > 0 || !alreadyHasTombstone {
-		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, sourceNodeID); err != nil {
+		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 			logrus.WithError(err).WithField("access_key_id", deleteData.ID).Warn("Failed to record access key deletion tombstone")
 		}
 	}
@@ -756,7 +756,7 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 	rowsAffected, _ := result.RowsAffected()
 
 	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, sourceNodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 		logrus.WithError(err).WithField("permission_id", deleteData.ID).Warn("Failed to record bucket permission deletion tombstone")
 	}
 
@@ -771,6 +771,15 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 		"success": true,
 		"message": "Bucket permission deleted successfully",
 	})
+}
+
+// receivedDeletionTime is when a deletion another node sends was made, or now
+// when an earlier release sent no time.
+func receivedDeletionTime(deletedAt int64) int64 {
+	if deletedAt > 0 {
+		return deletedAt
+	}
+	return time.Now().Unix()
 }
 
 // handleReceiveDeletionLogSync handles incoming deletion log entries from other nodes
@@ -800,6 +809,9 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 
 	recorded := 0
 	for _, entry := range entries {
+		if entry.DeletedAt <= 0 {
+			continue
+		}
 		if cluster.EntityIsNewerThanTombstone(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedAt) {
 			logrus.WithFields(logrus.Fields{
 				"entity_type": entry.EntityType,
@@ -807,7 +819,7 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 			}).Debug("Skipping tombstone: local entity is newer (LWW)")
 			continue
 		}
-		if err := cluster.RecordDeletion(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedByNodeID); err != nil {
+		if err := cluster.RecordDeletion(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedByNodeID, entry.DeletedAt); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"entity_type": entry.EntityType,
 				"entity_id":   entry.EntityID,

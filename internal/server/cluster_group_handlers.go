@@ -54,8 +54,8 @@ func (s *Server) handleReceiveGroupSync(w http.ResponseWriter, r *http.Request) 
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving group synchronization")
 
-	// Skip if a tombstone exists for this group (deleted on another node).
-	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeGroup, data.ID); hasDeletion {
+	// Skip a copy older than a deletion this node recorded.
+	if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeGroup, data.ID, data.UpdatedAt) {
 		logrus.WithField("group_id", data.ID).Debug("Skipping sync for deleted group (tombstone exists)")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})

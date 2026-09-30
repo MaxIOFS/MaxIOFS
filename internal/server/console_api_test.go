@@ -15,6 +15,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/metrics"
@@ -79,6 +80,9 @@ func setupTestServer(t *testing.T) (*Server, string, func()) {
 	if !ok {
 		t.Fatal("failed to get SQLite database from auth manager")
 	}
+	// The cluster tables, as the server creates them.
+	require.NoError(t, cluster.InitSchema(db))
+	require.NoError(t, cluster.InitReplicationSchema(db))
 
 	// Initialize settings manager
 	settingsManager, err := settings.NewManager(db, logrus.StandardLogger())

@@ -17,21 +17,30 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import enFlag from '@/assets/flags/gb.svg';
+import esFlag from '@/assets/flags/es.svg';
+import frFlag from '@/assets/flags/fr.svg';
+import deFlag from '@/assets/flags/de.svg';
+import itFlag from '@/assets/flags/it.svg';
+import ptFlag from '@/assets/flags/br.svg';
+import zhFlag from '@/assets/flags/cn.svg';
+import jaFlag from '@/assets/flags/jp.svg';
+import ruFlag from '@/assets/flags/ru.svg';
 import type { User as UserType } from '@/types';
 import type { Notification } from '@/hooks/useNotifications';
 
 type Language = 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ru';
 
 const LANGUAGES: { code: Language; flag: string; label: string; nameKey: string }[] = [
-  { code: 'en', flag: '🇬🇧', label: 'EN', nameKey: 'english' },
-  { code: 'es', flag: '🇪🇸', label: 'ES', nameKey: 'spanish' },
-  { code: 'fr', flag: '🇫🇷', label: 'FR', nameKey: 'french' },
-  { code: 'de', flag: '🇩🇪', label: 'DE', nameKey: 'german' },
-  { code: 'it', flag: '🇮🇹', label: 'IT', nameKey: 'italian' },
-  { code: 'pt', flag: '🇧🇷', label: 'PT', nameKey: 'portuguese' },
-  { code: 'zh', flag: '🇨🇳', label: 'ZH', nameKey: 'chinese' },
-  { code: 'ja', flag: '🇯🇵', label: 'JA', nameKey: 'japanese' },
-  { code: 'ru', flag: '🇷🇺', label: 'RU', nameKey: 'russian' },
+  { code: 'en', flag: enFlag, label: 'EN', nameKey: 'english' },
+  { code: 'es', flag: esFlag, label: 'ES', nameKey: 'spanish' },
+  { code: 'fr', flag: frFlag, label: 'FR', nameKey: 'french' },
+  { code: 'de', flag: deFlag, label: 'DE', nameKey: 'german' },
+  { code: 'it', flag: itFlag, label: 'IT', nameKey: 'italian' },
+  { code: 'pt', flag: ptFlag, label: 'PT', nameKey: 'portuguese' },
+  { code: 'zh', flag: zhFlag, label: 'ZH', nameKey: 'chinese' },
+  { code: 'ja', flag: jaFlag, label: 'JA', nameKey: 'japanese' },
+  { code: 'ru', flag: ruFlag, label: 'RU', nameKey: 'russian' },
 ];
 
 interface TopBarProps {
@@ -122,7 +131,7 @@ export function TopBar({
               aria-expanded={showLanguageMenu}
               className="flex h-9 items-center gap-1.5 px-2.5 rounded-button border border-border bg-card hover:bg-secondary transition-all duration-200"
             >
-              <span className="text-base leading-none">{currentLang.flag}</span>
+              <img src={currentLang.flag} alt="" className="h-3.5 w-5 rounded-[2px] ring-1 ring-black/10" />
               <span className="text-xs font-semibold text-muted-foreground">{currentLang.label}</span>
             </button>
 
@@ -144,7 +153,7 @@ export function TopBar({
                           : 'text-foreground hover:bg-secondary'
                       )}
                     >
-                      <span className="text-base">{lang.flag}</span>
+                      <img src={lang.flag} alt="" className="h-3.5 w-5 rounded-[2px] ring-1 ring-black/10" />
                       <span>{t(lang.nameKey)}</span>
                     </button>
                   ))}

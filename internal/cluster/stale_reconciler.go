@@ -427,7 +427,7 @@ func (r *StaleReconciler) applyRemoteTombstones(ctx context.Context, remote, loc
 			continue
 		}
 
-		if err := RecordDeletion(ctx, tx, e.EntityType, e.EntityID, e.DeletedByNodeID); err != nil {
+		if err := RecordDeletion(ctx, tx, e.EntityType, e.EntityID, e.DeletedByNodeID, e.DeletedAt); err != nil {
 			_ = tx.Rollback()
 			r.log.WithError(err).WithFields(logrus.Fields{
 				"entity_type": e.EntityType,

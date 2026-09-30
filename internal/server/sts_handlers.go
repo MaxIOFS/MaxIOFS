@@ -112,7 +112,7 @@ func (s *Server) handleReceiveSTSSessionSync(w http.ResponseWriter, r *http.Requ
 	for _, keyID := range payload.Deletions {
 		// Record the tombstone locally too, so a later sync batch from a node
 		// that hasn't learned about the revocation cannot bring it back.
-		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeSTSSession, keyID, sourceNodeID); err != nil {
+		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeSTSSession, keyID, sourceNodeID, time.Now().Unix()); err != nil {
 			logrus.WithError(err).Warn("Failed to record STS session tombstone")
 		}
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM sts_sessions WHERE temp_access_key_id = ?`, keyID); err != nil {

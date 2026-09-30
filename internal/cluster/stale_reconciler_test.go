@@ -327,7 +327,7 @@ func TestBuildLocalSnapshot_WithEntities(t *testing.T) {
 		nowUnix, nowUnix)
 	require.NoError(t, err)
 
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "u-deleted", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "u-deleted", "node-1", time.Now().Unix()))
 
 	snap, err := BuildLocalSnapshot(ctx, "local-node", db)
 	require.NoError(t, err)
@@ -505,7 +505,7 @@ func TestApplyRemoteTombstones(t *testing.T) {
 		ctx := context.Background()
 
 		deletedAt := time.Now().Unix()
-		require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "u1", "local-node"))
+		require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "u1", "local-node", time.Now().Unix()))
 		local, err := ListDeletions(ctx, db, EntityTypeUser)
 		require.NoError(t, err)
 
@@ -815,7 +815,7 @@ func TestReconcile_PushesLocalTombstonesToPeer(t *testing.T) {
 	ctx := context.Background()
 
 	// Record a local tombstone
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "deleted-user", "local-node"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "deleted-user", "local-node", time.Now().Unix()))
 
 	var mu sync.Mutex
 	var receivedDeletions []*DeletionEntry
@@ -909,7 +909,7 @@ func TestObjectTombstoneNewer(t *testing.T) {
 
 	bucket := "tenant-a/bucket-a"
 	key := "deleted/object.txt"
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID(bucket, key), "local-node"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID(bucket, key), "local-node", time.Now().Unix()))
 
 	assert.True(t, r.objectTombstoneNewer(ctx, bucket, key, time.Now().Add(-time.Minute)))
 	assert.False(t, r.objectTombstoneNewer(ctx, bucket, key, time.Now().Add(time.Minute)))

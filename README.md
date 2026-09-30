@@ -350,7 +350,7 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (311 files)
+go test ./...                          # 4,400+ backend tests (314 files)
 cd web/frontend && npm run test        # 110 frontend tests
 ```
 

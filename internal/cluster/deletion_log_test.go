@@ -3,8 +3,10 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,20 +21,11 @@ func TestRecordDeletion(t *testing.T) {
 	ctx := context.Background()
 
 	// Create the cluster_deletion_log table
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Test recording a deletion
-	err = RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1")
+	err = RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1", time.Now().Unix())
 	require.NoError(t, err)
 
 	// Verify it was recorded
@@ -41,19 +34,32 @@ func TestRecordDeletion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 
-	// Test idempotency - re-recording same entity should update, not duplicate
-	err = RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-2")
-	require.NoError(t, err)
-
+	// Re-recording the same entity keeps one record, with the later deletion.
+	record := func(node string, at int64) {
+		t.Helper()
+		require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", node, at))
+	}
+	stored := func() (string, int64, int64) {
+		t.Helper()
+		var node string
+		var at, seq int64
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT deleted_by_node_id, deleted_at, seq FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?`,
+			EntityTypeUser, "user-1").Scan(&node, &at, &seq))
+		return node, at, seq
+	}
+	record("node-2", 2_000_000_000)
 	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?`, EntityTypeUser, "user-1").Scan(&count)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "Should still be 1 record after re-recording")
-
-	// Verify the node was updated
-	var nodeID string
-	err = db.QueryRowContext(ctx, `SELECT deleted_by_node_id FROM cluster_deletion_log WHERE entity_type = ? AND entity_id = ?`, EntityTypeUser, "user-1").Scan(&nodeID)
-	require.NoError(t, err)
-	assert.Equal(t, "node-2", nodeID)
+	node, at, seq := stored()
+	assert.Equal(t, "node-2", node)
+	assert.EqualValues(t, 2_000_000_000, at)
+	record("node-3", 1_000_000_000)
+	node2, at2, seq2 := stored()
+	assert.Equal(t, [3]any{"node-2", int64(2_000_000_000), seq}, [3]any{node2, at2, seq2}, "an earlier deletion changes nothing")
+	record("node-3", 2_000_000_001)
+	_, _, seq3 := stored()
+	assert.Greater(t, seq3, seq, "a later deletion is sent again")
 }
 
 func TestObjectTombstoneIDRoundTrip(t *testing.T) {
@@ -81,25 +87,16 @@ func TestRecordDeletion_MultipleEntityTypes(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Record deletions for different entity types
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeTenant, "tenant-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, "key-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeBucketPermission, "perm-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeIDPProvider, "idp-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeGroupMapping, "gm-1", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeTenant, "tenant-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, "key-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeBucketPermission, "perm-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeIDPProvider, "idp-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeGroupMapping, "gm-1", "node-1", time.Now().Unix()))
 
 	var count int
 	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cluster_deletion_log`).Scan(&count)
@@ -113,22 +110,13 @@ func TestListDeletions(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Record some deletions
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-2", "node-2"))
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeTenant, "tenant-1", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-2", "node-2", time.Now().Unix()))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeTenant, "tenant-1", "node-1", time.Now().Unix()))
 
 	// List user deletions
 	entries, err := ListDeletions(ctx, db, EntityTypeUser)
@@ -152,17 +140,8 @@ func TestHasDeletion(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// No deletion should exist yet
 	has, err := HasDeletion(ctx, db, EntityTypeUser, "user-1")
@@ -170,7 +149,7 @@ func TestHasDeletion(t *testing.T) {
 	assert.False(t, has)
 
 	// Record a deletion
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1", time.Now().Unix()))
 
 	// Now it should exist
 	has, err = HasDeletion(ctx, db, EntityTypeUser, "user-1")
@@ -194,17 +173,8 @@ func TestCleanupOldDeletions(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Insert an old tombstone (8 days ago)
 	oldTime := time.Now().Add(-8 * 24 * time.Hour).Unix()
@@ -215,7 +185,7 @@ func TestCleanupOldDeletions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert a recent tombstone
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-new", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-new", "node-1", time.Now().Unix()))
 
 	// Cleanup with 7 day max age
 	count, err := CleanupOldDeletions(ctx, db, 7*24*time.Hour)
@@ -239,20 +209,11 @@ func TestCleanupOldDeletions_NothingToClean(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Record a recent deletion
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeUser, "user-1", "node-1", time.Now().Unix()))
 
 	count, err := CleanupOldDeletions(ctx, db, 7*24*time.Hour)
 	require.NoError(t, err)
@@ -291,29 +252,72 @@ func TestDeletionLogSyncManager_Stop(t *testing.T) {
 	}
 }
 
-func TestDeletionLogSyncManager_ComputeChecksum(t *testing.T) {
+// A node is sent each deletion once, in the order they were recorded, and again
+// when a later deletion of the same entity is recorded; a delivery that fails
+// is sent again.
+func TestDeletionLogIsSentOnceAndInOrder(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, InitReplicationSchema(db))
 
-	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
-	syncManager := NewDeletionLogSyncManager(db, clusterManager)
-
-	entries := []*DeletionEntry{
-		{EntityType: EntityTypeUser, EntityID: "user-1", DeletedByNodeID: "node-1", DeletedAt: 1000},
-		{EntityType: EntityTypeTenant, EntityID: "tenant-1", DeletedByNodeID: "node-2", DeletedAt: 2000},
+	var mu sync.Mutex
+	var batches [][]*DeletionEntry
+	fail := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var entries []*DeletionEntry
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&entries))
+		mu.Lock()
+		defer mu.Unlock()
+		if fail {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		batches = append(batches, entries)
+	}))
+	defer server.Close()
+	node := &Node{ID: "peer", Endpoint: server.URL}
+	m := NewDeletionLogSyncManager(db, NewManager(db, "", ""))
+	sent := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		var out []string
+		for _, b := range batches {
+			for _, e := range b {
+				out = append(out, fmt.Sprintf("%s@%d", e.EntityID, e.DeletedAt))
+			}
+		}
+		batches = nil
+		return out
 	}
 
-	checksum1 := syncManager.computeChecksum(entries)
-	checksum2 := syncManager.computeChecksum(entries)
-	assert.Equal(t, checksum1, checksum2, "Same data should produce same checksum")
-
-	// Different data should produce different checksum
-	entries2 := []*DeletionEntry{
-		{EntityType: EntityTypeUser, EntityID: "user-1", DeletedByNodeID: "node-1", DeletedAt: 1000},
-		{EntityType: EntityTypeTenant, EntityID: "tenant-2", DeletedByNodeID: "node-2", DeletedAt: 2000},
+	for i := 0; i < deletionLogBatch+2; i++ {
+		require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, fmt.Sprintf("k%04d", i), "local", int64(1000+i)))
 	}
-	checksum3 := syncManager.computeChecksum(entries2)
-	assert.NotEqual(t, checksum1, checksum3, "Different data should produce different checksum")
+	require.NoError(t, m.deliverTo(ctx, node, "local", "token"))
+	got := sent()
+	require.Len(t, got, deletionLogBatch+2)
+	assert.Equal(t, "k0000@1000", got[0])
+	assert.Equal(t, fmt.Sprintf("k%04d@%d", deletionLogBatch+1, 1000+deletionLogBatch+1), got[len(got)-1])
+
+	require.NoError(t, m.deliverTo(ctx, node, "local", "token"))
+	assert.Empty(t, sent(), "nothing new")
+
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, "k0000", "local", 999))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, "k0001", "local", 5000))
+	require.NoError(t, m.deliverTo(ctx, node, "local", "token"))
+	assert.Equal(t, []string{"k0001@5000"}, sent(), "only the deletion that changed")
+
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeAccessKey, "late", "local", 6000))
+	mu.Lock()
+	fail = true
+	mu.Unlock()
+	assert.Error(t, m.deliverTo(ctx, node, "local", "token"))
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	require.NoError(t, m.deliverTo(ctx, node, "local", "token"))
+	assert.Equal(t, []string{"late@6000"}, sent(), "a failed delivery is sent again")
 }
 
 func TestDeletionLogSyncManager_SyncToNode(t *testing.T) {
@@ -367,7 +371,7 @@ func TestDeletionLogSyncManager_SyncToNode(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
-	err = syncManager.syncToNode(ctx, entries, node, "local-node", "local-token", "checksum")
+	err = syncManager.syncToNode(ctx, entries, node, "local-node", "local-token")
 	require.NoError(t, err)
 
 	select {
@@ -399,7 +403,7 @@ func TestDeletionLogSyncManager_SyncToNode_ServerError(t *testing.T) {
 	clusterManager := NewManager(db, "http://localhost:8080", "http://localhost:8082")
 	syncManager := NewDeletionLogSyncManager(db, clusterManager)
 
-	err := syncManager.syncToNode(ctx, entries, node, "local-node", "local-token", "checksum")
+	err := syncManager.syncToNode(ctx, entries, node, "local-node", "local-token")
 	assert.Error(t, err)
 }
 
@@ -409,17 +413,8 @@ func TestStartDeletionLogCleanup(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS cluster_deletion_log (
-			id TEXT PRIMARY KEY,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			deleted_by_node_id TEXT NOT NULL,
-			deleted_at INTEGER NOT NULL,
-			UNIQUE(entity_type, entity_id)
-		)
-	`)
-	require.NoError(t, err)
+	var err error
+	require.NoError(t, createClusterDeletionLogTable(ctx, db))
 
 	// Insert an old tombstone
 	oldTime := time.Now().Add(-2 * time.Hour).Unix()

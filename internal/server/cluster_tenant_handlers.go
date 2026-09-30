@@ -55,8 +55,8 @@ func (s *Server) handleReceiveTenantSync(w http.ResponseWriter, r *http.Request)
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving tenant synchronization")
 
-	// Skip if this entity has been deleted (tombstone exists)
-	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeTenant, tenantData.ID); hasDeletion {
+	// Skip a copy older than a deletion this node recorded.
+	if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeTenant, tenantData.ID, tenantData.UpdatedAt) {
 		logrus.WithField("tenant_id", tenantData.ID).Debug("Skipping sync for deleted tenant (tombstone exists)")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
@@ -269,8 +269,8 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 		"source_node_id": sourceNodeID,
 	}).Info("Receiving user synchronization")
 
-	// Skip if this entity has been deleted (tombstone exists)
-	if hasDeletion, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeUser, userData.ID); hasDeletion {
+	// Skip a copy older than a deletion this node recorded.
+	if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeUser, userData.ID, userData.UpdatedAt) {
 		logrus.WithField("user_id", userData.ID).Debug("Skipping sync for deleted user (tombstone exists)")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (deleted)"})
@@ -534,7 +534,7 @@ func (s *Server) handleReceiveTenantDeleteSync(w http.ResponseWriter, r *http.Re
 	rowsAffected, _ := result.RowsAffected()
 
 	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, sourceNodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 		logrus.WithError(err).WithField("tenant_id", deleteData.ID).Warn("Failed to record tenant deletion tombstone")
 	}
 
@@ -616,7 +616,7 @@ func (s *Server) handleReceiveUserDeleteSync(w http.ResponseWriter, r *http.Requ
 	rowsAffected, _ := result.RowsAffected()
 
 	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, sourceNodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
 		logrus.WithError(err).WithField("user_id", deleteData.ID).Warn("Failed to record user deletion tombstone")
 	}
 

@@ -13,9 +13,9 @@ WorkingDirectory=/opt/maxiofs
 # Security hardening
 PrivateTmp=true
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/maxiofs /var/log/maxiofs
+# The system and its configuration are read-only. Data and logs go wherever
+# config.yaml puts them, on any path the maxiofs user can write.
+ProtectSystem=full
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

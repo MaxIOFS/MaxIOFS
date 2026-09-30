@@ -80,6 +80,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An inventory report is stored as a client write is: encrypted, counted in bucket and tenant usage and quotas, and sent to the other nodes in a cluster. It was written directly to storage and metadata.
 - A completed inventory report keeps the path of its file; the path was not stored.
 - A share created for an object whose share expired but was not yet removed takes the new share's ID. The row kept the expired share's ID, so the ID returned did not exist.
+- A deletion sent to another node keeps the time it was made. Every node dated the deletions it received with the time of reception, again every 30 seconds, so deletions never expired and each looked newer than any later change.
+- An IAM policy, role, attachment or inline policy deleted and created again under the same name is no longer deleted on every node. A bucket created again lost its owner's policy; a bucket permission granted again to the same user was lost.
+- An object deleted and written again is no longer removed when a node that missed the new write is caught up; it is sent to that node. A copy written in the second of a deletion is kept.
+- Deletions and changes are ordered by time on every node: a copy changed after a deletion is taken, one changed before it is refused. A deletion is dated after the last change of what it removes.
+- Deleting a user, a tenant or a group records the deletion of the IAM policies they held; the other nodes sent them back.
+- Each node sends another the deletions it has not taken yet, in order; it sent its whole deletion log every 30 seconds.
+- Deleting a bucket deletes its shares, replication rules, inventory configurations and permissions, and the policies naming it also when the delete is forced. A share link of the deleted bucket served the object of the same key in a new bucket of the name without authentication, and replication rules sent the new bucket's objects to the former destination.
+- A node drops the notification configuration and integrity scans of a bucket it no longer holds. A new bucket of the name sent its events to the former webhooks. Those earlier releases left are dropped at start; the rows they left are dropped when a bucket of the name is created.
+- The deletion log of an earlier release holds no deletion times: at the first start its object deletions, and its deletions of IAM entities the node holds again, are dropped.
+- The systemd unit of the Debian and RPM packages no longer limits writes to /var/lib/maxiofs and /var/log/maxiofs: a data directory set elsewhere in config.yaml works without editing the unit, which every upgrade replaced. /usr, /boot, /efi and /etc stay read-only.
+- A fresh Debian install sets `data_dir` to /var/lib/maxiofs, as the RPM does. It kept `./data`, under /opt/maxiofs, which the service could not write.
 
 ### Removed
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.

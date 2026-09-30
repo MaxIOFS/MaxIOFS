@@ -3115,6 +3115,9 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userChanged := s.changedAt(r.Context(), cluster.EntityTypeUser, userID)
+	userPolicies := s.iamHeldByTargets(r.Context(), auth.IAMTargetUser, userID)
+
 	// Delete user
 	if err := s.authManager.DeleteUser(r.Context(), userID); err != nil {
 		if err == auth.ErrUserNotFound {
@@ -3130,10 +3133,11 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeUser, userID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeUser, userID, nodeID, cluster.DeletedAfter(userChanged)); err != nil {
 			logrus.WithError(err).WithField("user_id", userID).Warn("Failed to record user deletion tombstone")
 		}
 	}
+	s.recordIAMDeletions(r.Context(), userPolicies)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -3927,7 +3931,7 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeAccessKey, accessKeyID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeAccessKey, accessKeyID, nodeID, cluster.DeletedAfter(0)); err != nil {
 			logrus.WithError(err).WithField("access_key_id", accessKeyID).Warn("Failed to record access key deletion tombstone")
 		}
 		// Push the tombstone to all nodes immediately so S3 requests stop working
@@ -4716,6 +4720,8 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	tenantChanged := s.changedAt(r.Context(), cluster.EntityTypeTenant, tenantID)
+	tenantPolicies := s.iamHeldByTenantUsers(r.Context(), tenantID)
 	if err := s.authManager.DeleteTenant(r.Context(), tenantID); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -4726,10 +4732,11 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeTenant, tenantID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeTenant, tenantID, nodeID, cluster.DeletedAfter(tenantChanged)); err != nil {
 			logrus.WithError(err).WithField("tenant_id", tenantID).Warn("Failed to record tenant deletion tombstone")
 		}
 	}
+	s.recordIAMDeletions(r.Context(), tenantPolicies)
 
 	// Log audit event for tenant deleted
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
@@ -4892,10 +4899,11 @@ func (s *Server) grantScopedGroupBucketAccess(r *http.Request, bucketName, bucke
 }
 
 func (s *Server) revokeScopedBucketAccess(r *http.Request, bucketName, bucketTenantID, userID, tenantID string) error {
+	gone := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMInlinePolicy,
+		cluster.IAMInlinePolicyID(auth.IAMTargetUser, userID, "bucket-"+bucketName))
 	err := s.revokeScopedBucketAccessRow(r, bucketName, bucketTenantID, userID, tenantID)
 	if err == nil {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-			iamInlineTombstoneID(auth.IAMTargetUser, userID, "bucket-"+bucketName))
+		s.recordIAMDeletions(r.Context(), gone)
 	}
 	return err
 }
@@ -4911,10 +4919,11 @@ func (s *Server) revokeScopedBucketAccessRow(r *http.Request, bucketName, bucket
 }
 
 func (s *Server) revokeScopedGroupBucketAccess(r *http.Request, bucketName, bucketTenantID, groupID string) error {
+	gone := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMInlinePolicy,
+		cluster.IAMInlinePolicyID(auth.IAMTargetGroup, groupID, "bucket-"+bucketName))
 	err := s.revokeScopedGroupBucketAccessRow(r, bucketName, bucketTenantID, groupID)
 	if err == nil {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-			iamInlineTombstoneID(auth.IAMTargetGroup, groupID, "bucket-"+bucketName))
+		s.recordIAMDeletions(r.Context(), gone)
 	}
 	return err
 }
@@ -5076,7 +5085,7 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 	// Record tombstone for cluster deletion sync
 	if permissionID != "" && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
 		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeBucketPermission, permissionID, nodeID); err != nil {
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeBucketPermission, permissionID, nodeID, cluster.DeletedAfter(0)); err != nil {
 			logrus.WithError(err).WithField("permission_id", permissionID).Warn("Failed to record bucket permission deletion tombstone")
 		}
 	}

@@ -336,6 +336,34 @@ func (s *SQLiteStore) DeleteShare(ctx context.Context, shareID string) error {
 	return nil
 }
 
+// DeleteBucketShares deletes every share of a bucket, expired ones too, and
+// returns their IDs.
+func (s *SQLiteStore) DeleteBucketShares(ctx context.Context, bucketName, tenantID string) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM shares WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM shares WHERE bucket_name = ? AND tenant_id = ?`, bucketName, tenantID); err != nil {
+		return nil, err
+	}
+	return ids, tx.Commit()
+}
+
 // DeleteExpiredShares deletes all expired shares
 func (s *SQLiteStore) DeleteExpiredShares(ctx context.Context) error {
 	query := `DELETE FROM shares WHERE expires_at IS NOT NULL AND expires_at < ?`

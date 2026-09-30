@@ -26,6 +26,14 @@ type badgerBucketManager struct {
 	quotaAlertCb func(tenantID, bucketName string, currentBytes, maxBytes int64)
 
 	ownerPolicyCb func(bucketName, tenantID, ownerID string, created bool)
+	removedCb     func(ctx context.Context, tenantID, name string)
+}
+
+// SetBucketRemovedCallback registers what runs after a bucket is removed from
+// this node, however it was removed: deleted by a client or another node,
+// moved to another node.
+func (bm *badgerBucketManager) SetBucketRemovedCallback(cb func(ctx context.Context, tenantID, name string)) {
+	bm.removedCb = cb
 }
 
 // SetBucketOwnerPolicyCallback registers the hook that writes a bucket owner's
@@ -229,11 +237,8 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 		}
 	}
 	bm.metadataStore.ClearBucketRemoval(ctx, bucketPath) //nolint:errcheck
-
-	// Drop every policy naming this bucket, so a later bucket of the same name
-	// does not inherit grants nobody meant to give it.
-	if bm.ownerPolicyCb != nil {
-		bm.ownerPolicyCb(name, tenantID, "", false)
+	if bm.removedCb != nil {
+		bm.removedCb(ctx, tenantID, name)
 	}
 
 	// Log audit event for bucket deleted
@@ -330,6 +335,9 @@ func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, 
 		}
 	} else {
 		bm.metadataStore.ClearBucketRemoval(ctx, bucketPath) //nolint:errcheck
+	}
+	if bm.removedCb != nil {
+		bm.removedCb(ctx, tenantID, name)
 	}
 
 	// Log audit event for force deleted bucket

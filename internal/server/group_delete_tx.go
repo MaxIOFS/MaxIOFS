@@ -20,6 +20,8 @@ func (s *Server) deleteGroupAndRecordTombstone(ctx context.Context, groupID, nod
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	groupChanged, _ := cluster.EntityUpdatedAt(ctx, tx, cluster.EntityTypeGroup, groupID)
+	policies := iamHeldByTarget(ctx, tx, auth.IAMTargetGroup, groupID)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ?`, groupID); err != nil {
 		return 0, fmt.Errorf("delete group members: %w", err)
 	}
@@ -40,8 +42,13 @@ func (s *Server) deleteGroupAndRecordTombstone(ctx context.Context, groupID, nod
 		auth.IAMTargetGroup, groupID); err != nil {
 		return 0, fmt.Errorf("delete group policy attachments: %w", err)
 	}
-	if err := cluster.RecordDeletion(ctx, tx, cluster.EntityTypeGroup, groupID, nodeID); err != nil {
+	if err := cluster.RecordDeletion(ctx, tx, cluster.EntityTypeGroup, groupID, nodeID, cluster.DeletedAfter(groupChanged)); err != nil {
 		return 0, err
+	}
+	for _, d := range policies {
+		if err := cluster.RecordDeletion(ctx, tx, d.entityType, d.id, nodeID, cluster.DeletedAfter(d.lastChange)); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit group delete: %w", err)

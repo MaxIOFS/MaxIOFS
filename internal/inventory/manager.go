@@ -191,23 +191,33 @@ func (m *Manager) UpdateConfig(ctx context.Context, config *InventoryConfig) err
 
 // DeleteConfig deletes an inventory configuration
 func (m *Manager) DeleteConfig(ctx context.Context, bucketName, tenantID string) error {
-	ids, err := m.ids(ctx, `SELECT id FROM bucket_inventory_configs
-		WHERE bucket_name = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))`, bucketName, tenantID, tenantID)
+	deleted, err := m.DeleteBucketConfigs(ctx, bucketName, tenantID)
 	if err != nil {
-		return fmt.Errorf("failed to delete inventory config: %w", err)
+		return err
 	}
-	if len(ids) == 0 {
+	if deleted == 0 {
 		return fmt.Errorf("inventory configuration not found")
-	}
-	for _, id := range ids {
-		if _, err := m.db.ExecContext(ctx, `DELETE FROM bucket_inventory_configs WHERE id = ?`, id); err != nil {
-			return fmt.Errorf("failed to delete inventory config: %w", err)
-		}
-		m.changed(ctx, ConfigsTable, id, true)
 	}
 
 	m.log.WithField("bucket", bucketName).Info("Inventory configuration deleted")
 	return nil
+}
+
+// DeleteBucketConfigs deletes every configuration of a bucket, and returns how
+// many it deleted. Their reports go with them by the foreign key.
+func (m *Manager) DeleteBucketConfigs(ctx context.Context, bucketName, tenantID string) (int, error) {
+	ids, err := m.ids(ctx, `SELECT id FROM bucket_inventory_configs
+		WHERE bucket_name = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))`, bucketName, tenantID, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete inventory config: %w", err)
+	}
+	for _, id := range ids {
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM bucket_inventory_configs WHERE id = ?`, id); err != nil {
+			return 0, fmt.Errorf("failed to delete inventory config: %w", err)
+		}
+		m.changed(ctx, ConfigsTable, id, true)
+	}
+	return len(ids), nil
 }
 
 // ListReadyConfigs returns all enabled configurations that are ready to run

@@ -20,6 +20,7 @@ type Manager interface {
 	ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error)
 	DeleteShare(ctx context.Context, shareID string) error
 	DeleteExpiredShares(ctx context.Context) error
+	DeleteBucketShares(ctx context.Context, bucketName, tenantID string) error
 	SetChangeObserver(o ChangeObserver)
 }
 
@@ -165,6 +166,15 @@ func (m *ShareManager) DeleteShare(ctx context.Context, shareID string) error {
 	}
 	m.changed(ctx, shareID, true)
 	return nil
+}
+
+// DeleteBucketShares deletes every share of a bucket, and reports each.
+func (m *ShareManager) DeleteBucketShares(ctx context.Context, bucketName, tenantID string) error {
+	ids, err := m.store.DeleteBucketShares(ctx, bucketName, tenantID)
+	for _, id := range ids {
+		m.changed(ctx, id, true)
+	}
+	return err
 }
 
 // DeleteExpiredShares deletes all expired shares

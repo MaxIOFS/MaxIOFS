@@ -307,7 +307,7 @@ func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef
 	names := []string{"owner-" + bucketName, "bucket-" + bucketName}
 
 	rows, err := s.db.Query(
-		`SELECT target_type, target_id, name FROM iam_inline_policies WHERE name IN (?, ?)`,
+		`SELECT target_type, target_id, name, updated_at FROM iam_inline_policies WHERE name IN (?, ?)`,
 		names[0], names[1])
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef
 	var revoked []InlinePolicyRef
 	for rows.Next() {
 		var ref InlinePolicyRef
-		if err := rows.Scan(&ref.TargetType, &ref.TargetID, &ref.Name); err != nil {
+		if err := rows.Scan(&ref.TargetType, &ref.TargetID, &ref.Name, &ref.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -335,10 +335,11 @@ func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef
 	return revoked, nil
 }
 
-// InlinePolicyRef identifies one inline policy, which is what a tombstone needs
-// to name.
+// InlinePolicyRef identifies one inline policy and when it last changed, which
+// is what a tombstone needs.
 type InlinePolicyRef struct {
 	TargetType string
 	TargetID   string
 	Name       string
+	UpdatedAt  int64 // unix seconds
 }

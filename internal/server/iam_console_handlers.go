@@ -152,12 +152,13 @@ func (s *Server) handleDeleteIAMPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := mux.Vars(r)["name"]
+	gone := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMPolicy, name)
 	if err := im.DeleteIAMPolicy(r.Context(), name); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
 	}
 
-	s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMPolicy, name)
+	s.recordIAMDeletions(r.Context(), gone)
 	s.afterIAMWrite(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
@@ -275,23 +276,14 @@ func (s *Server) handleDeleteIAMRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := mux.Vars(r)["name"]
-	inlineNames := s.iamInlinePolicyNames(r.Context(), im, auth.IAMTargetRole, name)
-	attachedNames := s.iamAttachedPolicyNames(r.Context(), im, auth.IAMTargetRole, name)
+	role := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMRole, name)
+	inline, attached := s.iamHeldBy(r.Context(), im, auth.IAMTargetRole, name)
 
 	if err := im.DeleteIAMRole(r.Context(), name); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
 	}
-
-	s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMRole, name)
-	for _, policyName := range inlineNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-			iamInlineTombstoneID(auth.IAMTargetRole, name, policyName))
-	}
-	for _, policyName := range attachedNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMAttachment,
-			iamAttachmentTombstoneID(policyName, auth.IAMTargetRole, name))
-	}
+	s.recordIAMDeletions(r.Context(), role, inline, attached)
 
 	s.afterIAMWrite(r.Context())
 	w.Header().Set("Content-Type", "application/json")
@@ -322,17 +314,22 @@ func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, c
 		return
 	}
 
-	if !created {
-		revoked, err := store.RevokeBucketPolicies(bucketName)
-		if err != nil {
-			logrus.WithError(err).WithField("bucket", bucketName).
-				Warn("Failed to remove bucket policies after deletion")
-			return
-		}
+	// The policies naming the bucket go with it; a new bucket of the name
+	// starts without those a former one left.
+	revoked, err := store.RevokeBucketPolicies(bucketName)
+	if err != nil {
+		logrus.WithError(err).WithField("bucket", bucketName).Warn("Failed to remove the policies naming a bucket")
+		return
+	}
+	if len(revoked) > 0 {
+		gone := make([]iamDeletion, 0, len(revoked))
 		for _, ref := range revoked {
-			s.recordIAMDeletion(context.Background(), cluster.EntityTypeIAMInlinePolicy,
-				iamInlineTombstoneID(ref.TargetType, ref.TargetID, ref.Name))
+			gone = append(gone, iamDeletion{entityType: cluster.EntityTypeIAMInlinePolicy,
+				id: cluster.IAMInlinePolicyID(ref.TargetType, ref.TargetID, ref.Name), lastChange: ref.UpdatedAt})
 		}
+		s.recordIAMDeletions(context.Background(), gone)
+	}
+	if !created {
 		return
 	}
 

@@ -3,15 +3,14 @@ package cluster
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,25 +97,62 @@ type sqlQuerier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// RecordDeletion inserts a tombstone into the deletion log.
-// Uses INSERT OR REPLACE so re-recording the same entity is idempotent.
-// Accepts *sql.DB or *sql.Tx so callers can run it inside a transaction.
-func RecordDeletion(ctx context.Context, q sqlQuerier, entityType, entityID, nodeID string) error {
-	id := uuid.New().String()
+// DeletedAfter is the time to record for the deletion of something last
+// changed at lastChange (unix seconds, 0 when unknown): now, or the second
+// after the change when that is later, so every node orders the deletion after
+// the change.
+func DeletedAfter(lastChange int64) int64 {
 	now := time.Now().Unix()
+	if lastChange >= now {
+		return lastChange + 1
+	}
+	return now
+}
 
+// RecordDeletion records that an entity was deleted at deletedAt (unix
+// seconds), the time of the deletion on the node that made it. Of two records
+// of an entity the later is kept. A record that changes takes the next
+// sequence number, the order in which the deletion log is sent to the other
+// nodes. Accepts *sql.DB or *sql.Tx.
+func RecordDeletion(ctx context.Context, q sqlQuerier, entityType, entityID, nodeID string, deletedAt int64) error {
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO cluster_deletion_log (id, entity_type, entity_id, deleted_by_node_id, deleted_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO cluster_deletion_log (id, entity_type, entity_id, deleted_by_node_id, deleted_at, seq)
+		VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM cluster_deletion_log))
 		ON CONFLICT(entity_type, entity_id) DO UPDATE SET
 			deleted_by_node_id = excluded.deleted_by_node_id,
-			deleted_at = excluded.deleted_at
-	`, id, entityType, entityID, nodeID, now)
-
+			deleted_at = excluded.deleted_at,
+			seq = excluded.seq
+		WHERE excluded.deleted_at > cluster_deletion_log.deleted_at
+	`, uuid.New().String(), entityType, entityID, nodeID, deletedAt)
 	if err != nil {
 		return fmt.Errorf("failed to record deletion: %w", err)
 	}
 	return nil
+}
+
+// IAMInlinePolicyID names an inline policy in the deletion log.
+func IAMInlinePolicyID(targetType, targetID, name string) string {
+	return targetType + "/" + targetID + "/" + name
+}
+
+// IAMAttachmentID names a policy attachment in the deletion log.
+func IAMAttachmentID(policyName, targetType, targetID string) string {
+	return policyName + "/" + targetType + "/" + targetID
+}
+
+// SplitIAMID splits an inline policy or attachment id at its first two
+// slashes.
+func SplitIAMID(id string) (string, string, string, bool) {
+	first := strings.IndexByte(id, '/')
+	if first < 0 {
+		return "", "", "", false
+	}
+	second := strings.IndexByte(id[first+1:], '/')
+	if second < 0 {
+		return "", "", "", false
+	}
+	second += first + 1
+	return id[:first], id[first+1 : second], id[second+1:], true
 }
 
 // ListDeletions returns all tombstones for a given entity type
@@ -167,49 +203,62 @@ func DeletionTime(ctx context.Context, db *sql.DB, entityType, entityID string) 
 	return deletedAt
 }
 
-// EntityIsNewerThanTombstone returns true when the locally stored entity was updated
-func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
+// EntityUpdatedAt returns when this node's copy of an entity last changed
+// (unix seconds), and false when the node does not hold it or its type keeps
+// no such time (access keys, bucket permissions, STS sessions, objects).
+func EntityUpdatedAt(ctx context.Context, q sqlQuerier, entityType, entityID string) (int64, bool) {
+	var query string
+	args := []any{entityID}
 	switch entityType {
 	case EntityTypeTenant:
-		var updatedAt int64
-		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM tenants WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
-			return false // entity not found or error → tombstone wins
-		}
-		return updatedAt > deletedAt
-
+		query = `SELECT updated_at FROM tenants WHERE id = ?`
 	case EntityTypeUser:
-		var updatedAt int64
-		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM users WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
-			return false
-		}
-		return updatedAt > deletedAt
-
+		query = `SELECT updated_at FROM users WHERE id = ?`
 	case EntityTypeIDPProvider:
-		var updatedAt int64
-		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM identity_providers WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
-			return false
-		}
-		return updatedAt > deletedAt
-
+		query = `SELECT updated_at FROM identity_providers WHERE id = ?`
 	case EntityTypeGroupMapping:
-		var updatedAt int64
-		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM idp_group_mappings WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
-			return false
-		}
-		return updatedAt > deletedAt
-
+		query = `SELECT updated_at FROM idp_group_mappings WHERE id = ?`
 	case EntityTypeGroup:
-		var updatedAt int64
-		if err := q.QueryRowContext(ctx, `SELECT updated_at FROM groups WHERE id = ?`, entityID).Scan(&updatedAt); err != nil {
-			return false
+		query = `SELECT updated_at FROM groups WHERE id = ?`
+	case EntityTypeIAMPolicy:
+		query = `SELECT updated_at FROM iam_policies WHERE name = ?`
+	case EntityTypeIAMRole:
+		query = `SELECT updated_at FROM iam_roles WHERE name = ?`
+	case EntityTypeIAMInlinePolicy, EntityTypeIAMAttachment:
+		a, b, c, ok := SplitIAMID(entityID)
+		if !ok {
+			return 0, false
 		}
-		return updatedAt > deletedAt
-
+		args = []any{a, b, c}
+		if entityType == EntityTypeIAMInlinePolicy {
+			query = `SELECT updated_at FROM iam_inline_policies WHERE target_type = ? AND target_id = ? AND name = ?`
+		} else {
+			query = `SELECT attached_at FROM iam_policy_attachments WHERE policy_name = ? AND target_type = ? AND target_id = ?`
+		}
 	default:
-		// AccessKey, BucketPermission and any future types without updated_at:
-		// tombstone always wins.
-		return false
+		return 0, false
 	}
+	var at int64
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&at); err != nil {
+		return 0, false
+	}
+	return at, true
+}
+
+// EntityIsNewerThanTombstone reports whether this node's copy of an entity
+// changed at or after a deletion of it. At the same second the entity is kept:
+// the node that deletes dates the deletion after the last change it knows.
+// Types that keep no change time lose to any deletion.
+func EntityIsNewerThanTombstone(ctx context.Context, q sqlQuerier, entityType, entityID string, deletedAt int64) bool {
+	at, ok := EntityUpdatedAt(ctx, q, entityType, entityID)
+	return ok && at >= deletedAt
+}
+
+// DeletionSupersedes reports whether this node recorded a deletion of an
+// entity after changedAt, the change time of a copy another node sent: such a
+// copy is not stored.
+func DeletionSupersedes(ctx context.Context, db *sql.DB, entityType, entityID string, changedAt int64) bool {
+	return DeletionTime(ctx, db, entityType, entityID) > changedAt
 }
 
 // CleanupOldDeletions removes tombstones older than the given duration
@@ -315,7 +364,7 @@ func (m *DeletionLogSyncManager) syncLoop(ctx context.Context, interval time.Dur
 	}
 }
 
-// syncAllDeletions synchronizes all deletion log entries to all healthy nodes
+// syncAllDeletions sends every healthy node the deletions it has not taken yet
 func (m *DeletionLogSyncManager) syncAllDeletions(ctx context.Context) {
 	if !m.clusterManager.IsClusterEnabled() {
 		return
@@ -344,42 +393,14 @@ func (m *DeletionLogSyncManager) syncAllDeletions(ctx context.Context) {
 		return
 	}
 
-	// Get all deletion entries
-	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, entity_type, entity_id, deleted_by_node_id, deleted_at
-		FROM cluster_deletion_log
-	`)
-	if err != nil {
-		m.log.WithError(err).Error("Failed to list all deletion entries")
-		return
-	}
-	defer rows.Close()
-
-	var entries []*DeletionEntry
-	for rows.Next() {
-		e := &DeletionEntry{}
-		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.DeletedByNodeID, &e.DeletedAt); err != nil {
-			m.log.WithError(err).Error("Failed to scan deletion entry")
-			continue
-		}
-		entries = append(entries, e)
-	}
-
-	if len(entries) == 0 {
-		return
-	}
-
 	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {
 		m.log.WithError(err).Error("Failed to get node token")
 		return
 	}
 
-	// Compute a checksum of all entries to skip sync if nothing changed
-	checksum := m.computeChecksum(entries)
-
 	for _, node := range targetNodes {
-		if err := m.syncToNode(ctx, entries, node, localNodeID, nodeToken, checksum); err != nil {
+		if err := m.deliverTo(ctx, node, localNodeID, nodeToken); err != nil {
 			m.log.WithFields(logrus.Fields{
 				"node_id": node.ID,
 				"error":   err,
@@ -388,18 +409,59 @@ func (m *DeletionLogSyncManager) syncAllDeletions(ctx context.Context) {
 	}
 }
 
-// computeChecksum computes a checksum of all deletion entries
-func (m *DeletionLogSyncManager) computeChecksum(entries []*DeletionEntry) string {
-	data := ""
-	for _, e := range entries {
-		data += fmt.Sprintf("%s|%s|%s|%d|", e.EntityType, e.EntityID, e.DeletedByNodeID, e.DeletedAt)
+// deletionLogBatch is how many deletions one request carries.
+const deletionLogBatch = 500
+
+// deliverTo sends node the deletions recorded or changed here since the last
+// ones it took, in the order they were recorded.
+func (m *DeletionLogSyncManager) deliverTo(ctx context.Context, node *Node, sourceNodeID, nodeToken string) error {
+	var delivered int64
+	err := m.db.QueryRowContext(ctx,
+		`SELECT delivered_seq FROM cluster_deletion_log_delivery WHERE node_id = ?`, node.ID).Scan(&delivered)
+	if err != nil && err != sql.ErrNoRows {
+		return err
 	}
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:])
+	for {
+		entries, last, err := deletionsAfter(ctx, m.db, delivered, deletionLogBatch)
+		if err != nil || len(entries) == 0 {
+			return err
+		}
+		if err := m.syncToNode(ctx, entries, node, sourceNodeID, nodeToken); err != nil {
+			return err
+		}
+		if _, err := m.db.ExecContext(ctx, `
+			INSERT INTO cluster_deletion_log_delivery (node_id, delivered_seq) VALUES (?, ?)
+			ON CONFLICT(node_id) DO UPDATE SET delivered_seq = excluded.delivered_seq`, node.ID, last); err != nil {
+			return err
+		}
+		delivered = last
+	}
 }
 
-// syncToNode sends all deletion entries to a single node
-func (m *DeletionLogSyncManager) syncToNode(ctx context.Context, entries []*DeletionEntry, node *Node, sourceNodeID, nodeToken, checksum string) error {
+// deletionsAfter returns up to limit deletions whose sequence number is above
+// seq, in order, and the last number returned.
+func deletionsAfter(ctx context.Context, db *sql.DB, seq int64, limit int) ([]*DeletionEntry, int64, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, entity_type, entity_id, deleted_by_node_id, deleted_at, seq
+		FROM cluster_deletion_log WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit)
+	if err != nil {
+		return nil, seq, err
+	}
+	defer rows.Close()
+	var entries []*DeletionEntry
+	last := seq
+	for rows.Next() {
+		e := &DeletionEntry{}
+		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.DeletedByNodeID, &e.DeletedAt, &last); err != nil {
+			return nil, seq, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, last, rows.Err()
+}
+
+// syncToNode sends deletion entries to a single node
+func (m *DeletionLogSyncManager) syncToNode(ctx context.Context, entries []*DeletionEntry, node *Node, sourceNodeID, nodeToken string) error {
 	payload, err := json.Marshal(entries)
 	if err != nil {
 		return fmt.Errorf("failed to marshal deletion entries: %w", err)

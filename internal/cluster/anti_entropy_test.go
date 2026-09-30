@@ -438,3 +438,11 @@ func TestClassifyDivergence_PeerMissingAfterARewriteStillPushes(t *testing.T) {
 	assert.Equal(t, divPeerMissing, div)
 	assert.Equal(t, actPushToPeer, act, "an object written after the delete is a new object")
 }
+
+func TestClassifyDivergence_PeerMissingAfterAWriteInTheSecondOfTheDeleteKeepsIt(t *testing.T) {
+	local := &object.Object{ETag: "abc", Size: 100, LastModified: time.Unix(2000, 0)}
+
+	div, act := classifyDivergence(local, &ChecksumEntry{Key: "k", Found: false}, 2000)
+	assert.Equal(t, divPeerMissing, div)
+	assert.Equal(t, actPushToPeer, act, "a write in the second of the delete is kept")
+}

@@ -276,7 +276,7 @@ func TestCatchUpPushesOnlyWhatTheNodeMissed(t *testing.T) {
 	peer, srv := newCatchUpPeer(t)
 	peer.holds["removed"] = ChecksumEntry{Key: "removed", Found: true, LastModified: time.Now().Add(-2 * time.Hour).Unix()}
 	mgr, db, nodes := newClusterWithPeers(t, 2, srv)
-	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID("worm", "removed"), "local"))
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeObject, ObjectTombstoneID("worm", "removed"), "local", time.Now().Unix()))
 	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
 	scrubber.CatchUp(nodes[0].ID, time.Now().Add(-10*time.Minute))
 	scrubber.runCatchUp(ctx)
@@ -340,17 +340,17 @@ func TestCatchUpReplaysMissedDeletes(t *testing.T) {
 	del("absent-there")
 	put("old")
 	del("old")
+	put("same-second")
+	del("same-second")
 
 	peer, srv := newCatchUpPeer(t)
 	mgr, db, nodes := newClusterWithPeers(t, 2, srv)
 	now := time.Now().Unix()
 	tomb := func(entityType, id string, at int64) {
-		require.NoError(t, RecordDeletion(ctx, db, entityType, id, "local"))
-		_, err := db.Exec(`UPDATE cluster_deletion_log SET deleted_at = ? WHERE entity_type = ? AND entity_id = ?`, at, entityType, id)
-		require.NoError(t, err)
+		require.NoError(t, RecordDeletion(ctx, db, entityType, id, "local", at))
 	}
 	tomb(EntityTypeObjectVersion, ObjectVersionTombstoneID("vb", "versioned", "v123"), now)
-	for _, key := range []string{"gone", "newer-there", "alive", "absent-there"} {
+	for _, key := range []string{"gone", "newer-there", "alive", "absent-there", "same-second"} {
 		tomb(EntityTypeObject, ObjectTombstoneID("vb", key), now)
 	}
 	tomb(EntityTypeObject, ObjectTombstoneID("vb", "old"), now-7200)
@@ -358,6 +358,7 @@ func TestCatchUpReplaysMissedDeletes(t *testing.T) {
 	peer.holds["newer-there"] = ChecksumEntry{Key: "newer-there", Found: true, LastModified: now + 60}
 	peer.holds["alive"] = ChecksumEntry{Key: "alive", Found: true, LastModified: now - 60}
 	peer.holds["old"] = ChecksumEntry{Key: "old", Found: true, LastModified: now - 9000}
+	peer.holds["same-second"] = ChecksumEntry{Key: "same-second", Found: true, LastModified: now}
 
 	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
 	node, err := mgr.GetNode(ctx, nodes[0].ID)
@@ -380,6 +381,7 @@ func TestCatchUpReplaysMissedDeletes(t *testing.T) {
 	assert.NotContains(t, sent, "alive", "written again here after the delete")
 	assert.NotContains(t, sent, "absent-there", "the node does not hold it")
 	assert.NotContains(t, sent, "old", "deleted before the node went missing")
+	assert.NotContains(t, sent, "same-second", "the node wrote it in the second of the delete")
 	assert.Len(t, sent, 2)
 }
 

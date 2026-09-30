@@ -307,22 +307,13 @@ func (s *Server) iamDeleteUser(w http.ResponseWriter, r *http.Request, im auth.I
 		return
 	}
 	userID := target.ID
-	inlineNames := s.iamInlinePolicyNames(r.Context(), im, auth.IAMTargetUser, userID)
-	attachedNames := s.iamAttachedPolicyNames(r.Context(), im, auth.IAMTargetUser, userID)
+	inline, attached := s.iamHeldBy(r.Context(), im, auth.IAMTargetUser, userID)
 
 	if err := im.DeleteIAMUser(r.Context(), userName); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
-
-	for _, name := range inlineNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-			iamInlineTombstoneID(auth.IAMTargetUser, userID, name))
-	}
-	for _, name := range attachedNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMAttachment,
-			iamAttachmentTombstoneID(name, auth.IAMTargetUser, userID))
-	}
+	s.recordIAMDeletions(r.Context(), inline, attached)
 
 	s.afterIAMWrite(r.Context())
 	writeIAMEmpty(w, r, "DeleteUser")
@@ -532,11 +523,12 @@ func (s *Server) iamDeletePolicy(w http.ResponseWriter, r *http.Request, im auth
 		writeIAMErrorFor(w, r, err)
 		return
 	}
+	gone := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMPolicy, policy.Name)
 	if err := im.DeleteIAMPolicy(r.Context(), policy.Name); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
-	s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMPolicy, policy.Name)
+	s.recordIAMDeletions(r.Context(), gone)
 	s.afterIAMWrite(r.Context())
 	writeIAMEmpty(w, r, "DeletePolicy")
 }
@@ -679,12 +671,13 @@ func (s *Server) iamDeleteInlinePolicy(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	policyName := r.PostForm.Get("PolicyName")
+	gone := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMInlinePolicy,
+		cluster.IAMInlinePolicyID(targetType, targetID, policyName))
 	if err := im.DeleteIAMInlinePolicy(r.Context(), targetType, targetID, policyName); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
-	s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-		iamInlineTombstoneID(targetType, targetID, policyName))
+	s.recordIAMDeletions(r.Context(), gone)
 	s.afterIAMWrite(r.Context())
 	writeIAMEmpty(w, r, action)
 }
@@ -734,9 +727,12 @@ func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth
 		return
 	}
 
+	var gone []iamDeletion
 	if attach {
 		err = im.AttachIAMPolicy(r.Context(), policyName, targetType, targetID)
 	} else {
+		gone = s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMAttachment,
+			cluster.IAMAttachmentID(policyName, targetType, targetID))
 		err = im.DetachIAMPolicy(r.Context(), policyName, targetType, targetID)
 	}
 	if err != nil {
@@ -747,8 +743,7 @@ func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth
 	if attach {
 		s.triggerIAMSync(r.Context())
 	} else {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMAttachment,
-			iamAttachmentTombstoneID(policyName, targetType, targetID))
+		s.recordIAMDeletions(r.Context(), gone)
 	}
 	s.afterIAMWrite(r.Context())
 	writeIAMEmpty(w, r, action)
@@ -841,23 +836,14 @@ func (s *Server) iamDeleteRole(w http.ResponseWriter, r *http.Request, im auth.I
 		writeIAMErrorFor(w, r, err)
 		return
 	}
-	inlineNames := s.iamInlinePolicyNames(r.Context(), im, auth.IAMTargetRole, roleName)
-	attachedNames := s.iamAttachedPolicyNames(r.Context(), im, auth.IAMTargetRole, roleName)
+	role := s.iamAboutToDelete(r.Context(), cluster.EntityTypeIAMRole, roleName)
+	inline, attached := s.iamHeldBy(r.Context(), im, auth.IAMTargetRole, roleName)
 
 	if err := im.DeleteIAMRole(r.Context(), roleName); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
 	}
-
-	s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMRole, roleName)
-	for _, name := range inlineNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMInlinePolicy,
-			iamInlineTombstoneID(auth.IAMTargetRole, roleName, name))
-	}
-	for _, name := range attachedNames {
-		s.recordIAMDeletion(r.Context(), cluster.EntityTypeIAMAttachment,
-			iamAttachmentTombstoneID(name, auth.IAMTargetRole, roleName))
-	}
+	s.recordIAMDeletions(r.Context(), role, inline, attached)
 
 	s.afterIAMWrite(r.Context())
 	writeIAMEmpty(w, r, "DeleteRole")

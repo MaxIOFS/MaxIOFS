@@ -196,12 +196,13 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 			return "", ErrClusterDegraded
 		}
 	}
+	written := h.lastWritten(ctx, bucket, key, versionID...)
 	markerID, err := h.Manager.DeleteObject(ctx, bucket, key, bypassGovernance, versionID...)
 	if err != nil {
 		return "", err
 	}
 	if !isHARollback(ctx) {
-		h.recordObjectDeletionTombstone(ctx, bucket, key, versionID...)
+		h.recordObjectDeletionTombstone(ctx, bucket, key, DeletedAfter(written), versionID...)
 	}
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return markerID, nil
@@ -216,7 +217,28 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 	return markerID, nil
 }
 
-func (h *HAObjectManager) recordObjectDeletionTombstone(ctx context.Context, bucket, key string, versionID ...string) {
+// lastWritten returns when the version a delete removes, or the current
+// object of the key, was written (unix seconds), or 0.
+func (h *HAObjectManager) lastWritten(ctx context.Context, bucket, key string, versionID ...string) int64 {
+	if len(versionID) == 0 || versionID[0] == "" {
+		if obj, err := h.Manager.GetObjectMetadata(ctx, bucket, key); err == nil {
+			return obj.LastModified.Unix()
+		}
+		return 0
+	}
+	versions, err := h.Manager.GetObjectVersions(ctx, bucket, key)
+	if err != nil {
+		return 0
+	}
+	for _, v := range versions {
+		if v.VersionID == versionID[0] {
+			return v.LastModified.Unix()
+		}
+	}
+	return 0
+}
+
+func (h *HAObjectManager) recordObjectDeletionTombstone(ctx context.Context, bucket, key string, deletedAt int64, versionID ...string) {
 	nodeID, err := h.mgr.GetLocalNodeID(ctx)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
@@ -231,7 +253,7 @@ func (h *HAObjectManager) recordObjectDeletionTombstone(ctx context.Context, buc
 		entityType = EntityTypeObjectVersion
 		entityID = ObjectVersionTombstoneID(bucket, key, versionID[0])
 	}
-	if err := RecordDeletion(ctx, h.mgr.db, entityType, entityID, nodeID); err != nil {
+	if err := RecordDeletion(ctx, h.mgr.db, entityType, entityID, nodeID, deletedAt); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucket, "key": key, "entity_type": entityType,
 		}).Warn("HA delete: failed to record object tombstone")
