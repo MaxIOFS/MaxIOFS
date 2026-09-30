@@ -8,6 +8,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -16,7 +17,7 @@ import (
 func TestNewWorker(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	// Create a minimal manager for this test
 	db := setupTestDB(t)
@@ -24,7 +25,7 @@ func TestNewWorker(t *testing.T) {
 	manager := NewManager(db)
 
 	// Create worker
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	// Verify
 	assert.NotNil(t, worker)
@@ -38,7 +39,7 @@ func TestNewWorker(t *testing.T) {
 func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	// Create mock manager with in-memory DB
 	db := setupTestDB(t)
@@ -46,7 +47,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 	now := time.Now()
@@ -77,7 +78,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 	}, nil).Twice()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", inventoryPageSize).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID:     "tenant1",
@@ -93,8 +94,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 	).Once()
 
 	// Mock successful storage operations
-	mockMetadata.On("PutObject", ctx, mock.AnythingOfType("*metadata.ObjectMetadata")).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockObjects.On("PutObject", ctx, mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("http.Header")).Return(&object.Object{}, nil).Once()
 
 	// Execute
 	err := worker.processInventoryConfig(ctx, config)
@@ -103,7 +103,7 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 	assert.NoError(t, err)
 	mockBucketMgr.AssertExpectations(t)
 	mockMetadata.AssertExpectations(t)
-	mockStorage.AssertExpectations(t)
+	mockObjects.AssertExpectations(t)
 
 	// Verify config was updated with next run time
 	assert.NotNil(t, config.LastRunAt)
@@ -114,14 +114,14 @@ func TestWorker_ProcessInventoryConfig_Success(t *testing.T) {
 func TestWorker_ProcessInventoryConfig_SourceBucketNotFound(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -159,14 +159,14 @@ func TestWorker_ProcessInventoryConfig_SourceBucketNotFound(t *testing.T) {
 func TestWorker_ProcessInventoryConfig_DestinationBucketNotFound(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -210,14 +210,14 @@ func TestWorker_ProcessInventoryConfig_DestinationBucketNotFound(t *testing.T) {
 func TestWorker_ProcessInventoryConfig_CircularReference(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -256,14 +256,14 @@ func TestWorker_ProcessInventoryConfig_CircularReference(t *testing.T) {
 func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -293,7 +293,7 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	}, nil).Twice()
 
 	// Mock objects in source bucket
-	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/source-bucket", "", "", inventoryPageSize).Return(
 		[]*metadata.ObjectMetadata{
 			{
 				TenantID: "tenant1",
@@ -307,8 +307,8 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	).Once()
 
 	// Mock storage failure
-	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(
-		errors.New("storage write failed"),
+	mockObjects.On("PutObject", ctx, mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("http.Header")).Return(
+		nil, errors.New("storage write failed"),
 	).Once()
 
 	// Execute
@@ -319,21 +319,21 @@ func TestWorker_ProcessInventoryConfig_GenerationFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to generate report")
 	mockBucketMgr.AssertExpectations(t)
 	mockMetadata.AssertExpectations(t)
-	mockStorage.AssertExpectations(t)
+	mockObjects.AssertExpectations(t)
 }
 
 // TestWorker_ProcessInventories_NoConfigs tests processing when no configs are ready
 func TestWorker_ProcessInventories_NoConfigs(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -348,7 +348,7 @@ func TestWorker_ProcessInventories_NoConfigs(t *testing.T) {
 func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
@@ -403,7 +403,7 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	err = manager.UpdateConfig(ctx, config2)
 	assert.NoError(t, err)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	// Mock for config1
 	mockBucketMgr.On("GetBucketInfo", ctx, "tenant1", "bucket-1").Return(&bucket.Bucket{
@@ -414,16 +414,13 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 		Name:     "dest-1",
 		TenantID: "tenant1",
 	}, nil).Twice()
-	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-1", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-1", "", "", inventoryPageSize).Return(
 		[]*metadata.ObjectMetadata{
 			{TenantID: "tenant1", Bucket: "bucket-1", Key: "file1.txt", Size: 100, LastModified: now},
 		},
 		"", nil,
 	).Once()
-	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
-		return obj.Bucket == "tenant1/dest-1"
-	})).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockObjects.On("PutObject", ctx, mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("http.Header")).Return(&object.Object{}, nil).Once()
 
 	// Mock for config2
 	mockBucketMgr.On("GetBucketInfo", ctx, "tenant1", "bucket-2").Return(&bucket.Bucket{
@@ -434,16 +431,13 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 		Name:     "dest-2",
 		TenantID: "tenant1",
 	}, nil).Twice()
-	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-2", "", "", 10000).Return(
+	mockMetadata.On("ListObjects", ctx, "tenant1/bucket-2", "", "", inventoryPageSize).Return(
 		[]*metadata.ObjectMetadata{
 			{TenantID: "tenant1", Bucket: "bucket-2", Key: "file2.txt", Size: 200, LastModified: now},
 		},
 		"", nil,
 	).Once()
-	mockMetadata.On("PutObject", ctx, mock.MatchedBy(func(obj *metadata.ObjectMetadata) bool {
-		return obj.Bucket == "tenant1/dest-2"
-	})).Return(nil).Once()
-	mockStorage.On("Put", ctx, mock.AnythingOfType("storage.ObjectRef"), mock.Anything, mock.AnythingOfType("map[string]string")).Return(nil).Once()
+	mockObjects.On("PutObject", ctx, mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("http.Header")).Return(&object.Object{}, nil).Once()
 
 	// Execute
 	worker.processInventories(ctx)
@@ -451,21 +445,21 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	// Verify both were processed
 	mockBucketMgr.AssertExpectations(t)
 	mockMetadata.AssertExpectations(t)
-	mockStorage.AssertExpectations(t)
+	mockObjects.AssertExpectations(t)
 }
 
 // TestWorker_StartStop tests worker lifecycle
 func TestWorker_StartStop(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 
@@ -489,14 +483,14 @@ func TestWorker_StartStop(t *testing.T) {
 func TestWorker_StartStop_WithContextCancellation(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -520,14 +514,14 @@ func TestWorker_StartStop_WithContextCancellation(t *testing.T) {
 func TestWorker_RecordFailure(t *testing.T) {
 	mockBucketMgr := new(MockBucketManager)
 	mockMetadata := new(MockMetadataStore)
-	mockStorage := new(MockStorageBackend)
+	mockObjects := new(MockObjectWriter)
 
 	db := setupTestDB(t)
 	defer db.Close()
 
 	manager := NewManager(db)
 
-	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockStorage)
+	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 
 	ctx := context.Background()
 

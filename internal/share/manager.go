@@ -20,11 +20,32 @@ type Manager interface {
 	ListBucketShares(ctx context.Context, bucketName, tenantID string) ([]*Share, error)
 	DeleteShare(ctx context.Context, shareID string) error
 	DeleteExpiredShares(ctx context.Context) error
+	SetChangeObserver(o ChangeObserver)
 }
+
+// SharesTable is the table shares are kept in.
+const SharesTable = "shares"
+
+// ChangeObserver is told, once stored, of every share created or deleted:
+// the table, the share's ID, and whether it was deleted.
+type ChangeObserver func(ctx context.Context, table, id string, deleted bool)
 
 // ShareManager implements Manager interface
 type ShareManager struct {
-	store Store
+	store    Store
+	observer ChangeObserver
+}
+
+// SetChangeObserver sets who is told of every stored change. Shares deleted
+// because they expired are not told: every node expires them on its own.
+func (m *ShareManager) SetChangeObserver(o ChangeObserver) {
+	m.observer = o
+}
+
+func (m *ShareManager) changed(ctx context.Context, id string, deleted bool) {
+	if m.observer != nil {
+		m.observer(ctx, SharesTable, id, deleted)
+	}
 }
 
 // NewManager creates a new share manager
@@ -89,6 +110,7 @@ func (m *ShareManager) CreateShare(ctx context.Context, bucketName, objectKey, t
 	if err := m.store.CreateShare(ctx, share); err != nil {
 		return nil, err
 	}
+	m.changed(ctx, share.ID, false)
 
 	return share, nil
 }
@@ -138,7 +160,11 @@ func (m *ShareManager) ListBucketShares(ctx context.Context, bucketName, tenantI
 
 // DeleteShare deletes a share
 func (m *ShareManager) DeleteShare(ctx context.Context, shareID string) error {
-	return m.store.DeleteShare(ctx, shareID)
+	if err := m.store.DeleteShare(ctx, shareID); err != nil {
+		return err
+	}
+	m.changed(ctx, shareID, true)
+	return nil
 }
 
 // DeleteExpiredShares deletes all expired shares

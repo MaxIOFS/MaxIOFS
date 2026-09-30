@@ -502,6 +502,21 @@ With a replication factor above 1 every node holds every bucket.
 - A bucket whose name another tenant holds on a node is refused there and logged.
 - Deletions are kept 7 days, as the deletion log. A node down longer can bring back a bucket deleted meanwhile.
 - Lifecycle: the coordinator expires objects, and its deletes reach the other nodes. Every node aborts the incomplete multipart uploads started on it.
+- Inventory: the coordinator writes the reports. The report file, its row and the configuration's last run reach the other nodes.
+- Scheduled replication rules run on the coordinator. Real-time rules queue each write on the node that took it.
+
+### Bucket rows
+
+With a replication factor above 1 every node also holds the rows a bucket keeps in the node's database: shares, replication rules, inventory configurations and inventory reports.
+
+- A change is sent to every other node before the request returns. A node that is down or does not take it is recorded as having missed a write; it is sent every row, after the buckets, when it is caught up, at the start of an anti-entropy cycle and when a node starts.
+- Each row carries the time of its last change, to the nanosecond. A later change wins; at the same time a deletion wins. Rows from before the upgrade carry no time and reach every node.
+- Two rows that may not coexist (two shares of one object, two inventory configurations of a tenant's bucket) end as the later one on every node.
+- A report whose configuration was deleted is not stored. A row a node cannot store (unknown column, missing tenant) is refused and logged by the sending node.
+- Expired shares are not sent: every node removes them.
+- With a replication factor of 1 each node keeps the rows of its own buckets; changes are still dated, and reach the other nodes if the factor rises.
+- Deletions are kept 7 days, as the deletion log.
+- Stored credentials in these rows are encrypted with the cluster's encryption secret, which every node holds.
 
 ### HMAC Authentication
 

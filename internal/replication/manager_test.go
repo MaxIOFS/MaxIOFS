@@ -61,16 +61,22 @@ func (m *MockObjectManager) GetObjectMetadata(ctx context.Context, tenantID, buc
 	return 0, "", map[string]string{}, nil
 }
 
-// MockBucketLister for testing
+// MockBucketLister for testing. ListObjectsFunc answers with one page;
+// ListPageFunc answers page by page.
 type MockBucketLister struct {
 	ListObjectsFunc func(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error)
+	ListPageFunc    func(ctx context.Context, tenantID, bucket, prefix, marker string, maxKeys int) ([]string, string, error)
 }
 
-func (m *MockBucketLister) ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error) {
-	if m.ListObjectsFunc != nil {
-		return m.ListObjectsFunc(ctx, tenantID, bucket, prefix, maxKeys)
+func (m *MockBucketLister) ListObjects(ctx context.Context, tenantID, bucket, prefix, marker string, maxKeys int) ([]string, string, error) {
+	if m.ListPageFunc != nil {
+		return m.ListPageFunc(ctx, tenantID, bucket, prefix, marker, maxKeys)
 	}
-	return []string{}, nil
+	if m.ListObjectsFunc != nil {
+		keys, err := m.ListObjectsFunc(ctx, tenantID, bucket, prefix, maxKeys)
+		return keys, "", err
+	}
+	return []string{}, "", nil
 }
 
 func setupTestDB(t *testing.T) *sql.DB {

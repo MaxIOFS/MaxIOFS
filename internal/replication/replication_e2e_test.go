@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -109,12 +110,19 @@ func NewTestBucketLister(store *InMemoryObjectStore) *TestBucketLister {
 	return &TestBucketLister{store: store}
 }
 
-func (l *TestBucketLister) ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error) {
-	keys := l.store.ListObjects(tenantID, bucket, prefix)
-	if len(keys) > maxKeys {
-		keys = keys[:maxKeys]
+func (l *TestBucketLister) ListObjects(ctx context.Context, tenantID, bucket, prefix, marker string, maxKeys int) ([]string, string, error) {
+	all := l.store.ListObjects(tenantID, bucket, prefix)
+	sort.Strings(all)
+	var keys []string
+	for _, k := range all {
+		if k > marker {
+			keys = append(keys, k)
+		}
 	}
-	return keys, nil
+	if len(keys) > maxKeys {
+		return keys[:maxKeys], keys[maxKeys-1], nil
+	}
+	return keys, "", nil
 }
 
 // TestReplicationAdapter simulates replication between two in-memory stores

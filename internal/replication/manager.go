@@ -29,6 +29,32 @@ type Manager struct {
 	ruleLocks       map[string]*sync.Mutex // Locks per rule to prevent concurrent syncs
 	locksMu         sync.RWMutex           // Protects ruleLocks map
 	s3ClientFactory S3ClientFactory        // Factory for creating S3 clients (for testing)
+	observer        ChangeObserver
+	scheduleGate    func() bool
+}
+
+// RulesTable is the table replication rules are kept in.
+const RulesTable = "replication_rules"
+
+// ChangeObserver is told, once stored, of every rule created, changed or
+// deleted: the table, the rule's ID, and whether it was deleted.
+type ChangeObserver func(ctx context.Context, table, id string, deleted bool)
+
+// SetChangeObserver sets who is told of every stored change.
+func (m *Manager) SetChangeObserver(o ChangeObserver) {
+	m.observer = o
+}
+
+// SetScheduleGate decides, at each check, whether this node runs the
+// scheduled rules. With every node holding every bucket, one node does.
+func (m *Manager) SetScheduleGate(runs func() bool) {
+	m.scheduleGate = runs
+}
+
+func (m *Manager) changed(ctx context.Context, id string, deleted bool) {
+	if m.observer != nil {
+		m.observer(ctx, RulesTable, id, deleted)
+	}
 }
 
 // ObjectAdapter provides methods to interact with objects
@@ -38,10 +64,15 @@ type ObjectAdapter interface {
 	GetObjectMetadata(ctx context.Context, bucket, key, tenantID string) (map[string]string, error)
 }
 
-// BucketLister provides methods to list objects in a bucket
+// BucketLister lists the keys of a bucket a page at a time.
 type BucketLister interface {
-	ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error)
+	// ListObjects returns up to maxKeys keys after marker, and the marker of
+	// the next page, empty after the last page.
+	ListObjects(ctx context.Context, tenantID, bucket, prefix, marker string, maxKeys int) ([]string, string, error)
 }
+
+// syncPageSize is how many keys a bucket sync lists at a time.
+const syncPageSize = 1000
 
 // NewManager creates a new replication manager
 func NewManager(db *sql.DB, config ReplicationConfig, objectAdapter ObjectAdapter, objectManager ObjectManager, bucketLister BucketLister) (*Manager, error) {
@@ -174,7 +205,11 @@ func (m *Manager) CreateRule(ctx context.Context, rule *ReplicationRule) error {
 		rule.Priority, rule.Mode, rule.ScheduleInterval, rule.ConflictResolution, rule.ReplicateDeletes,
 		rule.ReplicateMetadata, rule.CreatedAt, rule.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	m.changed(ctx, rule.ID, false)
+	return nil
 }
 
 // GetRule retrieves a replication rule by ID
@@ -323,6 +358,7 @@ func (m *Manager) UpdateRule(ctx context.Context, rule *ReplicationRule) error {
 	if rows == 0 {
 		return fmt.Errorf("rule not found")
 	}
+	m.changed(ctx, rule.ID, false)
 	return nil
 }
 
@@ -341,6 +377,7 @@ func (m *Manager) DeleteRule(ctx context.Context, tenantID, ruleID string) error
 	if rows == 0 {
 		return fmt.Errorf("rule not found")
 	}
+	m.changed(ctx, ruleID, true)
 
 	return nil
 }
@@ -649,9 +686,18 @@ func (m *Manager) ruleScheduler(ctx context.Context) {
 		case <-m.Stopped():
 			return
 		case <-ticker.C:
-			m.processScheduledRules(ctx, lastSync)
+			m.scheduledPass(ctx, lastSync)
 		}
 	}
+}
+
+// scheduledPass runs the scheduled rules that are due, when this node runs
+// them.
+func (m *Manager) scheduledPass(ctx context.Context, lastSync map[string]time.Time) {
+	if m.scheduleGate != nil && !m.scheduleGate() {
+		return
+	}
+	m.processScheduledRules(ctx, lastSync)
 }
 
 // processScheduledRules checks and processes rules that need to be synced
@@ -775,37 +821,43 @@ func (m *Manager) SyncBucket(ctx context.Context, ruleID string) (int, error) {
 		return 0, fmt.Errorf("rule is disabled: %s", ruleID)
 	}
 
-	// List all objects in the source bucket
-	objects, err := m.bucketLister.ListObjects(ctx, rule.TenantID, rule.SourceBucket, rule.Prefix, 10000)
-	if err != nil {
-		return 0, fmt.Errorf("failed to list objects: %w", err)
-	}
-
-	// Queue each object for replication
-	queuedCount := 0
-	for _, objectKey := range objects {
-		// Check if object matches prefix filter
-		if !matchesPrefix(objectKey, rule.Prefix) {
-			continue
-		}
-
-		// Queue the object
-		err := m.QueueObject(ctx, rule.TenantID, rule.SourceBucket, objectKey, "PUT")
+	// Queue every object of the source bucket, a page at a time
+	queuedCount, total := 0, 0
+	marker := ""
+	for {
+		objects, next, err := m.bucketLister.ListObjects(ctx, rule.TenantID, rule.SourceBucket, rule.Prefix, marker, syncPageSize)
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"rule_id": ruleID,
-				"object":  objectKey,
-			}).WithError(err).Warn("Failed to queue object for replication")
-			continue
+			return queuedCount, fmt.Errorf("failed to list objects: %w", err)
 		}
-		queuedCount++
+		total += len(objects)
+		for _, objectKey := range objects {
+			// Check if object matches prefix filter
+			if !matchesPrefix(objectKey, rule.Prefix) {
+				continue
+			}
+
+			// Queue the object
+			err := m.QueueObject(ctx, rule.TenantID, rule.SourceBucket, objectKey, "PUT")
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"rule_id": ruleID,
+					"object":  objectKey,
+				}).WithError(err).Warn("Failed to queue object for replication")
+				continue
+			}
+			queuedCount++
+		}
+		if next == "" {
+			break
+		}
+		marker = next
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"rule_id": ruleID,
 		"bucket":  rule.SourceBucket,
 		"queued":  queuedCount,
-		"total":   len(objects),
+		"total":   total,
 	}).Info("Bucket sync completed")
 
 	return queuedCount, nil

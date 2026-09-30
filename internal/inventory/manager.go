@@ -11,10 +11,32 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// The tables the manager keeps its configurations and reports in.
+const (
+	ConfigsTable = "bucket_inventory_configs"
+	ReportsTable = "bucket_inventory_reports"
+)
+
+// ChangeObserver is told, once stored, of every change to a row of the
+// inventory tables: the table, the row's ID, and whether it was deleted.
+type ChangeObserver func(ctx context.Context, table, id string, deleted bool)
+
 // Manager handles inventory configuration and report operations
 type Manager struct {
-	db  *sql.DB
-	log *logrus.Entry
+	db       *sql.DB
+	log      *logrus.Entry
+	observer ChangeObserver
+}
+
+// SetChangeObserver sets who is told of every stored change.
+func (m *Manager) SetChangeObserver(o ChangeObserver) {
+	m.observer = o
+}
+
+func (m *Manager) changed(ctx context.Context, table, id string, deleted bool) {
+	if m.observer != nil {
+		m.observer(ctx, table, id, deleted)
+	}
 }
 
 // NewManager creates a new inventory manager
@@ -66,6 +88,7 @@ func (m *Manager) CreateConfig(ctx context.Context, config *InventoryConfig) err
 	if err != nil {
 		return fmt.Errorf("failed to create inventory config: %w", err)
 	}
+	m.changed(ctx, ConfigsTable, config.ID, false)
 
 	m.log.WithFields(logrus.Fields{
 		"config_id": config.ID,
@@ -156,6 +179,7 @@ func (m *Manager) UpdateConfig(ctx context.Context, config *InventoryConfig) err
 	if rows == 0 {
 		return fmt.Errorf("inventory configuration not found")
 	}
+	m.changed(ctx, ConfigsTable, config.ID, false)
 
 	m.log.WithFields(logrus.Fields{
 		"config_id": config.ID,
@@ -167,19 +191,19 @@ func (m *Manager) UpdateConfig(ctx context.Context, config *InventoryConfig) err
 
 // DeleteConfig deletes an inventory configuration
 func (m *Manager) DeleteConfig(ctx context.Context, bucketName, tenantID string) error {
-	query := `
-		DELETE FROM bucket_inventory_configs
-		WHERE bucket_name = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))
-	`
-
-	result, err := m.db.ExecContext(ctx, query, bucketName, tenantID, tenantID)
+	ids, err := m.ids(ctx, `SELECT id FROM bucket_inventory_configs
+		WHERE bucket_name = ? AND (tenant_id = ? OR (tenant_id IS NULL AND ? = ''))`, bucketName, tenantID, tenantID)
 	if err != nil {
 		return fmt.Errorf("failed to delete inventory config: %w", err)
 	}
-
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if len(ids) == 0 {
 		return fmt.Errorf("inventory configuration not found")
+	}
+	for _, id := range ids {
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM bucket_inventory_configs WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("failed to delete inventory config: %w", err)
+		}
+		m.changed(ctx, ConfigsTable, id, true)
 	}
 
 	m.log.WithField("bucket", bucketName).Info("Inventory configuration deleted")
@@ -263,9 +287,28 @@ func (m *Manager) CreateReport(ctx context.Context, report *InventoryReport) err
 	if err != nil {
 		return fmt.Errorf("failed to create inventory report: %w", err)
 	}
+	m.changed(ctx, ReportsTable, report.ID, false)
 
 	m.trimReports(ctx, report.BucketName)
 	return nil
+}
+
+// ids returns the ids query selects.
+func (m *Manager) ids(ctx context.Context, query string, args ...any) ([]string, error) {
+	rows, err := m.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // reportsKeptPerBucket bounds the history a bucket accumulates. The worker
@@ -274,8 +317,8 @@ func (m *Manager) CreateReport(ctx context.Context, report *InventoryReport) err
 const reportsKeptPerBucket = 20
 
 func (m *Manager) trimReports(ctx context.Context, bucketName string) {
-	_, err := m.db.ExecContext(ctx, `
-		DELETE FROM bucket_inventory_reports
+	ids, err := m.ids(ctx, `
+		SELECT id FROM bucket_inventory_reports
 		WHERE bucket_name = ?
 		AND id NOT IN (
 			SELECT id FROM bucket_inventory_reports
@@ -289,6 +332,15 @@ func (m *Manager) trimReports(ctx context.Context, bucketName string) {
 	if err != nil {
 		logrus.WithError(err).WithField("bucket", bucketName).
 			Warn("Could not trim the inventory report history")
+		return
+	}
+	for _, id := range ids {
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM bucket_inventory_reports WHERE id = ?`, id); err != nil {
+			logrus.WithError(err).WithField("bucket", bucketName).
+				Warn("Could not trim the inventory report history")
+			return
+		}
+		m.changed(ctx, ReportsTable, id, true)
 	}
 }
 
@@ -296,13 +348,13 @@ func (m *Manager) trimReports(ctx context.Context, bucketName string) {
 func (m *Manager) UpdateReport(ctx context.Context, report *InventoryReport) error {
 	query := `
 		UPDATE bucket_inventory_reports
-		SET object_count = ?, total_size = ?, status = ?,
+		SET report_path = ?, object_count = ?, total_size = ?, status = ?,
 		    started_at = ?, completed_at = ?, error_message = ?
 		WHERE id = ?
 	`
 
 	result, err := m.db.ExecContext(ctx, query,
-		report.ObjectCount, report.TotalSize, report.Status,
+		report.ReportPath, report.ObjectCount, report.TotalSize, report.Status,
 		report.StartedAt, report.CompletedAt, report.ErrorMessage, report.ID,
 	)
 
@@ -314,6 +366,7 @@ func (m *Manager) UpdateReport(ctx context.Context, report *InventoryReport) err
 	if rows == 0 {
 		return fmt.Errorf("inventory report not found")
 	}
+	m.changed(ctx, ReportsTable, report.ID, false)
 
 	return nil
 }
@@ -474,6 +527,7 @@ func (m *Manager) UpsertConfigByID(ctx context.Context, config *InventoryConfig)
 	rows, _ := result.RowsAffected()
 	if rows > 0 {
 		config.UpdatedAt = now
+		m.changed(ctx, ConfigsTable, config.ID, false)
 		return nil
 	}
 
@@ -496,6 +550,7 @@ func (m *Manager) UpsertConfigByID(ctx context.Context, config *InventoryConfig)
 	if err != nil {
 		return fmt.Errorf("failed to insert inventory config: %w", err)
 	}
+	m.changed(ctx, ConfigsTable, config.ID, false)
 	return nil
 }
 
@@ -512,6 +567,7 @@ func (m *Manager) DeleteConfigByID(ctx context.Context, id, tenantID string) err
 	if rows == 0 {
 		return fmt.Errorf("inventory configuration not found")
 	}
+	m.changed(ctx, ConfigsTable, id, true)
 	m.log.WithField("config_id", id).Info("Inventory configuration deleted by ID")
 	return nil
 }

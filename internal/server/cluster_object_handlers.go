@@ -974,6 +974,25 @@ func (s *Server) handleHABucketState(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleHARowStates stores the rows another node sends, and answers with those
+// it refused.
+// POST /api/internal/cluster/ha/row-states
+func (s *Server) handleHARowStates(w http.ResponseWriter, r *http.Request) {
+	var batch cluster.RowStateBatch
+	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	refused, err := s.rowStates.Apply(r.Context(), batch.Rows)
+	if err != nil {
+		logrus.WithError(err).Error("HA: failed to store rows from another node")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cluster.RowStateResult{Refused: refused}) //nolint:errcheck
+}
+
 // handleHAReceiveMetadataOp receives a metadata-only operation fanout.
 // POST /api/internal/ha/metadata-op
 // Bucket path is in X-HA-Bucket header; body is JSON cluster.HAMetadataOp.

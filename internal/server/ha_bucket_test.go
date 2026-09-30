@@ -384,9 +384,9 @@ type fakeLeader bool
 
 func (f fakeLeader) IsLeader() bool { return bool(f) }
 
-// A node expires objects outside a cluster whose buckets are on every node,
-// and only as the coordinator inside one.
-func TestLifecycleExpiresOnTheCoordinator(t *testing.T) {
+// A node runs the jobs that act on every bucket outside a cluster whose
+// buckets are on every node, and only as the coordinator inside one.
+func TestClusterJobsRunOnTheCoordinator(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		repl    fakeReplication
@@ -399,7 +399,7 @@ func TestLifecycleExpiresOnTheCoordinator(t *testing.T) {
 		{"factor 2, not coordinator", fakeReplication{enabled: true, factor: 2}, false, false},
 		{"factor unknown", fakeReplication{enabled: true, factor: 1, err: errors.New("unreadable")}, true, false},
 	} {
-		assert.Equal(t, c.expires, expiresObjectsHere(c.repl, fakeLeader(c.leader))(), c.name)
+		assert.Equal(t, c.expires, runsClusterJobsHere(c.repl, fakeLeader(c.leader))(), c.name)
 	}
 }
 

@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **305 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **311 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -164,7 +164,7 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 38 test files
+### `internal/cluster/` — 39 test files
 
 | File | Description |
 |------|-------------|
@@ -179,6 +179,7 @@ npx vitest run --coverage
 | `deletion_log_test.go` | Tombstone-based deletion sync |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
 | `ha_bucket_state_test.go` | Bucket deletions are pruned with the deletion log, the later of two deletions winning |
+| `ha_row_state_test.go` | Rows of the replicated tables, on the real schema with foreign keys: the order of versions, deletions and content; a stored row keeps the rows that reference it; a report follows its configuration; rows that may not coexist converge on one; refusals; expired shares; a change dated after any version held; a synchronization sends every row and deletion in batches; old versions are forgotten |
 | `ha_fanout_lock_test.go` | The legacy (non-raw) HA transfer carries the object's retention and legal hold; without lock state it sends no lock header |
 | `ha_metadata_queue_test.go` | A metadata change reaches a healthy replica before the request returns; it is queued for a replica that is down, fails or has changes waiting, never for one that refuses it; the queue is replayed in order, dropping refused changes and stopping at a failure; removed nodes leave no queue |
 | `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again. The initial sync copies every version oldest first with its ID, delete markers with their time, and lock state; in a suspended bucket, the current object without a version ID last, with its ETag and tags |
@@ -248,12 +249,13 @@ npx vitest run --coverage
 | `ldap/ldap_test.go` | LDAP bind, search, group resolution |
 | `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping |
 
-### `internal/inventory/` — 4 test files
+### `internal/inventory/` — 5 test files
 
 | File | Description |
 |------|-------------|
-| `generator_test.go` | S3 inventory report generation (CSV/Parquet) |
-| `manager_test.go` | Inventory schedule management |
+| `change_observer_test.go` | Every configuration and report written or deleted is reported, trimmed reports too; the worker runs only when its gate says |
+| `generator_test.go` | S3 inventory report generation (CSV/JSON), page after page, stored through the object writer |
+| `manager_test.go` | Inventory schedule management; a completed report keeps its path |
 | `report_retention_test.go` | Only recent report history is kept |
 | `worker_test.go` | Background inventory worker |
 
@@ -410,13 +412,14 @@ npx vitest run --coverage
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
 | `review_faultcheck_test.go` | Reconcile takes the same per-key lock as a live overwrite and does not race it; a same-size same-second overwrite is still detected |
 
-### `internal/replication/` — 9 test files
+### `internal/replication/` — 10 test files
 
 | File | Description |
 |------|-------------|
 | `adapter_test.go` | `RealObjectAdapter` CopyObject, DeleteObject, GetObjectMetadata |
+| `change_observer_test.go` | Every rule created, changed or deleted is reported; scheduled rules run only when the gate says |
 | `credentials_test.go` | AES-256-GCM credential encryption round-trip, wrong key, legacy plaintext, `deriveCredentialKey` |
-| `manager_sync_test.go` | `SyncBucket`, `SyncRule` (lock contention), `processScheduledRules`, `cleanup` |
+| `manager_sync_test.go` | `SyncBucket` (every page), `SyncRule` (lock contention), `processScheduledRules`, `cleanup` |
 | `manager_test.go` | Replication rule management |
 | `reencrypt_test.go` | Destination keys move to a new secret; the manager reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 | `replication_e2e_test.go` | End-to-end replication with `require.Eventually` |
@@ -431,7 +434,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 42 test files
+### `internal/server/` — 44 test files
 
 | File | Description |
 |------|-------------|
@@ -456,6 +459,7 @@ npx vitest run --coverage
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
 | `group_handlers_test.go` | A group member add is rejected across a different tenant scope; group delete removes policies atomically |
 | `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only |
+| `ha_rows_test.go` | Between two complete nodes with a replication factor of 2: shares, replication rules, inventory configurations and reports reach the other node in both directions; a node that was down is caught up, rows from before the upgrade included; the coordinator's inventory report, its file and run reach the other node; a node that is not the coordinator writes no report; with a factor of 1 changes are dated and sent once it rises; an undated change is missed by every node |
 | `iam_admin_test.go` | Tenant scope separates administrators; who a policy grants administration to |
 | `iam_aws_api_test.go` | AWS IAM XML actions route to the IAM handler and require the IAM-manage capability |
 | `iam_tenant_isolation_test.go` | A tenant cannot reach another tenant's IAM role; a global administrator reaches every tenant's |
@@ -470,6 +474,7 @@ npx vitest run --coverage
 | `pending_password_change_test.go` | A pending forced password change leaves only the intended way out |
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |
+| `replication_adapter_test.go` | Replication reads and lists a tenant's bucket under its tenant, page after page |
 | `route_ordering_test.go` | Route priority and matching order |
 | `search_api_test.go` | Object search API endpoints |
 | `server_test.go` | Server startup, shutdown, configuration |
@@ -484,10 +489,11 @@ npx vitest run --coverage
 |------|-------------|
 | `manager_test.go` | Dynamic settings CRUD, defaults, validation |
 
-### `internal/share/` — 2 test files
+### `internal/share/` — 3 test files
 
 | File | Description |
 |------|-------------|
+| `change_observer_test.go` | Every share created or deleted is reported, expired ones are not; a share replacing an expired one keeps its own ID |
 | `manager_test.go` | Pre-signed share link generation and access |
 | `reencrypt_test.go` | Share keys move to a new secret; the store reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 

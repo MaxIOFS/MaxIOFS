@@ -89,6 +89,40 @@ func TestSyncBucket_Success(t *testing.T) {
 	assert.Equal(t, 3, queueCount(t, m, rule.ID))
 }
 
+// A sync queues every object of the bucket, page after page, and asks for
+// each page after the last key of the one before.
+func TestSyncBucket_ReadsEveryPage(t *testing.T) {
+	pages := map[string]struct {
+		keys []string
+		next string
+	}{
+		"":  {[]string{"a", "b"}, "b"},
+		"b": {[]string{"c", "d"}, "d"},
+		"d": {[]string{"e"}, ""},
+	}
+	var markers []string
+	lister := &MockBucketLister{
+		ListPageFunc: func(_ context.Context, tenantID, bucket, _, marker string, maxKeys int) ([]string, string, error) {
+			assert.Equal(t, "tenant1", tenantID)
+			assert.Equal(t, "src-bucket", bucket)
+			assert.Equal(t, syncPageSize, maxKeys)
+			markers = append(markers, marker)
+			page := pages[marker]
+			return page.keys, page.next, nil
+		},
+	}
+	m := setupSyncManager(t, lister)
+	rule := &ReplicationRule{ID: "sync-pages", TenantID: "tenant1", SourceBucket: "src-bucket",
+		DestinationBucket: "dst-bucket", Enabled: true, Mode: ModeRealTime}
+	insertTestRule(t, m.db, rule)
+
+	count, err := m.SyncBucket(context.Background(), rule.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 5, count)
+	assert.Equal(t, 5, queueCount(t, m, rule.ID))
+	assert.Equal(t, []string{"", "b", "d"}, markers)
+}
+
 func TestSyncBucket_RuleNotFound(t *testing.T) {
 	m := setupSyncManager(t, &MockBucketLister{})
 	_, err := m.SyncBucket(context.Background(), "does-not-exist")

@@ -179,6 +179,7 @@ func (s *SQLiteStore) CreateShare(ctx context.Context, share *Share) error {
 		INSERT INTO shares (id, bucket_name, object_key, tenant_id, access_key_id, secret_key, share_token, expires_at, created_at, created_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(bucket_name, object_key, tenant_id) DO UPDATE SET
+			id = excluded.id,
 			access_key_id = excluded.access_key_id,
 			secret_key = excluded.secret_key,
 			share_token = excluded.share_token,

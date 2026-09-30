@@ -8,7 +8,6 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
-	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,18 +21,32 @@ type Worker struct {
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
 	log           *logrus.Entry
+	gate          func() bool
 }
 
-// NewWorker creates a new inventory worker
+// SetObjectManager replaces what the worker stores reports through, before
+// Start: in a cluster, the object manager that sends them to the other nodes.
+func (w *Worker) SetObjectManager(objects ObjectWriter) {
+	w.generator.objects = objects
+}
+
+// SetRunGate decides, at each pass, whether this node produces reports. With
+// every node holding every bucket, one node does, and the reports reach the
+// others.
+func (w *Worker) SetRunGate(runs func() bool) {
+	w.gate = runs
+}
+
+// NewWorker creates a new inventory worker. objects stores the reports.
 func NewWorker(
 	manager *Manager,
 	bucketManager bucket.Manager,
 	metadataStore metadata.Store,
-	storageBackend storage.Backend,
+	objects ObjectWriter,
 ) *Worker {
 	return &Worker{
 		manager:       manager,
-		generator:     NewReportGenerator(bucketManager, metadataStore, storageBackend),
+		generator:     NewReportGenerator(bucketManager, metadataStore, objects),
 		bucketManager: bucketManager,
 		stopChan:      make(chan struct{}),
 		log:           logrus.WithField("component", "inventory_worker"),
@@ -83,6 +96,9 @@ func (w *Worker) Stop() {
 
 // processInventories processes all ready inventory configurations
 func (w *Worker) processInventories(ctx context.Context) {
+	if w.gate != nil && !w.gate() {
+		return
+	}
 	w.log.Debug("Processing inventory configurations...")
 
 	// Get all configurations that are ready to run

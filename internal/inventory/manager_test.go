@@ -456,3 +456,28 @@ func TestDefaultIncludedFields(t *testing.T) {
 	assert.Contains(t, fields, "object_key")
 	assert.Contains(t, fields, "size")
 }
+
+// A report is created before its file is written: the update that completes
+// it stores where the file is.
+func TestUpdateReport_StoresTheReportPath(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+	manager := NewManager(db)
+	ctx := context.Background()
+	require.NoError(t, manager.CreateConfig(ctx, &InventoryConfig{ID: "c", BucketName: "b", Enabled: true, Frequency: "daily",
+		Format: "csv", DestinationBucket: "d", IncludedFields: []string{"object_key"}, ScheduleTime: "02:00"}))
+	report := &InventoryReport{ConfigID: "c", BucketName: "b", Status: "pending"}
+	require.NoError(t, manager.CreateReport(ctx, report))
+
+	report.ReportPath = "reports/inventory-1.csv"
+	report.Status = "completed"
+	report.ObjectCount = 3
+	require.NoError(t, manager.UpdateReport(ctx, report))
+
+	reports, err := manager.ListReports(ctx, "b", "", 10, 0)
+	require.NoError(t, err)
+	require.Len(t, reports, 1)
+	assert.Equal(t, "reports/inventory-1.csv", reports[0].ReportPath)
+	assert.Equal(t, "completed", reports[0].Status)
+	assert.EqualValues(t, 3, reports[0].ObjectCount)
+}

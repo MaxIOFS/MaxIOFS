@@ -3,39 +3,48 @@ package inventory
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
-	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
+// ObjectWriter stores an object as a client's PUT does: encrypted, counted
+// against the quotas and, in a cluster, sent to the other nodes.
+type ObjectWriter interface {
+	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*object.Object, error)
+}
+
+// inventoryPageSize is how many objects a report lists at a time.
+const inventoryPageSize = 1000
+
 // ReportGenerator generates inventory reports
 type ReportGenerator struct {
-	bucketManager  bucket.Manager
-	metadataStore  metadata.Store
-	storageBackend storage.Backend
-	log            *logrus.Entry
+	bucketManager bucket.Manager
+	metadataStore metadata.Store
+	objects       ObjectWriter
+	log           *logrus.Entry
 }
 
 // NewReportGenerator creates a new report generator
 func NewReportGenerator(
 	bucketManager bucket.Manager,
 	metadataStore metadata.Store,
-	storageBackend storage.Backend,
+	objects ObjectWriter,
 ) *ReportGenerator {
 	return &ReportGenerator{
-		bucketManager:  bucketManager,
-		metadataStore:  metadataStore,
-		storageBackend: storageBackend,
-		log:            logrus.WithField("component", "inventory_generator"),
+		bucketManager: bucketManager,
+		metadataStore: metadataStore,
+		objects:       objects,
+		log:           logrus.WithField("component", "inventory_generator"),
 	}
 }
 
@@ -111,32 +120,38 @@ func (g *ReportGenerator) GenerateReport(ctx context.Context, config *InventoryC
 func (g *ReportGenerator) collectInventoryItems(ctx context.Context, config *InventoryConfig) ([]*ObjectInventoryItem, int64, error) {
 	sourceBucketPath := inventoryBucketPath(config.TenantID, config.BucketName)
 
-	// List all objects in the bucket
-	objects, _, err := g.metadataStore.ListObjects(ctx, sourceBucketPath, "", "", 10000)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list objects: %w", err)
-	}
-
 	var items []*ObjectInventoryItem
 	var totalSize int64
 
-	for _, obj := range objects {
-		isMultipart := obj.UploadID != ""
-		item := &ObjectInventoryItem{
-			Bucket:              config.BucketName,
-			Key:                 obj.Key,
-			VersionID:           obj.VersionID,
-			IsLatest:            obj.VersionID == "", // If no version ID, it's the latest
-			Size:                obj.Size,
-			LastModified:        obj.LastModified.UTC().Format(time.RFC3339),
-			ETag:                obj.ETag,
-			StorageClass:        obj.StorageClass,
-			IsMultipartUploaded: isMultipart,
-			EncryptionStatus:    g.getEncryptionStatus(obj),
+	// List every object in the bucket, a page at a time
+	marker := ""
+	for {
+		objects, next, err := g.metadataStore.ListObjects(ctx, sourceBucketPath, "", marker, inventoryPageSize)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to list objects: %w", err)
 		}
+		for _, obj := range objects {
+			isMultipart := obj.UploadID != ""
+			item := &ObjectInventoryItem{
+				Bucket:              config.BucketName,
+				Key:                 obj.Key,
+				VersionID:           obj.VersionID,
+				IsLatest:            obj.VersionID == "", // If no version ID, it's the latest
+				Size:                obj.Size,
+				LastModified:        obj.LastModified.UTC().Format(time.RFC3339),
+				ETag:                obj.ETag,
+				StorageClass:        obj.StorageClass,
+				IsMultipartUploaded: isMultipart,
+				EncryptionStatus:    g.getEncryptionStatus(obj),
+			}
 
-		items = append(items, item)
-		totalSize += obj.Size
+			items = append(items, item)
+			totalSize += obj.Size
+		}
+		if next == "" || len(objects) == 0 {
+			break
+		}
+		marker = next
 	}
 
 	return items, totalSize, nil
@@ -320,39 +335,15 @@ func (g *ReportGenerator) uploadReport(ctx context.Context, config *InventoryCon
 		return fmt.Errorf("destination bucket not found: %w", err)
 	}
 
-	// Create object metadata
-	objMetadata := make(map[string]string)
-	objMetadata["x-amz-meta-generated-by"] = "maxiofs-inventory"
-	objMetadata["x-amz-meta-source-bucket"] = config.BucketName
+	headers := http.Header{}
+	headers.Set("Content-Type", g.getContentType(config.Format))
+	headers.Set("X-Amz-Meta-Generated-By", "maxiofs-inventory")
+	headers.Set("X-Amz-Meta-Source-Bucket", config.BucketName)
 
 	destinationBucketPath := inventoryBucketPath(config.TenantID, config.DestinationBucket)
-	obj := &metadata.ObjectMetadata{
-		Bucket:       destinationBucketPath,
-		Key:          reportPath,
-		Size:         int64(len(content)),
-		ContentType:  g.getContentType(config.Format),
-		LastModified: time.Now().UTC(),
-		ETag:         fmt.Sprintf("%x", md5.Sum(content)),
-		StorageClass: "STANDARD",
-		Metadata:     objMetadata,
+	if _, err := g.objects.PutObject(ctx, destinationBucketPath, reportPath, bytes.NewReader(content), headers); err != nil {
+		return fmt.Errorf("failed to store the report: %w", err)
 	}
-
-	ref := storage.ObjectRef{Bucket: destinationBucketPath, Key: reportPath}
-	reader := bytes.NewReader(content)
-
-	if err := g.storageBackend.Put(ctx, ref, reader, objMetadata); err != nil {
-		return fmt.Errorf("failed to upload report to storage: %w", err)
-	}
-
-	// Save metadata after the object is durable. If metadata persistence fails,
-	// remove the uploaded object to avoid orphaned inventory reports.
-	if err := g.metadataStore.PutObject(ctx, obj); err != nil {
-		if deleteErr := g.storageBackend.Delete(ctx, ref); deleteErr != nil {
-			g.log.WithError(deleteErr).WithField("key", reportPath).Warn("Failed to remove uploaded inventory report after metadata error")
-		}
-		return fmt.Errorf("failed to save report metadata: %w", err)
-	}
-
 	return nil
 }
 
@@ -367,6 +358,3 @@ func (g *ReportGenerator) getContentType(format string) string {
 		return "application/octet-stream"
 	}
 }
-
-// Helper to read from io.ReadCloser (required for storage.Backend.Put signature)
-var _ io.Reader = (*bytes.Reader)(nil)

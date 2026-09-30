@@ -254,6 +254,11 @@ func RunDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge tim
 			} else if count > 0 {
 				log.WithField("count", count).Info("Cleaned up old bucket deletions")
 			}
+			if count, err := cleanupRowVersions(ctx, db, maxAge); err != nil {
+				log.WithError(err).Error("Failed to clean up old row versions")
+			} else if count > 0 {
+				log.WithField("count", count).Info("Cleaned up old row versions")
+			}
 		}
 	}
 }

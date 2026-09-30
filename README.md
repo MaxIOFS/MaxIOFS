@@ -6,6 +6,7 @@
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
 [![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.7.0)
+[![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
@@ -349,7 +350,7 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (305 files)
+go test ./...                          # 4,400+ backend tests (311 files)
 cd web/frontend && npm run test        # 110 frontend tests
 ```
 

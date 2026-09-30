@@ -119,7 +119,10 @@ func InitSchema(db *sql.DB) error {
 	if err := applyMetadataQueueMigration(db); err != nil {
 		return err
 	}
-	return applyBucketTombstoneMigration(db)
+	if err := applyBucketTombstoneMigration(db); err != nil {
+		return err
+	}
+	return applyRowVersionMigration(db)
 }
 
 // applyDeadNodeMigration adds the unavailable_since column needed for the
@@ -179,6 +182,21 @@ func applyBucketTombstoneMigration(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS ha_bucket_tombstones (
 			path       TEXT PRIMARY KEY,
 			deleted_at INTEGER NOT NULL
+		);
+	`)
+	return err
+}
+
+// applyRowVersionMigration creates the record of the version of each row every
+// node holds, dated to the nanosecond, and of the deletions of such rows.
+func applyRowVersionMigration(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_row_versions (
+			tbl     TEXT NOT NULL,
+			id      TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			deleted INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (tbl, id)
 		);
 	`)
 	return err

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The secret stored credentials are encrypted with (identity provider secrets, replication destination keys, share link keys) lives in the database, like the KEK. The first start stores `auth.encryption_secret`, or else an explicit `auth.jwt_secret`, or else a generated one; the configuration is not read again. The JWT secret no longer encrypts anything. Migration 21.
 - In a cluster every node holds the cluster's encryption secret: a node that joins takes it and re-encrypts what it stores; the coordinator gives it to a node that holds another. The Nodes page marks a node that holds another secret.
 - At startup the log names the stored credentials the encryption secret does not decrypt.
+- With a replication factor above 1, only the coordinator writes inventory reports and runs scheduled replication rules.
 
 ### Fixed
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
@@ -72,6 +73,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The reconciliation of a node back from a partition read the tenants' change times the same way and failed whenever a tenant existed.
 - Stored credentials are decrypted after a restart when neither `auth.jwt_secret` nor `auth.encryption_secret` is configured. They were encrypted with a JWT secret generated anew each start, so a restart made share links, replication destination keys and identity provider secrets unreadable. Those stored before this release have to be entered again; the log names them.
 - The settings API no longer returns the JWT signing secret; the console showed it under Security.
+- With a replication factor above 1, shares, replication rules, inventory configurations and inventory reports reach every node. A change is sent to the other nodes before the request returns; a node that missed it is sent every row after the buckets. They existed only on the node where they were created, and worked only through it. Rows created before the upgrade reach every node at the next synchronization.
+- The sync of a replication rule's existing objects, and each scheduled run, queues every object of the bucket; it queued the first 10,000.
+- Replication of a tenant's bucket reads and lists its objects under the tenant. It looked for a bucket of that name without tenant.
+- An inventory report lists every object of the bucket; it listed the first 10,000.
+- An inventory report is stored as a client write is: encrypted, counted in bucket and tenant usage and quotas, and sent to the other nodes in a cluster. It was written directly to storage and metadata.
+- A completed inventory report keeps the path of its file; the path was not stored.
+- A share created for an object whose share expired but was not yet removed takes the new share's ID. The row kept the expired share's ID, so the ID returned did not exist.
 
 ### Removed
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.

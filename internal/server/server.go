@@ -77,6 +77,7 @@ type Server struct {
 	bucketMigrator      *cluster.BucketMigrator
 	migrationTarget     *cluster.MigrationTarget
 	bucketStateReceiver *cluster.BucketStateReceiver
+	rowStates           *cluster.RowStates
 	bucketAggregator    *cluster.BucketAggregator
 	quotaAggregator     *cluster.QuotaAggregator
 	apiRateLimiter      *auth.APIRateLimiter // per-user S3 API rate limiter
@@ -423,7 +424,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize inventory manager and worker
 	inventoryManager := inventory.NewManager(db)
-	inventoryWorker := supervise(reg, "inventory", inventory.NewWorker(inventoryManager, bucketManager, metadataStore, storageBackend))
+	inventoryWorker := supervise(reg, "inventory", inventory.NewWorker(inventoryManager, bucketManager, metadataStore, objectManager))
 
 	// Initialize IDP manager
 	idpStore := idpkg.NewStore(db)
@@ -578,13 +579,25 @@ func New(cfg *config.Config) (*Server, error) {
 	lifecycleWorker.SetWriteGate(bucketGate.Enter)
 
 	// With a replication factor above 1 every node holds every bucket: its
-	// changes are sent to the other nodes, and one node, the coordinator,
-	// expires objects through the manager that sends its deletes.
+	// changes, and those of the rows it keeps in this database, are sent to
+	// the other nodes. One node, the coordinator, runs the jobs that act on
+	// every bucket: it expires objects through the manager that sends its
+	// deletes, writes the inventory reports and runs the scheduled
+	// replication rules.
 	bucketStates := cluster.NewBucketStates(clusterManager, metadataStore, aclMgr)
 	bucketStateReceiver := cluster.NewBucketStateReceiver(metadataStore, storageBackend, aclMgr, bucketManager,
 		objectManager, metadataStore, db)
+	rowStates := cluster.NewRowStates(clusterManager)
+	bucketStates.SetRowStates(rowStates)
+	inventoryManager.SetChangeObserver(rowStates.Changed)
+	replicationManager.SetChangeObserver(rowStates.Changed)
+	shareManager.SetChangeObserver(rowStates.Changed)
+	clusterJobs := runsClusterJobsHere(clusterManager, leaderMgr)
 	lifecycleWorker.SetObjectManager(objectManager)
-	lifecycleWorker.SetExpirationGate(expiresObjectsHere(clusterManager, leaderMgr))
+	inventoryWorker.SetObjectManager(objectManager)
+	lifecycleWorker.SetExpirationGate(clusterJobs)
+	inventoryWorker.SetRunGate(clusterJobs)
+	replicationManager.SetScheduleGate(clusterJobs)
 
 	// Initialize HA initial-sync worker
 	haSyncWorker := supervise(reg, "haSync", cluster.NewHASyncWorker(objectManager, bucketManager, clusterManager, metadataStore))
@@ -651,6 +664,7 @@ func New(cfg *config.Config) (*Server, error) {
 		bucketMigrator:          bucketMigrator,
 		migrationTarget:         migrationTarget,
 		bucketStateReceiver:     bucketStateReceiver,
+		rowStates:               rowStates,
 		haSyncWorker:            haSyncWorker,
 		antiEntropyScrubber:     antiEntropyScrubber,
 		deadNodeReconciler:      deadNodeReconciler,
@@ -746,10 +760,11 @@ func New(cfg *config.Config) (*Server, error) {
 	return server, nil
 }
 
-// expiresObjectsHere decides whether this node's lifecycle pass expires
-// objects: always outside a cluster whose buckets are on every node, and only
-// on the coordinator inside one, which sends its deletes to the others.
-func expiresObjectsHere(cm interface {
+// runsClusterJobsHere decides whether this node runs the jobs that act on
+// every bucket: lifecycle expiration, inventory reports and scheduled
+// replication. Always outside a cluster whose buckets are on every node; only
+// on the coordinator inside one, which sends what it writes to the others.
+func runsClusterJobsHere(cm interface {
 	IsClusterEnabled() bool
 	GetReplicationFactor(ctx context.Context) (int, error)
 }, leader interface{ IsLeader() bool }) func() bool {
@@ -1629,6 +1644,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
 	hmac.HandleFunc("/ha/checksum-batch", s.handleHAChecksumBatch).Methods("POST")
 	hmac.HandleFunc("/ha/bucket-state", s.handleHABucketState).Methods("POST")
+	hmac.HandleFunc("/ha/row-states", s.handleHARowStates).Methods("POST")
 	hmac.HandleFunc("/migration/stage", s.handleMigrationStage).Methods("POST")
 	hmac.HandleFunc("/migration/manifest", s.handleMigrationManifest).Methods("POST")
 	hmac.HandleFunc("/migration/commit", s.handleMigrationCommit).Methods("POST")
@@ -1980,9 +1996,18 @@ type objectManagerAdapter struct {
 	mgr object.Manager
 }
 
+// replicationBucketPath is where the object manager keeps a replication
+// rule's bucket: under its tenant, if it has one.
+func replicationBucketPath(tenantID, bucket string) string {
+	if tenantID == "" {
+		return bucket
+	}
+	return tenantID + "/" + bucket
+}
+
 func (oma *objectManagerAdapter) GetObject(ctx context.Context, tenantID, bucket, key string) (io.ReadCloser, int64, string, map[string]string, error) {
 	// Get object using the object manager
-	obj, reader, err := oma.mgr.GetObject(ctx, bucket, key)
+	obj, reader, err := oma.mgr.GetObject(ctx, replicationBucketPath(tenantID, bucket), key)
 	if err != nil {
 		return nil, 0, "", nil, err
 	}
@@ -1991,7 +2016,7 @@ func (oma *objectManagerAdapter) GetObject(ctx context.Context, tenantID, bucket
 }
 
 func (oma *objectManagerAdapter) GetObjectMetadata(ctx context.Context, tenantID, bucket, key string) (int64, string, map[string]string, error) {
-	obj, err := oma.mgr.GetObjectMetadata(ctx, bucket, key)
+	obj, err := oma.mgr.GetObjectMetadata(ctx, replicationBucketPath(tenantID, bucket), key)
 	if err != nil {
 		return 0, "", nil, err
 	}
@@ -2004,12 +2029,10 @@ type bucketListerAdapter struct {
 	mgr object.Manager
 }
 
-func (bla *bucketListerAdapter) ListObjects(ctx context.Context, tenantID, bucket, prefix string, maxKeys int) ([]string, error) {
-	// List objects using the object manager
-	// Pass empty delimiter and marker to get all objects
-	result, err := bla.mgr.ListObjects(ctx, bucket, prefix, "", "", maxKeys)
+func (bla *bucketListerAdapter) ListObjects(ctx context.Context, tenantID, bucket, prefix, marker string, maxKeys int) ([]string, string, error) {
+	result, err := bla.mgr.ListObjects(ctx, replicationBucketPath(tenantID, bucket), prefix, "", marker, maxKeys)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Extract just the keys from the result
@@ -2017,6 +2040,12 @@ func (bla *bucketListerAdapter) ListObjects(ctx context.Context, tenantID, bucke
 	for _, obj := range result.Objects {
 		keys = append(keys, obj.Key)
 	}
-
-	return keys, nil
+	if !result.IsTruncated {
+		return keys, "", nil
+	}
+	next := result.NextMarker
+	if next == "" && len(keys) > 0 {
+		next = keys[len(keys)-1]
+	}
+	return keys, next, nil
 }

@@ -102,40 +102,54 @@ func readBucketRows(ctx context.Context, db *sql.DB, bucket string) (BucketRows,
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", t.name, err)
 		}
-		columns, err := rows.Columns()
+		skip := ""
+		if t.generatedID {
+			skip = "id"
+		}
+		found, err := scanRows(rows, t.name, skip)
 		if err != nil {
-			rows.Close()
 			return nil, err
 		}
-		for rows.Next() {
-			values := make([]any, len(columns))
-			ptrs := make([]any, len(columns))
-			for i := range values {
-				ptrs[i] = &values[i]
-			}
-			if err := rows.Scan(ptrs...); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("read %s: %w", t.name, err)
-			}
-			row := make(map[string]RowValue, len(columns))
-			for i, c := range columns {
-				if t.generatedID && c == "id" {
-					continue
-				}
-				v, err := rowValueOf(values[i])
-				if err != nil {
-					rows.Close()
-					return nil, fmt.Errorf("read %s.%s: %w", t.name, c, err)
-				}
-				row[c] = v
-			}
-			out[t.name] = append(out[t.name], row)
+		if len(found) > 0 {
+			out[t.name] = found
 		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", t.name, err)
+	}
+	return out, nil
+}
+
+// scanRows reads every row of rows by column, leaving out the column skip
+// names, and closes them.
+func scanRows(rows *sql.Rows, table, skip string) ([]map[string]RowValue, error) {
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]RowValue
+	for rows.Next() {
+		values := make([]any, len(columns))
+		ptrs := make([]any, len(columns))
+		for i := range values {
+			ptrs[i] = &values[i]
 		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, fmt.Errorf("read %s: %w", table, err)
+		}
+		row := make(map[string]RowValue, len(columns))
+		for i, c := range columns {
+			if c == skip {
+				continue
+			}
+			v, err := rowValueOf(values[i])
+			if err != nil {
+				return nil, fmt.Errorf("read %s.%s: %w", table, c, err)
+			}
+			row[c] = v
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read %s: %w", table, err)
 	}
 	return out, nil
 }

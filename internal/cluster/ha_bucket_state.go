@@ -33,7 +33,7 @@ var (
 	// ErrInvalidBucketState is an answer to a message that names no bucket.
 	ErrInvalidBucketState = errors.New("the message names no bucket")
 
-	errBucketStateRefused = errors.New("the node refused the bucket")
+	errStateRefused = errors.New("the node refused the change")
 )
 
 // BucketState is what a node tells another about a bucket: its configuration
@@ -130,6 +130,7 @@ type BucketStates struct {
 	mgr   *Manager
 	store bucketStateStore
 	acl   acl.Manager
+	rows  *RowStates
 }
 
 // NewBucketStates wires the sender. aclMgr may be nil: the buckets are then
@@ -138,14 +139,24 @@ func NewBucketStates(mgr *Manager, store bucketStateStore, aclMgr acl.Manager) *
 	return &BucketStates{mgr: mgr, store: store, acl: aclMgr}
 }
 
-// active reports whether buckets are replicated: in a cluster whose replication
-// factor is above 1.
-func (b *BucketStates) active(ctx context.Context) bool {
-	if b == nil || !b.mgr.IsClusterEnabled() {
+// SetRowStates makes a synchronization of the buckets send the rows the
+// buckets keep in the node's database after them.
+func (b *BucketStates) SetRowStates(rows *RowStates) {
+	b.rows = rows
+}
+
+// replicatesBuckets reports whether every node holds every bucket: in a
+// cluster whose replication factor is above 1.
+func replicatesBuckets(ctx context.Context, mgr *Manager) bool {
+	if !mgr.IsClusterEnabled() {
 		return false
 	}
-	factor, err := b.mgr.GetReplicationFactor(ctx)
+	factor, err := mgr.GetReplicationFactor(ctx)
 	return err == nil && factor > 1
+}
+
+func (b *BucketStates) active(ctx context.Context) bool {
+	return b != nil && replicatesBuckets(ctx, b.mgr)
 }
 
 // state reads a bucket as it is sent: nil for a bucket this node does not hold
@@ -184,14 +195,14 @@ func (b *BucketStates) Publish(ctx context.Context, tenantID, name string) {
 	meta, err := b.store.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		logrus.WithError(err).WithField("bucket", name).Warn("HA: a changed bucket could not be read; the other nodes get it when they are next synchronized")
-		b.missedByAll(ctx)
+		missedByAll(ctx, b.mgr)
 		return
 	}
 	st, err := b.state(ctx, meta)
 	if err != nil || st == nil {
 		if err != nil {
 			logrus.WithError(err).WithField("bucket", name).Warn("HA: a changed bucket could not be read; the other nodes get it when they are next synchronized")
-			b.missedByAll(ctx)
+			missedByAll(ctx, b.mgr)
 		}
 		return
 	}
@@ -211,9 +222,10 @@ func (b *BucketStates) PublishDeletion(ctx context.Context, tenantID, name strin
 	b.fanout(ctx, &BucketState{TenantID: tenantID, Name: name, DeletedAt: now})
 }
 
-func (b *BucketStates) missedByAll(ctx context.Context) {
-	if localID, err := b.mgr.GetLocalNodeID(ctx); err == nil {
-		nodes, err := b.mgr.ListNodes(ctx)
+// missedByAll records that every other node that is not dead missed a write.
+func missedByAll(ctx context.Context, mgr *Manager) {
+	if localID, err := mgr.GetLocalNodeID(ctx); err == nil {
+		nodes, err := mgr.ListNodes(ctx)
 		if err != nil {
 			return
 		}
@@ -223,53 +235,58 @@ func (b *BucketStates) missedByAll(ctx context.Context) {
 				ids = append(ids, n.ID)
 			}
 		}
-		b.mgr.noteMissedWrites(ctx, localID, time.Now(), ids...)
+		mgr.noteMissedWrites(ctx, localID, time.Now(), ids...)
 	}
 }
 
-func (b *BucketStates) fanout(ctx context.Context, st *BucketState) {
-	localID, err := b.mgr.GetLocalNodeID(ctx)
+// fanout calls send for every other node that is not dead, at once, and
+// returns when all have answered. A node that is not healthy, or for which
+// send fails, is recorded as having missed a write.
+func fanout(ctx context.Context, mgr *Manager, change string,
+	send func(ctx context.Context, client *ProxyClient, n *Node, localID string) error) {
+	localID, err := mgr.GetLocalNodeID(ctx)
 	if err != nil {
 		return
 	}
-	nodes, err := b.mgr.ListNodes(ctx)
+	nodes, err := mgr.ListNodes(ctx)
 	if err != nil {
-		logrus.WithError(err).Error("HA: cannot list nodes; a bucket change reaches them at the next synchronization")
+		logrus.WithError(err).WithField("change", change).Error("HA: cannot list nodes; a change reaches them at the next synchronization")
 		return
 	}
 	now := time.Now()
-	client := NewProxyClient(b.mgr.GetTLSConfig())
+	client := NewProxyClient(mgr.GetTLSConfig())
 	var wg sync.WaitGroup
 	for _, n := range nodes {
 		if n.ID == localID || n.HealthStatus == HealthStatusDead {
 			continue
 		}
 		if n.HealthStatus != HealthStatusHealthy {
-			b.mgr.noteMissedWrites(ctx, localID, now, n.ID)
+			mgr.noteMissedWrites(ctx, localID, now, n.ID)
 			continue
 		}
 		wg.Add(1)
 		go func(n *Node) {
 			defer wg.Done()
-			err := sendBucketState(ctx, client, n, localID, st)
-			switch {
-			case err == nil:
-			case errors.Is(err, errBucketStateRefused):
-				logrus.WithError(err).WithFields(logrus.Fields{"node_id": n.ID, "bucket": bucketStateName(st)}).
-					Error("HA: a node refused a bucket")
-			default:
-				logrus.WithError(err).WithFields(logrus.Fields{"node_id": n.ID, "bucket": bucketStateName(st)}).
-					Warn("HA: a node did not take a bucket change; it gets it when it is caught up")
-				b.mgr.noteMissedWrites(ctx, localID, now, n.ID)
+			if err := send(ctx, client, n, localID); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{"node_id": n.ID, "change": change}).
+					Warn("HA: a node did not take a change; it gets it when it is caught up")
+				mgr.noteMissedWrites(ctx, localID, now, n.ID)
 			}
 		}(n)
 	}
 	wg.Wait()
 }
 
+func (b *BucketStates) fanout(ctx context.Context, st *BucketState) {
+	fanout(ctx, b.mgr, bucketStateName(st), func(ctx context.Context, client *ProxyClient, n *Node, localID string) error {
+		return b.send(ctx, client, n, localID, st)
+	})
+}
+
 // SyncNode sends node every bucket this node holds and every deletion it
-// recorded for a bucket it no longer holds. A bucket the node refuses is
-// logged; any other failure is returned.
+// recorded for a bucket it no longer holds, then the rows the buckets keep in
+// the node's database. A bucket or row the node refuses is logged; any other
+// failure is returned.
 func (b *BucketStates) SyncNode(ctx context.Context, client *ProxyClient, node *Node, localID string) error {
 	if !b.active(ctx) {
 		return nil
@@ -305,6 +322,9 @@ func (b *BucketStates) SyncNode(ctx context.Context, client *ProxyClient, node *
 		if err := b.send(ctx, client, node, localID, &BucketState{TenantID: tenantID, Name: name, DeletedAt: t.deletedAt}); err != nil {
 			return err
 		}
+	}
+	if b.rows != nil {
+		return b.rows.syncNode(ctx, client, node, localID)
 	}
 	return nil
 }
@@ -342,7 +362,7 @@ func (b *BucketStates) SyncPeers(ctx context.Context) {
 
 func (b *BucketStates) send(ctx context.Context, client *ProxyClient, node *Node, localID string, st *BucketState) error {
 	err := sendBucketState(ctx, client, node, localID, st)
-	if errors.Is(err, errBucketStateRefused) {
+	if errors.Is(err, errStateRefused) {
 		logrus.WithError(err).WithFields(logrus.Fields{"node_id": node.ID, "bucket": bucketStateName(st)}).
 			Error("HA: a node refused a bucket")
 		return nil
@@ -380,7 +400,7 @@ func sendBucketState(ctx context.Context, client *ProxyClient, node *Node, local
 	case resp.StatusCode < 300:
 		return nil
 	case resp.StatusCode < 500:
-		return fmt.Errorf("%w: status %d", errBucketStateRefused, resp.StatusCode)
+		return fmt.Errorf("%w: status %d", errStateRefused, resp.StatusCode)
 	default:
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
