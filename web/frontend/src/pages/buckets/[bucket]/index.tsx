@@ -2103,14 +2103,14 @@ export default function BucketDetailsPage() {
                 <div
                   onDrop={(e) => {
                     e.preventDefault();
-                    e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20');
+                    e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-900/20');
                     const list = e.dataTransfer.files;
                     if (!list || list.length === 0) return;
                     setUploadFiles(Array.from(list).filter(f => f.size > 0).map(f => ({ file: f, path: f.name })));
                   }}
                   onDragOver={(e) => e.preventDefault()}
-                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
-                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-900/20')}
+                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-900/20')}
                   className="w-full flex flex-col items-center justify-center gap-3 px-4 py-10 border-2 border-dashed border-border rounded-lg text-center transition-colors"
                 >
                   <UploadIcon className="h-8 w-8 text-muted-foreground" />
@@ -2154,8 +2154,8 @@ export default function BucketDetailsPage() {
                 <div
                   onDrop={handleFolderDrop}
                   onDragOver={(e) => e.preventDefault()}
-                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
-                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-950/20')}
+                  onDragEnter={(e) => e.currentTarget.classList.add('border-brand-500', 'bg-brand-50', 'dark:bg-brand-900/20')}
+                  onDragLeave={(e) => e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50', 'dark:bg-brand-900/20')}
                   className="w-full flex flex-col items-center justify-center gap-3 px-4 py-10 border-2 border-dashed border-border rounded-lg text-center transition-colors"
                 >
                   {isFolderScanning ? (

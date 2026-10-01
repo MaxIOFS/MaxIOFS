@@ -91,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The deletion log of an earlier release holds no deletion times: at the first start its object deletions, and its deletions of IAM entities the node holds again, are dropped.
 - The systemd unit of the Debian and RPM packages no longer limits writes to /var/lib/maxiofs and /var/log/maxiofs: a data directory set elsewhere in config.yaml works without editing the unit, which every upgrade replaced. /usr, /boot, /efi and /etc stay read-only.
 - A fresh Debian install sets `data_dir` to /var/lib/maxiofs, as the RPM does. It kept `./data`, under /opt/maxiofs, which the service could not write.
+- Console: the language menu shows its flags on Windows. They were emoji, which Windows renders as two letters in Edge and Chrome. The language list in user preferences shows the language name only.
+- Console: the search icon of the bucket, user, access key, tenant, group and audit log lists is shown; the input covered it.
+- Console: the login page animation costs a quarter of the CPU without a GPU (remote sessions), from 2.7 cores to 0.6, and the page keeps 60 frames per second. The waves moved by repainting three full-screen gradients each frame and the card and icons blurred the moving background; the waves now move by transform, 20 times a second, along the same path, and nothing blurs it.
+- Console, dark theme: the light-blue metric icons (Total Objects, Admin Users) and the drop zone of the bucket page no longer show a light background; the dark shades they used were not defined. Checkboxes, date pickers, select lists and autofilled fields follow the theme.
 
 ### Removed
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.

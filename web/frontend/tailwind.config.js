@@ -126,6 +126,8 @@ export default {
           500: 'rgb(var(--color-blue-light-500) / <alpha-value>)',
           600: 'rgb(var(--color-blue-light-600) / <alpha-value>)',
           700: 'rgb(var(--color-blue-light-700) / <alpha-value>)',
+          800: 'rgb(var(--color-blue-light-800) / <alpha-value>)',
+          900: 'rgb(var(--color-blue-light-900) / <alpha-value>)',
         },
         // Orange
         orange: {

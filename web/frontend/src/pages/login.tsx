@@ -187,7 +187,7 @@ export default function LoginPage() {
             <div className="flex justify-center gap-6">
               {/* Lightning Fast */}
               <div className="group relative">
-                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center backdrop-blur-sm transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
+                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
                   <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
@@ -202,7 +202,7 @@ export default function LoginPage() {
 
               {/* Security */}
               <div className="group relative">
-                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center backdrop-blur-sm transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
+                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
                   <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
@@ -217,7 +217,7 @@ export default function LoginPage() {
 
               {/* S3 Compatible */}
               <div className="group relative">
-                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center backdrop-blur-sm transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
+                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
                   <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
@@ -232,7 +232,7 @@ export default function LoginPage() {
 
               {/* Cluster */}
               <div className="group relative">
-                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center backdrop-blur-sm transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
+                <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:bg-white/20 group-hover:scale-110 cursor-pointer">
                   <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                   </svg>
@@ -252,7 +252,7 @@ export default function LoginPage() {
                 href="https://maxiofs.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 hover:scale-105"
+                className="group inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white/10 border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 hover:scale-105"
               >
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
@@ -290,7 +290,7 @@ export default function LoginPage() {
 
           {/* Login Card */}
           <div className="w-full max-w-md 3xl:max-w-lg 4xl:max-w-xl mt-20 lg:mt-0">
-            <div className="relative bg-white/95 dark:bg-gray-900/90 backdrop-blur-xl rounded-[2rem] shadow-2xl p-8 sm:p-10 border border-white/20 dark:border-white/10">
+            <div className="relative bg-white/95 dark:bg-gray-900/90 rounded-[2rem] shadow-2xl p-8 sm:p-10 border border-white/20 dark:border-white/10">
               {/* Gradient overlay for dark mode */}
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-indigo-500/5 dark:from-blue-400/10 dark:via-purple-400/10 dark:to-indigo-400/10 rounded-[2rem] pointer-events-none" />
 
@@ -319,7 +319,7 @@ export default function LoginPage() {
                   {/* Login Form */}
                   <form onSubmit={handleSubmit} className="space-y-6 mt-8">
                     {(error || urlOauthErrorMessage) && (
-                      <div className="rounded-lg bg-red-50 dark:bg-red-500/10 p-4 border-l-4 border-red-500 dark:border-red-400 backdrop-blur-sm">
+                      <div className="rounded-lg bg-red-50 dark:bg-red-500/10 p-4 border-l-4 border-red-500 dark:border-red-400">
                         <div className="text-sm text-red-800 dark:text-red-200 font-medium">{error || urlOauthErrorMessage}</div>
                       </div>
                     )}

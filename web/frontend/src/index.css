@@ -100,6 +100,8 @@
     --input: 241 245 249;
     --ring: 54 65 245;
     --radius: 0.5rem;
+
+    color-scheme: light;
   }
 
   /* Dark Mode Colors */
@@ -129,6 +131,9 @@
     --border: 51 65 85;
     --input: 51 65 85;
     --ring: 70 95 255;
+
+    /* Native controls (checkboxes, date pickers, select lists, autofill) follow the theme. */
+    color-scheme: dark;
   }
 }
 
@@ -209,8 +214,14 @@
     @apply relative overflow-hidden;
   }
 
+  /* Twice the container and moved by transform: the gradient is painted once
+     and the compositor moves it, instead of repainting it every frame.
+     About 16 updates a second: without a GPU (remote sessions) each update
+     redraws the whole screen. */
   .login-wave {
-    @apply absolute inset-0;
+    @apply absolute top-0 left-0 pointer-events-none;
+    width: 200%;
+    height: 200%;
     background: linear-gradient(
       135deg,
       transparent 0%,
@@ -221,23 +232,32 @@
       transparent 65%,
       transparent 100%
     );
-    background-size: 200% 200%;
-    animation: wave-flow 10s ease-in-out infinite;
+    animation: wave-flow 10s steps(10) infinite;
     will-change: transform;
   }
 
   .login-wave-2 {
-    animation: wave-flow 15s ease-in-out infinite reverse;
+    animation: wave-flow 15s steps(15) infinite reverse;
     opacity: 0.6;
   }
 
   .login-wave-3 {
-    animation: wave-flow 12s ease-in-out infinite;
+    animation: wave-flow 12s steps(12) infinite;
     opacity: 0.4;
   }
 
+  /* ease-in-out sampled every 5% */
   @keyframes wave-flow {
-    0%, 100% { background-position: 0% 0%; }
-    50%       { background-position: 100% 100%; }
+    0%, 100%  { transform: translate3d(0, 0, 0); }
+    5%, 95%   { transform: translate3d(-0.99%, -0.99%, 0); }
+    10%, 90%  { transform: translate3d(-4.08%, -4.08%, 0); }
+    15%, 85%  { transform: translate3d(-9.37%, -9.37%, 0); }
+    20%, 80%  { transform: translate3d(-16.59%, -16.59%, 0); }
+    25%, 75%  { transform: translate3d(-25%, -25%, 0); }
+    30%, 70%  { transform: translate3d(-33.41%, -33.41%, 0); }
+    35%, 65%  { transform: translate3d(-40.63%, -40.63%, 0); }
+    40%, 60%  { transform: translate3d(-45.92%, -45.92%, 0); }
+    45%, 55%  { transform: translate3d(-49.01%, -49.01%, 0); }
+    50%       { transform: translate3d(-50%, -50%, 0); }
   }
 }

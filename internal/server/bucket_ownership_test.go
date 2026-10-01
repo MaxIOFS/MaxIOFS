@@ -163,9 +163,17 @@ func TestHADeletedBucketTakesWhatItOwnedOnEveryNode(t *testing.T) {
 	require.NoError(t, p.b.notificationManager.PutConfiguration(ctx, &notifications.NotificationConfiguration{BucketName: "everywhere",
 		Rules: []notifications.NotificationRule{{ID: "r", Enabled: true, WebhookURL: "https://hooks.example.com/x", Events: []notifications.EventType{"s3:ObjectCreated:*"}}}}))
 	require.True(t, hasRow(t, p.b, `SELECT COUNT(*) FROM shares WHERE bucket_name = 'everywhere'`))
+	for _, on := range []*Server{p.a, p.b} {
+		_, err := on.db.Exec(`INSERT INTO bucket_permissions (id, bucket_name, bucket_tenant_id, user_id, permission_level, granted_by, granted_at)
+			VALUES ('perm-everywhere', 'everywhere', '', NULL, 'read', 'admin', 1)`)
+		require.NoError(t, err)
+	}
 
 	require.NoError(t, p.a.bucketManager.DeleteBucket(ctx, "", "everywhere"))
 	require.False(t, hasBucket(p.b, "", "everywhere"))
 	assert.False(t, hasRow(t, p.b, `SELECT COUNT(*) FROM shares WHERE bucket_name = 'everywhere'`))
+	assert.Eventually(t, func() bool {
+		return !hasRow(t, p.b, `SELECT COUNT(*) FROM bucket_permissions WHERE bucket_name = 'everywhere'`)
+	}, 5*time.Second, 50*time.Millisecond, "the permission's deletion reaches the other node")
 	assert.Empty(t, bucketState(t, p.b, "everywhere"))
 }

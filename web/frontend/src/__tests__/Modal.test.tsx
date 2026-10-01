@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Modal } from '@/components/ui/Modal';
@@ -41,7 +42,7 @@ describe('Modal focus handling', () => {
     const user = userEvent.setup();
 
     function Harness() {
-      const [open, setOpen] = require('react').useState(false);
+      const [open, setOpen] = useState(false);
       return (
         <>
           <button onClick={() => setOpen(true)}>open</button>

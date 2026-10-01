@@ -26,7 +26,6 @@ import {
   UsersRound,
   UserMinus,
   ShieldCheck,
-  RotateCcw,
 } from 'lucide-react';
 import { UserPreferences } from '@/components/preferences/UserPreferences';
 import {

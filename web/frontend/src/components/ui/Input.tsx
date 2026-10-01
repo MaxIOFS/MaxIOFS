@@ -65,7 +65,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           </label>
         )}
 
-        <div className="relative">
+        {/* Positioned only for its own icons: a positioned wrapper paints the
+            input over an icon its caller places beside it. */}
+        <div className={cn((leftIcon || rightIcon || rightElement) && 'relative')}>
           {leftIcon && (
             <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
               {leftIcon}
