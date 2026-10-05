@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -322,7 +323,9 @@ func (s *AntiEntropyScrubber) runCatchUp(ctx context.Context) {
 			logrus.WithError(err).WithField("node_id", nodeID).
 				Warn("AntiEntropyScrubber: deletes not caught up, retrying at the next health check")
 			retry(nodeID, t)
+			continue
 		}
+		s.mgr.CatchUpEnded(ctx, nodeID, t.Unix())
 	}
 }
 
@@ -554,7 +557,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 			for i, d := range chunk {
 				names[i] = d.key
 			}
-			entries, err := s.fetchPeerChecksums(ctx, client, node, localID, bucketPath, names)
+			entries, _, err := s.fetchPeerChecksums(ctx, client, node, localID, bucketPath, names, false)
 			if err != nil {
 				errs = errors.Join(errs, err)
 				continue
@@ -636,7 +639,7 @@ func (s *AntiEntropyScrubber) processBatch(
 		if ctx.Err() != nil {
 			return
 		}
-		entries, err := s.fetchPeerChecksums(ctx, client, peer, localID, bucketPath, keys)
+		entries, listed, err := s.fetchPeerChecksums(ctx, client, peer, localID, bucketPath, keys, true)
 		if err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath,
@@ -663,9 +666,36 @@ func (s *AntiEntropyScrubber) processBatch(
 				deletedAt = DeletionTime(ctx, s.mgr.db, EntityTypeObject, ObjectTombstoneID(bucketPath, key))
 			}
 			divergence, action := classifyDivergence(local, peerEntry, deletedAt)
-			if divergence != divNone {
+			// The versions and delete markers held here that the peer lacks
+			// are sent to it; the peer sends those it holds alone.
+			var missing []object.ObjectVersion
+			fixed := true
+			if listed {
+				if missing, err = s.versionsMissingOn(ctx, bucketPath, key, peerEntry); err != nil {
+					logrus.WithError(err).WithFields(logrus.Fields{
+						"bucket": bucketPath, "key": key,
+					}).Warn("AntiEntropyScrubber: cannot list the versions of a key")
+					fixed = false
+				}
+			}
+			// The current version, when the peer lacks it, goes with them.
+			if action == actPushToPeer && slices.ContainsFunc(missing, func(v object.ObjectVersion) bool { return v.VersionID == local.VersionID }) {
+				action = actNone
+			}
+			if divergence != divNone || len(missing) > 0 || !fixed {
 				cp.DivergencesFound++
-				if s.applyAction(ctx, client, peer, localID, bucketPath, key, local, action) {
+				if action != actNone {
+					fixed = s.applyAction(ctx, client, peer, localID, bucketPath, key, local, action) && fixed
+				}
+				if len(missing) > 0 {
+					if _, err := sendVersions(ctx, client, s.objMgr, peer, localID, bucketPath, key, missing); err != nil {
+						logrus.WithError(err).WithFields(logrus.Fields{
+							"peer": peer.ID, "bucket": bucketPath, "key": key,
+						}).Warn("AntiEntropyScrubber: versions not sent")
+						fixed = false
+					}
+				}
+				if fixed {
 					cp.DivergencesFixed++
 				} else {
 					cp.Unreconciled++
@@ -691,6 +721,11 @@ type ChecksumEntry struct {
 	ETag         string `json:"etag,omitempty"`
 	Size         int64  `json:"size,omitempty"`
 	LastModified int64  `json:"last_modified,omitempty"` // unix seconds
+	// WrittenAt is when the write was made (unix nanoseconds), when known.
+	WrittenAt int64 `json:"written_at,omitempty"`
+	// Versions are the IDs of the key's versions and delete markers, when
+	// the request asks for them.
+	Versions []string `json:"versions,omitempty"`
 }
 
 type divergenceKind int
@@ -747,17 +782,23 @@ func classifyDivergence(local *object.Object, peer *ChecksumEntry, deletedAt int
 }
 
 func lwwClassify(local *object.Object, peer *ChecksumEntry) (divergenceKind, reconcileAction) {
-	localTS := local.LastModified.Unix()
-	if localTS > peer.LastModified {
+	switch compareWrites(local.LastModified.Unix(), local.WrittenAt, peer.LastModified, peer.WrittenAt) {
+	case 1:
 		return divLocalNewer, actPushToPeer
-	}
-	if localTS < peer.LastModified {
+	case -1:
 		return divPeerNewer, actPullFromPeer
 	}
 	if local.ETag < peer.ETag {
 		return divTieDifferentETag, actPullFromPeer
 	}
 	return divTieDifferentETag, actPushToPeer
+}
+
+// compareWrites orders two writes of an object: by second, then within one
+// second by the time each was written, when both carry it. It is 0 when they
+// cannot be told apart.
+func compareWrites(aSec, aWritten, bSec, bWritten int64) int {
+	return object.CompareWrites(aSec, aWritten, bSec, bWritten)
 }
 
 func isMultipartETag(etag string) bool {
@@ -789,7 +830,7 @@ func (s *AntiEntropyScrubber) applyAction(
 ) bool {
 	switch action {
 	case actPushToPeer:
-		if err := s.pushObjectToPeer(ctx, client, peer, localID, bucketPath, key); err != nil {
+		if err := sendObjectVersion(ctx, client, s.objMgr, peer, localID, bucketPath, key, ""); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath, "key": key,
 			}).Warn("AntiEntropyScrubber: push failed")
@@ -834,105 +875,80 @@ func (s *AntiEntropyScrubber) applyAction(
 	}
 }
 
-// fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the peer.
+// fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the
+// peer. With versions it asks for the IDs of each key's versions too; listed
+// reports whether the peer gave them.
 func (s *AntiEntropyScrubber) fetchPeerChecksums(
 	ctx context.Context,
 	client *ProxyClient,
 	peer *Node,
 	localID, bucketPath string,
 	keys []string,
-) ([]ChecksumEntry, error) {
-	body, err := json.Marshal(struct {
-		Bucket string   `json:"bucket"`
-		Keys   []string `json:"keys"`
-	}{Bucket: bucketPath, Keys: keys})
+	versions bool,
+) (entries []ChecksumEntry, listed bool, err error) {
+	body, err := json.Marshal(ChecksumRequest{Bucket: bucketPath, Keys: keys, Versions: versions})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/checksum-batch", peer.Endpoint)
 	req, err := client.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), localID, peer.NodeToken)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.DoAuthenticatedRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("checksum-batch %d: %s", resp.StatusCode, string(b))
+		return nil, false, fmt.Errorf("checksum-batch %d: %s", resp.StatusCode, string(b))
 	}
 
-	var out struct {
-		Entries []ChecksumEntry `json:"entries"`
-	}
+	var out ChecksumResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return nil, false, fmt.Errorf("decode response: %w", err)
 	}
-	return out.Entries, nil
+	return out.Entries, out.Versions, nil
 }
 
-// pushObjectToPeer streams the local copy of `key` to the peer's HA receive
-// endpoint.  Same call shape as HASyncWorker.syncObject.
-func (s *AntiEntropyScrubber) pushObjectToPeer(
-	ctx context.Context,
-	client *ProxyClient,
-	peer *Node,
-	localID, bucketPath, key string,
-) error {
-	obj, reader, err := s.objMgr.GetObject(ctx, bucketPath, key)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
+// ChecksumRequest asks a peer for the state of keys of a bucket.
+type ChecksumRequest struct {
+	Bucket   string   `json:"bucket"`
+	Keys     []string `json:"keys"`
+	Versions bool     `json:"versions,omitempty"`
+}
 
-	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", peer.Endpoint, escapeHAObjectKey(key))
-	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, peer.NodeToken)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
-	req.Header.Set(HABucketHeader, bucketPath)
-	if obj.VersionID != "" {
-		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
-	}
-	setHALastModified(req.Header, obj)
-	setHAChecksum(req.Header, obj)
-	SetHAObjectLock(req.Header, obj)
-	req.Header.Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		req.Header.Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		req.Header.Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		req.Header.Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		req.Header.Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.StorageClass != "" {
-		req.Header.Set("x-amz-storage-class", obj.StorageClass)
-	}
-	for k, v := range obj.Metadata {
-		req.Header.Set("x-amz-meta-"+k, v)
-	}
-	req.ContentLength = obj.Size
+// ChecksumResponse is a peer's answer; Versions reports whether its entries
+// list the keys' versions.
+type ChecksumResponse struct {
+	Entries  []ChecksumEntry `json:"entries"`
+	Versions bool            `json:"versions,omitempty"`
+}
 
-	resp, err := client.DoAuthenticatedRequest(req)
+// versionsMissingOn lists the versions and delete markers of key held here
+// that the peer's entry does not list, oldest first.
+func (s *AntiEntropyScrubber) versionsMissingOn(ctx context.Context, bucketPath, key string, peer *ChecksumEntry) ([]object.ObjectVersion, error) {
+	versions, err := keyVersions(ctx, s.objMgr, bucketPath, key)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("peer returned %d", resp.StatusCode)
+	there := make(map[string]bool)
+	if peer != nil {
+		for _, id := range peer.Versions {
+			there[id] = true
+		}
 	}
-	return nil
+	var missing []object.ObjectVersion
+	for _, v := range versions {
+		if !there[v.VersionID] {
+			missing = append(missing, v)
+		}
+	}
+	return missing, nil
 }
 
 // pullObjectFromPeer fetches the peer's copy and stores it locally as a
@@ -962,6 +978,9 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("GET object returned %d: %s", resp.StatusCode, string(b))
+	}
+	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, resp.Header.Get(HAObjectVersionHeader)) {
+		return nil
 	}
 
 	_, err = s.objMgr.PutObject(ReplicaWriteContext(ctx, resp.Header), bucketPath, key, resp.Body, resp.Header.Clone())

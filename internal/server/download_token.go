@@ -181,16 +181,7 @@ func (s *Server) handleCreateDownloadToken(w http.ResponseWriter, r *http.Reques
 		bucketPath = bucketName
 	}
 
-	if versionID != "" {
-		_, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
-		if reader != nil {
-			reader.Close()
-		}
-		if err != nil {
-			s.writeError(w, "Object not found", http.StatusNotFound)
-			return
-		}
-	} else if _, err := s.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey); err != nil {
+	if _, err := s.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey, versionID); err != nil {
 		s.writeError(w, "Object not found", http.StatusNotFound)
 		return
 	}

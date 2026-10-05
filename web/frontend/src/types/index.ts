@@ -1164,12 +1164,6 @@ export interface InitializeClusterResponse {
   region?: string;
 }
 
-export interface JoinClusterRequest {
-  cluster_token: string;
-  node_endpoint: string;
-  node_address?: string;
-}
-
 export interface AddNodeRequest {
   endpoint: string;
   username: string;

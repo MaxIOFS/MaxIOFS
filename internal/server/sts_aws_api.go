@@ -385,7 +385,6 @@ func (s *Server) issueSTSForFederatedSubject(
 
 // afterSTSXMLIssue performs the post-issuance side effects every action shares.
 func (s *Server) afterSTSXMLIssue(r *http.Request, user *auth.User, session *auth.STSSession, action, providerID string) {
-	s.touchLocalWriteAt(r.Context())
 	if s.stsSessionSyncMgr != nil {
 		s.stsSessionSyncMgr.TriggerSync(r.Context())
 	}

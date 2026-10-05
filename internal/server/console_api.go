@@ -2183,9 +2183,13 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		obj, reader, err = s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	}
 	if err != nil {
-		if err == object.ErrObjectNotFound {
+		switch {
+		case err == object.ErrObjectNotFound:
 			s.writeError(w, "Object not found", http.StatusNotFound)
-		} else {
+		case errors.Is(err, object.ErrDataUnavailable):
+			w.Header().Set("Retry-After", "1")
+			s.writeError(w, "No node that holds the object's data answered; retry", http.StatusServiceUnavailable)
+		default:
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
@@ -2858,8 +2862,6 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:               user.ID,
@@ -3040,8 +3042,6 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Convert to response format
 	userResponse := UserResponse{
 		ID:                  user.ID,
@@ -3127,8 +3127,6 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -3834,8 +3832,6 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Push the new key to all cluster nodes immediately so S3 requests via the
 	// load balancer don't fail on nodes that haven't run their 30-second sync yet.
 	if s.accessKeySyncMgr != nil {
@@ -3925,8 +3921,6 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -4469,8 +4463,6 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Log audit event for tenant created
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     "", // Tenant operations are global
@@ -4618,8 +4610,6 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Log audit event for tenant updated
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     "", // Tenant operations are global
@@ -4726,8 +4716,6 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -5025,8 +5013,6 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	if s.bucketPermissionSyncMgr != nil {
 		s.bucketPermissionSyncMgr.TriggerSync(r.Context())
 	}
@@ -5079,8 +5065,6 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if permissionID != "" && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -5412,13 +5396,7 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 	} else {
 		bucketPath = bucketName
 	}
-	// The reader is opened only to confirm the object exists, so it has to be
-	// closed: discarding it leaked a file handle per presigned URL issued.
-	_, existenceReader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
-	if existenceReader != nil {
-		existenceReader.Close()
-	}
-	if err != nil {
+	if _, err := s.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey); err != nil {
 		s.writeError(w, fmt.Sprintf("Object not found: %v", err), http.StatusNotFound)
 		return
 	}

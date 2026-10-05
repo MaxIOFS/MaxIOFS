@@ -96,7 +96,6 @@ type Server struct {
 	groupSyncMgr            *cluster.GroupSyncManager
 	deletionLogSyncMgr      *cluster.DeletionLogSyncManager
 	globalConfigSyncMgr     *cluster.GlobalConfigSyncManager
-	staleReconciler         *cluster.StaleReconciler
 	haSyncWorker            *cluster.HASyncWorker
 	antiEntropyScrubber     *cluster.AntiEntropyScrubber
 	deadNodeReconciler      *cluster.DeadNodeReconciler
@@ -129,6 +128,15 @@ type Server struct {
 }
 
 var errServerShuttingDown = errors.New("server is shutting down")
+
+// backgroundContext is the server's lifetime, for work a request starts and
+// does not wait for.
+func (s *Server) backgroundContext() context.Context {
+	if s.serverCtx != nil {
+		return s.serverCtx
+	}
+	return context.Background()
+}
 
 // goWorker runs a background worker and records it. Shutdown waits for every
 // worker to return before closing the stores: Pebble panics on use after close,
@@ -561,14 +569,20 @@ func New(cfg *config.Config) (*Server, error) {
 	// nodes that were offline during a KEK rotation).
 	globalConfigSyncMgr.SetKEKProvider(kekStore)
 
-	// Initialize stale-node reconciler
-	staleReconciler := cluster.NewStaleReconciler(db, clusterManager)
-	staleReconciler.SetObjectManagers(objectManager, bucketManager)
-
-	// Wrap objectManager with HA fanout when cluster is active
-	if clusterManager.IsClusterEnabled() {
-		objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
+	// The manager tells the entries whose data this node holds by its ID.
+	if setter, ok := objectManager.(object.LocalNodeSetter); ok {
+		setter.SetLocalNode(func() string {
+			config, err := clusterManager.GetConfig(context.Background())
+			if err != nil || !config.IsClusterEnabled {
+				return ""
+			}
+			return config.NodeID
+		})
 	}
+
+	// The HA layer decides on every write whether the cluster replicates it, so
+	// a cluster created or joined while running replicates without a restart.
+	objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
 
 	// Bucket migration: the gate that holds a migrating bucket's writes, and
 	// this node's side of a move as its source and as its target.
@@ -586,7 +600,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// replication rules.
 	bucketStates := cluster.NewBucketStates(clusterManager, metadataStore, aclMgr)
 	bucketStateReceiver := cluster.NewBucketStateReceiver(metadataStore, storageBackend, aclMgr, bucketManager,
-		objectManager, metadataStore, db)
+		objectManager, metadataStore, db, objectManager, bucketStates.Publish)
 	rowStates := cluster.NewRowStates(clusterManager)
 	bucketStates.SetRowStates(rowStates)
 	inventoryManager.SetChangeObserver(rowStates.Changed)
@@ -684,7 +698,6 @@ func New(cfg *config.Config) (*Server, error) {
 		groupSyncMgr:            groupSyncMgr,
 		deletionLogSyncMgr:      deletionLogSyncMgr,
 		globalConfigSyncMgr:     globalConfigSyncMgr,
-		staleReconciler:         staleReconciler,
 		notificationHub:         notificationHub,
 		quotaAlerts:             quotaAlerts,
 		bucketQuotaAlerts:       bucketQuotaAlerts,
@@ -1011,35 +1024,6 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		s.goWorker("bucket count updater", func() { s.updateBucketCountPeriodically(ctx, 30*time.Second) })
 		logrus.Info("Bucket count updater started")
 
-		if s.staleReconciler != nil {
-			s.goWorker("stale-node reconciler", func() {
-				// Retry with exponential backoff when no peers are available yet.
-				// Caps at 5 minutes; stops retrying on any other error or when ctx is done.
-				backoff := 5 * time.Second
-				const maxBackoff = 5 * time.Minute
-				for {
-					err := s.staleReconciler.Reconcile(ctx)
-					if err == nil {
-						return
-					}
-					if !errors.Is(err, cluster.ErrNoPeers) {
-						logrus.WithError(err).Warn("Stale-node reconciliation encountered an error")
-						return
-					}
-					logrus.WithField("retry_in", backoff).Warn("No peers for stale reconciliation; retrying")
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(backoff):
-					}
-					backoff *= 2
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-				}
-			})
-			logrus.Info("Stale-node reconciler started")
-		}
 		if s.tenantSyncMgr != nil {
 			s.tenantSyncMgr.Start(ctx)
 			logrus.Info("Tenant synchronization manager started")
@@ -1439,6 +1423,9 @@ func (s *Server) setupRoutes() error {
 	if s.clusterRouter != nil {
 		apiHandler.SetClusterRouter(s.clusterRouter)
 	}
+	if s.clusterManager != nil {
+		apiHandler.SetUploadRouter(s.clusterManager)
+	}
 
 	// Start S3 access logger (delivers requests to configured target buckets)
 	s.accessLogger = supervise(s.componentRegistry(), "accessLogger", NewBucketAccessLogger(s.bucketManager, s.objectManager))
@@ -1618,7 +1605,6 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/bucket-exists/{name}", s.handleBucketExists).Methods("GET")
 	hmac.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
 	hmac.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
-	hmac.HandleFunc("/state-snapshot", s.handleGetStateSnapshot).Methods("GET")
 	hmac.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
 	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
 	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
@@ -1644,12 +1630,13 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/encryption-secret", s.handleEncryptionSecretFingerprint).Methods("GET")
 	hmac.HandleFunc("/encryption-secret", s.handleReceiveEncryptionSecret).Methods("POST")
 	hmac.HandleFunc("/audit-logs", s.handleGetLocalAuditLogs).Methods("GET")
-	hmac.HandleFunc("/ha/objects/changed-since", s.handleHAListChangedSince).Methods("GET")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAGetObject).Methods("GET")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceivePut).Methods("PUT")
 	hmac.HandleFunc("/ha/objects/{key:.*}", s.handleHAReceiveDelete).Methods("DELETE")
 	hmac.HandleFunc("/ha/metadata-op", s.handleHAReceiveMetadataOp).Methods("POST")
 	hmac.HandleFunc("/ha/checksum-batch", s.handleHAChecksumBatch).Methods("POST")
+	hmac.HandleFunc("/ha/multipart-uploads", s.handleHAListMultipartUploads).Methods("GET")
+	hmac.HandleFunc("/ha/object-entry", s.handleHAReceiveObjectEntry).Methods("PUT")
 	hmac.HandleFunc("/ha/bucket-state", s.handleHABucketState).Methods("POST")
 	hmac.HandleFunc("/ha/row-states", s.handleHARowStates).Methods("POST")
 	hmac.HandleFunc("/migration/stage", s.handleMigrationStage).Methods("POST")

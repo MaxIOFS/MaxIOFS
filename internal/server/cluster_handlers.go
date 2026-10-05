@@ -102,6 +102,16 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	held, err := s.heldData(r.Context())
+	if err != nil {
+		s.writeError(w, "Failed to check the data this node holds: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(held) > 0 {
+		s.writeError(w, "Only a node without data can join a cluster; this node holds "+strings.Join(held, ", "), http.StatusConflict)
+		return
+	}
+
 	// Generate this node's cert using the CA, save config to DB, load TLS into memory.
 	if err := s.clusterManager.AcceptClusterJoin(r.Context(), &pkg); err != nil {
 		logrus.WithError(err).Error("Failed to accept cluster join package")
@@ -160,6 +170,44 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]interface{}{"message": "Join accepted, cluster TLS ready"})
 }
 
+// heldData lists what this node holds that keeps it out of a cluster, which
+// takes only nodes without data: buckets, and what was created on it. Its
+// first administrator, settings, keys and shipped policies are not data.
+func (s *Server) heldData(ctx context.Context) ([]string, error) {
+	var held []string
+	add := func(n int, one, many string) {
+		switch {
+		case n == 1:
+			held = append(held, "1 "+one)
+		case n > 1:
+			held = append(held, fmt.Sprintf("%d %s", n, many))
+		}
+	}
+	buckets, err := s.bucketManager.ListBuckets(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	add(len(buckets), "bucket", "buckets")
+	for _, c := range []struct{ query, one, many string }{
+		{`SELECT COUNT(*) FROM tenants`, "tenant", "tenants"},
+		{`SELECT MAX(COUNT(*) - 1, 0) FROM users`, "user besides the administrator", "users besides the administrator"},
+		{`SELECT COUNT(*) FROM access_keys`, "access key", "access keys"},
+		{`SELECT COUNT(*) FROM groups`, "group", "groups"},
+		{`SELECT COUNT(*) FROM identity_providers`, "identity provider", "identity providers"},
+		{`SELECT COUNT(*) FROM iam_policies WHERE is_builtin = 0`, "IAM policy", "IAM policies"},
+		{`SELECT COUNT(*) FROM iam_roles WHERE COALESCE(assume_role_policy, '') != ''`, "IAM role", "IAM roles"},
+		{`SELECT COUNT(*) FROM shares`, "share", "shares"},
+		{`SELECT COUNT(*) FROM replication_rules`, "replication rule", "replication rules"},
+	} {
+		var n int
+		if err := s.db.QueryRowContext(ctx, c.query).Scan(&n); err != nil {
+			return nil, err
+		}
+		add(n, c.one, c.many)
+	}
+	return held, nil
+}
+
 // handleLeaveCluster removes this node from the cluster
 func (s *Server) handleLeaveCluster(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
@@ -167,6 +215,12 @@ func (s *Server) handleLeaveCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The other nodes remove this one before it leaves.
+	if s.globalConfigSyncMgr != nil && s.clusterManager.IsClusterEnabled() {
+		if err := s.globalConfigSyncMgr.AnnounceLeave(r.Context()); err != nil {
+			logrus.WithError(err).Warn("Failed to tell the other nodes this one leaves the cluster")
+		}
+	}
 	err := s.clusterManager.LeaveCluster(r.Context())
 	if err != nil {
 		logrus.WithError(err).Error("Failed to leave cluster")
@@ -454,13 +508,6 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	remoteParsed, _ := url.Parse(remoteConsoleURL)
 	remoteClusterURL := "https://" + remoteParsed.Hostname() + ":" + remoteClusterPort
 
-	localClusterEndpoint, err := s.resolveLocalClusterEndpoint(r, "")
-	if err != nil {
-		logrus.WithError(err).Error("Failed to resolve local cluster endpoint")
-		s.writeError(w, "Failed to determine local cluster address: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	var jwtSecret string
 	_ = s.db.QueryRow(`SELECT value FROM system_settings WHERE key = ?`, "jwt_secret").Scan(&jwtSecret)
 
@@ -498,7 +545,6 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		CAKeyPEM:       caKeyPEM,
 		JWTSecret:      jwtSecret,
 		SelfEndpoint:   remoteClusterURL,
-		NodeEndpoint:   localClusterEndpoint,
 		APIURL:         remoteAPIURL,
 		Nodes:          cluster.NodesToJoinPackage(nodes),
 		EncryptionKeys: clusterKeys,
@@ -521,6 +567,11 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	defer joinResp.Body.Close()
 	if joinResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(joinResp.Body)
+		var refused APIResponse
+		if joinResp.StatusCode == http.StatusConflict && json.Unmarshal(body, &refused) == nil && refused.Error != "" {
+			s.writeError(w, "Remote node refused to join the cluster: "+refused.Error, http.StatusConflict)
+			return
+		}
 		s.writeError(w, "Remote node failed to join cluster: "+string(body), http.StatusBadGateway)
 		return
 	}
@@ -630,14 +681,9 @@ func (s *Server) handleRemoveClusterNode(w http.ResponseWriter, r *http.Request)
 		s.writeError(w, "Failed to remove cluster node: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Invalidate router cache when a node is removed
-	// This ensures requests don't get routed to the removed node
-	if s.clusterRouter != nil {
-		// We don't have a way to invalidate all cache entries for a specific node,
-		// but the cache will naturally expire within TTL (5 minutes)
-		logrus.WithField("node_id", nodeID).Info("Node removed, cache will expire naturally")
-	}
+	// The other nodes remove it too; the node itself leaves the cluster when
+	// they answer it that it was removed.
+	s.syncMembershipNow()
 
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Node removed successfully",
@@ -1149,6 +1195,12 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 	// Push all groups + memberships so that group-based bucket permissions resolve immediately.
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.SyncToNode(ctx, newNode)
+	}
+
+	// With a replication factor above 1 the node is sent every bucket and
+	// object; it has none of them.
+	if s.haSyncWorker != nil {
+		s.haSyncWorker.Trigger(ctx)
 	}
 
 	logrus.WithFields(logrus.Fields{

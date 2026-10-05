@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"strconv"
@@ -127,12 +128,16 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	if !r.mgr.IsClusterEnabled() {
 		return nil
 	}
-	if !r.redistributionEnabled(ctx) {
-		return nil
-	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// A drain is an administrator's decision: it applies with automatic
+	// redistribution off as well.
+	r.applyDrains(ctx)
+	if !r.redistributionEnabled(ctx) {
+		return nil
+	}
 
 	threshold := r.deadThreshold(ctx)
 	cutoff := time.Now().Add(-threshold)
@@ -143,7 +148,7 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	}
 
 	for _, node := range candidates {
-		if err := r.markDeadIfSafe(ctx, node, "threshold exceeded"); err != nil {
+		if err := r.markDeadIfSafe(ctx, node, "threshold exceeded"); err != nil && !errors.Is(err, ErrBelowReplicationFactor) {
 			r.log.WithError(err).WithField("node_id", node.ID).
 				Warn("Failed to mark node dead; will retry next cycle")
 		}
@@ -168,14 +173,19 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
 	}
-	if node.HealthStatus == HealthStatusDead {
-		return fmt.Errorf("node already dead")
+	if node.Drained {
+		return fmt.Errorf("node already drained")
 	}
 	if reason == "" {
 		reason = "manual drain"
 	}
 
-	if err := r.markDeadIfSafe(ctx, node, reason); err != nil {
+	if node.HealthStatus != HealthStatusDead {
+		if err := r.markDeadIfSafe(ctx, node, reason); err != nil {
+			return err
+		}
+	}
+	if err := r.mgr.setDrained(ctx, r.mgr.db, nodeID); err != nil {
 		return err
 	}
 
@@ -183,53 +193,42 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 	return nil
 }
 
+// ApplyDrains marks dead the nodes drained on another node.
+func (r *DeadNodeReconciler) ApplyDrains(ctx context.Context) {
+	if !r.mgr.IsClusterEnabled() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.applyDrains(ctx)
+	r.recomputeClusterDegradedState(ctx)
+}
+
+func (r *DeadNodeReconciler) applyDrains(ctx context.Context) {
+	nodes, err := r.mgr.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes WHERE drained = 1 AND health_status != ?`, HealthStatusDead)
+	if err != nil {
+		r.log.WithError(err).Warn("Failed to list drained nodes")
+		return
+	}
+	localID, _ := r.mgr.GetLocalNodeID(ctx)
+	for _, node := range nodes {
+		if node.ID == localID {
+			continue
+		}
+		if err := r.markDeadIfSafe(ctx, node, "drained"); err != nil && !errors.Is(err, ErrBelowReplicationFactor) {
+			r.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to mark a drained node dead")
+		}
+	}
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 // findDeadCandidates returns nodes whose status is unavailable AND whose
 // unavailable_since is older than cutoff. Dead nodes are excluded.
 func (r *DeadNodeReconciler) findDeadCandidates(ctx context.Context, cutoff time.Time) ([]*Node, error) {
-	rows, err := r.mgr.db.QueryContext(ctx, `
-		SELECT id, name, endpoint, api_url, node_token, region, priority,
-		       health_status, last_health_check, last_seen, latency_ms,
-		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
-		FROM cluster_nodes
-		WHERE health_status = ?
-		  AND unavailable_since IS NOT NULL
-		  AND unavailable_since <= ?
-	`, HealthStatusUnavailable, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []*Node
-	for rows.Next() {
-		var n Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
-		if err := rows.Scan(
-			&n.ID, &n.Name, &n.Endpoint, &n.APIURL, &n.NodeToken, &n.Region, &n.Priority,
-			&n.HealthStatus, &lastHealthCheck, &lastSeen, &n.LatencyMs,
-			&n.CapacityTotal, &n.CapacityUsed, &n.BucketCount, &n.Metadata,
-			&n.CreatedAt, &n.UpdatedAt, &n.IsStale, &lastLocalWriteAt, &unavailableSince,
-		); err != nil {
-			return nil, err
-		}
-		if lastHealthCheck.Valid {
-			n.LastHealthCheck = &lastHealthCheck.Time
-		}
-		if lastSeen.Valid {
-			n.LastSeen = &lastSeen.Time
-		}
-		if lastLocalWriteAt.Valid {
-			n.LastLocalWriteAt = &lastLocalWriteAt.Time
-		}
-		if unavailableSince.Valid {
-			n.UnavailableSince = &unavailableSince.Time
-		}
-		out = append(out, &n)
-	}
-	return out, rows.Err()
+	return r.mgr.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes
+		WHERE health_status = ? AND unavailable_since IS NOT NULL AND unavailable_since <= ?`,
+		HealthStatusUnavailable, cutoff)
 }
 
 // markDeadIfSafe marks the node dead unless doing so would reduce the count of
@@ -278,15 +277,17 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 			Factor:       factor,
 			NonDeadNodes: healthyExcludingCandidate,
 		})
-		return nil
+		return ErrBelowReplicationFactor
 	}
 
+	// Writes are not noted for a dead node: should it answer again, it is
+	// caught up from now at the latest.
 	now := time.Now()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE cluster_nodes
-		SET health_status = ?, updated_at = ?
+		SET health_status = ?, updated_at = ?, replica_missed_since = COALESCE(replica_missed_since, ?)
 		WHERE id = ? AND health_status != ?
-	`, HealthStatusDead, now, node.ID, HealthStatusDead)
+	`, HealthStatusDead, now, now.Unix(), node.ID, HealthStatusDead)
 	if err != nil {
 		return fmt.Errorf("mark dead: %w", err)
 	}
@@ -321,6 +322,10 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	return nil
 }
 
+// ErrBelowReplicationFactor is returned when marking a node dead would leave
+// fewer healthy nodes than the replication factor.
+var ErrBelowReplicationFactor = errors.New("marking the node dead would leave fewer healthy nodes than the replication factor")
+
 // recomputeClusterDegradedState compares healthy node count against the
 // replication factor. Sets/clears the degraded reason and emits SSE events on
 // transitions.
@@ -343,10 +348,11 @@ func (r *DeadNodeReconciler) recomputeClusterDegradedState(ctx context.Context) 
 	prevReason, _ := GetGlobalConfig(ctx, r.mgr.db, clusterDegradedReasonKey)
 
 	if healthy < factor {
-		newReason := fmt.Sprintf(
-			"cluster has %d healthy node(s), replication factor is %d — writes will be refused with 503 until the gap closes",
-			healthy, factor,
-		)
+		consequence := "writes are kept on fewer nodes than the factor; the nodes that miss them are caught up when they are back"
+		if accepts, err := r.mgr.ClusterCanAcceptWrites(ctx); err == nil && !accepts {
+			consequence = "writes are refused with 503 until a node is back"
+		}
+		newReason := fmt.Sprintf("cluster has %d healthy node(s), replication factor is %d: %s", healthy, factor, consequence)
 		// Avoid noisy re-emission if the reason hasn't changed.
 		if prevReason != newReason {
 			r.setClusterDegradedReason(ctx, newReason)

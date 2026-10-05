@@ -171,6 +171,15 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
 	}
+	// An upload is held by the node it was started on: the others are asked.
+	if h.uploadRouter != nil && r.Header.Get("X-MaxIOFS-Proxied") != "true" {
+		elsewhere, err := h.uploadRouter.PeerMultipartUploads(r.Context(), bucketPath)
+		if err != nil {
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
+		uploads = append(uploads, elsewhere...)
+	}
 
 	// Without the prefix filter a cleanup tool asking for its own namespace is
 	// handed every in-progress upload in the bucket, including other workloads'.
@@ -826,6 +835,9 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 				return
 			}
 			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+			return
+		}
+		if h.writeDataUnavailable(w, r, sourceKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), sourceKey, r)

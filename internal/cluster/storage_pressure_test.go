@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,8 +180,9 @@ func TestCheckNodeHealth_StoragePressure_EmitsResolved(t *testing.T) {
 	assert.Equal(t, "node_storage_pressure_resolved", evs[1].Kind)
 }
 
-func TestCheckNodeHealth_StoragePressure_SkippedWhenDead(t *testing.T) {
-	// Dead is terminal: CheckNodeHealth must not flip it (and must not emit).
+func TestCheckNodeHealth_StoragePressure_DrainedNodeStaysDead(t *testing.T) {
+	// A drained node stays dead and reports nothing; a node dead by the probes
+	// that answers is back, with its storage pressure.
 	db := setupSPTestDB(t)
 	m := createTestHealthManager(t, db)
 	capTotal, capUsed := int64(1000), int64(990)
@@ -194,13 +194,20 @@ func TestCheckNodeHealth_StoragePressure_SkippedWhenDead(t *testing.T) {
 
 	node := &Node{Name: "n1", Endpoint: srv.URL, NodeToken: "t"}
 	require.NoError(t, m.AddNode(context.Background(), node))
-	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusDead, node.ID)
+	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ?, drained = 1 WHERE id = ?`, HealthStatusDead, node.ID)
 	require.NoError(t, err)
 
 	s, err := m.CheckNodeHealth(context.Background(), node.ID)
 	require.NoError(t, err)
 	assert.Equal(t, HealthStatusDead, s.Status)
 	assert.Empty(t, emitter.snapshot())
+
+	_, err = db.Exec(`UPDATE cluster_nodes SET drained = 0 WHERE id = ?`, node.ID)
+	require.NoError(t, err)
+	s, err = m.CheckNodeHealth(context.Background(), node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusStoragePressure, s.Status)
+	assert.Len(t, emitter.snapshot(), 1)
 }
 
 func TestCheckNodeHealth_StoragePressure_NotSetWhenUnreachable(t *testing.T) {
@@ -224,44 +231,9 @@ func TestCheckNodeHealth_StoragePressure_NotSetWhenUnreachable(t *testing.T) {
 	assert.Empty(t, emitter.snapshot())
 }
 
-func TestGetReadyReplicaNodes_IncludesStoragePressure(t *testing.T) {
-	db := setupSPTestDB(t)
-	ctx := context.Background()
-	m := createTestHealthManager(t, db)
-
-	_, err := db.Exec(`INSERT INTO cluster_config (node_id, node_name, cluster_token, is_cluster_enabled)
-		VALUES (?, ?, ?, ?)`, "local", "local", "tok", 1)
-	require.NoError(t, err)
-
-	insert := func(id, status string) {
-		_, err := db.Exec(`INSERT INTO cluster_nodes (id, name, endpoint, node_token, health_status, is_stale)
-			VALUES (?, ?, ?, ?, ?, 0)`, id, id, "http://"+id, "tok", status)
-		require.NoError(t, err)
-		_, err = db.Exec(`INSERT INTO ha_sync_jobs (target_node_id, status, started_at)
-			VALUES (?, ?, ?)`, id, SyncJobDone, time.Now())
-		require.NoError(t, err)
-	}
-	insert("n-healthy", HealthStatusHealthy)
-	insert("n-sp", HealthStatusStoragePressure)
-	insert("n-unavail", HealthStatusUnavailable)
-	insert("n-dead", HealthStatusDead)
-
-	out, err := m.GetReadyReplicaNodes(ctx)
-	require.NoError(t, err)
-
-	ids := map[string]bool{}
-	for _, n := range out {
-		ids[n.ID] = true
-	}
-	assert.True(t, ids["n-healthy"])
-	assert.True(t, ids["n-sp"], "storage_pressure node must be served reads")
-	assert.False(t, ids["n-unavail"])
-	assert.False(t, ids["n-dead"])
-}
-
 func TestGetHealthyNodes_ExcludesStoragePressure(t *testing.T) {
 	// Write path uses GetHealthyNodes — it must NOT include storage_pressure
-	// (otherwise replicaTargets would still pick a saturated node).
+	// (otherwise a write would still be placed on a saturated node).
 	db := setupSPTestDB(t)
 	m := createTestHealthManager(t, db)
 

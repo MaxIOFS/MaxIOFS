@@ -583,11 +583,12 @@ func sendRowStates(ctx context.Context, client *ProxyClient, node *Node, localID
 }
 
 // cleanupRowVersions forgets row deletions older than maxAge, as the deletion
-// log does, and the versions of rows this node dropped without recording a
-// deletion, as an expired share.
+// log does, unless a member of the cluster has yet to be sent them, and the
+// versions of rows this node dropped without recording a deletion, as an
+// expired share.
 func cleanupRowVersions(ctx context.Context, db *sql.DB, maxAge time.Duration) (int64, error) {
 	result, err := db.ExecContext(ctx, `DELETE FROM ha_row_versions WHERE deleted = 1 AND version < ?`,
-		time.Now().Add(-maxAge).UnixNano())
+		forgetBefore(ctx, db, maxAge))
 	if err != nil {
 		return 0, err
 	}

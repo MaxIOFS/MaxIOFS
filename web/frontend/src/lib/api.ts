@@ -56,7 +56,6 @@ import type {
   ClusterConfig,
   InitializeClusterRequest,
   InitializeClusterResponse,
-  JoinClusterRequest,
   AddNodeRequest,
   UpdateNodeRequest,
   NodeHealthStatus,
@@ -1959,11 +1958,6 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async joinCluster(request: JoinClusterRequest): Promise<{ message: string }> {
-    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/join', request);
-    return response.data.data!;
-  }
-
   static async leaveCluster(): Promise<{ message: string }> {
     const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/leave');
     return response.data.data!;
@@ -2049,6 +2043,7 @@ export class APIClient {
       capacity_total: number;
       capacity_used: number;
       capacity_free: number;
+      drained: boolean;
     }>;
   }> {
     const response = await apiClient.get('/cluster/ha');

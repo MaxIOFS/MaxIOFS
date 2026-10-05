@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -192,4 +193,78 @@ func TestHAReceiveDeleteKeepsAnOlderMarkerBehindTheLatest(t *testing.T) {
 	versions, err := server.objectManager.GetObjectVersions(ctx, bucketName, "k")
 	require.NoError(t, err)
 	require.Len(t, versions, 2)
+}
+
+// A copy sent by the transfer that carries headers keeps the time the node
+// that took the write wrote it, an object and a delete marker alike.
+func TestHAReceiveKeepsTheTimeOfTheWrite(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "ha-written-at"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: bucketName, OwnerID: "admin",
+		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+	}))
+	const writtenAt = int64(1_700_000_000_123_456_789)
+
+	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/k", strings.NewReader("copy"))
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	req.Header.Set(cluster.HABucketHeader, bucketName)
+	req.Header.Set(cluster.HAObjectVersionHeader, "1700000000123456789.aaaaaaaa")
+	req.Header.Set(cluster.HALastModifiedHeader, "1700000000")
+	req.Header.Set(cluster.HAWrittenAtHeader, fmt.Sprintf("%d", writtenAt))
+	w := httptest.NewRecorder()
+	server.handleHAReceivePut(w, req)
+	require.Less(t, w.Code, 300, w.Body.String())
+	stored, err := server.metadataStore.GetObject(ctx, bucketName, "k")
+	require.NoError(t, err)
+	assert.Equal(t, writtenAt, stored.WrittenAt)
+
+	req = httptest.NewRequest("DELETE", "/api/internal/ha/objects/k", nil)
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	req.Header.Set(cluster.HABucketHeader, bucketName)
+	req.Header.Set(cluster.HADeleteMarkerVersionHeader, "1700000001000000005.bbbbbbbb")
+	req.Header.Set(cluster.HALastModifiedHeader, "1700000001")
+	req.Header.Set(cluster.HAWrittenAtHeader, "1700000001000000005")
+	w = httptest.NewRecorder()
+	server.handleHAReceiveDelete(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	versions, err := server.metadataStore.GetObjectVersions(ctx, bucketName, "k")
+	require.NoError(t, err)
+	var marker int64
+	for _, v := range versions {
+		if v.VersionID == "1700000001000000005.bbbbbbbb" {
+			marker = v.WrittenAt
+		}
+	}
+	assert.EqualValues(t, 1700000001000000005, marker)
+}
+
+// A delete from another node answers done when the key is gone here, refused
+// when its lock keeps it, failed otherwise.
+func TestHAReceiveDeleteSaysWhatCameOfIt(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "ha-delete-outcome"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: bucketName, OwnerID: "admin",
+		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
+	}))
+	held, err := server.objectManager.PutObject(ctx, bucketName, "held", strings.NewReader("data"), http.Header{"X-Amz-Object-Lock-Legal-Hold": {"ON"}})
+	require.NoError(t, err)
+	send := func(key, versionID string) int {
+		req := httptest.NewRequest("DELETE", "/api/internal/ha/objects/"+key, nil)
+		req = mux.SetURLVars(req, map[string]string{"key": key})
+		req.Header.Set(cluster.HABucketHeader, bucketName)
+		if versionID != "" {
+			req.Header.Set(cluster.HAObjectVersionHeader, versionID)
+		}
+		w := httptest.NewRecorder()
+		server.handleHAReceiveDelete(w, req)
+		return w.Code
+	}
+	assert.Equal(t, http.StatusConflict, send("held", held.VersionID), "held by its legal hold")
+	assert.Equal(t, http.StatusNoContent, send("never-written", ""), "already gone")
+	assert.Equal(t, http.StatusInternalServerError, haDeleteStatus(errors.New("disk failure")))
 }

@@ -37,6 +37,8 @@ type STSSessionData struct {
 type STSSessionSyncPayload struct {
 	Sessions  []*STSSessionData `json:"sessions"`
 	Deletions []string          `json:"deletions"`
+	// DeletedAt is when each deletion was made (unix seconds), by ID.
+	DeletedAt map[string]int64 `json:"deleted_at,omitempty"`
 }
 
 // STSSessionSyncManager replicates temporary credentials across cluster nodes.
@@ -149,15 +151,17 @@ func (m *STSSessionSyncManager) syncAllSessions(ctx context.Context) {
 		return
 	}
 	deletedIDs := make([]string, 0, len(deletions))
+	deletedAt := make(map[string]int64, len(deletions))
 	for _, d := range deletions {
 		deletedIDs = append(deletedIDs, d.EntityID)
+		deletedAt[d.EntityID] = d.DeletedAt
 	}
 
 	if len(sessions) == 0 && len(deletedIDs) == 0 {
 		return
 	}
 
-	payload := &STSSessionSyncPayload{Sessions: sessions, Deletions: deletedIDs}
+	payload := &STSSessionSyncPayload{Sessions: sessions, Deletions: deletedIDs, DeletedAt: deletedAt}
 
 	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {

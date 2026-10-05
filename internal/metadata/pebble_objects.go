@@ -558,6 +558,7 @@ func (s *PebbleStore) GetObjectVersions(ctx context.Context, bucket, key string)
 			Size:         obj.Size,
 			ETag:         obj.ETag,
 			LastModified: obj.LastModified,
+			WrittenAt:    obj.WrittenAt,
 			StorageClass: obj.StorageClass,
 		})
 	}
@@ -604,6 +605,7 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 			Size:         obj.Size,
 			ETag:         obj.ETag,
 			LastModified: obj.LastModified,
+			WrittenAt:    obj.WrittenAt,
 			StorageClass: obj.StorageClass,
 		})
 		keysWithVersions[obj.Key] = true
@@ -645,6 +647,7 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 				VersionID:    "",
 				IsLatest:     true,
 				LastModified: obj.LastModified,
+				WrittenAt:    obj.WrittenAt,
 				ETag:         obj.ETag,
 				Size:         obj.Size,
 			})

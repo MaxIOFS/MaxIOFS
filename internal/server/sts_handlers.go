@@ -110,16 +110,20 @@ func (s *Server) handleReceiveSTSSessionSync(w http.ResponseWriter, r *http.Requ
 
 	revoked := 0
 	for _, keyID := range payload.Deletions {
-		// Record the tombstone locally too, so a later sync batch from a node
-		// that hasn't learned about the revocation cannot bring it back.
-		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeSTSSession, keyID, sourceNodeID, time.Now().Unix()); err != nil {
-			logrus.WithError(err).Warn("Failed to record STS session tombstone")
+		// The revocation keeps the time it was made; one sent without it
+		// keeps the time this node first recorded, or now.
+		deletedAt := payload.DeletedAt[keyID]
+		if deletedAt <= 0 {
+			deletedAt = cluster.DeletionTime(ctx, s.db, cluster.EntityTypeSTSSession, keyID)
 		}
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM sts_sessions WHERE temp_access_key_id = ?`, keyID); err != nil {
-			logrus.WithError(err).Warn("Failed to delete revoked STS session")
+		gone, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeSTSSession, keyID, receivedDeletionTime(deletedAt), sourceNodeID)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to apply a revoked STS session")
 			continue
 		}
-		revoked++
+		if gone {
+			revoked++
+		}
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -213,8 +217,6 @@ func (s *Server) handleIssueSTSSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	// Push to all cluster nodes immediately so a client using the credential
 	// right away doesn't hit a node that hasn't run its periodic sync yet.
 	if s.stsSessionSyncMgr != nil {
@@ -292,8 +294,6 @@ func (s *Server) handleRevokeSTSSession(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Propagate the revocation immediately; the periodic sync is the fallback.
 	if s.stsSessionSyncMgr != nil {

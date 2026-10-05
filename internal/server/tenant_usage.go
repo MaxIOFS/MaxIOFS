@@ -15,12 +15,7 @@ func (s *Server) tenantBucketCount(ctx context.Context, tenantID string) (int64,
 		if err != nil {
 			return 0, err
 		}
-		// With replication every node lists every bucket.
-		names := make(map[string]struct{}, len(buckets))
-		for _, b := range buckets {
-			names[b.Name] = struct{}{}
-		}
-		return int64(len(names)), nil
+		return int64(len(buckets)), nil
 	}
 	buckets, err := s.bucketManager.ListBuckets(ctx, tenantID)
 	if err != nil {

@@ -283,7 +283,7 @@ func (m *rollbackRecorderManager) ListObjects(context.Context, string, string, s
 func (m *rollbackRecorderManager) SearchObjects(context.Context, string, string, string, string, int, *metadata.ObjectFilter) (*object.ListObjectsResult, error) {
 	return nil, nil
 }
-func (m *rollbackRecorderManager) GetObjectMetadata(context.Context, string, string) (*object.Object, error) {
+func (m *rollbackRecorderManager) GetObjectMetadata(context.Context, string, string, ...string) (*object.Object, error) {
 	return nil, nil
 }
 func (m *rollbackRecorderManager) UpdateObjectMetadata(context.Context, string, string, map[string]string) error {

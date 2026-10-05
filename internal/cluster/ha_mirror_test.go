@@ -2,8 +2,8 @@ package cluster
 
 import (
 	"context"
-	"encoding/base64"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -491,6 +491,69 @@ func TestPulledCopyKeepsThePeersObjectLock(t *testing.T) {
 	assert.Equal(t, "1700000000.peer", obj.VersionID)
 }
 
+// A version this node deleted is not stored again when pulled from a peer that
+// missed the delete.
+func TestAPulledCopyOfAVersionDeletedHereIsNotStored(t *testing.T) {
+	local := newLocalNode(t)
+	ctx := context.Background()
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: "pulled", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+	}))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(HAObjectVersionHeader, "1700000000.deleted")
+		_, _ = w.Write([]byte("peer copy"))
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	require.NoError(t, RecordDeletion(ctx, mgr.db, EntityTypeObjectVersion, ObjectVersionTombstoneID("pulled", "k", "1700000000.deleted"), "local", time.Now().Unix()))
+	scrubber := NewAntiEntropyScrubber(local.objects, local.buckets, mgr, newFakeRawKV())
+	require.NoError(t, scrubber.pullObjectFromPeer(ctx, NewProxyClient(nil), nodes[0], "local", "pulled", "k"))
+
+	_, err := local.objects.GetObjectMetadata(ctx, "pulled", "k")
+	assert.ErrorIs(t, err, object.ErrObjectNotFound)
+}
+
+// unlistedVersions is an object manager that cannot list versions.
+type unlistedVersions struct {
+	object.Manager
+}
+
+func (unlistedVersions) GetObjectVersions(context.Context, string, string) ([]object.ObjectVersion, error) {
+	return nil, fmt.Errorf("unreadable")
+}
+
+// A key whose versions cannot be listed here, or that the peer fails to take,
+// is left unreconciled, so that the catch-up is made again.
+func TestVersionsNotComparedOrNotSentLeaveTheKeyUnreconciled(t *testing.T) {
+	ctx := context.Background()
+	local := newLocalNode(t)
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: "v", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+	}))
+	obj, err := local.objects.PutObject(ctx, "v", "k", strings.NewReader("data"), http.Header{})
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(ChecksumResponse{Versions: true, Entries: []ChecksumEntry{{
+				Key: "k", Found: true, ETag: obj.ETag, Size: obj.Size, LastModified: obj.LastModified.Unix()}}})
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		http.Error(w, "failing", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+	listed, err := local.objects.ListObjects(ctx, "v", "", "", "", 10)
+	require.NoError(t, err)
+
+	for name, objects := range map[string]object.Manager{"not sent": local.objects, "not listed": unlistedVersions{local.objects}} {
+		scrubber := NewAntiEntropyScrubber(objects, local.buckets, mgr, newFakeRawKV())
+		cp := &ScrubCheckpoint{}
+		scrubber.processBatch(ctx, NewProxyClient(nil), nodes, "local", "v", listed.Objects, cp, 0)
+		assert.EqualValues(t, 1, cp.Unreconciled, name)
+	}
+}
+
 // syncRequest is what a replica received from the initial sync.
 type syncRequest struct {
 	method, key, version, marker, markedAt string
@@ -614,4 +677,86 @@ func TestInitialSyncCopiesTheObjectWrittenWhileSuspended(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &sent))
 	require.Equal(t, current.ETag, sent.ETag)
 	require.Equal(t, []object.Tag{{Key: "kept", Value: "yes"}}, sent.Tags.Tags)
+}
+
+// unreadableBucket lists every bucket but one.
+type unreadableBucket struct {
+	keyLister
+	bucket string
+}
+
+func (u unreadableBucket) ListObjects(ctx context.Context, bucket, prefix, marker string, maxKeys int) ([]*metadata.ObjectMetadata, string, error) {
+	if bucket == u.bucket {
+		return nil, "", fmt.Errorf("unreadable")
+	}
+	return u.keyLister.ListObjects(ctx, bucket, prefix, marker, maxKeys)
+}
+
+// A bucket the initial synchronization cannot list is left to the catch-up,
+// which compares every object: the node is recorded as having missed writes
+// since the start, whatever else it failed to send after.
+func TestAnInitialSyncThatCannotListABucketLeavesItToTheCatchUp(t *testing.T) {
+	ctx := context.Background()
+	local := newLocalNode(t)
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "a-unreadable"}))
+	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b-readable"}))
+	for _, o := range []struct{ bucket, key string }{{"a-unreadable", "k"}, {"b-readable", "k"}, {"b-readable", "refused"}} {
+		_, err := local.objects.PutObject(ctx, o.bucket, o.key, strings.NewReader("data"), http.Header{})
+		require.NoError(t, err)
+	}
+	var sent sync.Map
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if strings.HasSuffix(r.URL.Path, "/refused") {
+			http.Error(w, "failing", http.StatusInternalServerError)
+			return
+		}
+		sent.Store(r.Header.Get(HABucketHeader), true)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	mgr, _, nodes := newClusterWithPeers(t, 2, srv)
+
+	w := NewHASyncWorker(local.objects, local.buckets, mgr, unreadableBucket{local.store, "a-unreadable"})
+	require.NoError(t, w.runSync(ctx, 0, nodes[0], "", ""))
+	_, readable := sent.Load("b-readable")
+	assert.True(t, readable)
+	var since sql.NullInt64
+	require.NoError(t, mgr.db.QueryRow(`SELECT replica_missed_since FROM cluster_nodes WHERE id = ?`, nodes[0].ID).Scan(&since))
+	require.True(t, since.Valid)
+	assert.LessOrEqual(t, since.Int64, int64(1))
+}
+
+// A node that refuses a delete, because the object's lock keeps it there, is
+// healthy and is not recorded as having missed it; one that fails is.
+func TestARefusedDeleteIsNotAMissedWrite(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		missed bool
+	}{{http.StatusConflict, false}, {http.StatusInternalServerError, true}} {
+		local := newLocalNode(t)
+		ctx := context.Background()
+		require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "mirror"}))
+		peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			if r.Method == http.MethodDelete {
+				w.WriteHeader(c.status)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(peer.Close)
+		mgr, db, nodes := newClusterWithPeers(t, 2, peer)
+		ha := NewHAObjectManager(local.objects, mgr)
+		_, err := ha.PutObject(ctx, "mirror", "k", strings.NewReader("data"), http.Header{})
+		require.NoError(t, err)
+
+		_, err = ha.DeleteObject(ctx, "mirror", "k", false)
+		require.NoError(t, err)
+		n, err := mgr.GetNode(ctx, nodes[0].ID)
+		require.NoError(t, err)
+		assert.Equal(t, c.missed, n.HealthStatus != HealthStatusHealthy, "status %d", c.status)
+		assert.Equal(t, c.missed, n.UnavailableSince != nil, "status %d: the dead-node threshold counts from the failure", c.status)
+		assert.Equal(t, c.missed, missedSince(t, db, nodes[0].ID).Valid, "status %d", c.status)
+	}
 }

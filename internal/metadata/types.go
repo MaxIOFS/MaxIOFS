@@ -5,19 +5,27 @@ import "time"
 // ObjectMetadata represents metadata for a stored object
 type ObjectMetadata struct {
 	// Basic properties
-	Bucket             string    `json:"bucket"`
-	Key                string    `json:"key"`
-	VersionID          string    `json:"version_id,omitempty"`
-	IsLatest           bool      `json:"is_latest,omitempty"`
-	Size               int64     `json:"size"`
-	LastModified       time.Time `json:"last_modified"`
-	ETag               string    `json:"etag"`
-	ContentType        string    `json:"content_type"`
-	StorageClass       string    `json:"storage_class,omitempty"`
-	ContentDisposition string    `json:"content_disposition,omitempty"`
-	ContentEncoding    string    `json:"content_encoding,omitempty"`
-	CacheControl       string    `json:"cache_control,omitempty"`
-	ContentLanguage    string    `json:"content_language,omitempty"`
+	Bucket       string    `json:"bucket"`
+	Key          string    `json:"key"`
+	VersionID    string    `json:"version_id,omitempty"`
+	IsLatest     bool      `json:"is_latest,omitempty"`
+	Size         int64     `json:"size"`
+	LastModified time.Time `json:"last_modified"`
+	// WrittenAt is when the node that took the write wrote it (unix
+	// nanoseconds); a copy keeps it. LastModified is whole seconds: this
+	// orders two writes of one second between nodes. 0 when written before.
+	WrittenAt int64 `json:"written_at,omitempty"`
+	// Locations are the cluster nodes that hold, or are to hold, the data;
+	// every node holds the entry. Empty outside a cluster and for entries
+	// written before: the data is where the file is.
+	Locations          []string `json:"locations,omitempty"`
+	ETag               string   `json:"etag"`
+	ContentType        string   `json:"content_type"`
+	StorageClass       string   `json:"storage_class,omitempty"`
+	ContentDisposition string   `json:"content_disposition,omitempty"`
+	ContentEncoding    string   `json:"content_encoding,omitempty"`
+	CacheControl       string   `json:"cache_control,omitempty"`
+	ContentLanguage    string   `json:"content_language,omitempty"`
 
 	// Custom metadata (user-defined headers)
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -385,6 +393,7 @@ type ObjectVersion struct {
 	Size         int64     `json:"size"`
 	ETag         string    `json:"etag"`
 	LastModified time.Time `json:"last_modified"`
+	WrittenAt    int64     `json:"written_at,omitempty"`
 	StorageClass string    `json:"storage_class,omitempty"`
 	OwnerID      string    `json:"owner_id,omitempty"`
 }

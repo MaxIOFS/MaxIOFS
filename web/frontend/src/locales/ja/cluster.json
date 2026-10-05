@@ -6,12 +6,11 @@
   "loadingClusterData": "クラスターデータを読み込み中...",
 
   "clusterNotInitialized": "クラスターが初期化されていません",
-  "clusterNotInitializedDesc": "マルチノードレプリケーションと高可用性を有効にするために、新しいクラスターを初期化するか既存のクラスターに参加してください",
+  "clusterNotInitializedDesc": "このノードで新しいクラスターを初期化するか、既存クラスターのコンソールの「ノードを管理」→「ノードを追加」からこのノードを追加します。",
   "initializeCluster": "クラスターを初期化",
-  "joinExistingCluster": "既存のクラスターに参加",
 
   "initClusterTitle": "クラスターを初期化",
-  "initClusterDesc": "このノードを最初のメンバーとして新しいクラスターを作成します。他のノードを追加するためのクラスタートークンが発行されます。",
+  "initClusterDesc": "このノードを最初のメンバーとして新しいクラスターを作成します。他のノードは「ノードを管理」→「ノードを追加」から追加します。",
   "nodeName": "ノード名",
   "nodeNameHint": "任意。空のままにすると自動生成されます。",
   "regionOptional": "リージョン（任意）",
@@ -21,23 +20,14 @@
   "initialize": "初期化",
   "failedToInitCluster": "クラスターの初期化に失敗しました",
 
-  "joinClusterTitle": "既存のクラスターに参加",
-  "joinClusterDesc": "既存のクラスターノードのエンドポイントとクラスタートークンを入力して参加してください。",
-  "clusterNodeEndpoint": "クラスターノードIPアドレス",
-  "clusterNodeEndpointHint": "既存のクラスターノードのIPアドレス（またはIP:ポート）。デフォルトポートは8082です。",
   "clusterToken": "クラスタートークン",
-  "clusterTokenPlaceholder": "ここにクラスタートークンを貼り付けてください...",
-  "clusterTokenHint": "クラスター初期化時に表示されたトークン",
-  "joining": "参加中...",
-  "joinCluster": "クラスターに参加",
-  "failedToJoinCluster": "クラスターへの参加に失敗しました",
 
   "clusterInitialized": "クラスターが初期化されました",
-  "saveTokenWarning": "今すぐこのトークンを保存してください。このクラスターに他のノードを参加させるために必要です。",
+  "saveTokenWarning": "クラスターのノードはこのトークンで相互に認証します。秘密にしてください。他のノードは「ノードを管理」→「ノードを追加」から、そのノードの管理者資格情報で追加します。",
   "iHaveSavedToken": "トークンを保存しました",
 
   "clusterTokenTitle": "クラスタートークン",
-  "clusterTokenDesc": "このトークンを使用して他のノードをこのクラスターに参加させます。スタンドアロンノードの「既存のクラスターに参加」フォームで入力するか、このクラスターの「ノードを追加」を使用して自動的にノードを追加できます。",
+  "clusterTokenDesc": "クラスターのノードはこのトークンで相互に認証します。秘密にしてください。他のノードは「ノードを管理」→「ノードを追加」から、そのノードの管理者資格情報で追加します。",
   "failedToRetrieveToken": "クラスタートークンの取得に失敗しました",
   "close": "閉じる",
 
@@ -85,6 +75,7 @@
   "statusDead": "停止",
   "statusStoragePressure": "ストレージ圧迫",
   "thisNode": "（このノード）",
+  "drainedNode": "(退役済み)",
   "encryptionSecretMismatch": "暗号化シークレットが異なります",
   "encryptionSecretMismatchHint": "このノードは他のノードが保存する認証情報を復号できません。コーディネーターが1分以内にシークレットを送信します。解消しない場合は両ノードのログを確認してください。",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "ドレイン",
   "drainLocalDisabled": "ローカルノードはドレインできません — 別のクラスターノードからドレインを実行してください。",
-  "drainDeadDisabled": "ノードはすでに停止しています。",
+  "drainDrainedDisabled": "ノードはすでに退役済みです。",
   "drainNodeConfirmTitle": "ノードをドレイン",
   "drainNodeConfirmBody": "ノード{{node}}を停止としてマークしてそのレプリカを即時に再配布しますか？計画的な廃止に使用してください。",
   "drainNodeSuccess": "ノード{{node}}がドレインされました — 再配布を開始しました。",

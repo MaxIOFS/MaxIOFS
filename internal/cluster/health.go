@@ -48,10 +48,6 @@ func (m *Manager) loadStoragePressureThresholds(ctx context.Context) (float64, f
 	return threshold, release
 }
 
-// StalenessThreshold is the duration after which an unreachable node is considered stale.
-// Matches the tombstone TTL so that stale detection and deletion-log cleanup are aligned.
-const StalenessThreshold = 7 * 24 * time.Hour
-
 // CheckNodeHealth performs a health check on a specific node
 func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthStatus, error) {
 	node, err := m.GetNode(ctx, nodeID)
@@ -84,7 +80,10 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		}
 	}
 
-	if node.HealthStatus == HealthStatusDead {
+	// A node dead by this node's own probes is back in service once it answers
+	// again, and is caught up from its first missed write. A drained node stays
+	// dead.
+	if node.HealthStatus == HealthStatusDead && (node.Drained || !result.Healthy) {
 		// Still record the probe in history for visibility.
 		_, _ = m.db.ExecContext(ctx, `
 			INSERT INTO cluster_health_history (node_id, health_status, latency_ms, error_message)
@@ -104,14 +103,14 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 				UPDATE cluster_nodes
 				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
 				    capacity_total = ?, capacity_used = ?, bucket_count = ?, updated_at = ?,
-				    is_stale = 0, unavailable_since = NULL
+				    unavailable_since = NULL
 				WHERE id = ?
 			`, status, now, now, result.LatencyMs, result.CapacityTotal, result.CapacityUsed, result.BucketCount, now, nodeID)
 		} else {
 			_, err = m.db.ExecContext(ctx, `
 				UPDATE cluster_nodes
 				SET health_status = ?, last_health_check = ?, last_seen = ?, latency_ms = ?,
-				    bucket_count = ?, updated_at = ?, is_stale = 0, unavailable_since = NULL
+				    bucket_count = ?, updated_at = ?, unavailable_since = NULL
 				WHERE id = ?
 			`, status, now, now, result.LatencyMs, result.BucketCount, now, nodeID)
 		}
@@ -154,11 +153,6 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		if event != nil {
 			m.emitStoragePressure(*event)
 		}
-	}
-
-	// If the node is unreachable, check whether it has crossed the staleness threshold.
-	if !result.Healthy {
-		m.checkAndMarkStale(ctx, node, now)
 	}
 
 	// Record health check in history
@@ -341,6 +335,8 @@ func (m *Manager) noteMissedWrites(ctx context.Context, localID string, modified
 // catchUpReplica takes the node's record of missed writes, if any, and hands
 // it to the OnReplicaBack hook. The record is cleared only if it did not change
 // since it was read: an earlier miss recorded meanwhile stays for the next check.
+// Until the catch-up ends (CatchUpEnded) the node keeps the time it began from,
+// so the deletions it is to be sent are not forgotten meanwhile.
 func (m *Manager) catchUpReplica(ctx context.Context, nodeID string) {
 	fn := m.replicaCaughtUp.Load()
 	if fn == nil {
@@ -353,8 +349,10 @@ func (m *Manager) catchUpReplica(ctx context.Context, nodeID string) {
 		return
 	}
 	res, err := m.db.ExecContext(ctx,
-		`UPDATE cluster_nodes SET replica_missed_since = NULL WHERE id = ? AND replica_missed_since = ?`,
-		nodeID, since.Int64)
+		`UPDATE cluster_nodes SET replica_missed_since = NULL,
+			replica_catchup_since = MIN(COALESCE(replica_catchup_since, ?), ?)
+		WHERE id = ? AND replica_missed_since = ?`,
+		since.Int64, since.Int64, nodeID, since.Int64)
 	if err != nil {
 		m.log.WithError(err).WithField("node_id", nodeID).Warn("Failed to clear missed replica writes")
 		return
@@ -365,36 +363,33 @@ func (m *Manager) catchUpReplica(ctx context.Context, nodeID string) {
 	(*fn)(nodeID, time.Unix(since.Int64, 0))
 }
 
-// checkAndMarkStale marks a node as stale if it has been unreachable longer than StalenessThreshold.
-// It uses the node's pre-check LastSeen value (the last time it was actually alive).
-func (m *Manager) checkAndMarkStale(ctx context.Context, node *Node, now time.Time) {
-	if node.LastSeen == nil {
-		// Node was never successfully reached; nothing to compare against yet.
-		return
+// CatchUpEnded records that the node has everything written since since
+// (unix seconds): a catch-up begun at or after that time is over.
+func (m *Manager) CatchUpEnded(ctx context.Context, nodeID string, since int64) {
+	if _, err := m.db.ExecContext(ctx,
+		`UPDATE cluster_nodes SET replica_catchup_since = NULL WHERE id = ? AND replica_catchup_since >= ?`,
+		nodeID, since); err != nil {
+		m.log.WithError(err).WithField("node_id", nodeID).Warn("Failed to record the end of a catch-up")
 	}
-	if now.Sub(*node.LastSeen) < StalenessThreshold {
-		return
-	}
-	if node.IsStale {
-		// Already marked — avoid redundant writes.
-		return
-	}
+}
 
-	_, err := m.db.ExecContext(ctx,
-		"UPDATE cluster_nodes SET is_stale = 1, updated_at = ? WHERE id = ? AND is_stale = 0",
-		now, node.ID,
-	)
-	if err != nil {
-		m.log.WithError(err).Warn("Failed to mark node as stale")
-		return
+// oldestUnsentChange is the earliest time (unix seconds) from which a member
+// of the cluster may lack this node's changes: its first missed write, or the
+// start of a catch-up that has not ended. ok is false when no member lacks any.
+func oldestUnsentChange(ctx context.Context, db *sql.DB) (since int64, ok bool) {
+	var oldest sql.NullInt64
+	err := db.QueryRowContext(ctx, `
+		SELECT MIN(t) FROM (
+			SELECT replica_missed_since AS t FROM cluster_nodes
+			WHERE replica_missed_since IS NOT NULL AND id NOT IN (SELECT node_id FROM cluster_config)
+			UNION ALL
+			SELECT replica_catchup_since FROM cluster_nodes
+			WHERE replica_catchup_since IS NOT NULL AND id NOT IN (SELECT node_id FROM cluster_config)
+		)`).Scan(&oldest)
+	if err != nil || !oldest.Valid {
+		return 0, false
 	}
-
-	m.log.WithFields(logrus.Fields{
-		"node_id":     node.ID,
-		"node_name":   node.Name,
-		"last_seen":   node.LastSeen.Format(time.RFC3339),
-		"offline_for": now.Sub(*node.LastSeen).String(),
-	}).Warn("Node marked as stale: offline beyond staleness threshold")
+	return oldest.Int64, true
 }
 
 // CleanupHealthHistory removes old health check history entries

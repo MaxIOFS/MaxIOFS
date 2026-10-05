@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **314 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **320 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -164,7 +164,7 @@ npx vitest run --coverage
 | `manager_test.go` | Bucket manager core operations |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 
-### `internal/cluster/` — 40 test files
+### `internal/cluster/` — 42 test files
 
 | File | Description |
 |------|-------------|
@@ -178,20 +178,22 @@ npx vitest run --coverage
 | `dead_node_reconciler_test.go` | Dead-node replica redistribution |
 | `deletion_log_test.go` | Tombstone-based deletion sync: a deletion keeps its time and the later of two records; each node is sent each deletion once, in order, and again when it changes |
 | `deletion_order_test.go` | A deletion is dated after the last change of what it removes; entities of every type and their deletions are ordered by time, the same second keeping the entity; an earlier release's deletion log is repaired once; the IAM payload carries deletion times |
+| `deletion_retention_test.go` | A deletion older than the retention is kept until every member was sent it and no catch-up that replays it is pending; a removed node holds nothing back; bucket and row deletions are kept for a member that missed them; a catch-up is tracked until it ends; the deletion sequence never goes back, and a log numbered from its highest entry is sent whole again once |
 | `group_mapping_sync_test.go` | IDP group mapping synchronization |
 | `ha_bucket_state_test.go` | Bucket deletions are pruned with the deletion log, the later of two deletions winning |
 | `ha_row_state_test.go` | Rows of the replicated tables, on the real schema with foreign keys: the order of versions, deletions and content; a stored row keeps the rows that reference it; a report follows its configuration; rows that may not coexist converge on one; refusals; expired shares; a change dated after any version held; a synchronization sends every row and deletion in batches; old versions are forgotten |
 | `ha_fanout_lock_test.go` | The legacy (non-raw) HA transfer carries the object's retention and legal hold; without lock state it sends no lock header |
 | `ha_metadata_queue_test.go` | A metadata change reaches a healthy replica before the request returns; it is queued for a replica that is down, fails or has changes waiting, never for one that refuses it; the queue is replayed in order, dropping refused changes and stopping at a failure; removed nodes leave no queue |
-| `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again. The initial sync copies every version oldest first with its ID, delete markers with their time, and lock state; in a suspended bucket, the current object without a version ID last, with its ETag and tags |
+| `ha_mirror_test.go` | A factor of 2 keeps writing with its peer down and records the miss; a returning node is caught up with what changed since (lock state included), the deletes it missed (never a key it wrote after the delete), and retried when it fails or is down again. The initial sync copies every version oldest first with its ID, delete markers with their time, and lock state; in a suspended bucket, the current object without a version ID last, with its ETag and tags; a bucket it cannot list is left to a catch-up from the start. A copy pulled of a version deleted here is not stored; a key whose versions cannot be listed or sent is left unreconciled |
 | `ha_quorum_test.go` | HA write quorum behavior |
-| `ha_read_test.go` | HA read fallback and ordered retry |
 | `ha_rollback_lock_test.go` | A write that misses HA quorum (factor 3, both peers failing) removes its local version even under COMPLIANCE retention and a legal hold |
 | `ha_url_test.go` | Cluster HA endpoint URL handling |
 | `health_test.go` | Node health checks (30s intervals) |
 | `idp_provider_sync_test.go` | IDP provider configuration sync |
 | `leader_test.go` | Leader lease granted when free, refused while held, a stale term is fenced |
 | `manager_test.go` | Cluster manager core operations |
+| `membership_test.go` | A node and its removal are ordered by time, the same second keeping the node; a removed node is not added back; edits and drains are stamped after the last change; a node dead by its probes is back when it answers and caught up from when it was marked dead, a drained one stays dead; a drain on another node is taken here and refused below the replication factor; joining takes the cluster's membership |
+| `multipart_routing_test.go` | A multipart upload is made on the node its ID names with a factor above 1; with a factor of 1, an ID naming no node, outside a cluster or on its own node, where the request is; a node gone from the cluster is reported; the other nodes' uploads are asked for with a factor above 1 only, a node that does not answer left out |
 | `migration_rows_test.go` | A bucket's database rows move typed and once however often applied; generated IDs never replace the target's rows; rows naming another bucket, table or column are refused. The verification digest covers what a client reads of a version |
 | `migration_test.go` | Migration job records |
 | `proxy_bounds_test.go` | Every proxy client entry point is bounded (no unbounded read/timeout) |
@@ -204,10 +206,10 @@ npx vitest run --coverage
 | `quota_integration_test.go` | Quota enforcement in cluster |
 | `router_test.go` | Request routing to bucket owner; a bucket found here is served here whatever location was cached, and one that left is not |
 | `shared_state_test.go` | TLS state is race-free; the leader manager's `Stop` is idempotent; start doesn't replace the proxy client |
-| `stale_reconciler_test.go` | Stale node reconciliation (offline/partition modes), over the tables as production defines them |
 | `storage_pressure_test.go` | Storage-pressure health state |
 | `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
 | `user_sync_test.go` | User sync across nodes |
+| `written_at_test.go` | Two writes of an object are ordered by second, then within one second by the time each was written; a write is ordered against a deletion of its second, and one without a write time counts as made after |
 
 ### `internal/clusterauth/` — 1 test file
 
@@ -435,7 +437,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 46 test files
+### `internal/server/` — 50 test files
 
 | File | Description |
 |------|-------------|
@@ -445,23 +447,25 @@ npx vitest run --coverage
 | `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too; the directory of a bucket created since is kept |
 | `bucket_routing_test.go` | Between two complete nodes, every S3 request (AWS SDK client) and console request about a bucket reaches the node that holds it; bucket names are unique across nodes; bucket permissions stay with the coordinator and find a bucket on another node |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
+| `cluster_lists_test.go` | With every node holding every bucket, a bucket is listed once in the console and to S3 clients; the degraded reason another node sends is not taken; a read is served by the node that receives it |
 | `cluster_migration_test.go` | Bucket migration between two complete nodes: every version and its state moved and verified with the bucket's configuration, ACL and rows; writes refused while it runs and writes under way waited for; failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target; hidden copies answer for nothing; stale locations are forgotten; the console endpoint |
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold |
-| `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible |
+| `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
 | `console_idp_test.go` | Console IDP management endpoints |
 | `console_proxy_test.go` | The console proxy client bounds reachability checks, not transfer size |
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth |
-| `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups |
+| `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups; a deletion from the log removes the copy of every kind of entity with what goes with it; a revoked session reaches the other node with its time |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for |
 | `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints |
 | `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |
 | `encryption_worker_test.go` | Background encryption pass, its manual-run endpoint, and shutdown tracking |
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
 | `group_handlers_test.go` | A group member add is rejected across a different tenant scope; group delete removes policies atomically |
-| `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only |
+| `ha_cluster_test.go` | Complete nodes with their S3 APIs and AWS SDK clients: a multipart upload's parts, listings, completion and abort reach the node it was started on from any node; a node that does not answer gives `503`, one gone from the cluster `NoSuchUpload`; an upload named after no node is made where it is |
+| `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only; a deletion removes a write made before it in its second. An initial sync that fails some objects leaves them to the catch-up and says how many; a joining node is sent the objects; a catch-up sends every version the node missed, once, and its copies keep the tags; a version or delete marker deleted on a node is not stored again by a copy |
 | `ha_rows_test.go` | Between two complete nodes with a replication factor of 2: shares, replication rules, inventory configurations and reports reach the other node in both directions; a node that was down is caught up, rows from before the upgrade included; the coordinator's inventory report, its file and run reach the other node; a node that is not the coordinator writes no report; with a factor of 1 changes are dated and sent once it rises; an undated change is missed by every node |
 | `iam_admin_test.go` | Tenant scope separates administrators; who a policy grants administration to |
 | `iam_aws_api_test.go` | AWS IAM XML actions route to the IAM handler and require the IAM-manage capability |
@@ -473,7 +477,9 @@ npx vitest run --coverage
 | `leader_gate_test.go` | Reads, sign-in and cluster traffic are never blocked by the leader gate; a bucket's settings and objects need no coordinator, its permissions do |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
+| `node_lifecycle_test.go` | A removed node is removed on every node and not added back, and leaves when told; a leaving node is removed from the others; a drain takes the node out of service on every node; a cluster joined at runtime replicates writes; outside a cluster objects are only stored; only a node without data joins a cluster, every kind of data refusing it with what it holds |
 | `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not. A console upload's Object Lock headers need their own permission; a tenant without a storage limit can upload |
+| `partition_test.go` | Two nodes cut off for longer than deletions are kept, both serving, converge: deleted objects, users, buckets and shares stay deleted, writes on either side reach the other, and another round of every synchronization brings nothing back; a bucket deleted on one side and written to on the other is kept on both with the later writes only, and sent to the other node at once; a rewrite in the second of its deletion, while a node is away, is kept on every node; a delete marker reaches the other node with the time it was written |
 | `pending_password_change_test.go` | A pending forced password change leaves only the intended way out |
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |

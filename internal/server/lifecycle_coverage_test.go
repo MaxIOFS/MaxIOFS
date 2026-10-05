@@ -48,7 +48,6 @@ var lifecycleRelease = map[string]string{
 	"objectManager":       "no lifecycle of its own; wraps the stores",
 	"bucketAggregator":    "no background work; per-request fanout only",
 	"quotaAggregator":     "no background work; per-request fanout only",
-	"staleReconciler":     "runs under goWorker, covered by workers.Wait",
 	"notificationManager": "no background work",
 	"notificationHub":     "per-client goroutines, ended when the request ends",
 	"shareManager":        "no background work",

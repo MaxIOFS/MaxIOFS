@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ type Manager interface {
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 	SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error)
 
-	GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error)
+	GetObjectMetadata(ctx context.Context, bucket, key string, versionID ...string) (*Object, error)
 	UpdateObjectMetadata(ctx context.Context, bucket, key string, metadata map[string]string) error
 
 	GetObjectRetention(ctx context.Context, bucket, key string, versionID ...string) (*RetentionConfig, error)
@@ -91,6 +92,11 @@ type Object struct {
 	ChecksumValue      string            `json:"checksum_value,omitempty"`
 	VersionID          string            `json:"version_id,omitempty"`
 	IsLatest           bool              `json:"is_latest,omitempty"`
+	// WrittenAt orders two writes of one second between nodes (unix
+	// nanoseconds); internal.
+	WrittenAt int64 `json:"-"`
+	// Locations are the cluster nodes that hold the data; internal.
+	Locations []string `json:"-"`
 
 	Retention *RetentionConfig `json:"retention,omitempty"`
 	LegalHold *LegalHoldConfig `json:"legal_hold,omitempty"`
@@ -138,6 +144,9 @@ type objectManager struct {
 	quotaMu        sync.Mutex
 	pendingQuotas  map[string][]*quotaHold // by bucket, oldest first
 	pendingTenants map[string][]*quotaHold // by tenant, oldest first
+
+	// localNode is the cluster node this manager runs on ("" outside one).
+	localNode func() string
 }
 
 // lockKey locks the shard associated with bucket+key and returns the unlock function.
@@ -311,6 +320,50 @@ func WithReplicatedLastModified(ctx context.Context, lastModified time.Time) con
 	return context.WithValue(ctx, replicatedLastModifiedKey{}, lastModified)
 }
 
+type locationsKey struct{}
+
+// WithLocations records, on the entry a write creates, the cluster nodes that
+// hold or are to hold its data.
+func WithLocations(ctx context.Context, nodeIDs []string) context.Context {
+	return context.WithValue(ctx, locationsKey{}, nodeIDs)
+}
+
+func locationsFromContext(ctx context.Context) []string {
+	ids, _ := ctx.Value(locationsKey{}).([]string)
+	return ids
+}
+
+// DataElsewhereError: the object exists and its data is held by other nodes
+// (Locations), not by this one.
+type DataElsewhereError struct {
+	Object    *Object
+	Locations []string
+}
+
+func (e *DataElsewhereError) Error() string {
+	return "the object's data is held by other nodes"
+}
+
+type replicatedWrittenAtKey struct{}
+
+// WithReplicatedWrittenAt marks a replica write with the time (unix
+// nanoseconds) the node that took it wrote it.
+func WithReplicatedWrittenAt(ctx context.Context, writtenAt int64) context.Context {
+	return context.WithValue(ctx, replicatedWrittenAtKey{}, writtenAt)
+}
+
+// writtenAt is when this write is made: now, or for a replica the time the
+// node that took it wrote it, when it sent one.
+func writtenAt(ctx context.Context, now time.Time) int64 {
+	if w, ok := ctx.Value(replicatedWrittenAtKey{}).(int64); ok && w > 0 {
+		return w
+	}
+	if _, replica := replicatedLastModifiedFromContext(ctx); replica {
+		return 0
+	}
+	return now.UnixNano()
+}
+
 func replicatedLastModifiedFromContext(ctx context.Context) (time.Time, bool) {
 	t, ok := ctx.Value(replicatedLastModifiedKey{}).(time.Time)
 	if !ok || t.IsZero() || t.Unix() <= 0 {
@@ -353,6 +406,10 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
+	if metaObj != nil && !om.holdsData(metaObj) && !isMetadataDeleteMarker(metaObj) {
+		return nil, nil, &DataElsewhereError{Object: fromMetadataObject(metaObj), Locations: metaObj.Locations}
+	}
+
 	// Determine the correct object path
 	var objectRef storage.ObjectRef
 	if requestedVersionID != "" {
@@ -367,6 +424,10 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	encryptedReader, storageMetadata, err := om.storage.Get(ctx, objectRef)
 	if err != nil {
 		if err == storage.ErrObjectNotFound {
+			// A node that lost its copy still names the others.
+			if metaObj != nil && len(metaObj.Locations) > 0 && !isMetadataDeleteMarker(metaObj) {
+				return nil, nil, &DataElsewhereError{Object: fromMetadataObject(metaObj), Locations: metaObj.Locations}
+			}
 			return nil, nil, ErrObjectNotFound
 		}
 		return nil, nil, fmt.Errorf("failed to get object: %w", err)
@@ -597,6 +658,11 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
 		return nil, err
 	}
+	if !versioningEnabled && isReplicaCopy(ctx) {
+		if lm, ok := replicatedLastModifiedFromContext(ctx); ok && laterWriteHere(existingObjBeforeSave, lm, writtenAt(ctx, time.Now())) {
+			return fromMetadataObject(existingObjBeforeSave), nil
+		}
+	}
 	releaseQuota, err := om.reserveWriteQuota(ctx, bucket, originalSize, existingObjBeforeSave, versioningEnabled)
 	if err != nil {
 		return nil, err
@@ -659,6 +725,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		Bucket:             bucket,
 		Size:               size,
 		LastModified:       modTime,
+		WrittenAt:          writtenAt(ctx, time.Now()),
+		Locations:          locationsFromContext(ctx),
 		ETag:               originalETag,
 		ContentType:        finalStorageMetadata["content-type"],
 		ContentDisposition: storageMetadata["content-disposition"],
@@ -820,6 +888,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 	// Generate delete marker versionID
 	deleteMarkerVersionID := generateVersionID()
 	markedAt := time.Now()
+	markerWrittenAt := writtenAt(ctx, markedAt)
 	landing := versionLanding{latest: true}
 	if replicatedVersionID, ok := replicatedVersionIDFromContext(ctx); ok {
 		if err := validateReplicatedVersionID(replicatedVersionID); err != nil {
@@ -846,6 +915,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		Size:         0,
 		ETag:         "",
 		LastModified: markedAt,
+		WrittenAt:    markerWrittenAt,
 		StorageClass: StorageClassStandard,
 	}
 
@@ -856,6 +926,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 		VersionID:    deleteMarkerVersionID,
 		Size:         0,
 		LastModified: markedAt,
+		WrittenAt:    markerWrittenAt,
 		ETag:         "",
 		ContentType:  "",
 		StorageClass: StorageClassStandard,
@@ -1425,16 +1496,43 @@ func (om *objectManager) SearchObjects(ctx context.Context, bucket, prefix, deli
 }
 
 // GetObjectMetadata retrieves object metadata
-func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key string) (*Object, error) {
+func (om *objectManager) GetObjectMetadata(ctx context.Context, bucket, key string, versionID ...string) (*Object, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, err
 	}
 
 	objectRef := om.objectRef(bucket, key)
+	if len(versionID) > 0 && versionID[0] != "" {
+		metaObj, err := om.metadataStore.GetObject(ctx, bucket, key, versionID[0])
+		if errors.Is(err, metadata.ErrObjectNotFound) || errors.Is(err, metadata.ErrVersionNotFound) {
+			return nil, ErrObjectNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		if isMetadataDeleteMarker(metaObj) {
+			return nil, ErrObjectNotFound
+		}
+		if len(metaObj.Locations) == 0 {
+			exists, err := om.storage.Exists(ctx, om.versionRef(bucket, key, versionID[0]))
+			if err != nil {
+				return nil, fmt.Errorf("failed to check object existence: %w", err)
+			}
+			if !exists {
+				return nil, ErrObjectNotFound
+			}
+		}
+		return fromMetadataObject(metaObj), nil
+	}
 
 	// Try to load metadata from store first — covers versioned objects where
 	// the physical file is at the versioned path, not the plain path.
 	metaObj, metaErr := om.metadataStore.GetObject(ctx, bucket, key)
+	if metaErr == nil && metaObj != nil && len(metaObj.Locations) > 0 && !isMetadataDeleteMarker(metaObj) {
+		// The entry of a cluster object answers for it: its data may be on
+		// other nodes.
+		return fromMetadataObject(metaObj), nil
+	}
 	if metaErr == nil && metaObj != nil {
 		// Verify the physical file exists at the correct path (versioned or plain)
 		checkRef := objectRef
@@ -1502,22 +1600,26 @@ func (om *objectManager) UpdateObjectMetadata(ctx context.Context, bucket, key s
 	if err != nil {
 		return fmt.Errorf("failed to check object existence: %w", err)
 	}
-	if !exists {
+	clusterEntry := metaErr == nil && metaObj != nil && len(metaObj.Locations) > 0
+	if !exists && !clusterEntry {
 		return ErrObjectNotFound
 	}
 
-	existingMeta, err := om.storage.GetMetadata(ctx, objectRef)
-	if err != nil {
-		return fmt.Errorf("failed to read existing storage metadata: %w", err)
-	}
-	for k, v := range metadata {
-		if isProtectedStorageMetadataKey(k) {
-			continue
+	// The file's metadata changes where this node holds the data.
+	if exists && om.holdsData(metaObj) {
+		existingMeta, err := om.storage.GetMetadata(ctx, objectRef)
+		if err != nil {
+			return fmt.Errorf("failed to read existing storage metadata: %w", err)
 		}
-		existingMeta[k] = v
-	}
-	if err := om.storage.SetMetadata(ctx, objectRef, existingMeta); err != nil {
-		return fmt.Errorf("failed to update storage metadata: %w", err)
+		for k, v := range metadata {
+			if isProtectedStorageMetadataKey(k) {
+				continue
+			}
+			existingMeta[k] = v
+		}
+		if err := om.storage.SetMetadata(ctx, objectRef, existingMeta); err != nil {
+			return fmt.Errorf("failed to update storage metadata: %w", err)
+		}
 	}
 
 	// Load current object metadata from the metadata store.
@@ -1804,7 +1906,7 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 	}
 
 	// Generate unique upload ID
-	uploadID, err := om.generateUploadID()
+	uploadID, err := om.generateUploadID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate upload ID: %w", err)
 	}
@@ -2116,6 +2218,8 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		Bucket:       multipart.Bucket,
 		Size:         originalSize,
 		LastModified: time.Unix(lastModified, 0),
+		WrittenAt:    writtenAt(ctx, time.Now()),
+		Locations:    locationsFromContext(ctx),
 		ETag:         multipartETag,
 		ContentType:  contentType,
 		Metadata:     uploadUserMetadata(multipart.Metadata),
@@ -2363,6 +2467,22 @@ func (om *objectManager) validateObjectName(key string) error {
 	return nil
 }
 
+// SetLocalNode tells the manager which cluster node it runs on, to tell the
+// entries whose data it holds; it returns "" outside a cluster.
+func (om *objectManager) SetLocalNode(localNode func() string) {
+	om.localNode = localNode
+}
+
+// holdsData reports whether this node is to hold the data of an entry. An
+// entry naming no node, or read outside a cluster, is held where its file is.
+func (om *objectManager) holdsData(meta *metadata.ObjectMetadata) bool {
+	if meta == nil || len(meta.Locations) == 0 || om.localNode == nil {
+		return true
+	}
+	id := om.localNode()
+	return id == "" || slices.Contains(meta.Locations, id)
+}
+
 func (om *objectManager) objectRef(bucket, key string) storage.ObjectRef {
 	return storage.ObjectRef{Bucket: bucket, Key: key}
 }
@@ -2385,12 +2505,34 @@ func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName stri
 	return bucketMeta, nil
 }
 
-func (om *objectManager) generateUploadID() (string, error) {
+func (om *objectManager) generateUploadID(ctx context.Context) (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(bytes), nil
+	id := hex.EncodeToString(bytes)
+	if owner, _ := ctx.Value(uploadOwnerKey{}).(string); owner != "" {
+		id = owner + "." + id
+	}
+	return id, nil
+}
+
+type uploadOwnerKey struct{}
+
+// WithUploadOwner names the multipart upload created with ctx after the node
+// that holds it, so that any node can tell where its parts go.
+func WithUploadOwner(ctx context.Context, nodeID string) context.Context {
+	return context.WithValue(ctx, uploadOwnerKey{}, nodeID)
+}
+
+// UploadOwner is the node a multipart upload ID names, or "" when it names
+// none: an upload started outside a cluster, or before IDs named their node.
+func UploadOwner(uploadID string) string {
+	owner, _, found := strings.Cut(uploadID, ".")
+	if !found {
+		return ""
+	}
+	return owner
 }
 
 // abortMultipartUpload cleans up a multipart upload

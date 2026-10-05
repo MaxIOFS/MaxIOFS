@@ -99,6 +99,9 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
 		return fmt.Errorf("failed to read replica destination metadata: %w", err)
 	}
+	if !versioned && laterWriteHere(existingObjBeforeSave, metaObj.LastModified, metaObj.WrittenAt) {
+		return nil
+	}
 	exists, err := om.storage.Exists(ctx, objectRef)
 	if err != nil {
 		return fmt.Errorf("failed to check replica destination: %w", err)

@@ -6,12 +6,11 @@
   "loadingClusterData": "Carregando dados do cluster...",
 
   "clusterNotInitialized": "Cluster Não Inicializado",
-  "clusterNotInitializedDesc": "Inicialize um novo cluster ou ingresse em um existente para habilitar replicação multi-nó e alta disponibilidade",
+  "clusterNotInitializedDesc": "Inicialize um novo cluster com este nó, ou adicione este nó a um cluster existente pelo console desse cluster: Gerenciar Nós, Adicionar Nó.",
   "initializeCluster": "Inicializar Cluster",
-  "joinExistingCluster": "Ingressar em Cluster Existente",
 
   "initClusterTitle": "Inicializar Cluster",
-  "initClusterDesc": "Isso criará um novo cluster com este nó como o primeiro membro. Você receberá um token de cluster para adicionar outros nós.",
+  "initClusterDesc": "Cria um novo cluster com este nó como primeiro membro. Os demais nós são adicionados em Gerenciar Nós, Adicionar Nó.",
   "nodeName": "Nome do Nó",
   "nodeNameHint": "Opcional. Deixe vazio para gerar automaticamente.",
   "regionOptional": "Região (opcional)",
@@ -21,23 +20,14 @@
   "initialize": "Inicializar",
   "failedToInitCluster": "Falha ao inicializar o cluster",
 
-  "joinClusterTitle": "Ingressar em Cluster Existente",
-  "joinClusterDesc": "Insira o endpoint de um nó de cluster existente e o token do cluster para ingressar.",
-  "clusterNodeEndpoint": "Endereço IP do Nó do Cluster",
-  "clusterNodeEndpointHint": "Endereço IP (ou IP:porta) de um nó de cluster existente. A porta padrão é 8082.",
   "clusterToken": "Token do Cluster",
-  "clusterTokenPlaceholder": "Cole o token do cluster aqui...",
-  "clusterTokenHint": "O token exibido quando o cluster foi inicializado",
-  "joining": "Ingressando...",
-  "joinCluster": "Ingressar no Cluster",
-  "failedToJoinCluster": "Falha ao ingressar no cluster",
 
   "clusterInitialized": "Cluster Inicializado",
-  "saveTokenWarning": "Salve este token agora. Você precisará dele para adicionar outros nós a este cluster.",
+  "saveTokenWarning": "Os nós do cluster se autenticam entre si com este token: mantenha-o em segredo. Os demais nós são adicionados em Gerenciar Nós, Adicionar Nó, com suas credenciais de administrador.",
   "iHaveSavedToken": "Salvei o token",
 
   "clusterTokenTitle": "Token do Cluster",
-  "clusterTokenDesc": "Use este token para adicionar outros nós a este cluster. Você pode fornecê-lo no formulário \"Ingressar em Cluster Existente\" em um nó autônomo, ou usar \"Adicionar Nó\" neste cluster para adicionar nós automaticamente.",
+  "clusterTokenDesc": "Os nós do cluster se autenticam entre si com este token: mantenha-o em segredo. Os demais nós são adicionados em Gerenciar Nós, Adicionar Nó, com suas credenciais de administrador.",
   "failedToRetrieveToken": "Falha ao recuperar o token do cluster",
   "close": "Fechar",
 
@@ -85,6 +75,7 @@
   "statusDead": "Inativo",
   "statusStoragePressure": "Pressão de armazenamento",
   "thisNode": "(Este nó)",
+  "drainedNode": "(retirado)",
   "encryptionSecretMismatch": "Chave de criptografia diferente",
   "encryptionSecretMismatchHint": "Este nó não consegue descriptografar as credenciais armazenadas pelos outros. O coordenador envia sua chave em até um minuto; se persistir, verifique os logs de ambos os nós.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Drenar",
   "drainLocalDisabled": "Não é possível drenar o nó local — execute o drain a partir de um nó de cluster diferente.",
-  "drainDeadDisabled": "O nó já está inativo.",
+  "drainDrainedDisabled": "O nó já foi retirado.",
   "drainNodeConfirmTitle": "Drenar nó",
   "drainNodeConfirmBody": "Marcar o nó {{node}} como inativo e redistribuir imediatamente suas réplicas? Use para descomissionamento planejado.",
   "drainNodeSuccess": "Nó {{node}} drenado — redistribuição iniciada.",

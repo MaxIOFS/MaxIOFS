@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -61,6 +62,7 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		CapacityTotal int64  `json:"capacity_total"`
 		CapacityUsed  int64  `json:"capacity_used"`
 		CapacityFree  int64  `json:"capacity_free"`
+		Drained       bool   `json:"drained"`
 	}
 
 	nodeStatuses := make([]nodeStatus, 0, len(nodes))
@@ -72,6 +74,7 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 			CapacityTotal: n.CapacityTotal,
 			CapacityUsed:  n.CapacityUsed,
 			CapacityFree:  n.CapacityTotal - n.CapacityUsed,
+			Drained:       n.Drained,
 		})
 	}
 
@@ -186,9 +189,14 @@ func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) 
 
 	if err := s.deadNodeReconciler.DrainNode(r.Context(), nodeID, body.Reason); err != nil {
 		logrus.WithError(err).WithField("node_id", nodeID).Error("Drain failed")
-		s.writeError(w, "Drain failed: "+err.Error(), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if errors.Is(err, cluster.ErrBelowReplicationFactor) {
+			status = http.StatusConflict
+		}
+		s.writeError(w, "Drain failed: "+err.Error(), status)
 		return
 	}
+	s.syncMembershipNow()
 
 	s.writeJSON(w, map[string]interface{}{
 		"message": "Node drained and redistribution triggered",

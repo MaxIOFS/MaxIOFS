@@ -21,9 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With a replication factor above 1, the coordinator expires objects by lifecycle rules and its deletes reach the other nodes; every node aborts the incomplete multipart uploads started on it. Expiration ran on the node the rule was set on, and its deletes did not reach the others.
 - A bucket's `UpdatedAt` dates its configuration: object writes and statistics recounts no longer change it.
 - The secret stored credentials are encrypted with (identity provider secrets, replication destination keys, share link keys) lives in the database, like the KEK. The first start stores `auth.encryption_secret`, or else an explicit `auth.jwt_secret`, or else a generated one; the configuration is not read again. The JWT secret no longer encrypts anything. Migration 21.
-- In a cluster every node holds the cluster's encryption secret: a node that joins takes it and re-encrypts what it stores; the coordinator gives it to a node that holds another. The Nodes page marks a node that holds another secret.
+- In a cluster every node holds the cluster's encryption secret: a node that joins takes it; the coordinator gives it to a node that holds another, which re-encrypts what it stores. The Nodes page marks a node that holds another secret.
 - At startup the log names the stored credentials the encryption secret does not decrypt.
 - With a replication factor above 1, only the coordinator writes inventory reports and runs scheduled replication rules.
+- Only a node without data joins a cluster. A node holding a bucket, a tenant, a user besides its first administrator, an access key, a group, an identity provider, an IAM policy or role created on it, a share or a replication rule is refused (`409`, naming what it holds) and stays as it was. Its data was mixed into the cluster's, and its global users were deleted.
+- Add Node no longer fails with `Failed to determine local cluster address` on a node with no route to 8.8.8.8 and no `cluster_advertise_address`. The address it worked out for itself was sent to the new node and never read.
+- A node of a cluster listens on the default ports: S3 API 8080, console 8081, cluster 8082. Add Node registers the new node at those; the documentation allowed another cluster port on every node.
+- Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
@@ -91,12 +95,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The deletion log of an earlier release holds no deletion times: at the first start its object deletions, and its deletions of IAM entities the node holds again, are dropped.
 - The systemd unit of the Debian and RPM packages no longer limits writes to /var/lib/maxiofs and /var/log/maxiofs: a data directory set elsewhere in config.yaml works without editing the unit, which every upgrade replaced. /usr, /boot, /efi and /etc stay read-only.
 - A fresh Debian install sets `data_dir` to /var/lib/maxiofs, as the RPM does. It kept `./data`, under /opt/maxiofs, which the service could not write.
+- A node removed from the cluster is removed on every node. It was removed only on the node where it was removed, and the next node list from any other node added it back. The removal is recorded like a deletion and is final, as a node joins under a new ID every time; the removed node is answered `410 Gone` and leaves the cluster.
+- A node that leaves the cluster is removed from the others. They kept it and kept sending it changes.
+- A change to a node (name, region, priority) is no longer reverted by the next node list of another node: the newest copy wins.
+- A drain takes the node out of service on every node; it was dead only on the node where it was drained, and the others kept writing to it. A drain that would leave fewer healthy nodes than the replication factor is refused (`409`); it answered success and did nothing.
+- A node marked dead after being unreachable is back in service when it answers again, and is caught up from its first missed write. It stayed dead for good. A drained node stays dead.
+- A cluster created or joined while the server runs replicates object writes and deletes. They were replicated only after a restart.
+- A node that boots with the cluster active encrypts its existing plaintext objects; the encryption worker did not start on it.
+- A node that joins a cluster drops the nodes of a cluster it was in before, its own former entry included.
+- A node away from the cluster for longer than 7 days, offline or cut off and serving clients, no longer brings back what the other nodes deleted meanwhile, and gets those deletions when it is back. A deletion is kept until every member of the cluster has been sent it and no catch-up that replays it is pending; deletions of buckets and of their shares, replication rules and inventory configurations too. A node removed from the cluster no longer holds them back.
+- A deletion that arrives by the deletion log removes the node's copy of the entity. It was only recorded; the copy was removed by the entity's own synchronization, which can be turned off.
+- A bucket deleted on one side of a partition and written to on the other is kept on every node with the objects written after its deletion. The node that wrote kept it with everything it held, and the other node never took it back.
+- Deletions are numbered in a sequence that never goes back. A number freed when the newest deletions were forgotten was given again, and a node already sent up to it skipped the deletion; a deletion received older than 7 days freed its number within the hour. After the upgrade every node is sent the whole log once.
+- Two writes of an object made in the same second on different nodes, or a rewrite while a node was away, are ordered by the time each was written. The anti-entropy took either by ETag order and could replace the last write with the one before it on every node. Each copy carries the time its write was made to the nanosecond; S3 `LastModified` is unchanged. Objects written before the upgrade are ordered by second.
+- A bucket deleted in the second of its last write is deleted on the other nodes; they kept it.
+- A delete marker reaches the other nodes with its time. Each node gave it the time it received it.
+- A group deletion received from another node keeps the time it was made; a revoked STS session too. Each node dated the revocations it received with the time of reception, again on every cycle, so they were never forgotten.
+- With a replication factor above 1, the parts, completion and abort of a multipart upload are made on the node the upload was started on, whichever node they reach, and listing a bucket's uploads covers every node. A load balancer that spread them answered `NoSuchUpload`. The upload ID names its node; an upload started before the upgrade is made where its requests arrive, as before.
+- With a replication factor above 1, a bucket is listed once in the console and in S3 `ListBuckets`. It was listed once per node holding it.
+- The degraded-cluster message is each node's own and says whether writes are kept on fewer nodes or refused. A node showed the message of the last node that sent it its settings.
+- A node that fails to apply a delete from another node answers so, and is caught up from it when it is back; it answered success. A node that keeps the object under a retention or a legal hold answers that it refused the delete, and is not marked unavailable for it.
+- A node that fails a replicated write is unavailable from that failure on: the dead-node threshold counts from it. The failure also turned a dead node back to unavailable.
+- An initial copy to a new replica that fails to send some objects says how many in its job, on the HA page too, and the replica is caught up from the oldest of them. They were missing on the replica until the daily anti-entropy.
+- A node that joins a cluster whose replication factor is above 1 is sent the buckets and objects at once. It got them from the anti-entropy, 5 to 60 minutes after start-up.
+- The catch-up of a node that missed writes, and the anti-entropy, compare every version and delete marker of a key and send those the other node lacks. Only the current version was compared and sent: a node away while a key was written more than once never got the versions before the last.
+- A version or delete marker a node deleted is not stored again when a node that missed the delete sends it, or gives it, a copy.
+- A copy the anti-entropy sends keeps the object's tags, ACL and ETag, and is sent encrypted when the other node can decrypt it. It lost them.
 - Console: the language menu shows its flags on Windows. They were emoji, which Windows renders as two letters in Edge and Chrome. The language list in user preferences shows the language name only.
 - Console: the search icon of the bucket, user, access key, tenant, group and audit log lists is shown; the input covered it.
 - Console: the login page animation costs a quarter of the CPU without a GPU (remote sessions), from 2.7 cores to 0.6, and the page keeps 60 frames per second. The waves moved by repainting three full-screen gradients each frame and the card and icons blurred the moving background; the waves now move by transform, 20 times a second, along the same path, and nothing blurs it.
 - Console, dark theme: the light-blue metric icons (Total Objects, Admin Users) and the drop zone of the bucket page no longer show a light background; the dark shades they used were not defined. Checkboxes, date pickers, select lists and autofilled fields follow the theme.
 
 ### Removed
+- Console: the Join Existing Cluster form of a standalone node. It sent the cluster token and an address to the endpoint that takes the join package of an existing node, and always failed. A node joins from the console of a node of the cluster: Manage Nodes, Add Node.
+- The stale-node reconciler and its endpoints `/api/internal/cluster/state-snapshot` and `/api/internal/cluster/ha/objects/changed-since`. It never ran: no node ever marked itself stale. A node away for long is sent what it missed by keeping deletions until every node has them.
+- The replica-first S3 read: each read was first sent to another node's cluster port, which serves no S3 request and answered 404, then served by the node that received it.
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
 
 ### Added

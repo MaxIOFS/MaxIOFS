@@ -87,7 +87,6 @@ The following checks are recommended at least once per day in production.
 
 - In the **Cluster** section of the Console:
   - All nodes are `Healthy`.
-  - No node is marked as `Stale` or `Out of sync`.
   - Latency and replication delay are within acceptable bounds.
 - Inter-node connectivity: port **8082** must be reachable between all nodes
   (TLS with the cluster's internal CA). If nodes show as unhealthy while
@@ -141,7 +140,7 @@ You should monitor at least:
 - **Cluster**
   - Node health and last heartbeat.
   - Replication queue length and lag.
-  - Stale node detection (any node marked as stale).
+  - Nodes marked `dead`, and drained nodes.
 
 - **Security**
   - Count of failed logins.
@@ -237,7 +236,7 @@ A node may fail due to host crash, network outage, or hardware issues.
    - **Host can be repaired**:
      - Bring the node back online.
      - Ensure correct configuration and clock.
-     - Let the **stale reconciler** run if the node was offline for a long period (see [Cluster Incidents](#cluster-incidents)).
+     - It is caught up with the writes and deletions it missed, however long it was away (see [Cluster Incidents](#cluster-incidents)).
    - **Host is lost permanently**:
      - Remove it from the load balancer.
      - Treat it as a decommissioned node (as above).
@@ -247,7 +246,7 @@ A node may fail due to host crash, network outage, or hardware issues.
 
 ## Cluster Incidents
 
-MaxIOFS includes logic to handle **stale nodes** and **network partitions** using a stale reconciler and tombstone‑based deletion sync. Understanding these concepts is key to safe operations.
+Writes and deletions carry their time, and a deletion is kept until every member of the cluster has it. When nodes see each other again, each sends the other what it missed and the times decide.
 
 ### Scenario A – Node Offline (No Local Writes)
 
@@ -260,17 +259,12 @@ MaxIOFS includes logic to handle **stale nodes** and **network partitions** usin
 
 - Writes continue on the surviving nodes: a factor of 2 keeps writing on its own copy; a factor of 3 needs one of its two peers.
 - When the node is healthy again, the node that accepted its writes catches it up with the writes and deletes it missed (see [CLUSTER.md](CLUSTER.md#what-happens-when-a-node-fails)).
-- When the node returns:
-  - It is detected as **stale** if it has been offline longer than the staleness threshold.
-  - The **stale reconciler** fetches a **state snapshot** from peers and:
-    - Applies missing configuration and metadata.
-    - Applies tombstones for deletions (to prevent entity resurrection).
-  - After reconciliation, the node clears the `stale` flag and re‑joins the cluster.
+- However long it was away, it is sent every deletion made meanwhile: deletions are kept until every member has them. A node removed from the cluster no longer holds them back.
 
 **Operator actions**:
 
-- Confirm the node comes back as `Healthy` and not stale after reconciliation.
-- Review logs for any reconciliation errors.
+- Confirm the node comes back as `Healthy`.
+- Review logs for catch-up errors.
 
 ### Scenario B – Network Partition (Node Isolated but Serving Clients)
 
@@ -287,10 +281,12 @@ MaxIOFS includes logic to handle **stale nodes** and **network partitions** usin
 
 **Behavior**:
 
-- When connectivity returns and the node is detected as stale:
-  - The stale reconciler compares **per‑entity timestamps** and tombstones:
-    - Last‑write‑wins (LWW) for entities with `updated_at` timestamps (users, tenants, IDP, group mappings).
-    - Tombstones always win for entities without `updated_at` (access keys, bucket permissions).
+- When the sides see each other again, each sends the other its writes and deletions with their times:
+  - A later write wins.
+  - A deletion removes a copy last changed before it; a write made after a deletion is kept and sent.
+  - A bucket deleted on one side and written to on the other is kept on every node with the objects written after its deletion.
+  - Access keys, bucket permissions and STS sessions carry no change time: their deletion wins.
+  - Objects and buckets are ordered to the nanosecond. Users, keys, policies and other entities are ordered to the second: a change and a deletion in the same second keep the entity.
 
 **Operator actions**:
 
@@ -427,7 +423,7 @@ If you must restore a specific node:
 2. Stop MaxIOFS on that node.
 3. Restore its `--data-dir` from a consistent backup.
 4. Start MaxIOFS.
-5. Allow the stale reconciler and deletion log sync to reconcile state with peers.
+5. Let the node be caught up: the other nodes send it the writes and deletions it misses.
 6. Carefully verify that the cluster configuration and data view are correct.
 
 ---
@@ -602,10 +598,10 @@ No error messages during open means WAL replay succeeded. If you see `pebble: co
    - TLS certificates (if used) are valid.
    - Reverse proxy or load balancer configuration is correct.
 
-### Node Shows as Stale
+### Node Shows as Dead
 
-1. Review `CLUSTER.md` and this document’s [Cluster Incidents](#cluster-incidents) section.
-2. Inspect logs for stale reconciler activity.
+1. A node unreachable for longer than `ha.dead_node_threshold_hours` is marked dead by each node; it is back in service when it answers again.
+2. A drained node stays dead: remove it from the cluster.
 3. Ensure:
    - Node’s time is synchronized (NTP).
    - Network between nodes is stable.

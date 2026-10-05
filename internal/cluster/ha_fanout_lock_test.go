@@ -25,7 +25,7 @@ func (m *lockedObjectManager) GetObject(context.Context, string, string, ...stri
 	return m.obj, io.NopCloser(strings.NewReader("body")), nil
 }
 
-func (m *lockedObjectManager) GetObjectMetadata(context.Context, string, string) (*object.Object, error) {
+func (m *lockedObjectManager) GetObjectMetadata(context.Context, string, string, ...string) (*object.Object, error) {
 	return m.obj, nil
 }
 
@@ -53,7 +53,9 @@ func fanoutToRecorder(t *testing.T, obj *object.Object) http.Header {
 	require.NoError(t, err)
 
 	h := &HAObjectManager{Manager: &lockedObjectManager{obj: obj}, mgr: mgr}
-	require.NoError(t, h.fanoutPut(ctx, "bucket", "key", obj.VersionID, time.Now()))
+	p, placed := h.place(ctx)
+	require.True(t, placed)
+	require.NoError(t, h.replicate(ctx, p, "bucket", "key", obj.VersionID, time.Now()))
 	select {
 	case got := <-received:
 		return got

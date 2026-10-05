@@ -242,7 +242,6 @@ func (s *Server) completeSTSFederation(
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.stsSessionSyncMgr != nil {
 		s.stsSessionSyncMgr.TriggerSync(r.Context())
 	}

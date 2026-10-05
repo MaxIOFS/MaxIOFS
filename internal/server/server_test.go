@@ -2987,9 +2987,10 @@ func TestHandleInitializeCluster(t *testing.T) {
 	})
 }
 
-// TestHandleJoinCluster tests joining an existing cluster.
+// TestHandleJoinCluster tests joining an existing cluster, on a node without
+// data: one that holds data refuses any join first.
 func TestHandleJoinCluster(t *testing.T) {
-	server := getSharedServer()
+	server := newClusterTestNode(t)
 
 	t.Run("should reject incomplete join package (missing token)", func(t *testing.T) {
 		body := `{"cluster_token": "", "ca_cert": "x", "ca_key": "x", "self_endpoint": "https://node2:8082"}`
@@ -6521,9 +6522,9 @@ func TestHandleInitializeClusterEdgeCases(t *testing.T) {
 	})
 }
 
-// Test handleJoinCluster edge cases
+// Test handleJoinCluster edge cases, on a node without data.
 func TestHandleJoinClusterEdgeCases(t *testing.T) {
-	server := getSharedServer()
+	server := newClusterTestNode(t)
 
 	t.Run("should reject invalid JSON", func(t *testing.T) {
 		body := `{invalid`

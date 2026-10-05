@@ -6,12 +6,11 @@
   "loadingClusterData": "Loading cluster data...",
 
   "clusterNotInitialized": "Cluster Not Initialized",
-  "clusterNotInitializedDesc": "Initialize a new cluster or join an existing one to enable multi-node replication and high availability",
+  "clusterNotInitializedDesc": "Initialize a new cluster with this node, or add this node to an existing cluster from that cluster's console: Manage Nodes, Add Node.",
   "initializeCluster": "Initialize Cluster",
-  "joinExistingCluster": "Join Existing Cluster",
 
   "initClusterTitle": "Initialize Cluster",
-  "initClusterDesc": "This will create a new cluster with this node as the first member. You will receive a cluster token to add other nodes.",
+  "initClusterDesc": "This creates a new cluster with this node as its first member. Other nodes are added from Manage Nodes, Add Node.",
   "nodeName": "Node Name",
   "nodeNameHint": "Optional. Leave empty to auto-generate.",
   "regionOptional": "Region (optional)",
@@ -21,23 +20,14 @@
   "initialize": "Initialize",
   "failedToInitCluster": "Failed to initialize cluster",
 
-  "joinClusterTitle": "Join Existing Cluster",
-  "joinClusterDesc": "Enter the endpoint of an existing cluster node and the cluster token to join.",
-  "clusterNodeEndpoint": "Cluster Node IP Address",
-  "clusterNodeEndpointHint": "IP address (or IP:port) of an existing cluster node. Default port is 8082.",
   "clusterToken": "Cluster Token",
-  "clusterTokenPlaceholder": "Paste the cluster token here...",
-  "clusterTokenHint": "The token displayed when the cluster was initialized",
-  "joining": "Joining...",
-  "joinCluster": "Join Cluster",
-  "failedToJoinCluster": "Failed to join cluster",
 
   "clusterInitialized": "Cluster Initialized",
-  "saveTokenWarning": "Save this token now. You will need it to join other nodes to this cluster.",
+  "saveTokenWarning": "The nodes of the cluster authenticate to each other with this token: keep it secret. Other nodes are added from Manage Nodes, Add Node, with their administrator credentials.",
   "iHaveSavedToken": "I have saved the token",
 
   "clusterTokenTitle": "Cluster Token",
-  "clusterTokenDesc": "Use this token to join other nodes to this cluster. You can provide it in the \"Join Existing Cluster\" form on a standalone node, or use \"Add Node\" from this cluster to add nodes automatically.",
+  "clusterTokenDesc": "The nodes of the cluster authenticate to each other with this token: keep it secret. Other nodes are added from Manage Nodes, Add Node, with their administrator credentials.",
   "failedToRetrieveToken": "Failed to retrieve cluster token",
   "close": "Close",
 
@@ -85,6 +75,7 @@
   "statusDead": "Dead",
   "statusStoragePressure": "Storage pressure",
   "thisNode": "(This node)",
+  "drainedNode": "(drained)",
   "encryptionSecretMismatch": "Different encryption secret",
   "encryptionSecretMismatchHint": "This node cannot decrypt the credentials the others store. The coordinator sends it its secret within a minute; if this persists, check the logs of both nodes.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Drain",
   "drainLocalDisabled": "Cannot drain the local node — run drain from a different cluster node.",
-  "drainDeadDisabled": "Node is already dead.",
+  "drainDrainedDisabled": "Node is already drained.",
   "drainNodeConfirmTitle": "Drain node",
   "drainNodeConfirmBody": "Mark node {{node}} as dead and immediately redistribute its replicas? Use this for planned decommissioning.",
   "drainNodeSuccess": "Node {{node}} drained — redistribution started.",

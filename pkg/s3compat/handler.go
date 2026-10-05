@@ -115,10 +115,6 @@ type Handler struct {
 	}
 	clusterManager interface {
 		IsClusterEnabled() bool
-		SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
-		SelectReadNodes(ctx context.Context, bucket string) ([]*cluster.Node, error)
-		ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
-		TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) (bool, error)
 		GetLocalNodeID(ctx context.Context) (string, error)
 		GetLocalNodeToken(ctx context.Context) (string, error)
 		GetTLSConfig() *tls.Config
@@ -130,6 +126,10 @@ type Handler struct {
 	clusterRouter interface {
 		RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
 		InvalidateCache(bucket string)
+	}
+	uploadRouter interface {
+		UploadNode(ctx context.Context, uploadID string) (*cluster.Node, bool, error)
+		PeerMultipartUploads(ctx context.Context, bucket string) ([]object.MultipartUpload, error)
 	}
 	replicationManager interface {
 		QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
@@ -250,10 +250,6 @@ func (h *Handler) buildLocationURL(r *http.Request, bucketName, objectKey string
 // SetClusterManager sets the cluster manager for checking cluster status and read routing.
 func (h *Handler) SetClusterManager(cm interface {
 	IsClusterEnabled() bool
-	SelectReadNode(ctx context.Context, bucket string) (*cluster.Node, error)
-	SelectReadNodes(ctx context.Context, bucket string) ([]*cluster.Node, error)
-	ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) error
-	TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *cluster.Node) (bool, error)
 	GetLocalNodeID(ctx context.Context) (string, error)
 	GetLocalNodeToken(ctx context.Context) (string, error)
 	GetTLSConfig() *tls.Config
@@ -275,6 +271,15 @@ func (h *Handler) SetClusterRouter(cr interface {
 	InvalidateCache(bucket string)
 }) {
 	h.clusterRouter = cr
+}
+
+// SetUploadRouter makes a request about a multipart upload go to the node the
+// upload was started on, and the listing of uploads cover every node.
+func (h *Handler) SetUploadRouter(ur interface {
+	UploadNode(ctx context.Context, uploadID string) (*cluster.Node, bool, error)
+	PeerMultipartUploads(ctx context.Context, bucket string) ([]object.MultipartUpload, error)
+}) {
+	h.uploadRouter = ur
 }
 
 // SetReplicationManager sets the replication manager for realtime object replication
@@ -346,6 +351,9 @@ func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
 		if bucket := mux.Vars(r)["bucket"]; bucket != "" && h.proxyBucketRequest(w, r, bucket) {
 			return
 		}
+		if h.proxyUploadRequest(w, r) {
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -375,30 +383,11 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 		return false
 	}
 
-	// Get local node credentials for HMAC signing
-	nodeID, err := h.clusterManager.GetLocalNodeID(r.Context())
-	if err != nil {
-		logrus.WithError(err).Warn("proxyBucketRequest: failed to get local node ID, handling locally")
+	resp, err := h.forwardToNode(r, node)
+	if errors.Is(err, errNoClusterIdentity) {
+		logrus.WithError(err).Warn("proxyBucketRequest: handling locally")
 		return false
 	}
-	clusterToken, err := h.clusterManager.GetLocalNodeToken(r.Context())
-	if err != nil {
-		logrus.WithError(err).Warn("proxyBucketRequest: failed to get cluster token, handling locally")
-		return false
-	}
-
-	// Extract user context for forwarding
-	user, _ := auth.GetUserFromContext(r.Context())
-	var userID, tenantID, roles string
-	if user != nil {
-		userID = user.ID
-		tenantID = user.TenantID
-		roles = strings.Join(user.Roles, ",")
-	}
-
-	// Build the proxy client and forward the request to node.APIURL
-	proxyClient := cluster.NewProxyClient(h.clusterManager.GetTLSConfig())
-	resp, err := proxyClient.ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -421,7 +410,73 @@ func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, buc
 		h.clusterRouter.InvalidateCache(bucketName)
 	}
 
-	proxyClient.CopyResponseToWriter(w, resp) //nolint:errcheck
+	cluster.NewProxyClient(nil).CopyResponseToWriter(w, resp) //nolint:errcheck
+	return true
+}
+
+// writeDataUnavailable answers a read whose data no node holding it served:
+// the object is there and the client retries. It reports whether err was that.
+func (h *Handler) writeDataUnavailable(w http.ResponseWriter, r *http.Request, key string, err error) bool {
+	if !errors.Is(err, object.ErrDataUnavailable) {
+		return false
+	}
+	w.Header().Set("Retry-After", "1")
+	h.writeError(w, "ServiceUnavailable", "No node that holds the object's data answered; retry the request", key, r)
+	return true
+}
+
+// errNoClusterIdentity: this node cannot sign a request to another node.
+var errNoClusterIdentity = errors.New("no cluster identity to forward the request")
+
+// forwardToNode sends the request to node's S3 API as this node, with the
+// caller's identity, and returns the node's answer.
+func (h *Handler) forwardToNode(r *http.Request, node *cluster.Node) (*http.Response, error) {
+	nodeID, err := h.clusterManager.GetLocalNodeID(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("%w: local node ID: %v", errNoClusterIdentity, err)
+	}
+	clusterToken, err := h.clusterManager.GetLocalNodeToken(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("%w: cluster token: %v", errNoClusterIdentity, err)
+	}
+	var userID, tenantID, roles string
+	if user, _ := auth.GetUserFromContext(r.Context()); user != nil {
+		userID = user.ID
+		tenantID = user.TenantID
+		roles = strings.Join(user.Roles, ",")
+	}
+	return cluster.NewProxyClient(h.clusterManager.GetTLSConfig()).
+		ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
+}
+
+// proxyUploadRequest sends a request about a multipart upload to the node the
+// upload was started on, which holds its parts. A node that does not answer is
+// answered 503, as the upload is still there; one no longer in the cluster
+// took its uploads with it.
+func (h *Handler) proxyUploadRequest(w http.ResponseWriter, r *http.Request) bool {
+	uploadID := r.URL.Query().Get("uploadId")
+	if uploadID == "" || h.uploadRouter == nil || h.clusterManager == nil || r.Header.Get("X-MaxIOFS-Proxied") == "true" {
+		return false
+	}
+	node, local, err := h.uploadRouter.UploadNode(r.Context(), uploadID)
+	if local {
+		return false
+	}
+	if errors.Is(err, cluster.ErrNodeNotFound) {
+		h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
+		return true
+	}
+	if err == nil {
+		var resp *http.Response
+		if resp, err = h.forwardToNode(r, node); err == nil {
+			defer resp.Body.Close()
+			cluster.NewProxyClient(nil).CopyResponseToWriter(w, resp) //nolint:errcheck
+			return true
+		}
+	}
+	logrus.WithError(err).WithField("upload_id", uploadID).Warn("The node of a multipart upload could not be reached")
+	w.Header().Set("Retry-After", "1")
+	h.writeError(w, "ServiceUnavailable", "The node that holds this multipart upload could not be reached", uploadID, r)
 	return true
 }
 
@@ -433,12 +488,7 @@ func (h *Handler) tenantBucketCount(ctx context.Context, tenantID string) (int64
 		if err != nil {
 			return 0, err
 		}
-		// With replication every node lists every bucket.
-		names := make(map[string]struct{}, len(buckets))
-		for _, b := range buckets {
-			names[b.Name] = struct{}{}
-		}
-		return int64(len(names)), nil
+		return int64(len(buckets)), nil
 	}
 	buckets, err := h.bucketManager.ListBuckets(ctx, tenantID)
 	if err != nil {
@@ -1362,20 +1412,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.clusterManager != nil {
-		nodes, _ := h.clusterManager.SelectReadNodes(r.Context(), bucketPath)
-		for _, node := range nodes {
-			served, tryErr := h.clusterManager.TryProxyRead(r.Context(), w, r, node)
-			if served {
-				return
-			}
-			if tryErr != nil {
-				logrus.WithError(tryErr).WithField("node_id", node.ID).
-					Debug("read fallback: replica did not serve, trying next")
-			}
-		}
-	}
-
 	versionID := r.URL.Query().Get("versionId")
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
@@ -1384,6 +1420,9 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+			return
+		}
+		if h.writeDataUnavailable(w, r, objectKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
@@ -1715,15 +1754,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 	versionID := r.URL.Query().Get("versionId")
 	var obj *object.Object
 	var err error
-	if versionID != "" {
-		var reader io.ReadCloser
-		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
-		if reader != nil {
-			reader.Close()
-		}
-	} else {
-		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	}
+	obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
@@ -3660,15 +3691,7 @@ func (h *Handler) RestoreObject(w http.ResponseWriter, r *http.Request) {
 	// Verify the object exists
 	var obj *object.Object
 	var err error
-	if versionID != "" {
-		var reader io.ReadCloser
-		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
-		if reader != nil {
-			reader.Close()
-		}
-	} else {
-		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	}
+	obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)

@@ -43,7 +43,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
 - ✅ Bucket migration between nodes for capacity rebalancing
-- ✅ **Stale node reconciler** — automatic recovery for nodes offline or network-partitioned
+- ✅ **Partitions and long absences** — writes and deletions are ordered by time; a deletion is kept until every node has it
 - ✅ Web-based cluster management dashboard
 
 ### Use Cases
@@ -70,9 +70,10 @@ writing with one node down and answers `503 ServiceUnavailable`
 **A node that missed writes is caught up as soon as it is back.** The node that
 accepted them records, per peer, the time of the earliest write that peer
 missed. When a health check finds the peer healthy again, it sends the peer
-every bucket (see [Buckets](#buckets)), compares every object modified since
-then with the peer and sends what differs, lock state included, then sends the
-deletes the peer missed. A delete of a whole key is sent
+every bucket (see [Buckets](#buckets)), compares every key modified since then
+with the peer and sends what differs — every version and delete marker the peer
+lacks, and the current object when it differs, lock state included — then sends
+the deletes the peer missed. A delete of a whole key is sent
 only if the peer's copy is not newer than the delete, so a key written on the
 other side of a partition is kept. What fails is recorded again and retried at
 the next health check. The catch-up runs even with the periodic scrub disabled.
@@ -85,7 +86,9 @@ queue is delivered in order when the node is caught up. A change the node
 refuses (the object is gone, or its lock state no longer allows it) is dropped
 and logged; any other failure keeps the queue for the next attempt.
 With the periodic scrub enabled (the default), a node that restarts also runs a
-full anti-entropy cycle within an hour of starting.
+full anti-entropy cycle within an hour of starting; it compares keys the same
+way. A version or delete marker a node deleted is not stored again when a node
+that missed the delete sends it, or gives it, a copy.
 
 **The control plane (web console, port 8081) elects a coordinator**, so that two
 nodes cannot edit the same entity at the same instant and quietly disagree about
@@ -141,6 +144,11 @@ Each MaxIOFS node exposes three independent ports:
 | **8080** | S3 API — object storage operations | S3 clients, load balancer |
 | **8081** | Web Console — admin UI and console REST API | Operators, load balancer |
 | **8082** | Cluster inter-node — coordination, sync, CSR signing | Other cluster nodes only (firewall off from public) |
+
+Every node of a cluster listens on these default ports. Add Node registers the
+new node's S3 API on port 8080 and its cluster port on the cluster port of the
+node that adds it: a node on other ports is registered at the wrong addresses,
+and its health checks, synchronization and the requests forwarded to it fail.
 
 ### Cluster Components
 
@@ -238,23 +246,12 @@ This is the recommended method. From Node 1's console:
 ```
 # Cluster → Nodes → Add Node
 # Fill in:
-#   Node IP Address: 10.0.1.20   (or 10.0.1.20:8081 to use a non-default port)
+#   Node IP Address: 10.0.1.20
 #   Admin Username:  admin
 #   Admin Password:  <node 2 password>
 ```
 
-The primary node authenticates to Node 2's console API (port 8081), triggers a cluster join, and Node 2 contacts Node 1's cluster port (8082) to register.
-
-**Alternative: Join from Node 2's console**
-
-If you prefer to initiate the join from Node 2 instead:
-
-```
-# Open http://10.0.1.20:8081 → Cluster → Join Existing Cluster
-# Fill in:
-#   Cluster Node IP Address: 10.0.1.10   (or 10.0.1.10:8082 to use a non-default port)
-#   Cluster Token: <paste from step 2>
-```
+The primary node authenticates to Node 2's console API (port 8081), triggers a cluster join, and Node 2 contacts Node 1's cluster port (8082) to register. A node joins only this way: from the console of a node of the cluster, with the new node's administrator credentials.
 
 **4. Verify cluster**
 
@@ -365,7 +362,7 @@ iptables -A INPUT -p tcp --dport 8082 -j DROP                   # Block all othe
 
 | Config key | Default | Description |
 |------------|---------|-------------|
-| `cluster_listen` | `:8082` | Bind address for the cluster inter-node server. Change the port if 8082 is taken, or use `127.0.0.1:8082` to restrict to loopback (single-machine test clusters). |
+| `cluster_listen` | `:8082` | Bind address for the cluster inter-node server. Keep port 8082 on a node of a cluster; the address can be restricted to one interface. |
 
 ```yaml
 # config.yaml — cluster port (all other cluster config is managed via the web console)
@@ -374,20 +371,14 @@ cluster_listen: ":8082"
 
 Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
 
-> ⚠️ **Every node must use the same cluster port.**
+> ⚠️ **A node of a cluster listens on the default ports: S3 API 8080, console
+> 8081, cluster 8082.**
 >
-> When you add a node from the primary's console, the primary builds the new
-> node's cluster address from the **primary's own** `cluster_listen` port — it
-> asks the remote node for its console address, not for its cluster port. A
-> node running `cluster_listen: ":9082"` while the primary runs `:8082` is
-> therefore registered at `:8082` and is never reachable: health checks fail,
-> the node never votes, and the cluster reports it unhealthy for no visible
-> reason.
->
-> Change the port if 8082 is taken, but change it **on every node**. The
-> *Join Cluster* form on the joining node accepts an explicit `IP:port` for the
-> node it is contacting, which is a different thing: it says where to *find* the
-> cluster, not what port this node will be reached on.
+> When you add a node, the primary registers the new node's S3 API on port
+> 8080 and its cluster port on the **primary's own** `cluster_listen` port; it
+> does not ask the new node for them. A node on other ports is registered at
+> the wrong addresses: health checks fail, the node never votes, and requests
+> forwarded to it fail.
 
 ### Cluster Initialization Parameters
 
@@ -401,16 +392,9 @@ Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
 
 | Field | Default port | Description |
 |-------|-------------|-------------|
-| **Node IP Address** | 8081 | IP address (or `IP:port`) of the remote node's **console** port. Port 8081 is used if omitted. The primary node authenticates here, then tells the remote to join via port 8082. |
+| **Node IP Address** | 8081 | IP address of the remote node. The primary node authenticates to its console on port 8081, then tells it to join via port 8082. |
 | **Admin Username** | — | Admin credentials on the remote node |
 | **Admin Password** | — | Admin credentials on the remote node |
-
-### Join Cluster Parameters (from the new node's console)
-
-| Field | Default port | Description |
-|-------|-------------|-------------|
-| **Cluster Node IP Address** | 8082 | IP address (or `IP:port`) of **any existing cluster node's cluster port**. Port 8082 is used if omitted. |
-| **Cluster Token** | — | Token displayed when the cluster was initialized |
 
 ### Health Check Configuration
 
@@ -457,7 +441,7 @@ ETag included), tags, ACL and restore state. The receiving node refuses bytes
 that do not hash to that ETag.
 
 The same holds for every other copy between nodes: the initial sync of a new
-replica, the anti-entropy push and pull, and the stale-node catch-up.
+replica, and the anti-entropy push and pull.
 
 The initial sync of a new replica copies every version of every key, oldest
 first and with its version ID — delete markers as delete markers, with their ID
@@ -467,7 +451,10 @@ an older version and does not replace the latest; a version the replica already
 holds is replaced, not counted twice. In a bucket whose versioning was
 suspended, the versions kept from before are copied as versions and the current
 object without a version ID last; a copy is stored as the version it copies,
-whatever the receiving bucket's versioning status is.
+whatever the receiving bucket's versioning status is. An object the sync fails
+to send is left to the catch-up: the job says how many, and the replica is
+recorded as having missed writes from the oldest of them. A node that joins a
+cluster whose replication factor is above 1 starts its initial sync at once.
 
 When fewer peers confirm than the replication factor needs (a factor of 3 with
 both peers failing), Node 1 answers `503 ServiceUnavailable` (`Retry-After: 30`)
@@ -485,8 +472,8 @@ until the background worker re-wraps them to the shared key.
 
 **Encryption secret**: the secret identity provider secrets, replication
 destination keys and share link keys are encrypted with is the cluster's on
-every node. A node that joins takes it from the join package and re-encrypts
-what it stores. Every minute the coordinator compares each healthy node's
+every node. A node that joins takes it from the join package; it holds no
+credentials yet (see [Membership](#membership)). Every minute the coordinator compares each healthy node's
 fingerprint of the secret with its own and gives its secret to a node that
 differs; a node takes it only from the coordinator it knows. The Nodes page
 marks a node that holds another secret.
@@ -498,10 +485,11 @@ With a replication factor above 1 every node holds every bucket.
 - Creating a bucket, changing its configuration or ACL, and deleting it reach every other node before the request returns. Usage (object count, size) is each node's own and is not sent.
 - A node that is down or does not take the change is recorded as having missed a write. When it is caught up, it is sent every bucket and every deletion before the objects. A new replica, and every peer at the start of an anti-entropy cycle and when a node starts, is sent them too. A cluster whose buckets exist only on the node that created them converges this way after the upgrade.
 - Two versions of a bucket are ordered by the time of the change; a deletion by the time it was made, to the nanosecond, so a bucket created again right after its deletion exists again.
-- A node keeps its copy of a bucket deleted elsewhere when the copy changed after the deletion, holds an object written in the second of the deletion or later, or holds an object under retention or a legal hold. Such a copy is kept and logged; otherwise the copy is removed with its objects.
+- A node keeps its copy of a bucket deleted elsewhere when the copy changed after the deletion or holds an object under retention or a legal hold; such a copy is kept and logged. A copy holding objects written after the deletion is kept with those objects only, and sent to the other nodes as created again then. Otherwise the copy is removed with its objects.
 - A bucket whose name another tenant holds on a node is refused there and logged.
-- Deletions are kept 7 days, as the deletion log. A node down longer can bring back a bucket deleted meanwhile.
+- A deletion is kept at least 7 days, and until every member of the cluster has been sent it.
 - Lifecycle: the coordinator expires objects, and its deletes reach the other nodes. Every node aborts the incomplete multipart uploads started on it.
+- Multipart uploads: an upload is held by the node it was started on, and its ID names that node. Its parts, part listing, completion and abort are sent to that node from whichever node they reach, so a load balancer may spread them. A node that does not answer is answered `503` with `Retry-After`; a node no longer in the cluster took its uploads with it (`NoSuchUpload`). Listing the uploads of a bucket asks every healthy node. An upload started before the upgrade has an ID that names no node and is made on the node a request reaches.
 - Inventory: the coordinator writes the reports. The report file, its row and the configuration's last run reach the other nodes.
 - Scheduled replication rules run on the coordinator. Real-time rules queue each write on the node that took it.
 
@@ -515,7 +503,7 @@ With a replication factor above 1 every node also holds the rows a bucket keeps 
 - A report whose configuration was deleted is not stored. A row a node cannot store (unknown column, missing tenant) is refused and logged by the sending node.
 - Expired shares are not sent: every node removes them.
 - With a replication factor of 1 each node keeps the rows of its own buckets; changes are still dated, and reach the other nodes if the factor rises.
-- Deletions are kept 7 days, as the deletion log.
+- A deletion is kept at least 7 days, and until every member of the cluster has been sent it.
 - Stored credentials in these rows are encrypted with the cluster's encryption secret, which every node holds.
 
 ### HMAC Authentication
@@ -563,28 +551,32 @@ All 6 entity types are **automatically synchronized** across all cluster nodes e
 - User sessions work correctly after node failover
 - IDP/SSO configurations available on all nodes
 
+### Membership
+
+Every node holds the list of nodes. A change to a node (name, region, priority, drained) is stamped with its time and the newest copy wins on every node. The list is sent every 60 seconds and right after a change made in the console.
+
+- **Remove** (console, any other node): every node removes it, and no node that still lists it adds it back: a node joins under a new ID every time, so a removal is final. The removed node is answered `410 Gone` the next time it contacts the cluster, and leaves. Its data stays on its disk.
+- **Leave** (console, the node itself): the node tells every node it reaches to remove it, then leaves. The others pass the removal on.
+- **Drain** (console, any other node): planned decommissioning. Every node marks the node dead and makes the copies it held again elsewhere. A drained node stays out of service even when it answers. Refused with `409` when it would leave fewer healthy nodes than the replication factor.
+- **Dead**: a node unreachable for longer than `ha.dead_node_threshold_hours` (24 hours) is marked dead by each node from its own health checks. When it answers again it is back in service and is caught up from its first missed write.
+- **Join**: only a node without data joins a cluster. A node that holds a bucket, a tenant, a user besides its first administrator, an access key, a group, an identity provider, an IAM policy or role created on it, a share or a replication rule is refused with `409`, which names what it holds, and stays as it was. Its first administrator, settings and keys are not data.
+- A node that joins a cluster takes the cluster's list of nodes. What it held of a cluster it was in before is dropped.
+
 ### Deletions
 
-A deletion is recorded in `cluster_deletion_log` so a node that still holds the entity does not bring it back. It covers users, tenants, access keys, bucket permissions, identity providers, group mappings, groups, STS sessions, IAM policies, roles, attachments and inline policies, and objects.
+A deletion is recorded in `cluster_deletion_log` so a node that still holds the entity does not bring it back. It covers users, tenants, access keys, bucket permissions, identity providers, group mappings, groups, STS sessions, IAM policies, roles, attachments and inline policies, objects, and nodes removed from the cluster.
 
 - A deletion keeps the time it was made on the node that made it, dated after the last change that node knew of what it deleted. Two records of the same deletion keep the later time.
 - An entity and a deletion of it are ordered by time on every node: a copy changed after the deletion is taken, one changed before it is refused, and a deletion removes a copy only if the copy did not change after it. At the same second the entity is kept. Access keys, bucket permissions and STS sessions keep no change time: any deletion of them wins.
 - An object deleted once and written again is kept and sent to the nodes that lack it; a copy written in the second of the deletion counts as written after it.
 - Deleting a user, a tenant or a group records the deletion of the IAM policies they held.
 - Each node sends every other node the deletions it has not taken yet, in the order they were recorded, every 30 seconds (`POST /api/internal/cluster/deletion-log-sync`). A new node is sent the last 7 days.
-- Deletions are forgotten after 7 days. A node away longer can bring back what was deleted meanwhile.
+- A deletion received by any channel removes the node's copy: the deletion log, the IAM and STS payloads, and each entity's own synchronization.
+- A deletion is kept at least 7 days, and until every member of the cluster has been sent it and no catch-up that replays it is pending. A member away, offline or cut off and serving clients, for however long, is sent them when it is back. A node removed from the cluster no longer holds them back.
+- Deletions are numbered in a sequence that never goes back.
+- Object times are whole seconds. Each copy of an object also carries the time it was written to the nanosecond, which orders two writes of one second, and a write and a deletion of one second. Objects written before the upgrade carry none: within the second, a deletion keeps them and two of them are ordered by ETag. S3 `LastModified` is unchanged.
 
 A bucket deleted by a client takes with it its shares, replication rules, inventory configurations, permissions and the policies naming it; a bucket created by a client starts without what a former bucket of the name left. Every node that removes a bucket, for any reason, drops its notification configuration and integrity scans.
-
-### Stale Node Reconciler
-
-When a node reconnects after being offline or network-partitioned for longer than the staleness threshold (7 days), the **Stale Reconciler** runs at startup to restore consistency:
-
-- **Mode Offline**: Node was fully down (no local writes). Fetches a state snapshot from peers and applies it locally. Tombstones are synced bidirectionally.
-- **Mode Partition**: Node was isolated but serving clients (divergent state). Uses **last-write-wins (LWW)** for entity timestamps; pushes locally-newer entities to peers; applies remote tombstones. Access keys and bucket permissions always defer to tombstones (no `updated_at`).
-- **Detection**: `last_local_write_at` vs `last_seen_at_shutdown` determines which mode applies.
-
-See [OPERATIONS.md](OPERATIONS.md#cluster-incidents) for operator runbooks.
 
 ### Configuring Replication
 
@@ -781,16 +773,12 @@ ssh node2 "date -u"
 
 **Initialize Cluster:**
 - Node Name, Region (optional), Local S3 API Endpoint (optional — leave empty to use `public_api_url`)
-- Generates cluster token — copy and save it; you will need it to join other nodes
+- Shows the cluster token: the nodes authenticate to each other with it. Other nodes are added with Add Node
 
 **Add Node** (initiated from the primary node):
-- Node IP Address — IP or IP:port of the remote node's console (default port 8081)
+- Node IP Address — IP of the remote node; its console is reached on port 8081
 - Admin Username and Admin Password — credentials on the remote node
 - The primary node handles the full join handshake automatically
-
-**Join Existing Cluster** (initiated from the new node):
-- Cluster Node IP Address — IP or IP:port of any existing node's cluster port (default port 8082)
-- Cluster Token — the token generated at cluster initialization
 
 **Edit Node:**
 - Editable: Name, Region, Priority, Metadata
@@ -949,8 +937,8 @@ grep '"component":"leader"' /var/log/maxiofs/maxiofs.log | tail -20
 The log names the peer, its answer and its term:
 
 - `reason: unreachable` — the peer's **cluster port** is not answering. Check
-  the port is open between nodes and that every node uses the same
-  `cluster_listen` port (see [Configuration](#configuration)).
+  the port is open between nodes and that every node listens on the default
+  ports (see [Configuration](#configuration)).
 - `reason: voted no: lease still held` — normal for a few seconds after a
   leader changes. Persisting means clocks are far apart, or a node was
   restored from a backup of another node's database.

@@ -69,12 +69,121 @@ func TestAReceivedDeletionKeepsItsTime(t *testing.T) {
 		{cluster.EntityTypeGroupMapping, "map-del", s.handleReceiveGroupMappingDeleteSync},
 		{cluster.EntityTypeTenant, "tenant-del", s.handleReceiveTenantDeleteSync},
 		{cluster.EntityTypeUser, "user-del", s.handleReceiveUserDeleteSync},
+		{cluster.EntityTypeGroup, "group-del", s.handleReceiveGroupDeleteSync},
 	} {
 		w := httptest.NewRecorder()
 		c.send(w, fromPeer(t, http.MethodPost, "/delete-sync", map[string]any{"id": c.id, "deleted_at": madeAt}))
 		require.Less(t, w.Code, 300, "%s: %s", c.entityType, w.Body.String())
 		assert.EqualValues(t, madeAt, deletedAt(t, s, c.entityType, c.id), c.entityType)
 	}
+
+	// And a revoked temporary credential.
+	w = httptest.NewRecorder()
+	s.handleReceiveSTSSessionSync(w, fromPeer(t, http.MethodPost, "/api/internal/cluster/sts-session-sync", cluster.STSSessionSyncPayload{
+		Deletions: []string{"ASIAREVOKED"}, DeletedAt: map[string]int64{"ASIAREVOKED": madeAt},
+	}))
+	require.Less(t, w.Code, 300, w.Body.String())
+	assert.EqualValues(t, madeAt, deletedAt(t, s, cluster.EntityTypeSTSSession, "ASIAREVOKED"))
+}
+
+// A deletion that arrives by the deletion log removes this node's copy, as
+// one sent by the entity's own synchronization does, with what goes with it.
+func TestADeletionFromTheLogRemovesTheCopy(t *testing.T) {
+	s := newClusterTestNode(t)
+	ctx := context.Background()
+	now := time.Now().Unix()
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := s.db.Exec(query, args...)
+		require.NoError(t, err)
+	}
+	exec(`INSERT INTO tenants (id, name, created_at, updated_at) VALUES ('gone-tenant', 'gone-tenant', 1, 1)`)
+	for _, u := range []struct{ id, tenant string }{{"gone-user", ""}, {"tenant-member", "gone-tenant"}, {"key-holder", ""}} {
+		require.NoError(t, s.authManager.CreateUser(ctx, &auth.User{ID: u.id, Username: u.id, TenantID: u.tenant,
+			Status: auth.UserStatusActive, Roles: []string{auth.RoleUser}, CreatedAt: now - 60, UpdatedAt: now - 60}))
+	}
+	userKey, err := s.authManager.GenerateAccessKey(ctx, "gone-user")
+	require.NoError(t, err)
+	memberKey, err := s.authManager.GenerateAccessKey(ctx, "tenant-member")
+	require.NoError(t, err)
+	goneKey, err := s.authManager.GenerateAccessKey(ctx, "key-holder")
+	require.NoError(t, err)
+	exec(`INSERT INTO groups (id, name, created_at, updated_at) VALUES ('gone-group', 'gone-group', 1, 1)`)
+	exec(`INSERT INTO group_members (group_id, user_id, added_at) VALUES ('gone-group', 'key-holder', 1)`)
+	exec(`INSERT INTO bucket_permissions (id, bucket_name, bucket_tenant_id, group_id, permission_level, granted_by, granted_at)
+		VALUES ('group-perm', 'b', '', 'gone-group', 'read', 'admin', 1)`)
+	exec(`INSERT INTO bucket_permissions (id, bucket_name, bucket_tenant_id, user_id, permission_level, granted_by, granted_at)
+		VALUES ('gone-perm', 'b', '', NULL, 'read', 'admin', 1)`)
+	exec(`INSERT INTO identity_providers (id, name, type, status, config, created_by, created_at, updated_at)
+		VALUES ('gone-idp', 'gone-idp', 'ldap', 'active', '{}', 'admin', 1, 1)`)
+	exec(`INSERT INTO idp_group_mappings (id, provider_id, external_group, role, created_at, updated_at)
+		VALUES ('idp-mapping', 'gone-idp', 'cn=a', 'user', 1, 1)`)
+	exec(`INSERT INTO identity_providers (id, name, type, status, config, created_by, created_at, updated_at)
+		VALUES ('kept-idp', 'kept-idp', 'ldap', 'active', '{}', 'admin', 1, 1)`)
+	exec(`INSERT INTO idp_group_mappings (id, provider_id, external_group, role, created_at, updated_at)
+		VALUES ('gone-mapping', 'kept-idp', 'cn=b', 'user', 1, 1)`)
+	exec(`INSERT INTO sts_sessions (temp_access_key_id, secret_access_key, session_token, user_id, created_at, expires_at)
+		VALUES ('ASIAGONE', 's', 't', 'key-holder', 1, ?)`, now+3600)
+	_, err = s.authManager.(auth.IAMManager).CreateIAMPolicy(ctx, "gone-policy", "/", "", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`, "")
+	require.NoError(t, err)
+	exec(`UPDATE iam_policies SET updated_at = 1 WHERE name = 'gone-policy'`)
+	require.NoError(t, s.clusterManager.AddNode(ctx, &cluster.Node{ID: "gone-node", Name: "gone-node", Endpoint: "https://127.0.0.1:9", NodeToken: "t", Priority: 100, Metadata: "{}", ChangedAt: 1}))
+
+	var entries []*cluster.DeletionEntry
+	for _, d := range []struct{ entityType, id string }{
+		{cluster.EntityTypeUser, "gone-user"},
+		{cluster.EntityTypeTenant, "gone-tenant"},
+		{cluster.EntityTypeAccessKey, goneKey.AccessKeyID},
+		{cluster.EntityTypeGroup, "gone-group"},
+		{cluster.EntityTypeBucketPermission, "gone-perm"},
+		{cluster.EntityTypeIDPProvider, "gone-idp"},
+		{cluster.EntityTypeGroupMapping, "gone-mapping"},
+		{cluster.EntityTypeSTSSession, "ASIAGONE"},
+		{cluster.EntityTypeIAMPolicy, "gone-policy"},
+		{cluster.EntityTypeClusterNode, "gone-node"},
+	} {
+		entries = append(entries, &cluster.DeletionEntry{ID: d.id, EntityType: d.entityType, EntityID: d.id, DeletedByNodeID: "peer", DeletedAt: now + 5})
+	}
+	w := httptest.NewRecorder()
+	s.handleReceiveDeletionLogSync(w, fromPeer(t, http.MethodPost, "/api/internal/cluster/deletion-log-sync", entries))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	for what, query := range map[string]string{
+		"user":                      `SELECT COUNT(*) FROM users WHERE id = 'gone-user'`,
+		"the user's key":            `SELECT COUNT(*) FROM access_keys WHERE access_key_id = '` + userKey.AccessKeyID + `'`,
+		"tenant":                    `SELECT COUNT(*) FROM tenants WHERE id = 'gone-tenant'`,
+		"the tenant's user":         `SELECT COUNT(*) FROM users WHERE id = 'tenant-member'`,
+		"the tenant's user's key":   `SELECT COUNT(*) FROM access_keys WHERE access_key_id = '` + memberKey.AccessKeyID + `'`,
+		"access key":                `SELECT COUNT(*) FROM access_keys WHERE access_key_id = '` + goneKey.AccessKeyID + `'`,
+		"group":                     `SELECT COUNT(*) FROM groups WHERE id = 'gone-group'`,
+		"the group's members":       `SELECT COUNT(*) FROM group_members WHERE group_id = 'gone-group'`,
+		"the group's permission":    `SELECT COUNT(*) FROM bucket_permissions WHERE id = 'group-perm'`,
+		"bucket permission":         `SELECT COUNT(*) FROM bucket_permissions WHERE id = 'gone-perm'`,
+		"identity provider":         `SELECT COUNT(*) FROM identity_providers WHERE id = 'gone-idp'`,
+		"the provider's mapping":    `SELECT COUNT(*) FROM idp_group_mappings WHERE id = 'idp-mapping'`,
+		"group mapping":             `SELECT COUNT(*) FROM idp_group_mappings WHERE id = 'gone-mapping'`,
+		"temporary credential":      `SELECT COUNT(*) FROM sts_sessions WHERE temp_access_key_id = 'ASIAGONE'`,
+		"IAM policy":                `SELECT COUNT(*) FROM iam_policies WHERE name = 'gone-policy'`,
+		"node removed from cluster": `SELECT COUNT(*) FROM cluster_nodes WHERE id = 'gone-node'`,
+	} {
+		assert.False(t, hasRow(t, s, query), what)
+	}
+	assert.True(t, hasRow(t, s, `SELECT COUNT(*) FROM users WHERE id = 'key-holder'`), "what was not deleted stays")
+	assert.True(t, hasRow(t, s, `SELECT COUNT(*) FROM identity_providers WHERE id = 'kept-idp'`))
+}
+
+// A revoked temporary credential reaches the other node with the time it was
+// revoked.
+func TestARevokedSessionReachesTheOtherNodeWithItsTime(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	revokedAt := time.Now().Add(-time.Hour).Unix()
+	require.NoError(t, cluster.RecordDeletion(ctx, p.a.db, cluster.EntityTypeSTSSession, "ASIAREVOKED", p.aID, revokedAt))
+	p.a.stsSessionSyncMgr.TriggerSync(ctx)
+	assert.Eventually(t, func() bool {
+		return cluster.DeletionTime(ctx, p.b.db, cluster.EntityTypeSTSSession, "ASIAREVOKED") == revokedAt
+	},
+		10*time.Second, 20*time.Millisecond)
 }
 
 // A bucket deleted and created again keeps its owner's policy on a node that
@@ -164,7 +273,8 @@ func TestARewrittenKeyReachesTheNodeThatMissedIt(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	p.a.antiEntropyScrubber.Start(ctx)
-	p.a.antiEntropyScrubber.CatchUp(p.bID, time.Now().Add(-time.Minute))
+	_, err = p.a.clusterManager.CheckNodeHealth(ctx, p.bID)
+	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		_, err := p.b.metadataStore.GetObject(ctx, "cycle", "k")
 		return err == nil

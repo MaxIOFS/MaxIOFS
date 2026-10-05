@@ -35,6 +35,10 @@ const (
 
 	EntityTypeObject        = "object"
 	EntityTypeObjectVersion = "object_version"
+
+	// EntityTypeClusterNode is a node removed from the cluster. A node joins
+	// under a new ID every time, so its removal is final.
+	EntityTypeClusterNode = "cluster_node"
 )
 
 // DeletionEntry represents a tombstone in the cluster deletion log
@@ -115,15 +119,20 @@ func DeletedAfter(lastChange int64) int64 {
 // sequence number, the order in which the deletion log is sent to the other
 // nodes. Accepts *sql.DB or *sql.Tx.
 func RecordDeletion(ctx context.Context, q sqlQuerier, entityType, entityID, nodeID string, deletedAt int64) error {
+	var seq int64
+	if err := q.QueryRowContext(ctx,
+		`UPDATE cluster_deletion_log_counter SET last_seq = last_seq + 1 WHERE id = 1 RETURNING last_seq`).Scan(&seq); err != nil {
+		return fmt.Errorf("failed to number deletion: %w", err)
+	}
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO cluster_deletion_log (id, entity_type, entity_id, deleted_by_node_id, deleted_at, seq)
-		VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM cluster_deletion_log))
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(entity_type, entity_id) DO UPDATE SET
 			deleted_by_node_id = excluded.deleted_by_node_id,
 			deleted_at = excluded.deleted_at,
 			seq = excluded.seq
 		WHERE excluded.deleted_at > cluster_deletion_log.deleted_at
-	`, uuid.New().String(), entityType, entityID, nodeID, deletedAt)
+	`, uuid.New().String(), entityType, entityID, nodeID, deletedAt, seq)
 	if err != nil {
 		return fmt.Errorf("failed to record deletion: %w", err)
 	}
@@ -203,6 +212,12 @@ func DeletionTime(ctx context.Context, db *sql.DB, entityType, entityID string) 
 	return deletedAt
 }
 
+// VersionDeleted reports whether this node deleted the version or delete
+// marker of key. A copy of it from a node that missed the delete is not stored.
+func VersionDeleted(ctx context.Context, db *sql.DB, bucket, key, versionID string) bool {
+	return versionID != "" && DeletionTime(ctx, db, EntityTypeObjectVersion, ObjectVersionTombstoneID(bucket, key, versionID)) > 0
+}
+
 // EntityUpdatedAt returns when this node's copy of an entity last changed
 // (unix seconds), and false when the node does not hold it or its type keeps
 // no such time (access keys, bucket permissions, STS sessions, objects).
@@ -261,11 +276,24 @@ func DeletionSupersedes(ctx context.Context, db *sql.DB, entityType, entityID st
 	return DeletionTime(ctx, db, entityType, entityID) > changedAt
 }
 
-// CleanupOldDeletions removes tombstones older than the given duration
+// CleanupOldDeletions forgets deletions older than maxAge that every member
+// of the cluster has: each was sent every other node, and no catch-up that
+// replays them is pending. A member that is away, for however long, keeps them
+// until it is back or removed from the cluster.
 func CleanupOldDeletions(ctx context.Context, db *sql.DB, maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).Unix()
+	if since, ok := oldestUnsentChange(ctx, db); ok && since < cutoff {
+		cutoff = since
+	}
 	result, err := db.ExecContext(ctx, `
-		DELETE FROM cluster_deletion_log WHERE deleted_at < ?
+		DELETE FROM cluster_deletion_log
+		WHERE deleted_at < ?
+		  AND seq <= COALESCE((
+			SELECT MIN(COALESCE(d.delivered_seq, 0))
+			FROM cluster_nodes n
+			LEFT JOIN cluster_deletion_log_delivery d ON d.node_id = n.id
+			WHERE n.id NOT IN (SELECT node_id FROM cluster_config)
+		  ), 9223372036854775807)
 	`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup old deletions: %w", err)
@@ -292,23 +320,29 @@ func RunDeletionLogCleanup(ctx context.Context, db *sql.DB, interval, maxAge tim
 			log.Info("Deletion log cleanup stopped")
 			return
 		case <-ticker.C:
-			count, err := CleanupOldDeletions(ctx, db, maxAge)
-			if err != nil {
-				log.WithError(err).Error("Failed to cleanup old deletions")
-			} else if count > 0 {
-				log.WithField("count", count).Info("Cleaned up old deletion log entries")
-			}
-			if count, err := cleanupBucketTombstones(ctx, db, maxAge); err != nil {
-				log.WithError(err).Error("Failed to clean up old bucket deletions")
-			} else if count > 0 {
-				log.WithField("count", count).Info("Cleaned up old bucket deletions")
-			}
-			if count, err := cleanupRowVersions(ctx, db, maxAge); err != nil {
-				log.WithError(err).Error("Failed to clean up old row versions")
-			} else if count > 0 {
-				log.WithField("count", count).Info("Cleaned up old row versions")
-			}
+			ForgetOldDeletions(ctx, db, maxAge)
 		}
+	}
+}
+
+// ForgetOldDeletions forgets the deletions older than maxAge: of entities and
+// objects, of buckets and of rows.
+func ForgetOldDeletions(ctx context.Context, db *sql.DB, maxAge time.Duration) {
+	log := logrus.WithField("component", "deletion-log-cleanup")
+	if count, err := CleanupOldDeletions(ctx, db, maxAge); err != nil {
+		log.WithError(err).Error("Failed to cleanup old deletions")
+	} else if count > 0 {
+		log.WithField("count", count).Info("Cleaned up old deletion log entries")
+	}
+	if count, err := cleanupBucketTombstones(ctx, db, maxAge); err != nil {
+		log.WithError(err).Error("Failed to clean up old bucket deletions")
+	} else if count > 0 {
+		log.WithField("count", count).Info("Cleaned up old bucket deletions")
+	}
+	if count, err := cleanupRowVersions(ctx, db, maxAge); err != nil {
+		log.WithError(err).Error("Failed to clean up old row versions")
+	} else if count > 0 {
+		log.WithField("count", count).Info("Cleaned up old row versions")
 	}
 }
 
@@ -362,6 +396,11 @@ func (m *DeletionLogSyncManager) syncLoop(ctx context.Context, interval time.Dur
 			m.syncAllDeletions(ctx)
 		}
 	}
+}
+
+// SyncNow sends every healthy node the deletions it has not taken yet, now.
+func (m *DeletionLogSyncManager) SyncNow(ctx context.Context) {
+	m.syncAllDeletions(ctx)
 }
 
 // syncAllDeletions sends every healthy node the deletions it has not taken yet

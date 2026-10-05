@@ -14,7 +14,8 @@ listen: ":8080"
 # Web console.
 console_listen: ":8081"
 
-# Inter-node traffic. Only reached by other nodes of the cluster.
+# Inter-node traffic. Only reached by other nodes of the cluster. A node of a
+# cluster keeps the default ports: 8080, 8081 and 8082.
 cluster_listen: ":8082"
 
 # Address the other nodes should reach this one at. Set it when the node cannot

@@ -435,8 +435,8 @@ export default function ClusterHA() {
                       </td>
                       <td className="px-6 py-4">
                         <SyncBadge status={job.status} />
-                        {job.status === 'failed' && job.error_message && (
-                          <p className="text-xs text-red-500 mt-1 max-w-xs truncate" title={job.error_message}>
+                        {job.error_message && (
+                          <p className={`text-xs mt-1 max-w-xs truncate ${job.status === 'failed' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`} title={job.error_message}>
                             {job.error_message}
                           </p>
                         )}
@@ -511,8 +511,7 @@ export default function ClusterHA() {
                     : 0;
                 const isPressure = usagePct >= 80;
                 const isLocal = node.id === data.local_node_id;
-                const isDead = node.health_status === 'dead';
-                const drainDisabled = isLocal || isDead || drainMutation.isPending;
+                const drainDisabled = isLocal || node.drained || drainMutation.isPending;
 
                 return (
                   <tr key={node.id} className="border-b border-border last:border-0 hover:bg-muted/20">
@@ -522,6 +521,9 @@ export default function ClusterHA() {
                         {node.name}
                         {isLocal && (
                           <span className="text-xs text-muted-foreground font-normal">{t('thisNode')}</span>
+                        )}
+                        {node.drained && (
+                          <span className="text-xs text-muted-foreground font-normal">{t('drainedNode')}</span>
                         )}
                       </div>
                     </td>
@@ -556,7 +558,7 @@ export default function ClusterHA() {
                         variant="outline"
                         disabled={drainDisabled}
                         onClick={() => handleDrainNode(node.id, node.name)}
-                        title={isLocal ? t('drainLocalDisabled') : isDead ? t('drainDeadDisabled') : t('drainNode')}
+                        title={isLocal ? t('drainLocalDisabled') : node.drained ? t('drainDrainedDisabled') : t('drainNode')}
                       >
                         <PowerOff className="h-3.5 w-3.5 mr-1" />
                         {t('drainNode')}

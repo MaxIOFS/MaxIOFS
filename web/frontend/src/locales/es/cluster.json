@@ -6,12 +6,11 @@
   "loadingClusterData": "Cargando datos del clúster...",
 
   "clusterNotInitialized": "Clúster No Inicializado",
-  "clusterNotInitializedDesc": "Inicializa un nuevo clúster o únete a uno existente para habilitar la replicación multinodo y alta disponibilidad",
+  "clusterNotInitializedDesc": "Inicializa un clúster nuevo con este nodo, o añade este nodo a un clúster existente desde la consola de ese clúster: Gestionar Nodos, Añadir Nodo.",
   "initializeCluster": "Inicializar Clúster",
-  "joinExistingCluster": "Unirse a Clúster Existente",
 
   "initClusterTitle": "Inicializar Clúster",
-  "initClusterDesc": "Esto creará un nuevo clúster con este nodo como primer miembro. Recibirás un token de clúster para añadir otros nodos.",
+  "initClusterDesc": "Crea un clúster nuevo con este nodo como primer miembro. Los demás nodos se añaden desde Gestionar Nodos, Añadir Nodo.",
   "nodeName": "Nombre del Nodo",
   "nodeNameHint": "Opcional. Si se deja vacío se genera automáticamente.",
   "regionOptional": "Región (opcional)",
@@ -21,23 +20,14 @@
   "initialize": "Inicializar",
   "failedToInitCluster": "Error al inicializar el clúster",
 
-  "joinClusterTitle": "Unirse a Clúster Existente",
-  "joinClusterDesc": "Introduce el endpoint de un nodo de clúster existente y el token de clúster para unirte.",
-  "clusterNodeEndpoint": "IP del Nodo de Clúster",
-  "clusterNodeEndpointHint": "Dirección IP (o IP:puerto) de un nodo existente del clúster. El puerto predeterminado es 8082.",
   "clusterToken": "Token de Clúster",
-  "clusterTokenPlaceholder": "Pega el token de clúster aquí...",
-  "clusterTokenHint": "El token que se mostró al inicializar el clúster",
-  "joining": "Uniéndose...",
-  "joinCluster": "Unirse al Clúster",
-  "failedToJoinCluster": "Error al unirse al clúster",
 
   "clusterInitialized": "Clúster Inicializado",
-  "saveTokenWarning": "Guarda este token ahora. Lo necesitarás para añadir otros nodos a este clúster.",
+  "saveTokenWarning": "Los nodos del clúster se autentican entre sí con este token: mantenlo en secreto. Los demás nodos se añaden desde Gestionar Nodos, Añadir Nodo, con sus credenciales de administrador.",
   "iHaveSavedToken": "He guardado el token",
 
   "clusterTokenTitle": "Token de Clúster",
-  "clusterTokenDesc": "Usa este token para unir otros nodos a este clúster. Puedes proporcionarlo en el formulario \"Unirse a Clúster Existente\" en un nodo independiente, o usar \"Añadir Nodo\" desde este clúster para añadir nodos automáticamente.",
+  "clusterTokenDesc": "Los nodos del clúster se autentican entre sí con este token: mantenlo en secreto. Los demás nodos se añaden desde Gestionar Nodos, Añadir Nodo, con sus credenciales de administrador.",
   "failedToRetrieveToken": "Error al obtener el token de clúster",
   "close": "Cerrar",
 
@@ -85,6 +75,7 @@
   "statusDead": "Muerto",
   "statusStoragePressure": "Presión de almacenamiento",
   "thisNode": "(Este nodo)",
+  "drainedNode": "(retirado)",
   "encryptionSecretMismatch": "Clave de cifrado distinta",
   "encryptionSecretMismatchHint": "Este nodo no puede descifrar las credenciales que guardan los demás. El coordinador le envía su clave en menos de un minuto; si persiste, revisa los logs de ambos nodos.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Drenar",
   "drainLocalDisabled": "No se puede drenar el nodo local — ejecuta el drenaje desde otro nodo del clúster.",
-  "drainDeadDisabled": "El nodo ya está marcado como muerto.",
+  "drainDrainedDisabled": "El nodo ya está retirado.",
   "drainNodeConfirmTitle": "Drenar nodo",
   "drainNodeConfirmBody": "¿Marcar el nodo {{node}} como muerto y redistribuir inmediatamente sus réplicas? Úsalo para desmantelamiento planificado.",
   "drainNodeSuccess": "Nodo {{node}} drenado — redistribución iniciada.",

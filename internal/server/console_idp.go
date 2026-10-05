@@ -130,8 +130,6 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     user.TenantID,
 		UserID:       user.ID,
@@ -229,8 +227,6 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	if s.idpProviderSyncMgr != nil {
 		s.idpProviderSyncMgr.TriggerSync(r.Context())
 	}
@@ -266,8 +262,6 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Failed to delete identity provider", http.StatusInternalServerError)
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
@@ -596,8 +590,6 @@ func (s *Server) handleCreateGroupMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	if s.groupMappingSyncMgr != nil {
 		s.groupMappingSyncMgr.TriggerSync(r.Context())
 	}
@@ -630,8 +622,6 @@ func (s *Server) handleUpdateGroupMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
-
 	if s.groupMappingSyncMgr != nil {
 		s.groupMappingSyncMgr.TriggerSync(r.Context())
 	}
@@ -653,8 +643,6 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "Failed to delete group mapping", http.StatusInternalServerError)
 		return
 	}
-
-	s.touchLocalWriteAt(r.Context())
 
 	// Record tombstone for cluster deletion sync
 	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {

@@ -21,9 +21,12 @@ type Node struct {
 	Metadata         string     `json:"metadata"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
-	IsStale          bool       `json:"is_stale"`
-	LastLocalWriteAt *time.Time `json:"last_local_write_at,omitempty"`
 	UnavailableSince *time.Time `json:"unavailable_since,omitempty"`
+	// ChangedAt is when the fields every node holds alike last changed (unix
+	// seconds): name, endpoint, API URL, token, region, priority and Drained.
+	ChangedAt int64 `json:"changed_at"`
+	// Drained marks a node an administrator took out of service on every node.
+	Drained bool `json:"drained"`
 }
 
 // HealthStatus represents node health status

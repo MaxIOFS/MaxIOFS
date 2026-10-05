@@ -119,6 +119,11 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 		// Get node token from database
 		nodeToken, err := m.getNodeToken(r.Context(), nodeID)
 		if err != nil {
+			if m.wasRemoved(r.Context(), nodeID) {
+				logrus.WithField("node_id", nodeID).Warn("Cluster request from a node removed from the cluster")
+				http.Error(w, "Node removed from the cluster", http.StatusGone)
+				return
+			}
 			logrus.WithError(err).WithField("node_id", nodeID).Warn("Cluster authentication failed: node not found")
 			http.Error(w, "Node not found", http.StatusUnauthorized)
 			return
@@ -180,6 +185,15 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// wasRemoved reports whether nodeID was removed from the cluster (a
+// cluster_node entry in the deletion log). The node is told so it leaves.
+func (m *ClusterAuthMiddleware) wasRemoved(ctx context.Context, nodeID string) bool {
+	var n int
+	err := m.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM cluster_deletion_log WHERE entity_type = 'cluster_node' AND entity_id = ?`, nodeID).Scan(&n)
+	return err == nil && n > 0
 }
 
 // getNodeToken retrieves the node_token for a given node ID

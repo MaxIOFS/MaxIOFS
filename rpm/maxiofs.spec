@@ -114,9 +114,11 @@ if [ $1 -gt 1 ]; then
     /bin/systemctl try-restart maxiofs.service >/dev/null 2>&1 || :
 fi
 
-# Set ownership of directories
-chown -R maxiofs:maxiofs /var/lib/maxiofs
-chown -R maxiofs:maxiofs /var/log/maxiofs
+# A new installation gives its directories to the service user. On an
+# upgrade they are already its own: the service writes as that user.
+if [ $1 -eq 1 ]; then
+    chown maxiofs:maxiofs /var/lib/maxiofs /var/log/maxiofs
+fi
 
 # CRITICAL: Restore config.yaml from backup if it was deleted during upgrade
 if [ ! -f /etc/maxiofs/config.yaml ] && [ -f /etc/maxiofs/config.yaml.rpm-backup ]; then

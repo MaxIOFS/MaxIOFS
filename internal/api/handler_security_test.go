@@ -306,7 +306,7 @@ func (m *MockObjectManager) ListObjects(ctx context.Context, bucket, prefix, del
 	return args.Get(0).(*object.ListObjectsResult), args.Error(1)
 }
 
-func (m *MockObjectManager) GetObjectMetadata(ctx context.Context, bucket, key string) (*object.Object, error) {
+func (m *MockObjectManager) GetObjectMetadata(ctx context.Context, bucket, key string, versionID ...string) (*object.Object, error) {
 	args := m.Called(ctx, bucket, key)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

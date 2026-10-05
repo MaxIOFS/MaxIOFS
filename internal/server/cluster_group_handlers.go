@@ -182,33 +182,12 @@ func (s *Server) handleReceiveGroupDeleteSync(w http.ResponseWriter, r *http.Req
 		"group_id":       deleteData.ID,
 	}).Info("Receiving group deletion from synchronization")
 
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeGroup, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"group_id":       deleteData.ID,
-		}).Info("Skipping group deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeGroup, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	rowsAffected, err := s.deleteGroupAndRecordTombstone(ctx, deleteData.ID, sourceNodeID)
-	if err != nil {
-		logrus.WithError(err).WithField("group_id", deleteData.ID).Error("Failed to delete group with tombstone")
-		http.Error(w, fmt.Sprintf("delete group: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"group_id":      deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("Group deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Group deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

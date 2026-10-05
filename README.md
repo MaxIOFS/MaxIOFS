@@ -49,7 +49,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 |---------|---------|-------------|-------------------|
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution or resale | Proprietary, paid |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary + licence file |
-| **Multi-node cluster / HA** | ✅ Up to 5 nodes, quorum writes, read fallback, anti-entropy | ❌ Standalone only | ✅ Horizontally scalable |
+| **Multi-node cluster / HA** | ✅ Up to 5 nodes, quorum writes, anti-entropy | ❌ Standalone only | ✅ Horizontally scalable |
 | **Replication** | ✅ To AWS S3, any S3-compatible endpoint, or other MaxIOFS nodes (realtime, scheduled, batch) | ❌ Enterprise only | ✅ Site, bucket and batch |
 | **Erasure coding** | ❌ Not yet — N-way replication across nodes | ✅ Across drives in one node, with bitrot protection | ✅ Across drives and nodes |
 | **Data tiering** (lifecycle *transitions* to cold storage — separate from the expiration rules below) | ❌ Not supported | ❌ Enterprise only | ✅ ILM tiering to cloud |
@@ -195,7 +195,7 @@ or a support contract with an SLA.
 - Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
 - A node that comes back is caught up at once with the writes and deletes it missed
 - Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
-- Read fallback with ordered retry, anti-entropy, dead-node redistribution, storage-pressure health state
+- Anti-entropy, dead-node redistribution, storage-pressure health state
 - Elected coordinator for configuration changes; a surviving node takes over when it fails
 - HMAC-authenticated inter-node replication
 - Bucket migration between nodes (factor 1): every version with its metadata, tags, ACL and lock state, the bucket's configuration, ACL and database rows; the copy is verified before the source is removed, and the bucket takes no writes while it moves
@@ -350,7 +350,7 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (314 files)
+go test ./...                          # 4,400+ backend tests (320 files)
 cd web/frontend && npm run test        # 110 frontend tests
 ```
 

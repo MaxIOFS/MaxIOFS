@@ -311,7 +311,16 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 		}
 	}
 
-	var synced int64
+	// What could not be sent is left to the catch-up: the node is recorded as
+	// having missed the writes since the oldest of it.
+	var synced, skipped int64
+	var oldestSkipped time.Time
+	skip := func(modified time.Time) {
+		skipped++
+		if oldestSkipped.IsZero() || modified.Before(oldestSkipped) {
+			oldestSkipped = modified
+		}
+	}
 	for i := startIdx; i < len(buckets); i++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -331,6 +340,7 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 			if listErr != nil {
 				logrus.WithError(listErr).WithField("bucket", bp).
 					Warn("HASyncWorker: list objects error, skipping bucket")
+				skip(time.Unix(1, 0))
 				break
 			}
 
@@ -342,6 +352,7 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 					logrus.WithError(putErr).WithFields(logrus.Fields{
 						"bucket": bp, "key": obj.Key, "node_id": node.ID,
 					}).Warn("HASyncWorker: object sync failed, skipping")
+					skip(obj.LastModified)
 					continue
 				}
 				synced++
@@ -361,12 +372,17 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 		}
 	}
 
+	note := ""
+	if skipped > 0 {
+		w.mgr.noteMissedWrites(ctx, localID, oldestSkipped, node.ID)
+		note = fmt.Sprintf("%d object(s) not sent; the catch-up sends them", skipped)
+	}
 	// Write final progress (checkpoint cleared — sync is done).
 	w.mgr.db.ExecContext(context.Background(), //nolint:errcheck
 		`UPDATE ha_sync_jobs
-		 SET objects_synced=?, last_checkpoint_bucket='', last_checkpoint_key=''
+		 SET objects_synced=?, last_checkpoint_bucket='', last_checkpoint_key='', error_message=?
 		 WHERE id=?`,
-		synced, jobID)
+		synced, note, jobID)
 
 	return nil
 }
@@ -384,29 +400,13 @@ func (w *HASyncWorker) syncKey(ctx context.Context, client *ProxyClient, node *N
 // versioned, or a write while versioning was suspended. It returns the bytes
 // of data sent.
 func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string) (int64, error) {
-	versions, err := objects.GetObjectVersions(ctx, bucket, key)
-	if err != nil && !errors.Is(err, object.ErrObjectNotFound) {
+	versions, err := keyVersions(ctx, objects, bucket, key)
+	if err != nil {
 		return 0, err
 	}
-	sort.SliceStable(versions, func(i, j int) bool {
-		a, b := versions[i].LastModified.Unix(), versions[j].LastModified.Unix()
-		if a != b {
-			return a < b
-		}
-		return versions[i].VersionID < versions[j].VersionID
-	})
-	var sent int64
-	for _, v := range versions {
-		var err error
-		if v.IsDeleteMarker {
-			err = sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
-		} else {
-			err = sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
-			sent += v.Size
-		}
-		if err != nil {
-			return sent, fmt.Errorf("version %s: %w", v.VersionID, err)
-		}
+	sent, err := sendVersions(ctx, client, objects, node, localID, bucket, key, versions)
+	if err != nil {
+		return sent, err
 	}
 	current, err := objects.GetObjectMetadata(ctx, bucket, key)
 	switch {
@@ -419,6 +419,54 @@ func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Ma
 			return sent, err
 		}
 		sent += current.Size
+	}
+	return sent, nil
+}
+
+// keyVersions lists the versions and delete markers of key, oldest first.
+func keyVersions(ctx context.Context, objects object.Manager, bucket, key string) ([]object.ObjectVersion, error) {
+	versions, err := objects.GetObjectVersions(ctx, bucket, key)
+	if err != nil && !errors.Is(err, object.ErrObjectNotFound) {
+		return nil, err
+	}
+	sort.SliceStable(versions, func(i, j int) bool {
+		a, b := versions[i].LastModified.Unix(), versions[j].LastModified.Unix()
+		if a != b {
+			return a < b
+		}
+		return versions[i].VersionID < versions[j].VersionID
+	})
+	return versions, nil
+}
+
+// KeyVersionIDs lists the IDs of the versions and delete markers of key.
+func KeyVersionIDs(ctx context.Context, objects object.Manager, bucket, key string) ([]string, error) {
+	versions, err := keyVersions(ctx, objects, bucket, key)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(versions))
+	for i, v := range versions {
+		ids[i] = v.VersionID
+	}
+	return ids, nil
+}
+
+// sendVersions copies versions and delete markers of key to node, in order,
+// and returns the bytes sent.
+func sendVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, versions []object.ObjectVersion) (int64, error) {
+	var sent int64
+	for _, v := range versions {
+		var err error
+		if v.IsDeleteMarker {
+			err = sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
+		} else {
+			err = sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
+			sent += v.Size
+		}
+		if err != nil {
+			return sent, fmt.Errorf("version %s: %w", v.VersionID, err)
+		}
 	}
 	return sent, nil
 }

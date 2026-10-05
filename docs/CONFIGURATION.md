@@ -35,7 +35,7 @@ Only `data_dir` is required. Everything else has sensible defaults:
 # config.yaml
 listen: ":8080"                              # S3 API listen address
 console_listen: ":8081"                      # Web Console listen address
-cluster_listen: ":8082"                      # Cluster inter-node communication port
+cluster_listen: ":8082"                      # Cluster inter-node communication port (a cluster node keeps 8080, 8081 and 8082)
 data_dir: "/var/lib/maxiofs"                 # Data directory (REQUIRED)
 log_level: "info"                            # debug | info | warn | error
 public_api_url: "https://s3.example.com"     # Public S3 URL (for presigned URLs)

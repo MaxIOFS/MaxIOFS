@@ -6,12 +6,11 @@
   "loadingClusterData": "Caricamento dati cluster...",
 
   "clusterNotInitialized": "Cluster non inizializzato",
-  "clusterNotInitializedDesc": "Inizializza un nuovo cluster o unisciti a uno esistente per abilitare la replica multi-nodo e l'alta disponibilità",
+  "clusterNotInitializedDesc": "Inizializza un nuovo cluster con questo nodo, oppure aggiungi questo nodo a un cluster esistente dalla console di quel cluster: Gestisci nodi, Aggiungi nodo.",
   "initializeCluster": "Inizializza cluster",
-  "joinExistingCluster": "Unisciti a un cluster esistente",
 
   "initClusterTitle": "Inizializza cluster",
-  "initClusterDesc": "Questo creerà un nuovo cluster con questo nodo come primo membro. Riceverai un token cluster per aggiungere altri nodi.",
+  "initClusterDesc": "Crea un nuovo cluster con questo nodo come primo membro. Gli altri nodi si aggiungono da Gestisci nodi, Aggiungi nodo.",
   "nodeName": "Nome nodo",
   "nodeNameHint": "Facoltativo. Lasciare vuoto per la generazione automatica.",
   "regionOptional": "Regione (facoltativa)",
@@ -21,23 +20,14 @@
   "initialize": "Inizializza",
   "failedToInitCluster": "Impossibile inizializzare il cluster",
 
-  "joinClusterTitle": "Unisciti a un cluster esistente",
-  "joinClusterDesc": "Inserire l'endpoint di un nodo cluster esistente e il token cluster per unirsi.",
-  "clusterNodeEndpoint": "Indirizzo IP del nodo cluster",
-  "clusterNodeEndpointHint": "Indirizzo IP (o IP:porta) di un nodo cluster esistente. La porta predefinita è 8082.",
   "clusterToken": "Token cluster",
-  "clusterTokenPlaceholder": "Incolla qui il token cluster...",
-  "clusterTokenHint": "Il token visualizzato quando il cluster è stato inizializzato",
-  "joining": "Connessione in corso...",
-  "joinCluster": "Unisciti al cluster",
-  "failedToJoinCluster": "Impossibile unirsi al cluster",
 
   "clusterInitialized": "Cluster inizializzato",
-  "saveTokenWarning": "Salva questo token ora. Sarà necessario per aggiungere altri nodi a questo cluster.",
+  "saveTokenWarning": "I nodi del cluster si autenticano tra loro con questo token: mantienilo segreto. Gli altri nodi si aggiungono da Gestisci nodi, Aggiungi nodo, con le loro credenziali di amministratore.",
   "iHaveSavedToken": "Ho salvato il token",
 
   "clusterTokenTitle": "Token cluster",
-  "clusterTokenDesc": "Usa questo token per aggiungere altri nodi a questo cluster. Puoi fornirlo nel modulo \"Unisciti a un cluster esistente\" su un nodo standalone, oppure usare \"Aggiungi nodo\" da questo cluster per aggiungere nodi automaticamente.",
+  "clusterTokenDesc": "I nodi del cluster si autenticano tra loro con questo token: mantienilo segreto. Gli altri nodi si aggiungono da Gestisci nodi, Aggiungi nodo, con le loro credenziali di amministratore.",
   "failedToRetrieveToken": "Impossibile recuperare il token cluster",
   "close": "Chiudi",
 
@@ -85,6 +75,7 @@
   "statusDead": "Non attivo",
   "statusStoragePressure": "Pressione di archiviazione",
   "thisNode": "(Questo nodo)",
+  "drainedNode": "(dismesso)",
   "encryptionSecretMismatch": "Chiave di cifratura diversa",
   "encryptionSecretMismatchHint": "Questo nodo non può decifrare le credenziali memorizzate dagli altri. Il coordinatore gli invia la sua chiave entro un minuto; se persiste, controlla i log di entrambi i nodi.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Svuota",
   "drainLocalDisabled": "Impossibile svuotare il nodo locale — eseguire lo svuotamento da un altro nodo cluster.",
-  "drainDeadDisabled": "Il nodo è già non attivo.",
+  "drainDrainedDisabled": "Il nodo è già dismesso.",
   "drainNodeConfirmTitle": "Svuota nodo",
   "drainNodeConfirmBody": "Segnare il nodo {{node}} come non attivo e ridistribuire immediatamente le sue repliche? Usare per la disattivazione pianificata.",
   "drainNodeSuccess": "Nodo {{node}} svuotato — ridistribuzione avviata.",

@@ -685,18 +685,18 @@ session: it opens only the resource it was minted for.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/cluster/initialize` | Initialize cluster on this node |
-| POST | `/api/v1/cluster/join` | Receive the join package from an existing cluster node |
-| POST | `/api/v1/cluster/leave` | Leave cluster |
+| POST | `/api/v1/cluster/join` | Receive the join package from an existing cluster node; `409` when this node holds data |
+| POST | `/api/v1/cluster/leave` | Leave the cluster; the other nodes it reaches remove it |
 | GET | `/api/v1/cluster/status` | Get cluster status |
 | GET | `/api/v1/cluster/config` | Get this node's cluster configuration |
 | GET | `/api/v1/cluster/token` | Get the cluster token (global admin only) |
 | GET | `/api/v1/cluster/nodes` | List all nodes |
-| POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster |
+| POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster; `409` when that node holds data |
 | GET | `/api/v1/cluster/nodes/{id}` | Get node details |
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
-| DELETE | `/api/v1/cluster/nodes/{id}` | Remove node |
+| DELETE | `/api/v1/cluster/nodes/{id}` | Remove a node from every node; the node leaves when it next contacts one |
 | GET | `/api/v1/cluster/nodes/{id}/health` | Run a health check on one node |
-| POST | `/api/v1/cluster/nodes/{id}/drain` | Mark a remote node dead immediately and start the dead-node reconciler (global admin only) |
+| POST | `/api/v1/cluster/nodes/{id}/drain` | Take a remote node out of service on every node and make its copies again elsewhere; `409` when it would leave fewer healthy nodes than the replication factor (global admin only) |
 | GET | `/api/v1/cluster/cache/stats` | Bucket location cache statistics |
 | POST | `/api/v1/cluster/cache/invalidate` | Invalidate the bucket location cache |
 | GET | `/api/v1/cluster/buckets` | Buckets with replication information |
@@ -708,7 +708,7 @@ session: it opens only the resource it was minted for.
 |--------|------|-------------|
 | GET | `/api/v1/cluster/ha` | Replication factor and node status |
 | PUT | `/api/v1/cluster/ha` | Set the replication factor — body `{"factor":2}` (global admin only) |
-| GET | `/api/v1/cluster/ha/sync-jobs` | Initial-sync and delta-sync jobs |
+| GET | `/api/v1/cluster/ha/sync-jobs` | Initial-sync jobs; a done job's `error_message` says how many objects it left to the catch-up |
 | GET | `/api/v1/cluster/ha/scrub-status` | Recent anti-entropy runs and the checkpoint of a running cycle |
 | GET | `/api/v1/cluster/ha/degraded-state` | Cluster degraded reason (empty when healthy) |
 

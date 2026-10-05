@@ -495,60 +495,14 @@ func (s *Server) handleReceiveTenantDeleteSync(w http.ResponseWriter, r *http.Re
 		"tenant_id":      deleteData.ID,
 	}).Info("Receiving tenant deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	// If the local tenant was updated after the tombstone's deleted_at, the entity wins.
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"tenant_id":      deleteData.ID,
-		}).Info("Skipping tenant deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeTenant, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Delete users belonging to this tenant first (cascade)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ?)`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete access keys for tenant users")
-		http.Error(w, fmt.Sprintf("Failed to delete access keys: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	_, err = s.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete users for tenant")
-		http.Error(w, fmt.Sprintf("Failed to delete users: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Delete the tenant
-	result, err := s.db.ExecContext(ctx, `DELETE FROM tenants WHERE id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete tenant")
-		http.Error(w, fmt.Sprintf("Failed to delete tenant: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeTenant, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-		logrus.WithError(err).WithField("tenant_id", deleteData.ID).Warn("Failed to record tenant deletion tombstone")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenant_id":     deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("Tenant deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Tenant deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // handleReceiveUserDeleteSync handles incoming user deletion from cluster sync
@@ -585,50 +539,12 @@ func (s *Server) handleReceiveUserDeleteSync(w http.ResponseWriter, r *http.Requ
 		"user_id":        deleteData.ID,
 	}).Info("Receiving user deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"user_id":        deleteData.ID,
-		}).Info("Skipping user deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeUser, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Delete access keys for this user first (cascade)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE user_id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete access keys for user")
-		http.Error(w, fmt.Sprintf("Failed to delete access keys: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Delete the user
-	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete user")
-		http.Error(w, fmt.Sprintf("Failed to delete user: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeUser, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-		logrus.WithError(err).WithField("user_id", deleteData.ID).Warn("Failed to record user deletion tombstone")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id":       deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("User deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "User deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

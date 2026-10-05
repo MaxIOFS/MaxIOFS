@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"io"
@@ -114,14 +115,17 @@ func (m *GlobalConfigSyncManager) syncAll(ctx context.Context) {
 			continue
 		}
 		if err := m.sendGlobalConfigToNode(ctx, entries, node, localNodeID, nodeToken); err != nil {
+			if m.leaveIfRemoved(ctx, err, node) {
+				return
+			}
 			m.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to sync global config to node")
 		}
 	}
 
-	// --- Phase 2: Sync node list (reconcile cluster_nodes) ---
-	allNodes, err := m.clusterManager.ListNodes(ctx)
+	// --- Phase 2: Sync the membership ---
+	list, err := m.clusterManager.NodeListToSend(ctx, localNodeID)
 	if err != nil {
-		m.log.WithError(err).Error("Failed to list all nodes for node-sync")
+		m.log.WithError(err).Error("Failed to list the membership for node-sync")
 		return
 	}
 
@@ -129,7 +133,7 @@ func (m *GlobalConfigSyncManager) syncAll(ctx context.Context) {
 		if targetNode.ID == localNodeID {
 			continue
 		}
-		if err := m.sendNodeListToNode(ctx, allNodes, targetNode, localNodeID, nodeToken); err != nil {
+		if err := m.sendNodeListToNode(ctx, list, targetNode, localNodeID, nodeToken); err != nil {
 			m.log.WithError(err).WithField("node_id", targetNode.ID).Warn("Failed to sync node list to node")
 		}
 	}
@@ -195,7 +199,15 @@ func (m *GlobalConfigSyncManager) SyncKEKs(ctx context.Context) {
 	}
 }
 
-// listGlobalConfig returns all entries from cluster_global_config.
+// IsNodeLocalConfig reports whether a global configuration entry is this
+// node's own: the degraded reason is what this node sees of the others' health.
+// It is neither sent nor taken from another node.
+func IsNodeLocalConfig(key string) bool {
+	return key == clusterDegradedReasonKey
+}
+
+// listGlobalConfig returns the entries of cluster_global_config sent to
+// other nodes: all but this node's own.
 func (m *GlobalConfigSyncManager) listGlobalConfig(ctx context.Context) ([]GlobalConfigEntry, error) {
 	rows, err := m.db.QueryContext(ctx, `SELECT key, value, updated_at FROM cluster_global_config`)
 	if err != nil {
@@ -213,6 +225,9 @@ func (m *GlobalConfigSyncManager) listGlobalConfig(ctx context.Context) ([]Globa
 		if ts, ok := SQLiteTimestampUnix(updatedAt); ok {
 			e.UpdatedAt = ts
 		}
+		if IsNodeLocalConfig(e.Key) {
+			continue
+		}
 		entries = append(entries, e)
 	}
 	return entries, nil
@@ -228,8 +243,21 @@ func (m *GlobalConfigSyncManager) sendGlobalConfigToNode(ctx context.Context, en
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/internal/cluster/global-config-sync", node.Endpoint)
-	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), sourceNodeID, nodeToken)
+	return m.post(ctx, node, "/api/internal/cluster/global-config-sync", body, sourceNodeID, nodeToken)
+}
+
+// sendNodeListToNode sends this node's view of the membership to target.
+func (m *GlobalConfigSyncManager) sendNodeListToNode(ctx context.Context, list *NodeList, target *Node, sourceNodeID, nodeToken string) error {
+	body, err := json.Marshal(list)
+	if err != nil {
+		return fmt.Errorf("failed to marshal node list: %w", err)
+	}
+	return m.post(ctx, target, "/api/internal/cluster/node-list-sync", body, sourceNodeID, nodeToken)
+}
+
+// post sends body to path on node. A node that removed this one answers 410.
+func (m *GlobalConfigSyncManager) post(ctx context.Context, node *Node, path string, body []byte, sourceNodeID, nodeToken string) error {
+	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", node.Endpoint+path, bytes.NewReader(body), sourceNodeID, nodeToken)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -241,6 +269,9 @@ func (m *GlobalConfigSyncManager) sendGlobalConfigToNode(ctx context.Context, en
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusGone {
+		return ErrNodeRemoved
+	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
@@ -248,53 +279,52 @@ func (m *GlobalConfigSyncManager) sendGlobalConfigToNode(ctx context.Context, en
 	return nil
 }
 
-// sendNodeListToNode sends the full node list to a remote node for reconciliation.
-func (m *GlobalConfigSyncManager) sendNodeListToNode(ctx context.Context, allNodes []*Node, target *Node, sourceNodeID, nodeToken string) error {
-	// Build a payload that includes node_token (which is json:"-" on Node).
-	type nodePayload struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Endpoint  string `json:"endpoint"`
-		NodeToken string `json:"node_token"`
-		Region    string `json:"region"`
-		Priority  int    `json:"priority"`
-	}
-	payload := make([]nodePayload, 0, len(allNodes))
-	for _, n := range allNodes {
-		payload = append(payload, nodePayload{
-			ID:        n.ID,
-			Name:      n.Name,
-			Endpoint:  n.Endpoint,
-			NodeToken: n.NodeToken,
-			Region:    n.Region,
-			Priority:  n.Priority,
-		})
-	}
+// SyncNow sends the global configuration and the membership to every healthy
+// node now.
+func (m *GlobalConfigSyncManager) SyncNow(ctx context.Context) {
+	m.syncAll(ctx)
+}
 
-	body, err := json.Marshal(map[string]interface{}{
-		"nodes":          payload,
-		"source_node_id": sourceNodeID,
-	})
+// AnnounceLeave sends every other node the removal of this node, before it
+// leaves the cluster. A node it does not reach takes the removal from the
+// others.
+func (m *GlobalConfigSyncManager) AnnounceLeave(ctx context.Context) error {
+	list, err := m.clusterManager.LeaveRemoval(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to marshal node list: %w", err)
+		return err
 	}
-
-	url := fmt.Sprintf("%s/api/internal/cluster/node-list-sync", target.Endpoint)
-	req, err := m.proxyClient.CreateAuthenticatedRequest(ctx, "POST", url, bytes.NewReader(body), sourceNodeID, nodeToken)
+	nodeToken, err := m.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := m.proxyClient.DoAuthenticatedRequest(req)
+	nodes, err := m.clusterManager.ListNodes(ctx)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	body, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if n.ID == list.SourceNodeID {
+			continue
+		}
+		if err := m.post(ctx, n, "/api/internal/cluster/node-list-sync", body, list.SourceNodeID, nodeToken); err != nil {
+			m.log.WithError(err).WithField("node_id", n.ID).Warn("Failed to tell a node this one leaves the cluster")
+		}
 	}
 	return nil
+}
+
+// leaveIfRemoved takes this node out of the cluster when another node answered
+// that it was removed.
+func (m *GlobalConfigSyncManager) leaveIfRemoved(ctx context.Context, err error, from *Node) bool {
+	if !errors.Is(err, ErrNodeRemoved) {
+		return false
+	}
+	m.log.WithField("node_id", from.ID).Warn("This node was removed from the cluster; leaving it")
+	if err := m.clusterManager.LeaveCluster(ctx); err != nil {
+		m.log.WithError(err).Error("Failed to leave the cluster")
+	}
+	return true
 }

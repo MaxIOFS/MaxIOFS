@@ -16,7 +16,6 @@ import {
   ArrowRightLeft,
   Copy,
   Check,
-  Link,
   KeyRound,
   Shield,
 } from 'lucide-react';
@@ -32,11 +31,9 @@ export default function ClusterOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showInitDialog, setShowInitDialog] = useState(false);
-  const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [clusterToken, setClusterToken] = useState('');
   const [tokenCopied, setTokenCopied] = useState(false);
-  const [joinLoading, setJoinLoading] = useState(false);
   const [nodeIP, setNodeIP] = useState('');
 
   const loadData = useCallback(async () => {
@@ -77,19 +74,6 @@ export default function ClusterOverview() {
       await loadData();
     } catch (err: unknown) {
       alert(getErrorMessage(err, t('failedToInitCluster')));
-    }
-  };
-
-  const handleJoinCluster = async (clusterTokenValue: string, nodeEndpoint: string) => {
-    try {
-      setJoinLoading(true);
-      await APIClient.joinCluster({ cluster_token: clusterTokenValue, node_endpoint: nodeEndpoint, node_address: nodeIP });
-      setShowJoinDialog(false);
-      await loadData();
-    } catch (err: unknown) {
-      alert(getErrorMessage(err, t('failedToJoinCluster')));
-    } finally {
-      setJoinLoading(false);
     }
   };
 
@@ -140,14 +124,6 @@ export default function ClusterOverview() {
             >
               <Server className="h-4 w-4" />
               {t('initializeCluster')}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => { setNodeIP(''); setShowJoinDialog(true); }}
-              className="bg-card"
-            >
-              <Link className="h-4 w-4" />
-              {t('joinExistingCluster')}
             </Button>
           </div>
         </Card>
@@ -206,69 +182,6 @@ export default function ClusterOverview() {
                   </Button>
                   <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white" disabled={!nodeIP.trim()}>
                     {t('initialize')}
-                  </Button>
-                </div>
-              </form>
-            </Card>
-          </div>
-        )}
-
-        {/* Join Cluster Dialog */}
-        {showJoinDialog && (
-          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-            <Card className="w-full max-w-md p-6">
-              <h2 className="text-xl font-bold mb-4 text-foreground">{t('joinClusterTitle')}</h2>
-              <p className="text-sm text-muted-foreground mb-4">{t('joinClusterDesc')}</p>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                handleJoinCluster(
-                  formData.get('cluster_token') as string,
-                  formData.get('node_endpoint') as string
-                );
-              }}>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">{t('clusterNodeEndpoint')}</label>
-                    <input
-                      name="node_endpoint"
-                      type="text"
-                      required
-                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500"
-                      placeholder="192.168.1.10"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">{t('clusterNodeEndpointHint')}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">{t('clusterToken')}</label>
-                    <textarea
-                      name="cluster_token"
-                      required
-                      rows={3}
-                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500 font-mono text-sm"
-                      placeholder={t('clusterTokenPlaceholder')}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">{t('clusterTokenHint')}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">{t('nodeAddress')} *</label>
-                    <input
-                      type="text"
-                      required
-                      value={nodeIP}
-                      onChange={(e) => setNodeIP(e.target.value)}
-                      className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500 font-mono"
-                      placeholder="192.168.1.10"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">{t('nodeAddressHint')}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-6">
-                  <Button type="button" variant="outline" onClick={() => setShowJoinDialog(false)} className="flex-1" disabled={joinLoading}>
-                    {t('cancel')}
-                  </Button>
-                  <Button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white" disabled={joinLoading || !nodeIP.trim()}>
-                    {joinLoading ? t('joining') : t('joinCluster')}
                   </Button>
                 </div>
               </form>

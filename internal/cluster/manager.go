@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"net/http"
-	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,7 +39,6 @@ type Manager struct {
 	healthClientTLS  *tls.Config
 
 	currentCert       atomic.Pointer[tls.Certificate]
-	readCounter       uint64 // atomic — round-robin read balancing
 	storagePressureFn StoragePressureEmitter
 	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
 }
@@ -166,10 +165,10 @@ func (m *Manager) InitializeCluster(ctx context.Context, nodeName, region, nodeE
 	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO cluster_nodes (
 			id, name, endpoint, api_url, node_token, region, priority,
-			health_status, latency_ms, capacity_total, capacity_used, bucket_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			health_status, latency_ms, capacity_total, capacity_used, bucket_count, changed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, nodeID, nodeName, nodeEndpoint, m.publicAPIURL, clusterToken, region, 100,
-		HealthStatusHealthy, 0, 0, 0, 0)
+		HealthStatusHealthy, 0, 0, 0, 0, time.Now().Unix())
 	if err != nil {
 		return "", fmt.Errorf("failed to add node to cluster: %w", err)
 	}
@@ -199,6 +198,8 @@ type JoinPackageNode struct {
 	NodeToken string `json:"node_token"`
 	Region    string `json:"region"`
 	Priority  int    `json:"priority"`
+	ChangedAt int64  `json:"changed_at,omitempty"`
+	Drained   bool   `json:"drained,omitempty"`
 }
 
 // NodesToJoinPackage converts a slice of *Node into []*JoinPackageNode, preserving
@@ -214,6 +215,8 @@ func NodesToJoinPackage(nodes []*Node) []*JoinPackageNode {
 			NodeToken: n.NodeToken,
 			Region:    n.Region,
 			Priority:  n.Priority,
+			ChangedAt: n.ChangedAt,
+			Drained:   n.Drained,
 		})
 	}
 	return out
@@ -231,7 +234,6 @@ type ClusterJoinPackage struct {
 	CAKeyPEM       string             `json:"ca_key"` // sent once so Node B can sign its own cert
 	JWTSecret      string             `json:"jwt_secret"`
 	SelfEndpoint   string             `json:"self_endpoint"` // Node B's 8082 URL — used for cert SANs
-	NodeEndpoint   string             `json:"node_endpoint"` // Node A's 8082 URL
 	APIURL         string             `json:"api_url"`       // Node B's S3 API public URL
 	Nodes          []*JoinPackageNode `json:"nodes"`
 	EncryptionKeys []kek.KeyRecord    `json:"encryption_keys,omitempty"`
@@ -257,6 +259,17 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 	_, err = m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
 	if err != nil {
 		return fmt.Errorf("failed to clear cluster config: %w", err)
+	}
+	// The node takes the cluster's membership: what it held of a cluster it
+	// was in before, its own former entry included, is not a member.
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_nodes`); err != nil {
+		return fmt.Errorf("failed to clear cluster nodes: %w", err)
+	}
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM ha_pending_metadata_ops`); err != nil {
+		return fmt.Errorf("failed to clear queued metadata operations: %w", err)
+	}
+	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_deletion_log_delivery`); err != nil {
+		return fmt.Errorf("failed to clear deletion deliveries: %w", err)
 	}
 
 	if _, err := m.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id IS NULL OR tenant_id = ''`); err != nil {
@@ -289,6 +302,8 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 			NodeToken: jn.NodeToken,
 			Region:    jn.Region,
 			Priority:  jn.Priority,
+			ChangedAt: jn.ChangedAt,
+			Drained:   jn.Drained,
 		}
 		if err := m.AddNode(ctx, node); err != nil {
 			m.log.WithError(err).WithField("node_id", jn.ID).Warn("Failed to add node during join")
@@ -299,10 +314,10 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 	_, err = m.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO cluster_nodes (
 			id, name, endpoint, api_url, node_token, region, priority,
-			health_status, latency_ms, capacity_total, capacity_used, bucket_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			health_status, latency_ms, capacity_total, capacity_used, bucket_count, changed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, pkg.NodeID, pkg.NodeName, pkg.SelfEndpoint, pkg.APIURL, pkg.ClusterToken, pkg.Region, 5,
-		HealthStatusHealthy, 0, 0, 0, 0)
+		HealthStatusHealthy, 0, 0, 0, 0, time.Now().Unix())
 	if err != nil {
 		m.log.WithError(err).Warn("Failed to add self to cluster_nodes during join")
 	}
@@ -368,12 +383,15 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 	}
 
 	now := time.Now()
+	if node.ChangedAt == 0 {
+		node.ChangedAt = now.Unix()
+	}
 	_, err := m.db.ExecContext(ctx, `
 		INSERT INTO cluster_nodes (
 			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used,
-			bucket_count, metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			bucket_count, metadata, created_at, updated_at, changed_at, drained
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name       = excluded.name,
 			endpoint   = excluded.endpoint,
@@ -381,9 +399,11 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 			node_token = CASE WHEN excluded.node_token != '' THEN excluded.node_token ELSE cluster_nodes.node_token END,
 			region     = excluded.region,
 			priority   = excluded.priority,
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			changed_at = excluded.changed_at,
+			drained    = excluded.drained
 	`, node.ID, node.Name, node.Endpoint, node.APIURL, node.NodeToken, node.Region, node.Priority,
-		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now)
+		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now, node.ChangedAt, node.Drained)
 
 	if err != nil {
 		return fmt.Errorf("failed to add node: %w", err)
@@ -399,6 +419,71 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 }
 
 // GetNode retrieves a node by ID
+// nodeColumnNames are the cluster_nodes columns scanNode reads, in its order.
+var nodeColumnNames = []string{
+	"id", "name", "endpoint", "api_url", "node_token", "region", "priority",
+	"health_status", "last_health_check", "last_seen", "latency_ms",
+	"capacity_total", "capacity_used", "bucket_count", "metadata",
+	"created_at", "updated_at", "unavailable_since",
+	"changed_at", "drained",
+}
+
+// nodeColumns lists nodeColumnNames for a SELECT, each prefixed with alias.
+func nodeColumns(alias string) string {
+	cols := make([]string, len(nodeColumnNames))
+	for i, c := range nodeColumnNames {
+		cols[i] = alias + c
+	}
+	return strings.Join(cols, ", ")
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanNode reads one row selected with nodeColumns.
+func scanNode(row rowScanner) (*Node, error) {
+	var node Node
+	var lastHealthCheck, lastSeen, unavailableSince sql.NullTime
+	if err := row.Scan(
+		&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
+		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
+		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
+		&node.CreatedAt, &node.UpdatedAt, &unavailableSince,
+		&node.ChangedAt, &node.Drained,
+	); err != nil {
+		return nil, err
+	}
+	if lastHealthCheck.Valid {
+		node.LastHealthCheck = &lastHealthCheck.Time
+	}
+	if lastSeen.Valid {
+		node.LastSeen = &lastSeen.Time
+	}
+	if unavailableSince.Valid {
+		node.UnavailableSince = &unavailableSince.Time
+	}
+	return &node, nil
+}
+
+// queryNodes runs a query selecting nodeColumns and reads every row.
+func (m *Manager) queryNodes(ctx context.Context, query string, args ...any) ([]*Node, error) {
+	rows, err := m.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var nodes []*Node
+	for rows.Next() {
+		node, err := scanNode(rows)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, rows.Err()
+}
+
 // ProxyClient returns the client used for authenticated inter-node calls, so
 // callers forward over the same channel rather than building their own.
 func (m *Manager) ProxyClient() *ProxyClient {
@@ -406,92 +491,22 @@ func (m *Manager) ProxyClient() *ProxyClient {
 }
 
 func (m *Manager) GetNode(ctx context.Context, nodeID string) (*Node, error) {
-	var node Node
-	var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
-
-	err := m.db.QueryRowContext(ctx, `
-		SELECT id, name, endpoint, api_url, node_token, region, priority,
-		       health_status, last_health_check, last_seen, latency_ms,
-		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
-		FROM cluster_nodes
-		WHERE id = ?
-	`, nodeID).Scan(
-		&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
-		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
-		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-		&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
-	)
-
+	node, err := scanNode(m.db.QueryRowContext(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes WHERE id = ?`, nodeID))
 	if err == sql.ErrNoRows {
 		return nil, ErrNodeNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node: %w", err)
 	}
-
-	if lastHealthCheck.Valid {
-		node.LastHealthCheck = &lastHealthCheck.Time
-	}
-	if lastSeen.Valid {
-		node.LastSeen = &lastSeen.Time
-	}
-	if lastLocalWriteAt.Valid {
-		node.LastLocalWriteAt = &lastLocalWriteAt.Time
-	}
-	if unavailableSince.Valid {
-		node.UnavailableSince = &unavailableSince.Time
-	}
-
-	return &node, nil
+	return node, nil
 }
 
 // ListNodes returns all nodes in the cluster
 func (m *Manager) ListNodes(ctx context.Context) ([]*Node, error) {
-	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, name, endpoint, api_url, node_token, region, priority,
-		       health_status, last_health_check, last_seen, latency_ms,
-		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
-		FROM cluster_nodes
-		ORDER BY priority ASC, name ASC
-	`)
+	nodes, err := m.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes ORDER BY priority ASC, name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
-	defer rows.Close()
-
-	var nodes []*Node
-	for rows.Next() {
-		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
-
-		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
-			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
-			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan node: %w", err)
-		}
-
-		if lastHealthCheck.Valid {
-			node.LastHealthCheck = &lastHealthCheck.Time
-		}
-		if lastSeen.Valid {
-			node.LastSeen = &lastSeen.Time
-		}
-		if lastLocalWriteAt.Valid {
-			node.LastLocalWriteAt = &lastLocalWriteAt.Time
-		}
-		if unavailableSince.Valid {
-			node.UnavailableSince = &unavailableSince.Time
-		}
-
-		nodes = append(nodes, &node)
-	}
-
 	return nodes, nil
 }
 
@@ -500,9 +515,10 @@ func (m *Manager) UpdateNode(ctx context.Context, node *Node) error {
 	now := time.Now()
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE cluster_nodes
-		SET name = ?, region = ?, priority = ?, metadata = ?, updated_at = ?
+		SET name = ?, region = ?, priority = ?, metadata = ?, updated_at = ?,
+		    changed_at = MAX(?, changed_at + 1)
 		WHERE id = ?
-	`, node.Name, node.Region, node.Priority, node.Metadata, now, node.ID)
+	`, node.Name, node.Region, node.Priority, node.Metadata, now, now.Unix(), node.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
@@ -515,13 +531,17 @@ func (m *Manager) UpdateNode(ctx context.Context, node *Node) error {
 	return nil
 }
 
-// RemoveNode removes a node from the cluster
+// RemoveNode removes a node from the cluster. The removal is recorded and
+// sent with the membership, so every node removes it and none adds it back.
 func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
-	_, err := m.db.ExecContext(ctx, "DELETE FROM cluster_nodes WHERE id = ?", nodeID)
-	if err != nil {
+	var changed int64
+	if err := m.db.QueryRowContext(ctx, `SELECT changed_at FROM cluster_nodes WHERE id = ?`, nodeID).Scan(&changed); err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("failed to remove node: %w", err)
 	}
-	m.dropQueuedMetadataOps(ctx, nodeID)
+	localID, _ := m.GetLocalNodeID(ctx)
+	if err := m.RemoveNodeAt(ctx, nodeID, DeletedAfter(changed), localID); err != nil {
+		return fmt.Errorf("failed to remove node: %w", err)
+	}
 
 	m.log.WithFields(logrus.Fields{
 		"node_id": nodeID,
@@ -532,196 +552,16 @@ func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
 
 // GetHealthyNodes returns all healthy nodes
 func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
-	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, name, endpoint, api_url, node_token, region, priority,
-		       health_status, last_health_check, last_seen, latency_ms,
-		       capacity_total, capacity_used, bucket_count, metadata,
-		       created_at, updated_at, is_stale, last_local_write_at, unavailable_since
-		FROM cluster_nodes
-		WHERE health_status = ?
-		ORDER BY priority ASC, name ASC
-	`, HealthStatusHealthy)
+	nodes, err := m.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes
+		WHERE health_status = ? ORDER BY priority ASC, name ASC`, HealthStatusHealthy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list healthy nodes: %w", err)
 	}
-	defer rows.Close()
-
-	var nodes []*Node
-	for rows.Next() {
-		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
-
-		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
-			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
-			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan node: %w", err)
-		}
-
-		if lastHealthCheck.Valid {
-			node.LastHealthCheck = &lastHealthCheck.Time
-		}
-		if lastSeen.Valid {
-			node.LastSeen = &lastSeen.Time
-		}
-		if lastLocalWriteAt.Valid {
-			node.LastLocalWriteAt = &lastLocalWriteAt.Time
-		}
-		if unavailableSince.Valid {
-			node.UnavailableSince = &unavailableSince.Time
-		}
-
-		nodes = append(nodes, &node)
-	}
-
 	return nodes, nil
 }
 
-// GetReadyReplicaNodes returns healthy non-local nodes that have a completed initial sync.
-// These nodes are safe to serve reads — they have a full copy of all objects.
-func (m *Manager) GetReadyReplicaNodes(ctx context.Context) ([]*Node, error) {
-	localID, err := m.GetLocalNodeID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := m.db.QueryContext(ctx, `
-		SELECT DISTINCT cn.id, cn.name, cn.endpoint, cn.api_url, cn.node_token, cn.region, cn.priority,
-		       cn.health_status, cn.last_health_check, cn.last_seen, cn.latency_ms,
-		       cn.capacity_total, cn.capacity_used, cn.bucket_count, cn.metadata,
-		       cn.created_at, cn.updated_at, cn.is_stale, cn.last_local_write_at, cn.unavailable_since
-		FROM cluster_nodes cn
-		INNER JOIN ha_sync_jobs hsj ON hsj.target_node_id = cn.id
-		WHERE cn.id != ? AND cn.health_status IN (?, ?) AND hsj.status = ?
-		ORDER BY cn.priority ASC, cn.name ASC
-	`, localID, HealthStatusHealthy, HealthStatusStoragePressure, SyncJobDone)
-	if err != nil {
-		return nil, fmt.Errorf("get ready replica nodes: %w", err)
-	}
-	defer rows.Close()
-
-	var nodes []*Node
-	for rows.Next() {
-		var node Node
-		var lastHealthCheck, lastSeen, lastLocalWriteAt, unavailableSince sql.NullTime
-		err := rows.Scan(
-			&node.ID, &node.Name, &node.Endpoint, &node.APIURL, &node.NodeToken, &node.Region, &node.Priority,
-			&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
-			&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
-			&node.CreatedAt, &node.UpdatedAt, &node.IsStale, &lastLocalWriteAt, &unavailableSince,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan ready replica node: %w", err)
-		}
-		if lastHealthCheck.Valid {
-			node.LastHealthCheck = &lastHealthCheck.Time
-		}
-		if lastSeen.Valid {
-			node.LastSeen = &lastSeen.Time
-		}
-		if lastLocalWriteAt.Valid {
-			node.LastLocalWriteAt = &lastLocalWriteAt.Time
-		}
-		if unavailableSince.Valid {
-			node.UnavailableSince = &unavailableSince.Time
-		}
-		nodes = append(nodes, &node)
-	}
-	return nodes, rows.Err()
-}
-
-// SelectReadNode selects a single replica for a read request.
-//
-// Deprecated: use SelectReadNodes for ordered fallback. Kept as a thin shim
-// for callers that only need one candidate.
-func (m *Manager) SelectReadNode(ctx context.Context, bucket string) (*Node, error) {
-	nodes, err := m.SelectReadNodes(ctx, bucket)
-	if err != nil || len(nodes) == 0 {
-		return nil, err
-	}
-	return nodes[0], nil
-}
-
-// SelectReadNodes returns an ordered list of replica candidates for a read.
-func (m *Manager) SelectReadNodes(ctx context.Context, bucket string) ([]*Node, error) {
-	if !m.IsClusterEnabled() {
-		return nil, nil
-	}
-	factor, err := m.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
-		return nil, nil
-	}
-	replicas, err := m.GetReadyReplicaNodes(ctx)
-	if err != nil || len(replicas) == 0 {
-		return nil, err
-	}
-	sort.SliceStable(replicas, func(i, j int) bool {
-		if replicas[i].LatencyMs != replicas[j].LatencyMs {
-			return replicas[i].LatencyMs < replicas[j].LatencyMs
-		}
-		if replicas[i].Priority != replicas[j].Priority {
-			return replicas[i].Priority < replicas[j].Priority
-		}
-		return replicas[i].Name < replicas[j].Name
-	})
-	n := len(replicas)
-	rot := int(atomic.AddUint64(&m.readCounter, 1) % uint64(n))
-	rotated := make([]*Node, n)
-	for i := 0; i < n; i++ {
-		rotated[i] = replicas[(i+rot)%n]
-	}
-	return rotated, nil
-}
-
-// ProxyRead forwards a client read request to the given replica and streams
-// the response straight back to the caller.
-//
-// Deprecated: use TryProxyRead, which inspects the response status before
-// writing so callers can retry on 404/5xx without committing bytes to the
-// client.
-func (m *Manager) ProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) error {
-	client := NewProxyClient(m.GetTLSConfig())
-	// strip internal cluster headers so external clients cannot spoof them.
-	StripInternalClusterHeaders(r)
-	resp, err := client.ProxyRequest(ctx, node, r)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return client.CopyResponseToWriter(w, resp)
-}
-
-// TryProxyRead forwards a read to the given replica and only writes to w when
-func (m *Manager) TryProxyRead(ctx context.Context, w http.ResponseWriter, r *http.Request, node *Node) (served bool, err error) {
-	client := NewProxyClient(m.GetTLSConfig())
-	// strip internal cluster headers so external clients cannot spoof them.
-	StripInternalClusterHeaders(r)
-	resp, err := client.ProxyRequest(ctx, node, r)
-	if err != nil {
-		m.markNodeUnavailable(ctx, node.ID, "read proxy transport error")
-		return false, err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
-		return false, fmt.Errorf("replica %s: %d Not Found", node.ID, resp.StatusCode)
-	}
-	if resp.StatusCode >= 500 {
-		resp.Body.Close()
-		m.markNodeUnavailable(ctx, node.ID, fmt.Sprintf("read proxy %d", resp.StatusCode))
-		return false, fmt.Errorf("replica %s: %d", node.ID, resp.StatusCode)
-	}
-	defer resp.Body.Close()
-	if copyErr := client.CopyResponseToWriter(w, resp); copyErr != nil {
-		// Bytes already on the wire — surface the error but mark as served so
-		// the caller does not also write a fallback response on top.
-		return true, copyErr
-	}
-	return true, nil
-}
-
-// markNodeUnavailable flips a node's health_status to unavailable, mirroring
+// markNodeUnavailable marks a node unavailable after a request to it failed,
+// and keeps when it first was: the dead-node threshold counts from then.
 func (m *Manager) markNodeUnavailable(ctx context.Context, nodeID, reason string) {
 	now := time.Now()
 	if _, err := m.db.ExecContext(ctx,

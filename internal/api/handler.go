@@ -573,6 +573,12 @@ func (h *Handler) SetClusterRouter(cr *cluster.Router) {
 	h.s3Handler.SetClusterRouter(cr)
 }
 
+// SetUploadRouter sends a request about a multipart upload to the node it was
+// started on.
+func (h *Handler) SetUploadRouter(m *cluster.Manager) {
+	h.s3Handler.SetUploadRouter(m)
+}
+
 // handleRoot handles GET / and HEAD /. Non-S3 clients are redirected by S3ClientMiddleware.
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {
 	h.s3Handler.ListBuckets(w, r)

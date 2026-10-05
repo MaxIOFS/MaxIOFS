@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -24,7 +23,6 @@ type Router struct {
 	proxyClient        *ProxyClient
 	localNodeID        string
 	log                *logrus.Entry
-	readCounter        uint64 // atomic counter for read round-robin
 }
 
 // BucketManager interface for bucket operations (to avoid circular dependencies)
@@ -329,37 +327,4 @@ func (r *Router) InvalidateCache(bucket string) {
 // GetCacheStats returns cache statistics
 func (r *Router) GetCacheStats() map[string]interface{} {
 	return r.cache.GetStats()
-}
-
-// SelectReadNode selects the best node to serve a read request for the given bucket.
-func (r *Router) SelectReadNode(ctx context.Context, bucket string) (*Node, error) {
-	if !r.manager.IsClusterEnabled() {
-		return nil, nil
-	}
-	factor, err := r.manager.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
-		return nil, nil
-	}
-	replicas, err := r.manager.GetReadyReplicaNodes(ctx)
-	if err != nil || len(replicas) == 0 {
-		// No ready replicas yet — serve locally.
-		return nil, nil
-	}
-
-	// Build the candidate list: local (nil) + ready replicas.
-	// Slot 0 always represents the local node.
-	total := uint64(1 + len(replicas))
-	idx := atomic.AddUint64(&r.readCounter, 1) % total
-	if idx == 0 {
-		// Local node's turn.
-		return nil, nil
-	}
-	selected := replicas[idx-1]
-	r.log.WithFields(logrus.Fields{
-		"bucket":  bucket,
-		"node_id": selected.ID,
-		"slot":    idx,
-		"total":   total,
-	}).Debug("read load balancing: routing to replica")
-	return selected, nil
 }

@@ -6,12 +6,11 @@
   "loadingClusterData": "正在加载集群数据...",
 
   "clusterNotInitialized": "集群未初始化",
-  "clusterNotInitializedDesc": "初始化新集群或加入现有集群以启用多节点复制和高可用性",
+  "clusterNotInitializedDesc": "使用此节点初始化新集群，或在现有集群的控制台中通过“管理节点”→“添加节点”将此节点加入。",
   "initializeCluster": "初始化集群",
-  "joinExistingCluster": "加入现有集群",
 
   "initClusterTitle": "初始化集群",
-  "initClusterDesc": "这将创建一个以此节点为第一个成员的新集群，您将获得一个集群令牌以添加其他节点。",
+  "initClusterDesc": "以此节点为第一个成员创建新集群。其他节点通过“管理节点”→“添加节点”加入。",
   "nodeName": "节点名称",
   "nodeNameHint": "可选，留空以自动生成。",
   "regionOptional": "区域（可选）",
@@ -21,23 +20,14 @@
   "initialize": "初始化",
   "failedToInitCluster": "初始化集群失败",
 
-  "joinClusterTitle": "加入现有集群",
-  "joinClusterDesc": "输入现有集群节点的端点和集群令牌以加入。",
-  "clusterNodeEndpoint": "集群节点 IP 地址",
-  "clusterNodeEndpointHint": "现有集群节点的 IP 地址（或 IP:端口），默认端口为 8082。",
   "clusterToken": "集群令牌",
-  "clusterTokenPlaceholder": "在此粘贴集群令牌...",
-  "clusterTokenHint": "初始化集群时显示的令牌",
-  "joining": "加入中...",
-  "joinCluster": "加入集群",
-  "failedToJoinCluster": "加入集群失败",
 
   "clusterInitialized": "集群已初始化",
-  "saveTokenWarning": "请立即保存此令牌，您将需要它来将其他节点加入此集群。",
+  "saveTokenWarning": "集群节点之间使用此令牌相互认证，请妥善保密。其他节点通过“管理节点”→“添加节点”，使用其管理员凭据加入。",
   "iHaveSavedToken": "我已保存令牌",
 
   "clusterTokenTitle": "集群令牌",
-  "clusterTokenDesc": "使用此令牌将其他节点加入此集群。您可以在独立节点的\"加入现有集群\"表单中提供它，或使用此集群的\"添加节点\"自动添加节点。",
+  "clusterTokenDesc": "集群节点之间使用此令牌相互认证，请妥善保密。其他节点通过“管理节点”→“添加节点”，使用其管理员凭据加入。",
   "failedToRetrieveToken": "获取集群令牌失败",
   "close": "关闭",
 
@@ -85,6 +75,7 @@
   "statusDead": "已宕机",
   "statusStoragePressure": "存储压力",
   "thisNode": "（此节点）",
+  "drainedNode": "(已退役)",
   "encryptionSecretMismatch": "加密密钥不同",
   "encryptionSecretMismatchHint": "此节点无法解密其他节点存储的凭据。协调节点会在一分钟内向其发送密钥；如果问题仍然存在，请检查两个节点的日志。",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "排空",
   "drainLocalDisabled": "无法排空本地节点 — 请从其他集群节点执行排空操作。",
-  "drainDeadDisabled": "节点已经宕机。",
+  "drainDrainedDisabled": "节点已经退役。",
   "drainNodeConfirmTitle": "排空节点",
   "drainNodeConfirmBody": "将节点 {{node}} 标记为宕机并立即重新分配其副本？用于计划退役。",
   "drainNodeSuccess": "节点 {{node}} 已排空 — 重新分配已开始。",

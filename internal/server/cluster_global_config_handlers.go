@@ -30,6 +30,9 @@ func (s *Server) handleReceiveGlobalConfigSync(w http.ResponseWriter, r *http.Re
 	ctx := r.Context()
 	applied := 0
 	for _, entry := range req.Entries {
+		if cluster.IsNodeLocalConfig(entry.Key) {
+			continue
+		}
 		// Last-writer-wins: only apply if the incoming entry is newer.
 		localVal, err := cluster.GetGlobalConfig(ctx, s.db, entry.Key)
 		if err == nil {
@@ -69,8 +72,7 @@ func (s *Server) handleReceiveGlobalConfigSync(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "applied": applied})
 }
 
-// handleReceiveNodeListSync handles incoming node list reconciliation.
-// Adds any nodes that are missing from the local cluster_nodes table.
+// handleReceiveNodeListSync takes another node's view of the membership.
 func (s *Server) handleReceiveNodeListSync(w http.ResponseWriter, r *http.Request) {
 	sourceNodeID, ok := r.Context().Value("cluster_node_id").(string)
 	if !ok {
@@ -78,48 +80,38 @@ func (s *Server) handleReceiveNodeListSync(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var req struct {
-		Nodes []struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Endpoint  string `json:"endpoint"`
-			NodeToken string `json:"node_token"`
-			Region    string `json:"region"`
-			Priority  int    `json:"priority"`
-		} `json:"nodes"`
-		SourceNodeID string `json:"source_node_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var list cluster.NodeList
+	if err := json.NewDecoder(r.Body).Decode(&list); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	list.SourceNodeID = sourceNodeID
 
-	ctx := r.Context()
-	added := 0
-	for _, n := range req.Nodes {
-		node := &cluster.Node{
-			ID:        n.ID,
-			Name:      n.Name,
-			Endpoint:  n.Endpoint,
-			NodeToken: n.NodeToken,
-			Region:    n.Region,
-			Priority:  n.Priority,
-		}
-		// AddNode uses INSERT OR REPLACE — safe to call even if node exists.
-		// This updates the priority and token if they changed.
-		if err := s.clusterManager.AddNode(ctx, node); err != nil {
-			logrus.WithError(err).WithField("node_id", n.ID).Warn("Failed to add synced node")
-			continue
-		}
-		added++
+	drained, err := s.clusterManager.ApplyNodeList(r.Context(), &list)
+	if err != nil {
+		logrus.WithError(err).WithField("source_node_id", sourceNodeID).Warn("Failed to apply a node list")
+		http.Error(w, "Failed to apply node list", http.StatusInternalServerError)
+		return
+	}
+	if len(drained) > 0 && s.deadNodeReconciler != nil {
+		s.goWorker("apply drained nodes", func() { s.deadNodeReconciler.ApplyDrains(s.backgroundContext()) })
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"source_node_id": sourceNodeID,
-		"nodes_received": len(req.Nodes),
-		"nodes_applied":  added,
+		"nodes_received": len(list.Nodes),
+		"removed":        len(list.Removed),
 	}).Debug("Node list sync received")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "added": added})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// syncMembershipNow sends the membership to the other nodes without waiting
+// for the next periodic sync.
+func (s *Server) syncMembershipNow() {
+	if s.globalConfigSyncMgr == nil {
+		return
+	}
+	s.goWorker("sync membership", func() { s.globalConfigSyncMgr.SyncNow(s.backgroundContext()) })
 }

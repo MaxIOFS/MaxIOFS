@@ -119,8 +119,7 @@ func TestAnExplicitJWTSecretSeedsTheEncryptionSecret(t *testing.T) {
 	assert.NotEqual(t, "test-jwt-secret-shared", generated.encSecret.Current())
 }
 
-// A node that joins a cluster takes its encryption secret: the credentials it
-// stored before are re-encrypted with it and still read.
+// A node that joins a cluster takes its encryption secret.
 func TestJoiningNodeTakesTheClusterEncryptionSecret(t *testing.T) {
 	a := newClusterTestNodeWith(t, func(c *config.Config) { c.Auth.EncryptionSecret = "secret-of-a" })
 	b := newClusterTestNodeWith(t, func(c *config.Config) {
@@ -128,7 +127,6 @@ func TestJoiningNodeTakesTheClusterEncryptionSecret(t *testing.T) {
 		c.ClusterListen = "127.0.0.1:0"
 	})
 	ctx := context.Background()
-	shareID := storeCredentials(t, b)
 	consoleB := httptest.NewServer(b.consoleRouter)
 	defer consoleB.Close()
 	_, err := a.clusterManager.InitializeCluster(ctx, "a", "us-east-1", "https://127.0.0.1:18082")
@@ -145,7 +143,6 @@ func TestJoiningNodeTakesTheClusterEncryptionSecret(t *testing.T) {
 	var stored string
 	require.NoError(t, b.db.QueryRow(`SELECT secret FROM encryption_secret WHERE id = 1`).Scan(&stored))
 	assert.Equal(t, "secret-of-a", stored)
-	assertCredentialsRead(t, b, shareID)
 }
 
 // nodeSecretMatches reads, from s's list of cluster nodes, whether nodeID holds

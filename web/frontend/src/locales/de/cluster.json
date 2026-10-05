@@ -6,12 +6,11 @@
   "loadingClusterData": "Cluster-Daten werden geladen...",
 
   "clusterNotInitialized": "Cluster nicht initialisiert",
-  "clusterNotInitializedDesc": "Initialisieren Sie einen neuen Cluster oder treten Sie einem bestehenden bei, um Multi-Knoten-Replikation und Hochverfügbarkeit zu aktivieren",
+  "clusterNotInitializedDesc": "Initialisieren Sie einen neuen Cluster mit diesem Knoten oder fügen Sie diesen Knoten über die Konsole eines bestehenden Clusters hinzu: Knoten verwalten, Knoten hinzufügen.",
   "initializeCluster": "Cluster initialisieren",
-  "joinExistingCluster": "Bestehendem Cluster beitreten",
 
   "initClusterTitle": "Cluster initialisieren",
-  "initClusterDesc": "Dadurch wird ein neuer Cluster mit diesem Knoten als erstem Mitglied erstellt. Sie erhalten ein Cluster-Token, um weitere Knoten hinzuzufügen.",
+  "initClusterDesc": "Erstellt einen neuen Cluster mit diesem Knoten als erstem Mitglied. Weitere Knoten werden über Knoten verwalten, Knoten hinzufügen aufgenommen.",
   "nodeName": "Knotenname",
   "nodeNameHint": "Optional. Leer lassen für automatische Generierung.",
   "regionOptional": "Region (optional)",
@@ -21,23 +20,14 @@
   "initialize": "Initialisieren",
   "failedToInitCluster": "Cluster konnte nicht initialisiert werden",
 
-  "joinClusterTitle": "Bestehendem Cluster beitreten",
-  "joinClusterDesc": "Geben Sie den Endpunkt eines bestehenden Cluster-Knotens und das Cluster-Token ein, um beizutreten.",
-  "clusterNodeEndpoint": "Cluster-Knoten-IP-Adresse",
-  "clusterNodeEndpointHint": "IP-Adresse (oder IP:Port) eines bestehenden Cluster-Knotens. Standardport ist 8082.",
   "clusterToken": "Cluster-Token",
-  "clusterTokenPlaceholder": "Cluster-Token hier einfügen...",
-  "clusterTokenHint": "Das Token, das bei der Cluster-Initialisierung angezeigt wurde",
-  "joining": "Wird beigetreten...",
-  "joinCluster": "Cluster beitreten",
-  "failedToJoinCluster": "Cluster konnte nicht beigetreten werden",
 
   "clusterInitialized": "Cluster initialisiert",
-  "saveTokenWarning": "Speichern Sie dieses Token jetzt. Sie benötigen es, um weitere Knoten zu diesem Cluster hinzuzufügen.",
+  "saveTokenWarning": "Die Knoten des Clusters authentifizieren sich gegenseitig mit diesem Token: Halten Sie es geheim. Weitere Knoten werden über Knoten verwalten, Knoten hinzufügen mit ihren Administrator-Zugangsdaten aufgenommen.",
   "iHaveSavedToken": "Ich habe das Token gespeichert",
 
   "clusterTokenTitle": "Cluster-Token",
-  "clusterTokenDesc": "Verwenden Sie dieses Token, um weitere Knoten zu diesem Cluster hinzuzufügen. Sie können es im Formular \"Bestehendem Cluster beitreten\" auf einem eigenständigen Knoten eingeben, oder \"Knoten hinzufügen\" von diesem Cluster aus verwenden, um Knoten automatisch hinzuzufügen.",
+  "clusterTokenDesc": "Die Knoten des Clusters authentifizieren sich gegenseitig mit diesem Token: Halten Sie es geheim. Weitere Knoten werden über Knoten verwalten, Knoten hinzufügen mit ihren Administrator-Zugangsdaten aufgenommen.",
   "failedToRetrieveToken": "Cluster-Token konnte nicht abgerufen werden",
   "close": "Schließen",
 
@@ -85,6 +75,7 @@
   "statusDead": "Ausgefallen",
   "statusStoragePressure": "Speicherdruck",
   "thisNode": "(Dieser Knoten)",
+  "drainedNode": "(außer Betrieb)",
   "encryptionSecretMismatch": "Abweichender Verschlüsselungsschlüssel",
   "encryptionSecretMismatchHint": "Dieser Knoten kann die von den anderen gespeicherten Zugangsdaten nicht entschlüsseln. Der Koordinator sendet ihm innerhalb einer Minute seinen Schlüssel; bleibt es bestehen, prüfen Sie die Logs beider Knoten.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Entwässern",
   "drainLocalDisabled": "Lokaler Knoten kann nicht entwässert werden — führen Sie die Entwässerung von einem anderen Cluster-Knoten aus.",
-  "drainDeadDisabled": "Knoten ist bereits ausgefallen.",
+  "drainDrainedDisabled": "Knoten ist bereits außer Betrieb genommen.",
   "drainNodeConfirmTitle": "Knoten entwässern",
   "drainNodeConfirmBody": "Knoten {{node}} als ausgefallen markieren und seine Replikate sofort neu verteilen? Verwenden Sie dies für geplante Außerbetriebnahme.",
   "drainNodeSuccess": "Knoten {{node}} entwässert — Neuverteilung gestartet.",

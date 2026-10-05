@@ -3,6 +3,7 @@ package object
 import (
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -92,6 +93,15 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 
 	// GetObject handles decryption transparently
 	_, reader, err := om.GetObject(ctx, bucket, key)
+	var elsewhere *DataElsewhereError
+	if errors.As(err, &elsewhere) {
+		return &IntegrityResult{
+			Key:        key,
+			Status:     IntegritySkipped,
+			StoredETag: storedETag,
+			Reason:     "data held by other nodes of the cluster",
+		}, nil
+	}
 	if err != nil {
 		// Distinguish a missing file from other errors
 		errStr := err.Error()

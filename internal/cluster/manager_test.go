@@ -31,6 +31,11 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("Failed to initialize schema: %v", err)
 	}
+	if err := InitReplicationSchema(db); err != nil {
+		db.Close()
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to initialize replication schema: %v", err)
+	}
 
 	cleanup := func() {
 		db.Close()

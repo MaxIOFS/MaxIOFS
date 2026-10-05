@@ -122,7 +122,45 @@ func InitSchema(db *sql.DB) error {
 	if err := applyBucketTombstoneMigration(db); err != nil {
 		return err
 	}
-	return applyRowVersionMigration(db)
+	if err := applyRowVersionMigration(db); err != nil {
+		return err
+	}
+	return applyMembershipMigration(db)
+}
+
+// applyMembershipMigration adds what every node keeps alike of a node (when
+// those fields last changed, and whether an administrator drained it) and
+// when a catch-up of the node began that has not ended.
+func applyMembershipMigration(db *sql.DB) error {
+	existing := map[string]bool{}
+	rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	rows.Close()
+	for _, c := range []struct{ name, definition string }{
+		{"changed_at", "changed_at INTEGER NOT NULL DEFAULT 0"},
+		{"drained", "drained INTEGER NOT NULL DEFAULT 0"},
+		{"replica_catchup_since", "replica_catchup_since INTEGER"},
+	} {
+		if existing[c.name] {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN " + c.definition); err != nil {
+			return fmt.Errorf("failed to add column %s: %w", c.name, err)
+		}
+	}
+	return nil
 }
 
 // applyDeadNodeMigration adds the unavailable_since column needed for the

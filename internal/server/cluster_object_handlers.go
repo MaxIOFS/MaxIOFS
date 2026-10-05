@@ -357,52 +357,14 @@ func (s *Server) handleReceiveIDPProviderDeleteSync(w http.ResponseWriter, r *ht
 		"provider_id":    deleteData.ID,
 	}).Info("Receiving IDP provider deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"provider_id":    deleteData.ID,
-		}).Info("Skipping IDP provider deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeIDPProvider, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Delete group mappings for this provider first (cascade)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE provider_id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete group mappings for provider")
-		http.Error(w, fmt.Sprintf("Failed to delete mappings: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Delete the provider
-	result, err := s.db.ExecContext(ctx, `DELETE FROM identity_providers WHERE id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete IDP provider")
-		http.Error(w, fmt.Sprintf("Failed to delete provider: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeIDPProvider, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-		logrus.WithError(err).WithField("provider_id", deleteData.ID).Warn("Failed to record IDP provider deletion tombstone")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"provider_id":   deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("IDP provider deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "IDP provider deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // handleReceiveGroupMappingSync handles incoming IDP group mapping synchronization from other nodes
@@ -588,43 +550,14 @@ func (s *Server) handleReceiveGroupMappingDeleteSync(w http.ResponseWriter, r *h
 		"mapping_id":     deleteData.ID,
 	}).Info("Receiving group mapping deletion from synchronization")
 
-	// Phase 4: Tombstone vs entity LWW.
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"mapping_id":     deleteData.ID,
-		}).Info("Skipping group mapping deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeGroupMapping, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	result, err := s.db.ExecContext(ctx, `DELETE FROM idp_group_mappings WHERE id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete group mapping")
-		http.Error(w, fmt.Sprintf("Failed to delete mapping: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeGroupMapping, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-		logrus.WithError(err).WithField("mapping_id", deleteData.ID).Warn("Failed to record group mapping deletion tombstone")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"mapping_id":    deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("Group mapping deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Group mapping deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // handleReceiveAccessKeyDeleteSync handles incoming access key deletion from cluster sync
@@ -661,44 +594,14 @@ func (s *Server) handleReceiveAccessKeyDeleteSync(w http.ResponseWriter, r *http
 		"access_key_id":  deleteData.ID,
 	}).Info("Receiving access key deletion from synchronization")
 
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"access_key_id":  deleteData.ID,
-		}).Info("Skipping access key deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeAccessKey, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	result, err := s.db.ExecContext(ctx, `DELETE FROM access_keys WHERE access_key_id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete access key")
-		http.Error(w, fmt.Sprintf("Failed to delete access key: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	alreadyHasTombstone, _ := cluster.HasDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID)
-	if rowsAffected > 0 || !alreadyHasTombstone {
-		if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeAccessKey, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-			logrus.WithError(err).WithField("access_key_id", deleteData.ID).Warn("Failed to record access key deletion tombstone")
-		}
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"access_key_id": deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("Access key deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Access key deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // handleReceiveBucketPermissionDeleteSync handles incoming bucket permission deletion from cluster sync
@@ -735,42 +638,14 @@ func (s *Server) handleReceiveBucketPermissionDeleteSync(w http.ResponseWriter, 
 		"permission_id":  deleteData.ID,
 	}).Info("Receiving bucket permission deletion from synchronization")
 
-	if cluster.EntityIsNewerThanTombstone(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, deleteData.DeletedAt) {
-		logrus.WithFields(logrus.Fields{
-			"source_node_id": sourceNodeID,
-			"permission_id":  deleteData.ID,
-		}).Info("Skipping bucket permission deletion: local entity was updated after tombstone (LWW)")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Skipped (entity is newer than tombstone)"})
+	if _, err := s.applyReceivedDeletion(ctx, cluster.EntityTypeBucketPermission, deleteData.ID, receivedDeletionTime(deleteData.DeletedAt), sourceNodeID); err != nil {
+		logrus.WithError(err).WithField("id", deleteData.ID).Error("Failed to apply a received deletion")
+		http.Error(w, "Failed to apply deletion: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	result, err := s.db.ExecContext(ctx, `DELETE FROM bucket_permissions WHERE id = ?`, deleteData.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to delete bucket permission")
-		http.Error(w, fmt.Sprintf("Failed to delete permission: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-
-	// Record tombstone locally so this node doesn't re-sync the item
-	if err := cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeBucketPermission, deleteData.ID, sourceNodeID, receivedDeletionTime(deleteData.DeletedAt)); err != nil {
-		logrus.WithError(err).WithField("permission_id", deleteData.ID).Warn("Failed to record bucket permission deletion tombstone")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"permission_id": deleteData.ID,
-		"rows_affected": rowsAffected,
-	}).Info("Bucket permission deletion synchronized successfully")
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Bucket permission deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // receivedDeletionTime is when a deletion another node sends was made, or now
@@ -812,19 +687,13 @@ func (s *Server) handleReceiveDeletionLogSync(w http.ResponseWriter, r *http.Req
 		if entry.DeletedAt <= 0 {
 			continue
 		}
-		if cluster.EntityIsNewerThanTombstone(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedAt) {
-			logrus.WithFields(logrus.Fields{
-				"entity_type": entry.EntityType,
-				"entity_id":   entry.EntityID,
-			}).Debug("Skipping tombstone: local entity is newer (LWW)")
-			continue
-		}
-		if err := cluster.RecordDeletion(ctx, s.db, entry.EntityType, entry.EntityID, entry.DeletedByNodeID, entry.DeletedAt); err != nil {
+		if _, err := s.applyReceivedDeletion(ctx, entry.EntityType, entry.EntityID, entry.DeletedAt, entry.DeletedByNodeID); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"entity_type": entry.EntityType,
 				"entity_id":   entry.EntityID,
-			}).Warn("Failed to record deletion log entry")
-			continue
+			}).Warn("Failed to apply a deletion log entry")
+			http.Error(w, "Failed to apply deletion", http.StatusInternalServerError)
+			return
 		}
 		recorded++
 	}
@@ -858,6 +727,10 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = cluster.WithHAReplicaContext(ctx)
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, r.Header.Get(cluster.HAObjectVersionHeader)) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	// Raw ciphertext transfer: store the encrypted bytes + sidecar + Pebble
 	// metadata exactly as sent by the primary — no decrypt/re-encrypt.
@@ -907,6 +780,10 @@ func (s *Server) handleHAReceiveRawPut(w http.ResponseWriter, r *http.Request, c
 		http.Error(w, "invalid raw object-meta payload", http.StatusBadRequest)
 		return
 	}
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, metaObj.VersionID) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	// Guard: this node must hold the cluster-shared KEK version that wraps the
 	// object's DEK, or it could never serve reads for it.
@@ -943,11 +820,16 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "conflicting version headers", http.StatusBadRequest)
 		return
 	}
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, deleteMarkerVersionID) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if deleteMarkerVersionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, deleteMarkerVersionID)
 		if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok {
 			ctx = object.WithReplicatedLastModified(ctx, lm)
 		}
+		ctx = cluster.WithHAWrittenAt(ctx, r.Header)
 	}
 
 	var err error
@@ -956,11 +838,28 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_, err = s.objectManager.DeleteObject(ctx, bucketPath, key, false)
 	}
-	if err != nil {
+	if status := haDeleteStatus(err); status != http.StatusNoContent {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketPath, "key": key}).
-			Warn("HA receive DELETE failed (may already be deleted)")
+			Warn("HA: a delete from another node was not applied")
+		http.Error(w, err.Error(), status)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// haDeleteStatus tells the sender of a delete what came of it: done, when the
+// key is gone here whether or not this delete removed it; refused, when its
+// lock keeps it and sending it again changes nothing; or failed.
+func haDeleteStatus(err error) int {
+	var retention *object.RetentionError
+	switch {
+	case err == nil, errors.Is(err, object.ErrObjectNotFound), errors.Is(err, object.ErrBucketNotFound):
+		return http.StatusNoContent
+	case errors.As(err, &retention), errors.Is(err, object.ErrObjectUnderLegalHold),
+		errors.Is(err, object.ErrObjectLocked), errors.Is(err, object.ErrRetentionPeriod):
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 // handleHABucketState applies what another node reports about a bucket: its
@@ -1148,9 +1047,13 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, key)
+	// Served from this node's data only: a node that does not hold it answers
+	// 404 and the reader asks another.
+	ctx := cluster.WithHAReplicaContext(r.Context())
+	obj, reader, err := s.objectManager.GetObject(ctx, bucketPath, key, r.URL.Query().Get("versionId"))
 	if err != nil {
-		if err == object.ErrObjectNotFound {
+		var elsewhere *object.DataElsewhereError
+		if err == object.ErrObjectNotFound || errors.As(err, &elsewhere) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -1158,6 +1061,11 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer reader.Close()
+	offset, err := haRangeStart(r.Header.Get("Range"), obj.Size)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
 
 	// Forward all object metadata as headers so the receiver can reconstruct it.
 	w.Header().Set("Content-Type", obj.ContentType)
@@ -1183,6 +1091,7 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	if !obj.LastModified.IsZero() && obj.LastModified.Unix() > 0 {
 		w.Header().Set(cluster.HALastModifiedHeader, fmt.Sprintf("%d", obj.LastModified.Unix()))
 	}
+	cluster.SetHAWrittenAt(w.Header(), obj.WrittenAt)
 	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
 		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
@@ -1192,19 +1101,105 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	cluster.SetHAObjectLock(w.Header(), obj)
 	cluster.SetHAAttributes(w.Header(), obj)
-	if obj.Size > 0 {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+	w.Header().Set(cluster.HAETagHeader, obj.ETag)
+	if offset > 0 {
+		if _, err := io.CopyN(io.Discard, reader, offset); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size-offset))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		if obj.Size > 0 {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+		}
+		w.WriteHeader(http.StatusOK)
 	}
-	w.WriteHeader(http.StatusOK)
 	io.Copy(w, reader) //nolint:errcheck
 }
 
-// handleHAChecksumBatch returns (etag, size, last_modified) for each requested
-func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Bucket string   `json:"bucket"`
-		Keys   []string `json:"keys"`
+// haRangeStart is where a "bytes=N-" range another node asks for starts: 0
+// without one. A start past the end is refused.
+func haRangeStart(header string, size int64) (int64, error) {
+	if header == "" {
+		return 0, nil
 	}
+	spec, ok := strings.CutPrefix(header, "bytes=")
+	start, rest, dash := strings.Cut(spec, "-")
+	if !ok || !dash || rest != "" {
+		return 0, fmt.Errorf("unsupported range %q", header)
+	}
+	offset, err := strconv.ParseInt(start, 10, 64)
+	if err != nil || offset < 0 || (offset > 0 && offset >= size) {
+		return 0, fmt.Errorf("unsatisfiable range %q", header)
+	}
+	return offset, nil
+}
+
+// handleHAReceiveObjectEntry stores the entry of an object whose data other
+// nodes hold.
+// PUT /api/internal/cluster/ha/object-entry
+func (s *Server) handleHAReceiveObjectEntry(w http.ResponseWriter, r *http.Request) {
+	var entry metadata.ObjectMetadata
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if entry.Bucket == "" || entry.Key == "" || len(entry.Locations) == 0 {
+		http.Error(w, "an entry names its bucket, key and the nodes holding its data", http.StatusBadRequest)
+		return
+	}
+	ctx := cluster.WithHAReplicaContext(r.Context())
+	if cluster.VersionDeleted(ctx, s.db, entry.Bucket, entry.Key, entry.VersionID) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var writer object.ReplicaMetadataWriter
+	if ha, isHA := s.objectManager.(*cluster.HAObjectManager); isHA {
+		writer, _ = ha.Manager.(object.ReplicaMetadataWriter)
+	}
+	if writer == nil {
+		http.Error(w, "entries are not stored on this node", http.StatusNotImplemented)
+		return
+	}
+	err := writer.PutReplicaMetadata(ctx, &entry)
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, object.ErrBucketNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": entry.Bucket, "key": entry.Key}).
+			Error("HA: failed to store the entry of an object other nodes hold")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleHAListMultipartUploads lists the multipart uploads of a bucket started
+// on this node.
+// GET /api/internal/cluster/ha/multipart-uploads?bucket=<path>
+func (s *Server) handleHAListMultipartUploads(w http.ResponseWriter, r *http.Request) {
+	bucketPath := r.URL.Query().Get("bucket")
+	if bucketPath == "" {
+		http.Error(w, "missing bucket", http.StatusBadRequest)
+		return
+	}
+	uploads, err := s.objectManager.ListMultipartUploads(r.Context(), bucketPath)
+	if err != nil && !errors.Is(err, object.ErrBucketNotFound) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if uploads == nil {
+		uploads = []object.MultipartUpload{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"uploads": uploads}) //nolint:errcheck
+}
+
+// handleHAChecksumBatch returns the etag, size and times of each requested key
+// and, when asked, the IDs of its versions and delete markers.
+func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
+	var req cluster.ChecksumRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -1216,75 +1211,26 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]cluster.ChecksumEntry, 0, len(req.Keys))
 	for _, key := range req.Keys {
-		obj, err := s.objectManager.GetObjectMetadata(r.Context(), req.Bucket, key)
-		if err != nil || obj == nil {
-			entries = append(entries, cluster.ChecksumEntry{Key: key, Found: false})
-			continue
+		entry := cluster.ChecksumEntry{Key: key}
+		if req.Versions {
+			var err error
+			if entry.Versions, err = cluster.KeyVersionIDs(r.Context(), s.objectManager, req.Bucket, key); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
-		entries = append(entries, cluster.ChecksumEntry{
-			Key:          key,
-			Found:        true,
-			ETag:         obj.ETag,
-			Size:         obj.Size,
-			LastModified: obj.LastModified.Unix(),
-		})
+		if obj, err := s.objectManager.GetObjectMetadata(r.Context(), req.Bucket, key); err == nil && obj != nil {
+			entry.Found = true
+			entry.ETag = obj.ETag
+			entry.Size = obj.Size
+			entry.LastModified = obj.LastModified.Unix()
+			entry.WrittenAt = obj.WrittenAt
+		}
+		entries = append(entries, entry)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"entries": entries}) //nolint:errcheck
-}
-
-// handleHAListChangedSince lists objects modified after a given Unix timestamp.
-// GET /api/internal/ha/objects/changed-since?bucket=<path>&since=<unix>&marker=<key>
-// Returns JSON suitable for the stale-reconciler delta-sync loop.
-func (s *Server) handleHAListChangedSince(w http.ResponseWriter, r *http.Request) {
-	bucketPath := r.URL.Query().Get("bucket")
-	sinceStr := r.URL.Query().Get("since")
-	marker := r.URL.Query().Get("marker")
-
-	if bucketPath == "" || sinceStr == "" {
-		http.Error(w, "missing bucket or since", http.StatusBadRequest)
-		return
-	}
-
-	sinceUnix, err := strconv.ParseInt(sinceStr, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid since timestamp", http.StatusBadRequest)
-		return
-	}
-	sinceTime := time.Unix(sinceUnix, 0)
-
-	result, err := s.objectManager.SearchObjects(
-		r.Context(), bucketPath, "", "", marker, 500,
-		&metadata.ObjectFilter{ModifiedAfter: &sinceTime},
-	)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	type entry struct {
-		Key          string    `json:"key"`
-		LastModified time.Time `json:"last_modified"`
-		ETag         string    `json:"etag"`
-	}
-	resp := struct {
-		Objects     []entry `json:"objects"`
-		NextMarker  string  `json:"next_marker,omitempty"`
-		IsTruncated bool    `json:"is_truncated"`
-	}{
-		NextMarker:  result.NextMarker,
-		IsTruncated: result.IsTruncated,
-	}
-	for _, obj := range result.Objects {
-		resp.Objects = append(resp.Objects, entry{
-			Key:          obj.Key,
-			LastModified: obj.LastModified,
-			ETag:         obj.ETag,
-		})
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	json.NewEncoder(w).Encode(cluster.ChecksumResponse{Entries: entries, Versions: req.Versions}) //nolint:errcheck
 }
 
 // handleGetLocalAuditLogs returns this node's audit logs as a flat JSON array.

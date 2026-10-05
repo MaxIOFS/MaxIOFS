@@ -6,12 +6,11 @@
   "loadingClusterData": "Chargement des données du cluster...",
 
   "clusterNotInitialized": "Cluster non initialisé",
-  "clusterNotInitializedDesc": "Initialisez un nouveau cluster ou rejoignez un cluster existant pour activer la réplication multi-nœuds et la haute disponibilité",
+  "clusterNotInitializedDesc": "Initialisez un nouveau cluster avec ce nœud, ou ajoutez ce nœud à un cluster existant depuis la console de ce cluster : Gérer les nœuds, Ajouter un nœud.",
   "initializeCluster": "Initialiser le cluster",
-  "joinExistingCluster": "Rejoindre un cluster existant",
 
   "initClusterTitle": "Initialiser le cluster",
-  "initClusterDesc": "Cela créera un nouveau cluster avec ce nœud comme premier membre. Vous recevrez un jeton de cluster pour ajouter d'autres nœuds.",
+  "initClusterDesc": "Crée un nouveau cluster dont ce nœud est le premier membre. Les autres nœuds s'ajoutent depuis Gérer les nœuds, Ajouter un nœud.",
   "nodeName": "Nom du nœud",
   "nodeNameHint": "Facultatif. Laisser vide pour la génération automatique.",
   "regionOptional": "Région (facultatif)",
@@ -21,23 +20,14 @@
   "initialize": "Initialiser",
   "failedToInitCluster": "Échec de l'initialisation du cluster",
 
-  "joinClusterTitle": "Rejoindre un cluster existant",
-  "joinClusterDesc": "Saisissez le point de terminaison d'un nœud de cluster existant et le jeton de cluster pour rejoindre.",
-  "clusterNodeEndpoint": "Adresse IP du nœud de cluster",
-  "clusterNodeEndpointHint": "Adresse IP (ou IP:port) d'un nœud de cluster existant. Le port par défaut est 8082.",
   "clusterToken": "Jeton de cluster",
-  "clusterTokenPlaceholder": "Collez le jeton de cluster ici...",
-  "clusterTokenHint": "Le jeton affiché lors de l'initialisation du cluster",
-  "joining": "Connexion...",
-  "joinCluster": "Rejoindre le cluster",
-  "failedToJoinCluster": "Échec de la connexion au cluster",
 
   "clusterInitialized": "Cluster initialisé",
-  "saveTokenWarning": "Enregistrez ce jeton maintenant. Vous en aurez besoin pour ajouter d'autres nœuds à ce cluster.",
+  "saveTokenWarning": "Les nœuds du cluster s'authentifient entre eux avec ce jeton : gardez-le secret. Les autres nœuds s'ajoutent depuis Gérer les nœuds, Ajouter un nœud, avec leurs identifiants d'administrateur.",
   "iHaveSavedToken": "J'ai enregistré le jeton",
 
   "clusterTokenTitle": "Jeton de cluster",
-  "clusterTokenDesc": "Utilisez ce jeton pour ajouter d'autres nœuds à ce cluster. Vous pouvez le fournir dans le formulaire \"Rejoindre un cluster existant\" sur un nœud autonome, ou utiliser \"Ajouter un nœud\" depuis ce cluster pour ajouter des nœuds automatiquement.",
+  "clusterTokenDesc": "Les nœuds du cluster s'authentifient entre eux avec ce jeton : gardez-le secret. Les autres nœuds s'ajoutent depuis Gérer les nœuds, Ajouter un nœud, avec leurs identifiants d'administrateur.",
   "failedToRetrieveToken": "Échec de la récupération du jeton de cluster",
   "close": "Fermer",
 
@@ -85,6 +75,7 @@
   "statusDead": "Mort",
   "statusStoragePressure": "Pression de stockage",
   "thisNode": "(Ce nœud)",
+  "drainedNode": "(retiré)",
   "encryptionSecretMismatch": "Clé de chiffrement différente",
   "encryptionSecretMismatchHint": "Ce nœud ne peut pas déchiffrer les identifiants stockés par les autres. Le coordinateur lui envoie sa clé en moins d'une minute ; si cela persiste, consultez les journaux des deux nœuds.",
 
@@ -93,7 +84,7 @@
 
   "drainNode": "Vider",
   "drainLocalDisabled": "Impossible de vider le nœud local — effectuez le vidage depuis un autre nœud du cluster.",
-  "drainDeadDisabled": "Le nœud est déjà mort.",
+  "drainDrainedDisabled": "Le nœud est déjà retiré.",
   "drainNodeConfirmTitle": "Vider le nœud",
   "drainNodeConfirmBody": "Marquer le nœud {{node}} comme mort et redistribuer immédiatement ses répliques ? Utilisez ceci pour la décommission planifiée.",
   "drainNodeSuccess": "Nœud {{node}} vidé — redistribution commencée.",

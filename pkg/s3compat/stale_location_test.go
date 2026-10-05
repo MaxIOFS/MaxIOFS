@@ -28,22 +28,12 @@ func (r *rememberingRouter) InvalidateCache(bucket string) {
 
 type forwardingClusterManager struct{}
 
-func (forwardingClusterManager) IsClusterEnabled() bool { return true }
-func (forwardingClusterManager) SelectReadNode(context.Context, string) (*cluster.Node, error) {
-	return nil, nil
+func (forwardingClusterManager) IsClusterEnabled() bool                         { return true }
+func (forwardingClusterManager) GetLocalNodeID(context.Context) (string, error) { return "here", nil }
+func (forwardingClusterManager) GetLocalNodeToken(context.Context) (string, error) {
+	return "token", nil
 }
-func (forwardingClusterManager) SelectReadNodes(context.Context, string) ([]*cluster.Node, error) {
-	return nil, nil
-}
-func (forwardingClusterManager) ProxyRead(context.Context, http.ResponseWriter, *http.Request, *cluster.Node) error {
-	return nil
-}
-func (forwardingClusterManager) TryProxyRead(context.Context, http.ResponseWriter, *http.Request, *cluster.Node) (bool, error) {
-	return false, nil
-}
-func (forwardingClusterManager) GetLocalNodeID(context.Context) (string, error)    { return "here", nil }
-func (forwardingClusterManager) GetLocalNodeToken(context.Context) (string, error) { return "token", nil }
-func (forwardingClusterManager) GetTLSConfig() *tls.Config                          { return nil }
+func (forwardingClusterManager) GetTLSConfig() *tls.Config { return nil }
 
 // A node told by the node it forwarded to that the bucket is not there forgets
 // where it thought the bucket was, and passes the retryable answer on without

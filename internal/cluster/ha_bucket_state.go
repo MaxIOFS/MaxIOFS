@@ -75,14 +75,25 @@ func bucketTombstone(ctx context.Context, db *sql.DB, path string) (int64, error
 }
 
 // cleanupBucketTombstones forgets deletions older than maxAge, as the deletion
-// log does.
+// log does, unless a member of the cluster has yet to be sent them.
 func cleanupBucketTombstones(ctx context.Context, db *sql.DB, maxAge time.Duration) (int64, error) {
 	result, err := db.ExecContext(ctx, `DELETE FROM ha_bucket_tombstones WHERE deleted_at < ?`,
-		time.Now().Add(-maxAge).UnixNano())
+		forgetBefore(ctx, db, maxAge))
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// forgetBefore is the time (unix nanoseconds) before which a deletion of a
+// bucket or a row may be forgotten: maxAge ago, or earlier when a member of the
+// cluster has yet to be sent what this node changed since then.
+func forgetBefore(ctx context.Context, db *sql.DB, maxAge time.Duration) int64 {
+	cutoff := time.Now().Add(-maxAge).UnixNano()
+	if since, ok := oldestUnsentChange(ctx, db); ok && since*int64(time.Second) < cutoff {
+		cutoff = since * int64(time.Second)
+	}
+	return cutoff
 }
 
 type bucketTombstoneRow struct {
@@ -421,14 +432,23 @@ type BucketStateReceiver struct {
 	retention retentionChecker
 	keys      keyLister
 	db        *sql.DB
+	objects   objectRemover
+	publish   func(ctx context.Context, tenantID, name string)
+}
+
+// objectRemover deletes an object or one of its versions.
+type objectRemover interface {
+	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error)
 }
 
 // NewBucketStateReceiver wires the receiving side. remover is this node's own
-// bucket manager, which does not tell the other nodes.
+// bucket manager, which does not tell the other nodes; objects deletes this
+// node's copies; publish sends a bucket this node holds to the others.
 func NewBucketStateReceiver(store metadata.Store, backend storage.Backend, aclMgr acl.Manager, remover bucketRemover,
-	retention retentionChecker, keys keyLister, db *sql.DB) *BucketStateReceiver {
+	retention retentionChecker, keys keyLister, db *sql.DB, objects objectRemover,
+	publish func(ctx context.Context, tenantID, name string)) *BucketStateReceiver {
 	return &BucketStateReceiver{store: store, backend: backend, acl: aclMgr, remover: remover,
-		retention: retention, keys: keys, db: db}
+		retention: retention, keys: keys, db: db, objects: objects, publish: publish}
 }
 
 // Apply stores what st reports when it is newer than what this node holds.
@@ -501,8 +521,8 @@ func (r *BucketStateReceiver) applyDeletion(ctx context.Context, st *BucketState
 	if newer, err := r.writtenAfter(ctx, path, st.DeletedAt); err != nil {
 		return err
 	} else if newer {
-		log.Warn("HA: a bucket deleted on another node holds objects written here after the deletion; kept")
-		return nil
+		log.Warn("HA: a bucket deleted on another node holds objects written here after the deletion; kept with them only")
+		return r.keepWrittenAfter(ctx, local, st.DeletedAt)
 	}
 	if locked, err := r.retention.HasActiveComplianceRetention(ctx, path); err != nil {
 		return err
@@ -516,11 +536,53 @@ func (r *BucketStateReceiver) applyDeletion(ctx context.Context, st *BucketState
 	return nil
 }
 
-// writtenAfter reports whether a key of the bucket was last written after the
-// given time. Object times are whole seconds: a write in the second of the
-// deletion counts as made after it.
+// keepWrittenAfter keeps a bucket written to here after another node deleted
+// it, as a bucket created again then: what was written before the deletion
+// goes, and the bucket is sent to the other nodes as changed now, so they take
+// it and its later writes.
+func (r *BucketStateReceiver) keepWrittenAfter(ctx context.Context, local *metadata.BucketMetadata, deletedAt int64) error {
+	path := tenantBucketPath(local.TenantID, local.Name)
+	versions, err := r.store.ListAllObjectVersions(ctx, path, "", 0)
+	if err != nil {
+		return err
+	}
+	replica := WithHAReplicaContext(ctx)
+	for _, v := range versions {
+		if writtenSince(v.LastModified, v.WrittenAt, deletedAt) {
+			continue
+		}
+		var version []string
+		if v.VersionID != "" && v.VersionID != "null" {
+			version = []string{v.VersionID}
+		}
+		if _, err := r.objects.DeleteObject(replica, path, v.Key, true, version...); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": path, "key": v.Key, "version_id": v.VersionID}).
+				Warn("HA: an object written before the deletion of its bucket elsewhere could not be removed")
+		}
+	}
+	if err := r.store.UpdateBucket(ctx, local); err != nil {
+		return err
+	}
+	if r.publish != nil {
+		r.publish(ctx, local.TenantID, local.Name)
+	}
+	return nil
+}
+
+// writtenSince reports whether an object was written at or after a time (unix
+// nanoseconds). Object times are whole seconds: within the second of the time
+// the time of the write orders them when the object carries it; without it,
+// the write counts as made at or after.
+func writtenSince(modified time.Time, writtenAt, at int64) bool {
+	if in := time.Unix(0, at).Unix(); modified.Unix() != in || writtenAt <= 0 {
+		return modified.Unix() >= in
+	}
+	return writtenAt >= at
+}
+
+// writtenAfter reports whether a key of the bucket was last written at or
+// after the given time (unix nanoseconds).
 func (r *BucketStateReceiver) writtenAfter(ctx context.Context, path string, at int64) (bool, error) {
-	deletedIn := time.Unix(0, at).Unix()
 	marker := ""
 	for {
 		entries, next, err := r.keys.ListObjects(ctx, path, "", marker, syncPageSize)
@@ -528,7 +590,7 @@ func (r *BucketStateReceiver) writtenAfter(ctx context.Context, path string, at 
 			return false, err
 		}
 		for _, e := range entries {
-			if e.LastModified.Unix() >= deletedIn {
+			if writtenSince(e.LastModified, e.WrittenAt, at) {
 				return true, nil
 			}
 		}

@@ -294,15 +294,7 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 
 	var obj *object.Object
 	var err error
-	if versionID != "" {
-		var reader io.ReadCloser
-		obj, reader, err = h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
-		if reader != nil {
-			reader.Close()
-		}
-	} else {
-		obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey)
-	}
+	obj, err = h.objectManager.GetObjectMetadata(r.Context(), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
@@ -775,6 +767,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
 				return
 			}
+			if h.writeDataUnavailable(w, r, sourceKey, getErr) {
+				return
+			}
 			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)
 			return
 		}
@@ -784,6 +779,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		if getErr != nil {
 			if getErr == object.ErrObjectNotFound {
 				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
+				return
+			}
+			if h.writeDataUnavailable(w, r, sourceKey, getErr) {
 				return
 			}
 			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)

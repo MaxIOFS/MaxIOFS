@@ -21,25 +21,50 @@ import (
 
 // haPair is two complete nodes of a cluster whose replication factor is 2,
 // each able to reach the other. bDown makes b answer every request from a
-// node with 503; bRefused counts those answers.
+// node with 503; bRefused counts those answers. aDown does the same for a.
 type haPair struct {
 	a, b     *Server
 	aID, bID string
+	aDown    atomic.Bool
 	bDown    atomic.Bool
 	bRefused atomic.Int32
+	// bStray counts requests to b's cluster port for a path it has no route
+	// for, as an S3 request forwarded there.
+	bStray atomic.Int32
+	// bFailKey, when set, makes b fail every copy of the object of that key.
+	bFailKey atomic.Value
+	// bCopies counts the copies of an object b is sent.
+	bCopies atomic.Int32
 }
 
 func newHAPair(t *testing.T) *haPair {
 	t.Helper()
 	p := &haPair{a: newClusterTestNode(t), b: newClusterTestNode(t)}
 	ctx := context.Background()
-	tsA := httptest.NewServer(p.a.clusterServer.Handler)
+	aRoutes := p.a.clusterServer.Handler
+	tsA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p.aDown.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		aRoutes.ServeHTTP(w, r)
+	}))
 	t.Cleanup(tsA.Close)
 	bRoutes := p.b.clusterServer.Handler
 	tsB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if p.bDown.Load() {
 			p.bRefused.Add(1)
 			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		if r.URL.Path != "/health" && !strings.HasPrefix(r.URL.Path, "/api/internal/") {
+			p.bStray.Add(1)
+		}
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/ha/objects/") {
+			p.bCopies.Add(1)
+		}
+		if key, _ := p.bFailKey.Load().(string); key != "" && r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/"+key) {
+			http.Error(w, "failing", http.StatusInternalServerError)
 			return
 		}
 		bRoutes.ServeHTTP(w, r)
@@ -70,6 +95,10 @@ func newHAPair(t *testing.T) *haPair {
 		_, err := link.s.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, link.peer.ID)
 		require.NoError(t, err)
 		require.NoError(t, link.s.clusterManager.SetReplicationFactor(ctx, 2))
+		// The nodes share the test machine's disk; how full it is must not
+		// put them under storage pressure.
+		require.NoError(t, cluster.SetGlobalConfig(ctx, link.s.db, "ha.storage_pressure_threshold_percent", "100"))
+		require.NoError(t, cluster.SetGlobalConfig(ctx, link.s.db, "ha.storage_pressure_release_percent", "99"))
 	}
 	return p
 }
@@ -92,6 +121,14 @@ func missedSince(t *testing.T, s *Server, nodeID string) *int64 {
 	var since *int64
 	require.NoError(t, s.db.QueryRow(`SELECT replica_missed_since FROM cluster_nodes WHERE id = ?`, nodeID).Scan(&since))
 	return since
+}
+
+// markHealthy records nodeID healthy on s, as a health check that finds it
+// back does, without the catch-up that follows.
+func markHealthy(t *testing.T, s *Server, nodeID string) {
+	t.Helper()
+	_, err := s.db.Exec(`UPDATE cluster_nodes SET health_status = ?, unavailable_since = NULL WHERE id = ?`, cluster.HealthStatusHealthy, nodeID)
+	require.NoError(t, err)
 }
 
 func clearMissed(t *testing.T, s *Server, nodeID string) {
@@ -124,7 +161,8 @@ func TestHABucketChangesReachTheOtherNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, granted, aclOnB)
 
-	_, err = p.a.objectManager.PutObject(ctx, "shared", "k", strings.NewReader("data"), http.Header{})
+	// Written on a alone: b's counters stay those of what it holds.
+	_, err = p.a.objectManager.(*cluster.HAObjectManager).Manager.PutObject(ctx, "shared", "k", strings.NewReader("data"), http.Header{})
 	require.NoError(t, err)
 	assert.True(t, bucketOn(t, p.a, "", "shared").UpdatedAt.Equal(onA.UpdatedAt), "a write is not a change to the bucket")
 	require.NoError(t, a.SetQuota(ctx, "", "shared", &metadata.BucketQuota{MaxSizeBytes: 1 << 20}))
@@ -322,7 +360,12 @@ func TestHABucketDeletionKeepsNewerData(t *testing.T) {
 	before := time.Now()
 	put("written", http.Header{})
 	deleteAt("written", before)
-	assert.True(t, hasBucket(s, "", "written"), "a write in the second of the deletion or later is kept")
+	assert.True(t, hasBucket(s, "", "written"), "a write after the deletion is kept")
+
+	require.NoError(t, s.bucketManager.CreateBucket(ctx, "", "same-second", "admin"))
+	put("same-second", http.Header{})
+	deleteAt("same-second", time.Now())
+	assert.False(t, hasBucket(s, "", "same-second"), "a write made before the deletion, in its second or not, goes with it")
 
 	require.NoError(t, s.bucketManager.CreateBucket(ctx, "", "changed", "admin"))
 	deleteAt("changed", bucketOn(t, s, "", "changed").UpdatedAt.Add(-time.Nanosecond))
@@ -415,6 +458,7 @@ func TestHAObjectsFollowTheirBucket(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, hasBucket(p.b, "", "data"))
 	clearMissed(t, p.a, p.bID)
+	markHealthy(t, p.a, p.bID) // as after a restart of a that b has not answered yet
 	refused := p.bRefused.Load()
 	p.a.antiEntropyScrubber.Start(ctx)
 	require.Eventually(t, func() bool { return p.bRefused.Load() > refused }, 10*time.Second, 10*time.Millisecond,
@@ -423,11 +467,12 @@ func TestHAObjectsFollowTheirBucket(t *testing.T) {
 		"and records it as having missed a write")
 
 	p.bDown.Store(false)
-	p.a.antiEntropyScrubber.CatchUp(p.bID, time.Now().Add(-time.Minute))
+	_, err = p.a.clusterManager.CheckNodeHealth(ctx, p.bID)
+	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		_, err := p.b.metadataStore.GetObject(ctx, "data", "k")
 		return err == nil
-	}, 10*time.Second, 20*time.Millisecond)
+	}, 10*time.Second, 20*time.Millisecond, "b is caught up once the health check finds it back")
 	assert.Equal(t, "payload", readBody(t, p.b, "data", "k"))
 }
 
@@ -441,6 +486,7 @@ func TestHANewReplicaGetsTheBucketsFirst(t *testing.T) {
 	require.NoError(t, err)
 
 	p.bDown.Store(false)
+	markHealthy(t, p.a, p.bID)
 	p.a.haSyncWorker.Trigger(ctx)
 	require.Eventually(t, func() bool {
 		_, err := p.b.metadataStore.GetObject(ctx, "seed", "k")
@@ -478,4 +524,200 @@ func TestLifecycleOnANodeThatIsNotTheCoordinator(t *testing.T) {
 	expiring(p.a)
 	time.Sleep(300 * time.Millisecond)
 	assert.True(t, present(p.a), "the coordinator expires it")
+}
+
+// An object the initial synchronization fails to send is left to the catch-up:
+// the job ends, says how many it did not send, and the node is recorded as
+// having missed them; the next health check that finds it sends them.
+func TestHAInitialSyncLeavesWhatItCouldNotSendToTheCatchUp(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "seed", "admin"))
+	local := p.a.objectManager.(*cluster.HAObjectManager).Manager
+	for _, key := range []string{"good", "bad"} {
+		_, err := local.PutObject(ctx, "seed", key, strings.NewReader(key), http.Header{})
+		require.NoError(t, err)
+	}
+	p.bFailKey.Store("bad")
+
+	p.a.haSyncWorker.Trigger(ctx)
+	var job cluster.SyncJobStatus
+	require.Eventually(t, func() bool {
+		jobs, err := p.a.haSyncWorker.GetSyncJobs(ctx)
+		require.NoError(t, err)
+		if len(jobs) == 0 || jobs[0].Status != cluster.SyncJobDone {
+			return false
+		}
+		job = jobs[0]
+		return true
+	}, 10*time.Second, 20*time.Millisecond)
+	assert.Contains(t, job.ErrorMessage, "1 object(s) not sent")
+	assert.Equal(t, "good", readBody(t, p.b, "seed", "good"))
+	_, err := p.b.metadataStore.GetObject(ctx, "seed", "bad")
+	require.Error(t, err)
+	require.NotNil(t, missedSince(t, p.a, p.bID), "b is recorded as having missed it")
+
+	p.bFailKey.Store("")
+	scrubbing, stop := context.WithCancel(ctx)
+	t.Cleanup(stop)
+	p.a.antiEntropyScrubber.Start(scrubbing)
+	_, err = p.a.clusterManager.CheckNodeHealth(ctx, p.bID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, err := p.b.metadataStore.GetObject(ctx, "seed", "bad")
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond)
+	assert.Equal(t, "bad", readBody(t, p.b, "seed", "bad"))
+}
+
+// A node that joins a cluster whose replication factor is above 1 is sent the
+// buckets and objects it is to hold.
+func TestAJoiningNodeIsSentTheObjects(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "existing", "admin"))
+	_, err := p.a.objectManager.(*cluster.HAObjectManager).Manager.PutObject(ctx, "existing", "k", strings.NewReader("before the join"), http.Header{})
+	require.NoError(t, err)
+
+	joined, err := p.a.clusterManager.GetNode(ctx, p.bID)
+	require.NoError(t, err)
+	p.a.kickstartNewNodeSync(ctx, joined)
+	require.Eventually(t, func() bool {
+		_, err := p.b.metadataStore.GetObject(ctx, "existing", "k")
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond)
+	assert.Equal(t, "before the join", readBody(t, p.b, "existing", "k"))
+}
+
+// startScrubber runs s's scrubber until the test ends: it makes the catch-ups.
+func startScrubber(t *testing.T, s *Server) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.antiEntropyScrubber.Start(ctx)
+}
+
+// versionIDs lists the versions and delete markers of key on s.
+func versionIDs(t *testing.T, s *Server, bucketPath, key string) []string {
+	t.Helper()
+	versions, err := s.objectManager.GetObjectVersions(context.Background(), bucketPath, key)
+	require.NoError(t, err)
+	ids := make([]string, 0, len(versions))
+	for _, v := range versions {
+		ids = append(ids, v.VersionID)
+	}
+	return ids
+}
+
+// A node that missed writes to a key that keeps versions is sent every version
+// it missed, also when the latest reached it once it was back, and only those.
+func TestACatchUpSendsEveryVersionTheNodeMissed(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "kept", "admin"))
+	require.NoError(t, p.a.bucketManager.SetVersioning(ctx, "", "kept", &bucket.VersioningConfig{Status: "Enabled"}))
+	put := func(m object.Manager, body string) string {
+		t.Helper()
+		obj, err := m.PutObject(ctx, "kept", "k", strings.NewReader(body), http.Header{})
+		require.NoError(t, err)
+		return obj.VersionID
+	}
+	first := put(p.a.objectManager, "first")
+	missedAt := time.Now()
+	local := p.a.objectManager.(*cluster.HAObjectManager).Manager
+	missed := put(local, "missed")
+	var allMissed []string
+	for _, body := range []string{"one", "two"} {
+		obj, err := local.PutObject(ctx, "kept", "all-missed", strings.NewReader(body), http.Header{})
+		require.NoError(t, err)
+		allMissed = append(allMissed, obj.VersionID)
+	}
+	_, err := p.a.db.Exec(`UPDATE cluster_nodes SET replica_missed_since = ? WHERE id = ?`, missedAt.Unix(), p.bID)
+	require.NoError(t, err)
+	latest := put(p.a.objectManager, "latest")
+	require.ElementsMatch(t, []string{first, latest}, versionIDs(t, p.b, "kept", "k"))
+
+	startScrubber(t, p.a)
+	copies := p.bCopies.Load()
+	_, err = p.a.clusterManager.CheckNodeHealth(ctx, p.bID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(versionIDs(t, p.b, "kept", "k")) == 3 }, 10*time.Second, 20*time.Millisecond)
+	assert.ElementsMatch(t, []string{first, missed, latest}, versionIDs(t, p.b, "kept", "k"))
+	assert.Equal(t, "missed", readBody(t, p.b, "kept", "k", missed))
+	assert.Equal(t, "latest", readBody(t, p.b, "kept", "k"), "the latest stays the latest")
+	require.Eventually(t, func() bool { return len(versionIDs(t, p.b, "kept", "all-missed")) == 2 }, 10*time.Second, 20*time.Millisecond)
+	assert.ElementsMatch(t, allMissed, versionIDs(t, p.b, "kept", "all-missed"))
+	assert.Equal(t, "two", readBody(t, p.b, "kept", "all-missed"))
+	assert.EqualValues(t, 3, p.bCopies.Load()-copies, "each missed version is sent once, and what b holds not at all")
+}
+
+// A version or delete marker a node deleted is not stored again when a node
+// that missed the delete sends it a copy.
+func TestADeletedVersionIsNotCreatedAgainByACopy(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "undone", "admin"))
+	require.NoError(t, p.a.bucketManager.SetVersioning(ctx, "", "undone", &bucket.VersioningConfig{Status: "Enabled"}))
+	put := func(body string) string {
+		t.Helper()
+		obj, err := p.a.objectManager.PutObject(ctx, "undone", "k", strings.NewReader(body), http.Header{})
+		require.NoError(t, err)
+		return obj.VersionID
+	}
+	removed := put("removed")
+	kept := put("kept")
+	marker, err := p.a.objectManager.DeleteObject(ctx, "undone", "k", false)
+	require.NoError(t, err)
+	latest := put("latest")
+	require.ElementsMatch(t, []string{removed, kept, marker, latest}, versionIDs(t, p.b, "undone", "k"))
+
+	p.aDown.Store(true)
+	for _, id := range []string{marker, removed} {
+		_, err := p.b.objectManager.DeleteObject(ctx, "undone", "k", false, id)
+		require.NoError(t, err)
+	}
+	p.aDown.Store(false)
+	require.ElementsMatch(t, []string{removed, kept, marker, latest}, versionIDs(t, p.a, "undone", "k"), "a missed the deletes")
+
+	startScrubber(t, p.a)
+	runs := func() int {
+		r, err := p.a.antiEntropyScrubber.ListRecentRuns(ctx, 10)
+		require.NoError(t, err)
+		done := 0
+		for _, run := range r {
+			if run.Status == "done" {
+				done++
+			}
+		}
+		return done
+	}
+	before := runs()
+	p.a.antiEntropyScrubber.CatchUp(p.bID, time.Unix(1, 0))
+	require.Eventually(t, func() bool { return runs() > before }, 10*time.Second, 20*time.Millisecond)
+	assert.ElementsMatch(t, []string{kept, latest}, versionIDs(t, p.b, "undone", "k"))
+}
+
+// A copy the catch-up sends of an object keeps its tags.
+func TestACatchUpCopyKeepsTheObjectTags(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "plain", "admin"))
+	local := p.a.objectManager.(*cluster.HAObjectManager).Manager
+	_, err := local.PutObject(ctx, "plain", "k", strings.NewReader("data"), http.Header{})
+	require.NoError(t, err)
+	tags := &object.TagSet{Tags: []object.Tag{{Key: "team", Value: "blue"}}}
+	require.NoError(t, local.SetObjectTagging(ctx, "plain", "k", tags))
+	_, err = p.a.db.Exec(`UPDATE cluster_nodes SET replica_missed_since = ? WHERE id = ?`, time.Now().Unix(), p.bID)
+	require.NoError(t, err)
+
+	startScrubber(t, p.a)
+	_, err = p.a.clusterManager.CheckNodeHealth(ctx, p.bID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, err := p.b.metadataStore.GetObject(ctx, "plain", "k")
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond)
+	got, err := p.b.objectManager.GetObjectTagging(ctx, "plain", "k")
+	require.NoError(t, err)
+	assert.Equal(t, tags.Tags, got.Tags)
 }

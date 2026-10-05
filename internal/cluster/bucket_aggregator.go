@@ -169,10 +169,22 @@ func (ba *BucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tena
 		}(node)
 	}
 
+	// With a replication factor above 1 every node holds every bucket: each
+	// is listed once, as this node holds it when it does.
+	listed := make(map[string]bool, len(allBuckets))
+	for _, b := range allBuckets {
+		listed[b.TenantID+"/"+b.Name] = true
+	}
 	for i := 0; i < queried; i++ {
 		res := <-ch
-		if res.err == nil {
-			allBuckets = append(allBuckets, res.buckets...)
+		if res.err != nil {
+			continue
+		}
+		for _, b := range res.buckets {
+			if !listed[b.TenantID+"/"+b.Name] {
+				listed[b.TenantID+"/"+b.Name] = true
+				allBuckets = append(allBuckets, b)
+			}
 		}
 	}
 

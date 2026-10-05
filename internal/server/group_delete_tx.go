@@ -22,25 +22,9 @@ func (s *Server) deleteGroupAndRecordTombstone(ctx context.Context, groupID, nod
 
 	groupChanged, _ := cluster.EntityUpdatedAt(ctx, tx, cluster.EntityTypeGroup, groupID)
 	policies := iamHeldByTarget(ctx, tx, auth.IAMTargetGroup, groupID)
-	if _, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ?`, groupID); err != nil {
-		return 0, fmt.Errorf("delete group members: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM bucket_permissions WHERE group_id = ?`, groupID); err != nil {
-		return 0, fmt.Errorf("delete group bucket permissions: %w", err)
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, groupID)
+	rowsAffected, err := deleteGroupRows(ctx, tx, groupID)
 	if err != nil {
-		return 0, fmt.Errorf("delete group: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM iam_inline_policies WHERE target_type = ? AND target_id = ?`,
-		auth.IAMTargetGroup, groupID); err != nil {
-		return 0, fmt.Errorf("delete group inline policies: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM iam_policy_attachments WHERE target_type = ? AND target_id = ?`,
-		auth.IAMTargetGroup, groupID); err != nil {
-		return 0, fmt.Errorf("delete group policy attachments: %w", err)
+		return 0, err
 	}
 	if err := cluster.RecordDeletion(ctx, tx, cluster.EntityTypeGroup, groupID, nodeID, cluster.DeletedAfter(groupChanged)); err != nil {
 		return 0, err
@@ -53,8 +37,6 @@ func (s *Server) deleteGroupAndRecordTombstone(ctx context.Context, groupID, nod
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit group delete: %w", err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
 	return rowsAffected, nil
 }
 

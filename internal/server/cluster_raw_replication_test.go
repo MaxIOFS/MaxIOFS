@@ -104,3 +104,31 @@ func TestHAReceiveRawPut_RejectsUnknownKEK(t *testing.T) {
 	server.handleHAReceivePut(w, req)
 	assert.Equal(t, http.StatusPreconditionFailed, w.Code)
 }
+
+// A raw copy of a version deleted on this node is not stored.
+func TestHAReceiveRawPutOfAVersionDeletedHere(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "raw-deleted-version"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: bucketName, OwnerID: "admin",
+		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+	}))
+	cleanupTestData(t, "", bucketName)
+	const deleted = "1700000000000000001.deleted"
+	require.NoError(t, cluster.RecordDeletion(ctx, server.db, cluster.EntityTypeObjectVersion,
+		cluster.ObjectVersionTombstoneID(bucketName, "k", deleted), "peer", 1700000001))
+
+	metaJSON, _ := json.Marshal(metadata.ObjectMetadata{Bucket: bucketName, Key: "k", VersionID: deleted})
+	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/k", bytes.NewReader([]byte("ciphertext")))
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	req.Header.Set(cluster.HABucketHeader, bucketName)
+	req.Header.Set(cluster.HARawHeader, "true")
+	req.Header.Set(cluster.HARawSidecarHeader, base64.StdEncoding.EncodeToString([]byte("{}")))
+	req.Header.Set(cluster.HARawObjectMetaHeader, base64.StdEncoding.EncodeToString(metaJSON))
+	w := httptest.NewRecorder()
+	server.handleHAReceivePut(w, req)
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	_, err := server.metadataStore.GetObject(ctx, bucketName, "k")
+	assert.Error(t, err)
+}

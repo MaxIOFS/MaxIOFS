@@ -612,6 +612,9 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
+		if h.writeDataUnavailable(w, r, objectKey, err) {
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}

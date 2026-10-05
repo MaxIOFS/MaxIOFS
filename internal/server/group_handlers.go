@@ -108,7 +108,6 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}
@@ -178,7 +177,6 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}
@@ -223,7 +221,6 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}
@@ -306,7 +303,6 @@ func (s *Server) handleAddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}
@@ -341,7 +337,6 @@ func (s *Server) handleRemoveGroupMember(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.touchLocalWriteAt(r.Context())
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}

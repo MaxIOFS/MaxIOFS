@@ -391,8 +391,46 @@ func createClusterDeletionLogTable(ctx context.Context, db *sql.DB) error {
 	if err := applyDeletionLogSeqMigration(ctx, db); err != nil {
 		return err
 	}
-	_, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_deletion_log_seq ON cluster_deletion_log(seq)`)
-	return err
+	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_deletion_log_seq ON cluster_deletion_log(seq)`); err != nil {
+		return err
+	}
+	return applyDeletionSeqCounterMigration(ctx, db)
+}
+
+// applyDeletionSeqCounterMigration gives the deletion log a sequence that never
+// goes back. The sequence was the highest number in the log plus one, so a
+// number freed by forgetting the newest deletions was used again, and a node
+// sent up to it skipped the deletion given it. The nodes are sent the whole
+// log again, once.
+func applyDeletionSeqCounterMigration(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cluster_deletion_log_counter'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, stmt := range []string{
+		`CREATE TABLE cluster_deletion_log_counter (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			last_seq INTEGER NOT NULL
+		)`,
+		`INSERT INTO cluster_deletion_log_counter (id, last_seq) SELECT 1, MAX(
+			(SELECT COALESCE(MAX(seq), 0) FROM cluster_deletion_log),
+			(SELECT COALESCE(MAX(delivered_seq), 0) FROM cluster_deletion_log_delivery))`,
+		`UPDATE cluster_deletion_log_delivery SET delivered_seq = 0`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // applyDeletionLogSeqMigration adds to a deletion log of an earlier release

@@ -310,8 +310,9 @@ func TestDrainNode_Success(t *testing.T) {
 	assert.Equal(t, "decommission", events[0].Reason)
 }
 
-// TestDrainNode_AlreadyDead refuses to redo the work (idempotency guard).
-func TestDrainNode_AlreadyDead(t *testing.T) {
+// TestDrainNode_DeadNode drains a node already dead by the probes, so it
+// is not back in service when it answers; a drained node is drained once.
+func TestDrainNode_DeadNode(t *testing.T) {
 	db := setupDeadNodeReconcilerDB(t)
 	enableCluster(t, db)
 	setReplicationFactor(t, db, 2)
@@ -321,9 +322,13 @@ func TestDrainNode_AlreadyDead(t *testing.T) {
 
 	mgr := newTestManager(t, db)
 	r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, nil)
-	err := r.DrainNode(context.Background(), "n2", "")
+	require.NoError(t, r.DrainNode(context.Background(), "n2", ""))
+	n2, err := mgr.GetNode(context.Background(), "n2")
+	require.NoError(t, err)
+	assert.True(t, n2.Drained)
+	err = r.DrainNode(context.Background(), "n2", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already dead")
+	assert.Contains(t, err.Error(), "already drained")
 }
 
 // TestMarkNodeUnavailable_PreservesUnavailableSince confirms the column is

@@ -170,13 +170,11 @@ func (s *Server) applyIAMDeletions(ctx context.Context, payload *cluster.IAMSync
 			if deletedAt <= 0 {
 				deletedAt = cluster.DeletionTime(ctx, s.db, entityType, id)
 			}
-			if deletedAt <= 0 || cluster.EntityIsNewerThanTombstone(ctx, s.db, entityType, id, deletedAt) {
-				continue
+			gone, err := s.applyReceivedDeletion(ctx, entityType, id, deletedAt, sourceNodeID)
+			if err != nil {
+				logrus.WithError(err).WithField("entity_type", entityType).Warn("Failed to apply IAM deletion")
 			}
-			if err := cluster.RecordDeletion(ctx, s.db, entityType, id, sourceNodeID, deletedAt); err != nil {
-				logrus.WithError(err).Warn("Failed to record IAM tombstone")
-			}
-			if s.deleteIAMEntityLocally(ctx, entityType, id) {
+			if gone {
 				removed++
 			}
 		}
@@ -290,7 +288,6 @@ func (s *Server) recordIAMDeletions(ctx context.Context, deletions ...[]iamDelet
 
 // afterIAMWrite runs the side effects every IAM mutation shares: mark the local
 func (s *Server) afterIAMWrite(ctx context.Context) {
-	s.touchLocalWriteAt(ctx)
 	s.triggerIAMSync(ctx)
 }
 
