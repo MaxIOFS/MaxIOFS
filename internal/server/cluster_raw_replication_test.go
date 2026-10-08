@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -120,6 +121,31 @@ func TestHAReceiveRawPutOfAVersionDeletedHere(t *testing.T) {
 		cluster.ObjectVersionTombstoneID(bucketName, "k", deleted), "peer", 1700000001))
 
 	metaJSON, _ := json.Marshal(metadata.ObjectMetadata{Bucket: bucketName, Key: "k", VersionID: deleted})
+	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/k", bytes.NewReader([]byte("ciphertext")))
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	req.Header.Set(cluster.HABucketHeader, bucketName)
+	req.Header.Set(cluster.HARawHeader, "true")
+	req.Header.Set(cluster.HARawSidecarHeader, base64.StdEncoding.EncodeToString([]byte("{}")))
+	req.Header.Set(cluster.HARawObjectMetaHeader, base64.StdEncoding.EncodeToString(metaJSON))
+	w := httptest.NewRecorder()
+	server.handleHAReceivePut(w, req)
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	_, err := server.metadataStore.GetObject(ctx, bucketName, "k")
+	assert.Error(t, err)
+}
+
+// A raw copy of a write made before this node deleted the key is not stored.
+func TestHAReceiveRawPutOfAWriteBeforeADeletion(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "raw-deleted-key"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucketName, OwnerID: "admin"}))
+	cleanupTestData(t, "", bucketName)
+	deletedAt := time.Now().Unix()
+	require.NoError(t, cluster.RecordDeletion(ctx, server.db, cluster.EntityTypeObject,
+		cluster.ObjectTombstoneID(bucketName, "k"), "peer", deletedAt))
+
+	metaJSON, _ := json.Marshal(metadata.ObjectMetadata{Bucket: bucketName, Key: "k", LastModified: time.Unix(deletedAt-60, 0)})
 	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/k", bytes.NewReader([]byte("ciphertext")))
 	req = mux.SetURLVars(req, map[string]string{"key": "k"})
 	req.Header.Set(cluster.HABucketHeader, bucketName)

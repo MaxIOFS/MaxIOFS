@@ -3,11 +3,14 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
+	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
@@ -49,6 +52,8 @@ type HASyncWorker struct {
 	bgwork.Worker
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // nodeID → cancel func
+	// repairing is set while a repair of the copies runs.
+	repairing atomic.Bool
 }
 
 // Stop cancels the in-flight syncs and waits for them. Their final status write
@@ -128,8 +133,9 @@ func (w *HASyncWorker) Start(ctx context.Context) {
 	}
 }
 
-// Trigger inspects the current replication factor and starts a sync job for every
-// healthy non-local node that does not yet have a completed sync.
+// Trigger starts, when the replication factor is above 1, a sync job for every
+// healthy node that has not had one completed: it is sent every entry, and the
+// data it is to hold. It then repairs the copies (see RepairPlacement).
 // Safe to call multiple times; already-running jobs are skipped.
 func (w *HASyncWorker) Trigger(ctx context.Context) {
 	if !w.mgr.IsClusterEnabled() {
@@ -147,16 +153,12 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defer w.StartRepair(ctx)
 
-	replicas := 0
 	for _, n := range healthy {
 		if n.ID == localID {
 			continue
 		}
-		if replicas >= factor-1 {
-			break
-		}
-		replicas++
 
 		w.mu.Lock()
 		_, alreadyRunning := w.running[n.ID]
@@ -415,10 +417,13 @@ func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Ma
 	case err != nil:
 		return sent, err
 	case current.VersionID == "":
-		if err := sendObjectVersion(ctx, client, objects, node, localID, bucket, key, ""); err != nil {
+		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, object.ObjectVersion{Object: *current})
+		if err != nil {
 			return sent, err
 		}
-		sent += current.Size
+		if data {
+			sent += current.Size
+		}
 	}
 	return sent, nil
 }
@@ -457,18 +462,57 @@ func KeyVersionIDs(ctx context.Context, objects object.Manager, bucket, key stri
 func sendVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, versions []object.ObjectVersion) (int64, error) {
 	var sent int64
 	for _, v := range versions {
-		var err error
-		if v.IsDeleteMarker {
-			err = sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
-		} else {
-			err = sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
-			sent += v.Size
-		}
+		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, v)
 		if err != nil {
 			return sent, fmt.Errorf("version %s: %w", v.VersionID, err)
 		}
+		if data {
+			sent += v.Size
+		}
 	}
 	return sent, nil
+}
+
+// sendCopy sends node its copy of one version of key: a delete marker as a
+// delete; the data when this node and node both hold it, or when the version
+// names no node; the entry otherwise, and a node that is to hold the data is
+// sent it by one that holds it. It reports whether the data was sent.
+func sendCopy(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, v object.ObjectVersion) (bool, error) {
+	switch {
+	case v.IsDeleteMarker:
+		return false, sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
+	case len(v.Locations) == 0 || (slices.Contains(v.Locations, node.ID) && slices.Contains(v.Locations, localID)):
+		return true, sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
+	}
+	return false, sendEntryOf(ctx, client, objects, node, localID, bucket, key, v.VersionID)
+}
+
+// sendEntryOf sends node this node's entry of one version of key, or of its
+// current object when versionID is empty.
+func sendEntryOf(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key, versionID string) error {
+	writer, ok := ReplicaWriter(objects)
+	if !ok {
+		return fmt.Errorf("this node keeps no entries to send")
+	}
+	entry, err := writer.ObjectEntry(ctx, bucket, key, versionID)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	return sendObjectEntry(ctx, client, node, localID, bucket, body)
+}
+
+// ReplicaWriter is the manager that reads and stores this node's entries,
+// below the HA layer.
+func ReplicaWriter(objects object.Manager) (object.ReplicaMetadataWriter, bool) {
+	if ha, ok := objects.(*HAObjectManager); ok {
+		objects = ha.Manager
+	}
+	writer, ok := objects.(object.ReplicaMetadataWriter)
+	return writer, ok
 }
 
 // bucketPath returns the canonical bucket path used by object.Manager:

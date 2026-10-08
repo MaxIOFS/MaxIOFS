@@ -1197,8 +1197,8 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 		s.groupSyncMgr.SyncToNode(ctx, newNode)
 	}
 
-	// With a replication factor above 1 the node is sent every bucket and
-	// object; it has none of them.
+	// With a replication factor above 1 the node is sent every bucket and the
+	// entry of every object; it has none of them.
 	if s.haSyncWorker != nil {
 		s.haSyncWorker.Trigger(ctx)
 	}

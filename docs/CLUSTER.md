@@ -59,9 +59,10 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 A cluster has two planes, and it is worth knowing how each one behaves.
 
 **The data plane (S3 API, port 8080) needs no coordinator at all.** Every node
-serves reads and writes on its own. With a replication factor above 1, a write is
-copied to the healthy peers before it is acknowledged, and half of the factor's
-copies, rounded up and counting the local one, must hold it. A factor of 2 is
+serves reads and writes on its own. With a replication factor above 1, a write's
+data is copied to the factor's nodes and its entry to every other healthy node
+before it is acknowledged (see [Objects](#objects)), and half of the factor's
+copies, rounded up and counting the local one, must hold the data. A factor of 2 is
 therefore a mirror, like RAID 1: with its peer down, the survivor keeps accepting
 writes on its own copy. A factor of 3 needs one of its two peers, so it keeps
 writing with one node down and answers `503 ServiceUnavailable`
@@ -71,11 +72,11 @@ writing with one node down and answers `503 ServiceUnavailable`
 accepted them records, per peer, the time of the earliest write that peer
 missed. When a health check finds the peer healthy again, it sends the peer
 every bucket (see [Buckets](#buckets)), compares every key modified since then
-with the peer and sends what differs — every version and delete marker the peer
-lacks, and the current object when it differs, lock state included — then sends
-the deletes the peer missed. A delete of a whole key is sent
-only if the peer's copy is not newer than the delete, so a key written on the
-other side of a partition is kept. What fails is recorded again and retried at
+with the peer and sends what differs — the entry of every version and delete
+marker the peer lacks, the data of those the peer holds, and the current object
+when it differs, lock state included — then sends the deletes the peer missed.
+A delete of a whole key is sent only if the peer's copy is not newer than the
+delete, so a key written on the other side of a partition is kept. What fails is recorded again and retried at
 the next health check. The catch-up runs even with the periodic scrub disabled.
 
 **Metadata-only changes** — tags, ACLs, retention, legal hold, user metadata,
@@ -477,6 +478,23 @@ credentials yet (see [Membership](#membership)). Every minute the coordinator co
 fingerprint of the secret with its own and gives its secret to a node that
 differs; a node takes it only from the coordinator it knows. The Nodes page
 marks a node that holds another secret.
+
+### Objects
+
+With a replication factor above 1 every node holds the entry of every object —
+its versions, delete markers, tags, ACL, retention and legal hold — and the
+factor's nodes hold its data.
+
+- A write's data is held by the node that takes it and the healthy nodes with the most free space, up to the factor; free space is what each node's last health check reported, and a node under storage pressure takes no new data. The entry names the nodes that hold the data and reaches every other healthy node before the request returns.
+- Listings, HEAD, versions, tags and ACLs are answered from the entry on any node. A GET on a node that does not hold the data reads it from a node that does, healthy nodes first, a range alone; a node that holds another write of the key is passed over. With no node holding the data answering, the read is answered `503` with `Retry-After`.
+- A delete reaches every healthy node; the nodes that held the data remove it. An overwrite without versioning is held where it is placed, and a node that held the earlier data and does not hold the new one removes it.
+- Of two writes of one key the later one wins on every node, whichever order the copies arrive in. A node that deleted a key does not store a copy of a write made before the delete.
+- A node under storage pressure that takes a write passes its copy to the node with the most free space among those holding the entry only, before the request returns; it keeps the copy when no node takes it.
+- The anti-entropy, a catch-up and the first copy to a new node send each node the entries it lacks and the data of the writes it holds. A node that holds a write and lost its data is sent it again.
+- The copies follow the factor. When a node holding copies is removed or marked dead, when the factor changes, and after each full anti-entropy cycle, a write with fewer copies than the factor is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the others remove theirs. Each write is repaired by the first of its living holders by node ID. A new node gets no copies of the writes made before it joined.
+- Each change of where a write's copies are is numbered. Every node keeps the newest, whichever order the changes, entries and copies arrive in: an entry or a copy with older locations does not change them, and a copy is stored only on a node they name.
+- The factor cannot go back to 1 while the cluster has more than one node (`409`).
+- The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, as their last health checks found their disks.
 
 ### Buckets
 

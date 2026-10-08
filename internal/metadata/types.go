@@ -17,8 +17,11 @@ type ObjectMetadata struct {
 	WrittenAt int64 `json:"written_at,omitempty"`
 	// Locations are the cluster nodes that hold, or are to hold, the data;
 	// every node holds the entry. Empty outside a cluster and for entries
-	// written before: the data is where the file is.
+	// written before: the data is where the file is. LocationsGen numbers the
+	// change that set them: 0 for the write, one more on each change; every
+	// node keeps the highest.
 	Locations          []string `json:"locations,omitempty"`
+	LocationsGen       int64    `json:"locations_gen,omitempty"`
 	ETag               string   `json:"etag"`
 	ContentType        string   `json:"content_type"`
 	StorageClass       string   `json:"storage_class,omitempty"`

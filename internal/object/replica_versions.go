@@ -73,6 +73,15 @@ func checkReplicaDigest(ctx context.Context, etag string) error {
 	return ErrReplicaDigestMismatch
 }
 
+// replicatedETag is the ETag of the write a copy carries: the one it was sent
+// with, or the digest of its data.
+func replicatedETag(ctx context.Context, digest string) string {
+	if a, ok := replicatedAttributesFromContext(ctx); ok && a.ETag != "" {
+		return a.ETag
+	}
+	return digest
+}
+
 // applyReplicatedAttributes gives obj the attributes of the version it copies.
 func applyReplicatedAttributes(ctx context.Context, obj *Object) {
 	a, ok := replicatedAttributesFromContext(ctx)

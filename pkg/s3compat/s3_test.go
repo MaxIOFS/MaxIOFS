@@ -4232,3 +4232,41 @@ func TestObjectACLHonorsVersionID(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "<URI>http://acs.amazonaws.com/groups/global/AllUsers</URI>",
 		"ACL without versionId must read latest version")
 }
+
+// In a cluster capacity.xml takes the usage of the bucket's tenant on every
+// node, whoever asks, and with no quota the room of the cluster; a node of
+// any other cluster reports its disk.
+func TestSOSAPICapacityInACluster(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "sosapi-cluster", env.userID))
+	capacity := func(ctx context.Context) CapacityInfo {
+		t.Helper()
+		data, _, err := env.handler.getSOSAPIVirtualObject(ctx, "sosapi-cluster", env.tenantID, capacityXMLObject)
+		require.NoError(t, err)
+		var info CapacityInfo
+		require.NoError(t, xml.Unmarshal(data, &info))
+		return info
+	}
+	const gib = int64(1 << 30)
+
+	env.handler.SetTenantUsage(func(context.Context, *auth.Tenant) int64 { return 3 * gib })
+	admin := context.WithValue(ctx, "user", &auth.User{ID: "global-admin", Roles: []string{auth.RoleAdmin}})
+	info := capacity(admin)
+	assert.Equal(t, 10*gib, info.Capacity, "the quota of the bucket's tenant")
+	assert.Equal(t, 7*gib, info.Available, "less what the tenant uses on every node")
+
+	tenant, err := env.authManager.GetTenant(ctx, env.tenantID)
+	require.NoError(t, err)
+	tenant.MaxStorageBytes = 0
+	require.NoError(t, env.authManager.UpdateTenant(ctx, tenant))
+	env.handler.SetClusterSpace(func(context.Context) (int64, int64, bool) { return 7000, 3000, true })
+	info = capacity(ctx)
+	assert.EqualValues(t, 7000, info.Capacity, "the room of the cluster")
+	assert.EqualValues(t, 3000, info.Available)
+
+	env.handler.SetClusterSpace(func(context.Context) (int64, int64, bool) { return 7000, 3000, false })
+	info = capacity(ctx)
+	assert.NotEqualValues(t, 7000, info.Capacity, "the disk of this node")
+}

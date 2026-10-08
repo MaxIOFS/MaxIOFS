@@ -41,6 +41,12 @@ type Manager struct {
 	currentCert       atomic.Pointer[tls.Certificate]
 	storagePressureFn StoragePressureEmitter
 	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
+	nodeRemoved       atomic.Pointer[func(nodeID string)]
+}
+
+// OnNodeRemoved sets what runs when a member of the cluster is removed here.
+func (m *Manager) OnNodeRemoved(fn func(nodeID string)) {
+	m.nodeRemoved.Store(&fn)
 }
 
 // OnReplicaBack sets what runs when a node that missed writes is healthy

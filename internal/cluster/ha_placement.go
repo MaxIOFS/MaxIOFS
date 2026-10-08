@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,25 +24,44 @@ import (
 // data on a legacy transfer; a raw transfer carries them in its entry.
 const HALocationsHeader = "X-HA-Locations"
 
+// HALocationsGenHeader carries the number of the change that set the
+// locations of a copy's write, when above 0.
+const HALocationsGenHeader = "X-HA-Locations-Gen"
+
+// SetHALocations attaches the locations of obj's write and the number of the
+// change that set them.
+func SetHALocations(h http.Header, obj *object.Object) {
+	if len(obj.Locations) > 0 {
+		h.Set(HALocationsHeader, strings.Join(obj.Locations, ","))
+	}
+	if obj.LocationsGen > 0 {
+		h.Set(HALocationsGenHeader, strconv.FormatInt(obj.LocationsGen, 10))
+	}
+}
+
 // HAETagHeader carries the ETag of the object a node serves another: the
 // reader checks it is the data of the entry it holds.
 const HAETagHeader = "X-HA-ETag"
 
 // placement is where a write made here goes: the nodes that hold its data,
-// this node first, and the other healthy nodes, which hold its entry.
+// this node first, and the other healthy nodes, which hold its entry, most
+// free space first.
 type placement struct {
 	localID string
 	factor  int
 	holders []string
 	remote  []*Node
 	entries []*Node
+	// pressured is set when this node is under storage pressure.
+	pressured bool
 }
 
 // place chooses the nodes of a write made here when every node holds every
 // bucket (a replication factor above 1): this node and the healthy nodes with
 // the most free space hold its data, up to the factor; the other healthy
 // nodes hold its entry. A node neither healthy nor dead misses the write and
-// is caught up when it is back.
+// is caught up when it is back. This node, under storage pressure, then passes
+// its copy on (see relieve).
 func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	factor, err := h.mgr.GetReplicationFactor(ctx)
 	if err != nil || factor <= 1 {
@@ -69,6 +90,9 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 		return cmp.Compare(a.ID, b.ID)
 	})
 	p := &placement{localID: localID, factor: factor, holders: []string{localID}}
+	if local, err := h.mgr.GetNode(ctx, localID); err == nil {
+		p.pressured = local.HealthStatus == HealthStatusStoragePressure
+	}
 	for _, n := range others {
 		if len(p.holders) < factor {
 			p.holders = append(p.holders, n.ID)
@@ -78,6 +102,54 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 		}
 	}
 	return p, true
+}
+
+// Space is, when every node holds every bucket (a replication factor above 1),
+// the data the cluster has room for and the room left, as each node's last
+// health check found its disk: each byte is held on factor different nodes.
+// Dead nodes do not count.
+func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool) {
+	if !m.IsClusterEnabled() {
+		return 0, 0, false
+	}
+	factor, err := m.GetReplicationFactor(ctx)
+	if err != nil || factor <= 1 {
+		return 0, 0, false
+	}
+	nodes, err := m.ListNodes(ctx)
+	if err != nil {
+		return 0, 0, false
+	}
+	var total, free []int64
+	for _, n := range nodes {
+		if n.HealthStatus == HealthStatusDead {
+			continue
+		}
+		total = append(total, n.CapacityTotal)
+		free = append(free, freeSpace(n))
+	}
+	return spaceForCopies(total, factor), spaceForCopies(free, factor), true
+}
+
+// spaceForCopies is the most data the given room of each node holds when each
+// byte is kept on factor different nodes. A node holds one copy of a byte at
+// most, so the k largest hold k copies at most and the others the rest.
+func spaceForCopies(room []int64, factor int) int64 {
+	sorted := make([]int64, len(room))
+	var rest int64
+	for i, r := range room {
+		sorted[i] = max(r, 0)
+		rest += sorted[i]
+	}
+	slices.SortFunc(sorted, func(a, b int64) int { return cmp.Compare(b, a) })
+	space := rest / int64(factor)
+	for k := 1; k < factor; k++ {
+		if k <= len(sorted) {
+			rest -= sorted[k-1]
+		}
+		space = min(space, rest/int64(factor-k))
+	}
+	return space
 }
 
 // freeSpace is a node's free space as its last health check found it, or -1
@@ -109,6 +181,44 @@ func (h *HAObjectManager) replicate(ctx context.Context, p *placement, bucket, k
 	return nil
 }
 
+// relieve passes this node's copy of a write, when this node is under storage
+// pressure, to the node with the most free space among those that hold its
+// entry only; the copy stays here when none takes it. Each copy names its node
+// with a number of its own, and every node is then told the holders with a
+// higher one.
+func (h *HAObjectManager) relieve(ctx context.Context, p *placement, bucket, key string, obj *object.Object) {
+	if !p.pressured || len(p.entries) == 0 {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	client := NewProxyClient(h.mgr.GetTLSConfig())
+	others := slices.DeleteFunc(slices.Clone(p.holders), func(id string) bool { return id == p.localID })
+	gen, locations := obj.LocationsGen, p.holders
+	for _, n := range p.entries {
+		gen++
+		named := append(slices.Clone(others), n.ID)
+		if err := sendNamingCopy(ctx, client, h.Manager, n, p.localID, bucket, key, obj.VersionID, gen, named); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"node_id": n.ID, "bucket": bucket, "key": key}).
+				Warn("HA: a node did not take the copy of a node under storage pressure")
+			continue
+		}
+		locations = named
+		break
+	}
+	err := h.SetLocations(ctx, bucket, key, object.LocationsChange{
+		VersionID:    obj.VersionID,
+		ETag:         obj.ETag,
+		LastModified: obj.LastModified.Unix(),
+		WrittenAt:    obj.WrittenAt,
+		Locations:    locations,
+		Gen:          gen + 1,
+	})
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+			Warn("HA: the holders of a write a node under storage pressure took were not all told")
+	}
+}
+
 // noteEntriesMissed records the nodes that hold a write's entry only as having
 // missed it.
 func (h *HAObjectManager) noteEntriesMissed(ctx context.Context, p *placement, modified time.Time) {
@@ -127,7 +237,7 @@ func (h *HAObjectManager) sendEntry(ctx context.Context, client *ProxyClient, p 
 	if len(p.entries) == 0 {
 		return
 	}
-	writer, ok := h.Manager.(object.ReplicaMetadataWriter)
+	writer, ok := ReplicaWriter(h.Manager)
 	if !ok {
 		h.noteEntriesMissed(ctx, p, modified)
 		return

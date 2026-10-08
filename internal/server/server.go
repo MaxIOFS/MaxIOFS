@@ -621,6 +621,10 @@ func New(cfg *config.Config) (*Server, error) {
 	antiEntropyScrubber := supervise(reg, "antiEntropy", cluster.NewAntiEntropyScrubber(objectManager, bucketManager, clusterManager, metadataStore))
 	antiEntropyScrubber.SetBucketStates(bucketStates)
 	clusterManager.OnReplicaBack(antiEntropyScrubber.CatchUp)
+	// The copies a removed node held, and those of every write once a day,
+	// are repaired.
+	clusterManager.OnNodeRemoved(func(string) { haSyncWorker.StartRepair(context.Background()) })
+	antiEntropyScrubber.AfterCycle(func() { haSyncWorker.StartRepair(context.Background()) })
 
 	// Dead-node reconciler is wired below after the Server struct is built so
 	// it can capture the notification hub for SSE emission.
@@ -1407,6 +1411,10 @@ func (s *Server) setupRoutes() error {
 		s.bucketAggregator,
 	)
 	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)
+	apiHandler.SetTenantUsage(s.tenantStorage)
+	if s.clusterManager != nil {
+		apiHandler.SetClusterSpace(s.clusterManager.Space)
+	}
 	apiHandler.SetBackgroundRunner(func() context.Context {
 		if s.serverCtx != nil {
 			return s.serverCtx
@@ -1637,6 +1645,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/checksum-batch", s.handleHAChecksumBatch).Methods("POST")
 	hmac.HandleFunc("/ha/multipart-uploads", s.handleHAListMultipartUploads).Methods("GET")
 	hmac.HandleFunc("/ha/object-entry", s.handleHAReceiveObjectEntry).Methods("PUT")
+	hmac.HandleFunc("/ha/object-entry", s.handleHAGetObjectEntry).Methods("GET")
 	hmac.HandleFunc("/ha/bucket-state", s.handleHABucketState).Methods("POST")
 	hmac.HandleFunc("/ha/row-states", s.handleHARowStates).Methods("POST")
 	hmac.HandleFunc("/migration/stage", s.handleMigrationStage).Methods("POST")

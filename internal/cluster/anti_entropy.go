@@ -11,10 +11,12 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,6 +88,8 @@ type AntiEntropyScrubber struct {
 
 	caughtUp chan struct{}        // signalled by CatchUp
 	pending  map[string]time.Time // node ID → earliest write it missed
+
+	afterCycle atomic.Pointer[func()]
 }
 
 // catchUpMargin widens a catch-up window: a delete's tombstone is dated a
@@ -103,6 +107,11 @@ func NewAntiEntropyScrubber(objMgr object.Manager, bucketMgr bucket.Manager, mgr
 		caughtUp:  make(chan struct{}, 1),
 		pending:   make(map[string]time.Time),
 	}
+}
+
+// AfterCycle sets what runs after each full cycle completes.
+func (s *AntiEntropyScrubber) AfterCycle(fn func()) {
+	s.afterCycle.Store(&fn)
 }
 
 // SetBucketStates makes every cycle start by sending the peers every bucket,
@@ -391,6 +400,9 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 		cp.BucketsScanned, cp.ObjectsCompared, cp.DivergencesFound, cp.DivergencesFixed,
 		runID)
 	s.pruneRuns(ctx)
+	if fn := s.afterCycle.Load(); fn != nil && cp.Since <= 0 {
+		(*fn)()
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"cycle_id":          cp.CycleID,
@@ -667,11 +679,12 @@ func (s *AntiEntropyScrubber) processBatch(
 			}
 			divergence, action := classifyDivergence(local, peerEntry, deletedAt)
 			// The versions and delete markers held here that the peer lacks
-			// are sent to it; the peer sends those it holds alone.
-			var missing []object.ObjectVersion
+			// are sent to it, and the data it is to hold and lacks; the peer
+			// sends those it holds alone.
+			var missing, lost []object.ObjectVersion
 			fixed := true
 			if listed {
-				if missing, err = s.versionsMissingOn(ctx, bucketPath, key, peerEntry); err != nil {
+				if missing, lost, err = s.versionsToSend(ctx, bucketPath, key, localID, peer.ID, peerEntry); err != nil {
 					logrus.WithError(err).WithFields(logrus.Fields{
 						"bucket": bucketPath, "key": key,
 					}).Warn("AntiEntropyScrubber: cannot list the versions of a key")
@@ -682,16 +695,31 @@ func (s *AntiEntropyScrubber) processBatch(
 			if action == actPushToPeer && slices.ContainsFunc(missing, func(v object.ObjectVersion) bool { return v.VersionID == local.VersionID }) {
 				action = actNone
 			}
-			if divergence != divNone || len(missing) > 0 || !fixed {
+			// The same current object without a version, whose data the peer
+			// is to hold and lacks.
+			lostCurrent := listed && divergence == divNone && local.VersionID == "" && peerEntry != nil && peerEntry.Found &&
+				!peerEntry.HoldsCurrent && slices.Contains(local.Locations, peer.ID) && slices.Contains(local.Locations, localID)
+			if lostCurrent {
+				lost = append(lost, object.ObjectVersion{Object: *local})
+			}
+			if divergence != divNone || len(missing) > 0 || len(lost) > 0 || !fixed {
 				cp.DivergencesFound++
 				if action != actNone {
-					fixed = s.applyAction(ctx, client, peer, localID, bucketPath, key, local, action) && fixed
+					fixed = s.applyAction(ctx, client, peer, localID, bucketPath, key, local, peerEntry, action) && fixed
 				}
 				if len(missing) > 0 {
 					if _, err := sendVersions(ctx, client, s.objMgr, peer, localID, bucketPath, key, missing); err != nil {
 						logrus.WithError(err).WithFields(logrus.Fields{
 							"peer": peer.ID, "bucket": bucketPath, "key": key,
 						}).Warn("AntiEntropyScrubber: versions not sent")
+						fixed = false
+					}
+				}
+				for _, v := range lost {
+					if err := sendObjectVersion(ctx, client, s.objMgr, peer, localID, bucketPath, key, v.VersionID); err != nil {
+						logrus.WithError(err).WithFields(logrus.Fields{
+							"peer": peer.ID, "bucket": bucketPath, "key": key,
+						}).Warn("AntiEntropyScrubber: data not sent to a node that is to hold it")
 						fixed = false
 					}
 				}
@@ -724,8 +752,13 @@ type ChecksumEntry struct {
 	// WrittenAt is when the write was made (unix nanoseconds), when known.
 	WrittenAt int64 `json:"written_at,omitempty"`
 	// Versions are the IDs of the key's versions and delete markers, when
-	// the request asks for them.
+	// the request asks for them; Held, those whose data the node holds.
 	Versions []string `json:"versions,omitempty"`
+	Held     []string `json:"held,omitempty"`
+	// Locations are the nodes the current object's entry names; HoldsCurrent,
+	// whether the node holds its data. Given with the versions.
+	Locations    []string `json:"locations,omitempty"`
+	HoldsCurrent bool     `json:"holds_current,omitempty"`
 }
 
 type divergenceKind int
@@ -826,11 +859,12 @@ func (s *AntiEntropyScrubber) applyAction(
 	peer *Node,
 	localID, bucketPath, key string,
 	local *object.Object,
+	peerEntry *ChecksumEntry,
 	action reconcileAction,
 ) bool {
 	switch action {
 	case actPushToPeer:
-		if err := sendObjectVersion(ctx, client, s.objMgr, peer, localID, bucketPath, key, ""); err != nil {
+		if _, err := sendCopy(ctx, client, s.objMgr, peer, localID, bucketPath, key, object.ObjectVersion{Object: *local}); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath, "key": key,
 			}).Warn("AntiEntropyScrubber: push failed")
@@ -842,7 +876,11 @@ func (s *AntiEntropyScrubber) applyAction(
 		return true
 
 	case actPullFromPeer:
-		if err := s.pullObjectFromPeer(ctx, client, peer, localID, bucketPath, key); err != nil {
+		pull := s.pullObjectFromPeer
+		if peerEntry != nil && len(peerEntry.Locations) > 0 && !slices.Contains(peerEntry.Locations, localID) {
+			pull = s.pullEntryFromPeer
+		}
+		if err := pull(ctx, client, peer, localID, bucketPath, key); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath, "key": key,
 			}).Warn("AntiEntropyScrubber: pull failed")
@@ -929,26 +967,33 @@ type ChecksumResponse struct {
 	Versions bool            `json:"versions,omitempty"`
 }
 
-// versionsMissingOn lists the versions and delete markers of key held here
-// that the peer's entry does not list, oldest first.
-func (s *AntiEntropyScrubber) versionsMissingOn(ctx context.Context, bucketPath, key string, peer *ChecksumEntry) ([]object.ObjectVersion, error) {
+// versionsToSend sorts the versions and delete markers of key held here
+// against the peer's entry, oldest first: those it lacks, and those whose data
+// both this node and the peer are to hold and the peer does not.
+func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, key, localID, peerID string, peer *ChecksumEntry) (missing, lost []object.ObjectVersion, err error) {
 	versions, err := keyVersions(ctx, s.objMgr, bucketPath, key)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	there := make(map[string]bool)
+	there, held := make(map[string]bool), make(map[string]bool)
 	if peer != nil {
 		for _, id := range peer.Versions {
 			there[id] = true
 		}
-	}
-	var missing []object.ObjectVersion
-	for _, v := range versions {
-		if !there[v.VersionID] {
-			missing = append(missing, v)
+		for _, id := range peer.Held {
+			held[id] = true
 		}
 	}
-	return missing, nil
+	for _, v := range versions {
+		switch {
+		case !there[v.VersionID]:
+			missing = append(missing, v)
+		case !v.IsDeleteMarker && !held[v.VersionID] &&
+			slices.Contains(v.Locations, peerID) && slices.Contains(v.Locations, localID):
+			lost = append(lost, v)
+		}
+	}
+	return missing, lost, nil
 }
 
 // pullObjectFromPeer fetches the peer's copy and stores it locally as a
@@ -987,6 +1032,47 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 	return err
 }
 
+// pullEntryFromPeer takes the peer's entry of key's current object, whose
+// data this node is not to hold.
+func (s *AntiEntropyScrubber) pullEntryFromPeer(
+	ctx context.Context,
+	client *ProxyClient,
+	peer *Node,
+	localID, bucketPath, key string,
+) error {
+	target := fmt.Sprintf("%s/api/internal/cluster/ha/object-entry?bucket=%s&key=%s", peer.Endpoint, url.QueryEscape(bucketPath), url.QueryEscape(key))
+	req, err := client.CreateAuthenticatedRequest(ctx, http.MethodGet, target, nil, localID, peer.NodeToken)
+	if err != nil {
+		return err
+	}
+	resp, err := client.DoAuthenticatedRequest(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("GET entry returned %d: %s", resp.StatusCode, b)
+	}
+	var entry metadata.ObjectMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return fmt.Errorf("decode entry: %w", err)
+	}
+	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, entry.VersionID) ||
+		(entry.VersionID == "" && KeyDeletedAfter(ctx, s.mgr.db, bucketPath, key, entry.LastModified)) {
+		return nil
+	}
+	writer, ok := ReplicaWriter(s.objMgr)
+	if !ok {
+		return fmt.Errorf("this node keeps no entries")
+	}
+	entry.Bucket, entry.Key = bucketPath, key
+	return writer.PutReplicaMetadata(WithHAReplicaContext(ctx), &entry)
+}
+
 // urlEscapeBucket escapes only `?` and `&` and `#` so the bucket query value
 // survives bucket paths that contain a literal `/` (tenant/bucket form).
 func urlEscapeBucket(b string) string {
@@ -1007,15 +1093,11 @@ func (s *AntiEntropyScrubber) healthyPeers(ctx context.Context, localID string) 
 	if err != nil || factor <= 1 {
 		return nil, err
 	}
-	neededReplicas := factor - 1
+	// Every node holds every entry.
 	peers := make([]*Node, 0, len(healthy))
 	for _, n := range healthy {
-		if n.ID == localID {
-			continue
-		}
-		peers = append(peers, n)
-		if len(peers) >= neededReplicas {
-			break
+		if n.ID != localID {
+			peers = append(peers, n)
 		}
 	}
 	return peers, nil

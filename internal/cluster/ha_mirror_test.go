@@ -425,10 +425,16 @@ func TestHAWriteSkippingADownPeerRecordsTheMiss(t *testing.T) {
 	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusDegraded, nodes[0].ID)
 	require.NoError(t, err)
 
+	before := time.Now().Unix()
 	obj, err := NewHAObjectManager(local.objects, mgr).PutObject(ctx, "skip", "k", strings.NewReader("x"), http.Header{})
 	require.NoError(t, err)
 	assert.Zero(t, hits)
-	assert.Equal(t, obj.LastModified.Unix(), missedSince(t, db, nodes[0].ID).Int64)
+	// The miss is recorded before the write is made: a catch-up from then
+	// covers it.
+	missed := missedSince(t, db, nodes[0].ID)
+	require.True(t, missed.Valid)
+	assert.GreaterOrEqual(t, missed.Int64, before)
+	assert.LessOrEqual(t, missed.Int64, obj.LastModified.Unix())
 }
 
 // The initial sync to a new replica carries the object's lock state.

@@ -102,6 +102,24 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	if !versioned && laterWriteHere(existingObjBeforeSave, metaObj.LastModified, metaObj.WrittenAt) {
 		return nil
 	}
+	// Normalise ownership fields the primary set for its own store.
+	replicaMeta := *metaObj
+	replicaMeta.Bucket = bucket
+	replicaMeta.Key = key
+	metaObj = &replicaMeta
+	// A copy keeps the newest locations of its write, those it carries or those
+	// here, and its data is stored only where they name this node.
+	here, err := om.writeHere(ctx, bucket, key, metaObj.VersionID, existingObjBeforeSave,
+		metaObj.ETag, metaObj.LastModified.Unix(), metaObj.WrittenAt)
+	if err != nil {
+		return err
+	}
+	if here != nil && compareLocations(metaObj.LocationsGen, metaObj.Locations, here.LocationsGen, here.Locations) < 0 {
+		metaObj.Locations, metaObj.LocationsGen = here.Locations, here.LocationsGen
+	}
+	if !om.holdsData(metaObj) {
+		return nil
+	}
 	exists, err := om.storage.Exists(ctx, objectRef)
 	if err != nil {
 		return fmt.Errorf("failed to check replica destination: %w", err)
@@ -131,12 +149,6 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	if err := om.storage.Put(ctx, objectRef, data, sidecarCopy); err != nil {
 		return fmt.Errorf("failed to store raw replica: %w", err)
 	}
-
-	// Normalise ownership fields the primary set for its own store.
-	replicaMeta := *metaObj
-	replicaMeta.Bucket = bucket
-	replicaMeta.Key = key
-	metaObj = &replicaMeta
 
 	landing := versionLanding{latest: true}
 	if versioned {

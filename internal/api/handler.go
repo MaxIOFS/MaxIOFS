@@ -561,6 +561,17 @@ func (h *Handler) SetIAMSTSEndpointResolver(resolve func() string) {
 	h.s3Handler.SetIAMSTSEndpointResolver(resolve)
 }
 
+// SetTenantUsage wires how SOSAPI reads the storage a tenant uses on every node.
+func (h *Handler) SetTenantUsage(usage func(ctx context.Context, tenant *auth.Tenant) int64) {
+	h.s3Handler.SetTenantUsage(usage)
+}
+
+// SetClusterSpace wires how SOSAPI reads the room of a cluster whose nodes all
+// hold every bucket.
+func (h *Handler) SetClusterSpace(space func(ctx context.Context) (capacity, available int64, ok bool)) {
+	h.s3Handler.SetClusterSpace(space)
+}
+
 // SetReplicationManager sets the replication manager for realtime object replication hooks
 func (h *Handler) SetReplicationManager(rm interface {
 	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error

@@ -139,6 +139,8 @@ type Handler struct {
 	localBackground   bgwork.Worker
 	publicAPIURL      string
 	iamSTSEndpoint    func() string
+	tenantUsage       func(ctx context.Context, tenant *auth.Tenant) int64
+	clusterSpace      func(ctx context.Context) (capacity, available int64, ok bool)
 	dataDir           string             // For calculating disk capacity in SOSAPI
 	notifHTTPClient   *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
 	bandwidthManager  *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
@@ -197,6 +199,18 @@ func (h *Handler) SetPublicAPIURL(url string) {
 // advertise IAM and STS to Veeam, and at which URL.
 func (h *Handler) SetIAMSTSEndpointResolver(resolve func() string) {
 	h.iamSTSEndpoint = resolve
+}
+
+// SetTenantUsage sets how SOSAPI reads the storage a tenant uses on every node
+// of the cluster.
+func (h *Handler) SetTenantUsage(usage func(ctx context.Context, tenant *auth.Tenant) int64) {
+	h.tenantUsage = usage
+}
+
+// SetClusterSpace sets how SOSAPI reads the room of a cluster whose nodes all
+// hold every bucket; ok is false for any other node, which reports its disk.
+func (h *Handler) SetClusterSpace(space func(ctx context.Context) (capacity, available int64, ok bool)) {
+	h.clusterSpace = space
 }
 
 // SetDataDir sets the data directory for disk capacity calculations

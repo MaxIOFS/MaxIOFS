@@ -243,6 +243,14 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "factor must be 1, 2, or 3", http.StatusBadRequest)
 		return
 	}
+	// With a factor above 1 the data of a bucket is spread over the nodes; a
+	// factor of 1 keeps each bucket on one node.
+	if current, err := s.clusterManager.GetReplicationFactor(r.Context()); err == nil && current > 1 && req.Factor == 1 {
+		if all, err := s.clusterManager.ListNodes(r.Context()); err == nil && len(all) > 1 {
+			s.writeError(w, "A cluster of several nodes cannot go back to a factor of 1: its buckets are spread over the nodes", http.StatusConflict)
+			return
+		}
+	}
 
 	// Verify enough healthy nodes exist for the requested factor
 	nodes, err := s.clusterManager.GetHealthyNodes(r.Context())
@@ -309,9 +317,9 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		"new_factor":      req.Factor,
 	}).Info("Cluster replication factor changed")
 
-	// If the factor increased, kick off background sync to new replica nodes.
-	if req.Factor > currentFactor && s.haSyncWorker != nil {
-		s.haSyncWorker.Trigger(r.Context())
+	// The copies follow the new factor; the jobs outlive this request.
+	if req.Factor != currentFactor && s.haSyncWorker != nil {
+		s.haSyncWorker.Trigger(s.backgroundContext())
 	}
 
 	s.writeJSON(w, map[string]interface{}{

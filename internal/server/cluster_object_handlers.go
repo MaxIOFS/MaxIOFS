@@ -731,6 +731,11 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if lm, ok := cluster.HALastModifiedFromHeader(r.Header); ok && r.Header.Get(cluster.HARawHeader) != "true" &&
+		r.Header.Get(cluster.HAObjectVersionHeader) == "" && cluster.KeyDeletedAfter(ctx, s.db, bucketPath, key, lm) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	// Raw ciphertext transfer: store the encrypted bytes + sidecar + Pebble
 	// metadata exactly as sent by the primary — no decrypt/re-encrypt.
@@ -780,7 +785,8 @@ func (s *Server) handleHAReceiveRawPut(w http.ResponseWriter, r *http.Request, c
 		http.Error(w, "invalid raw object-meta payload", http.StatusBadRequest)
 		return
 	}
-	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, metaObj.VersionID) {
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, metaObj.VersionID) ||
+		(metaObj.VersionID == "" && cluster.KeyDeletedAfter(ctx, s.db, bucketPath, key, metaObj.LastModified)) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1014,6 +1020,17 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		}
 		return om.SetObjectLegalHold(ctx, bucket, op.Key, &cfg)
 
+	case "set-locations":
+		var change object.LocationsChange
+		if err := json.Unmarshal(op.Data, &change); err != nil {
+			return err
+		}
+		writer, ok := cluster.ReplicaWriter(om)
+		if !ok {
+			return fmt.Errorf("this node keeps no entries")
+		}
+		return writer.SetLocations(ctx, bucket, op.Key, change)
+
 	case "set-restore-status":
 		var p struct {
 			Status    string     `json:"status"`
@@ -1102,6 +1119,7 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	cluster.SetHAObjectLock(w.Header(), obj)
 	cluster.SetHAAttributes(w.Header(), obj)
 	w.Header().Set(cluster.HAETagHeader, obj.ETag)
+	cluster.SetHALocations(w.Header(), obj)
 	if offset > 0 {
 		if _, err := io.CopyN(io.Discard, reader, offset); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1136,6 +1154,34 @@ func haRangeStart(header string, size int64) (int64, error) {
 	return offset, nil
 }
 
+// handleHAGetObjectEntry serves this node's entry of an object, or of one of
+// its versions.
+// GET /api/internal/cluster/ha/object-entry?bucket=<path>&key=<key>&versionId=<id>
+func (s *Server) handleHAGetObjectEntry(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	bucketPath, key := q.Get("bucket"), q.Get("key")
+	if bucketPath == "" || key == "" {
+		http.Error(w, "missing bucket or key", http.StatusBadRequest)
+		return
+	}
+	writer, ok := cluster.ReplicaWriter(s.objectManager)
+	if !ok {
+		http.Error(w, "entries are not kept on this node", http.StatusNotImplemented)
+		return
+	}
+	entry, err := writer.ObjectEntry(r.Context(), bucketPath, key, q.Get("versionId"))
+	switch {
+	case errors.Is(err, metadata.ErrObjectNotFound) || errors.Is(err, metadata.ErrVersionNotFound):
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entry) //nolint:errcheck
+}
+
 // handleHAReceiveObjectEntry stores the entry of an object whose data other
 // nodes hold.
 // PUT /api/internal/cluster/ha/object-entry
@@ -1150,15 +1196,13 @@ func (s *Server) handleHAReceiveObjectEntry(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ctx := cluster.WithHAReplicaContext(r.Context())
-	if cluster.VersionDeleted(ctx, s.db, entry.Bucket, entry.Key, entry.VersionID) {
+	if cluster.VersionDeleted(ctx, s.db, entry.Bucket, entry.Key, entry.VersionID) ||
+		(entry.VersionID == "" && cluster.KeyDeletedAfter(ctx, s.db, entry.Bucket, entry.Key, entry.LastModified)) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	var writer object.ReplicaMetadataWriter
-	if ha, isHA := s.objectManager.(*cluster.HAObjectManager); isHA {
-		writer, _ = ha.Manager.(object.ReplicaMetadataWriter)
-	}
-	if writer == nil {
+	writer, ok := cluster.ReplicaWriter(s.objectManager)
+	if !ok {
 		http.Error(w, "entries are not stored on this node", http.StatusNotImplemented)
 		return
 	}
@@ -1209,6 +1253,13 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writer, holds := cluster.ReplicaWriter(s.objectManager)
+	held := func(key, versionID string) (bool, error) {
+		if !holds {
+			return false, nil
+		}
+		return writer.HoldsData(r.Context(), req.Bucket, key, versionID)
+	}
 	entries := make([]cluster.ChecksumEntry, 0, len(req.Keys))
 	for _, key := range req.Keys {
 		entry := cluster.ChecksumEntry{Key: key}
@@ -1218,6 +1269,16 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			for _, id := range entry.Versions {
+				ok, err := held(key, id)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if ok {
+					entry.Held = append(entry.Held, id)
+				}
+			}
 		}
 		if obj, err := s.objectManager.GetObjectMetadata(r.Context(), req.Bucket, key); err == nil && obj != nil {
 			entry.Found = true
@@ -1225,6 +1286,13 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 			entry.Size = obj.Size
 			entry.LastModified = obj.LastModified.Unix()
 			entry.WrittenAt = obj.WrittenAt
+			if req.Versions {
+				entry.Locations = obj.Locations
+				if entry.HoldsCurrent, err = held(key, ""); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 		entries = append(entries, entry)
 	}

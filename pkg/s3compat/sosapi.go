@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
 )
@@ -176,33 +175,45 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 			}
 		}
 
-		// 2) Tenant quota (only when the bucket has no quota of its own).
-		if !reported {
-			user, userExists := auth.GetUserFromContext(ctx)
-			if userExists && user.TenantID != "" && h.authManager != nil {
-				tenant, err := h.authManager.GetTenant(ctx, user.TenantID)
-				if err != nil {
-					logrus.WithError(err).WithField("tenantID", user.TenantID).Error("Failed to get tenant for SOSAPI capacity")
-				} else if tenant.MaxStorageBytes > 0 {
-					totalCapacity = tenant.MaxStorageBytes
-					usedCapacity := tenant.CurrentStorageBytes
-					availableCapacity = totalCapacity - usedCapacity
-					if availableCapacity < 0 {
-						availableCapacity = 0
-					}
-					reported = true
-					logrus.WithFields(logrus.Fields{
-						"tenant_id":   user.TenantID,
-						"quota_bytes": totalCapacity,
-						"used_bytes":  usedCapacity,
-						"free_bytes":  availableCapacity,
-						"username":    user.Username,
-					}).Info("SOSAPI capacity calculated from tenant quota")
+		// 2) The quota of the bucket's tenant, when the bucket has none, less
+		//    what the tenant uses on every node.
+		if !reported && tenantID != "" && h.authManager != nil {
+			tenant, err := h.authManager.GetTenant(ctx, tenantID)
+			if err != nil {
+				logrus.WithError(err).WithField("tenantID", tenantID).Error("Failed to get tenant for SOSAPI capacity")
+			} else if tenant.MaxStorageBytes > 0 {
+				totalCapacity = tenant.MaxStorageBytes
+				usedCapacity := tenant.CurrentStorageBytes
+				if h.tenantUsage != nil {
+					usedCapacity = h.tenantUsage(ctx, tenant)
 				}
+				availableCapacity = totalCapacity - usedCapacity
+				if availableCapacity < 0 {
+					availableCapacity = 0
+				}
+				reported = true
+				logrus.WithFields(logrus.Fields{
+					"tenant_id":   tenantID,
+					"quota_bytes": totalCapacity,
+					"used_bytes":  usedCapacity,
+					"free_bytes":  availableCapacity,
+				}).Info("SOSAPI capacity calculated from tenant quota")
 			}
 		}
 
-		// 3) Physical disk (no bucket or tenant quota configured).
+		// 3) The room of a cluster whose nodes all hold every bucket.
+		if !reported && h.clusterSpace != nil {
+			if capacity, available, ok := h.clusterSpace(ctx); ok {
+				totalCapacity, availableCapacity = capacity, available
+				reported = true
+				logrus.WithFields(logrus.Fields{
+					"total_bytes": totalCapacity,
+					"free_bytes":  availableCapacity,
+				}).Info("SOSAPI capacity calculated from the cluster")
+			}
+		}
+
+		// 4) The disk of this node, where the bucket is.
 		if !reported && h.dataDir != "" {
 			diskInfo, err := disk.Usage(h.dataDir)
 			if err != nil {

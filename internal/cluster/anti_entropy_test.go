@@ -310,7 +310,9 @@ func TestRunCycle_FactorOne_NoOp(t *testing.T) {
 	assert.Equal(t, 0, n)
 }
 
-func TestHealthyPeers_LimitedByReplicationFactor(t *testing.T) {
+// Every node holds every entry: the anti-entropy compares with every other
+// healthy node, and with none under a factor of 1.
+func TestHealthyPeers_EveryOtherHealthyNode(t *testing.T) {
 	db, cleanup := setupQuorumTestDB(t)
 	defer cleanup()
 	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
@@ -333,9 +335,19 @@ func TestHealthyPeers_LimitedByReplicationFactor(t *testing.T) {
 	}
 
 	scrubber := NewAntiEntropyScrubber(nil, nil, mgr, newFakeRawKV())
-	peers, err := scrubber.healthyPeers(ctx, "local-node")
+	localID, err := mgr.GetLocalNodeID(ctx)
 	require.NoError(t, err)
-	require.Len(t, peers, 1, "RF=2 should scrub only one replica target, not every healthy peer")
+	peers, err := scrubber.healthyPeers(ctx, localID)
+	require.NoError(t, err)
+	require.Len(t, peers, 3)
+	for _, p := range peers {
+		assert.NotEqual(t, localID, p.ID)
+	}
+
+	require.NoError(t, mgr.SetReplicationFactor(ctx, 1))
+	peers, err = scrubber.healthyPeers(ctx, localID)
+	require.NoError(t, err)
+	assert.Empty(t, peers)
 }
 
 // ── ListRecentRuns / pruneRuns ───────────────────────────────────────────────

@@ -218,6 +218,14 @@ func VersionDeleted(ctx context.Context, db *sql.DB, bucket, key, versionID stri
 	return versionID != "" && DeletionTime(ctx, db, EntityTypeObjectVersion, ObjectVersionTombstoneID(bucket, key, versionID)) > 0
 }
 
+// KeyDeletedAfter reports whether this node deleted a key after a write made
+// at written. A copy of that write without a version, from a node that missed
+// the delete, is not stored; a write in the second of the delete or later is.
+func KeyDeletedAfter(ctx context.Context, db *sql.DB, bucket, key string, written time.Time) bool {
+	deletedAt := DeletionTime(ctx, db, EntityTypeObject, ObjectTombstoneID(bucket, key))
+	return deletedAt > 0 && written.Unix() < deletedAt
+}
+
 // EntityUpdatedAt returns when this node's copy of an entity last changed
 // (unix seconds), and false when the node does not hold it or its type keeps
 // no such time (access keys, bucket permissions, STS sessions, objects).

@@ -97,6 +97,8 @@ type Object struct {
 	WrittenAt int64 `json:"-"`
 	// Locations are the cluster nodes that hold the data; internal.
 	Locations []string `json:"-"`
+	// LocationsGen numbers the change that set Locations; internal.
+	LocationsGen int64 `json:"-"`
 
 	Retention *RetentionConfig `json:"retention,omitempty"`
 	LegalHold *LegalHoldConfig `json:"legal_hold,omitempty"`
@@ -331,6 +333,19 @@ func WithLocations(ctx context.Context, nodeIDs []string) context.Context {
 func locationsFromContext(ctx context.Context) []string {
 	ids, _ := ctx.Value(locationsKey{}).([]string)
 	return ids
+}
+
+type locationsGenKey struct{}
+
+// WithLocationsGen records, on the entry a copy creates, the number of the
+// change that set its locations.
+func WithLocationsGen(ctx context.Context, gen int64) context.Context {
+	return context.WithValue(ctx, locationsGenKey{}, gen)
+}
+
+func locationsGenFromContext(ctx context.Context) int64 {
+	gen, _ := ctx.Value(locationsGenKey{}).(int64)
+	return gen
 }
 
 // DataElsewhereError: the object exists and its data is held by other nodes
@@ -663,6 +678,26 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 			return fromMetadataObject(existingObjBeforeSave), nil
 		}
 	}
+	// A copy keeps the newest locations of its write, those it carries or those
+	// here, and its data is stored only where they name this node.
+	locations, locationsGen := locationsFromContext(ctx), locationsGenFromContext(ctx)
+	if isReplicaCopy(ctx) {
+		lm, _ := replicatedLastModifiedFromContext(ctx)
+		here, err := om.writeHere(ctx, bucket, key, versionID, existingObjBeforeSave,
+			replicatedETag(ctx, originalETag), lm.Unix(), writtenAt(ctx, time.Now()))
+		if err != nil {
+			return nil, err
+		}
+		if here != nil && compareLocations(locationsGen, locations, here.LocationsGen, here.Locations) < 0 {
+			locations, locationsGen = here.Locations, here.LocationsGen
+		}
+		if !om.holdsData(&metadata.ObjectMetadata{Locations: locations}) {
+			if here != nil {
+				return fromMetadataObject(here), nil
+			}
+			return &Object{Bucket: bucket, Key: key, VersionID: versionID}, nil
+		}
+	}
 	releaseQuota, err := om.reserveWriteQuota(ctx, bucket, originalSize, existingObjBeforeSave, versioningEnabled)
 	if err != nil {
 		return nil, err
@@ -726,7 +761,8 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 		Size:               size,
 		LastModified:       modTime,
 		WrittenAt:          writtenAt(ctx, time.Now()),
-		Locations:          locationsFromContext(ctx),
+		Locations:          locations,
+		LocationsGen:       locationsGen,
 		ETag:               originalETag,
 		ContentType:        finalStorageMetadata["content-type"],
 		ContentDisposition: storageMetadata["content-disposition"],

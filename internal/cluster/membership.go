@@ -112,9 +112,11 @@ func (m *Manager) RemoveNodeAt(ctx context.Context, nodeID string, deletedAt int
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `DELETE FROM cluster_nodes WHERE id = ?`, nodeID); err != nil {
+	res, err := tx.ExecContext(ctx, `DELETE FROM cluster_nodes WHERE id = ?`, nodeID)
+	if err != nil {
 		return fmt.Errorf("remove node %s: %w", nodeID, err)
 	}
+	member, _ := res.RowsAffected()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cluster_deletion_log_delivery WHERE node_id = ?`, nodeID); err != nil {
 		return fmt.Errorf("remove node %s: %w", nodeID, err)
 	}
@@ -125,6 +127,9 @@ func (m *Manager) RemoveNodeAt(ctx context.Context, nodeID string, deletedAt int
 		return err
 	}
 	m.dropQueuedMetadataOps(ctx, nodeID)
+	if fn := m.nodeRemoved.Load(); fn != nil && member > 0 {
+		(*fn)(nodeID)
+	}
 	return nil
 }
 

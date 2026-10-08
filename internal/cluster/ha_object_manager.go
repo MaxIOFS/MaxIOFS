@@ -172,6 +172,9 @@ func ReplicaWriteContext(ctx context.Context, h http.Header) context.Context {
 	if locations := h.Get(HALocationsHeader); locations != "" {
 		ctx = object.WithLocations(ctx, strings.Split(locations, ","))
 	}
+	if gen, err := strconv.ParseInt(h.Get(HALocationsGenHeader), 10, 64); err == nil && gen > 0 {
+		ctx = object.WithLocationsGen(ctx, gen)
+	}
 	return ctx
 }
 
@@ -220,6 +223,7 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 		h.rollbackLocalPut(ctx, bucket, key, obj.VersionID, "PutObject")
 		return nil, err
 	}
+	h.relieve(ctx, p, bucket, key, obj)
 	return obj, nil
 }
 
@@ -352,6 +356,7 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, obj.VersionID, "CompleteMultipartUpload")
 		return nil, err
 	}
+	h.relieve(ctx, p, obj.Bucket, obj.Key, obj)
 	return obj, nil
 }
 
@@ -462,8 +467,25 @@ func (h *HAObjectManager) deleteTargets(ctx context.Context, deleted time.Time) 
 // empty — to node n: the stored ciphertext when n can decrypt it, otherwise the
 // plaintext with every field the receiver keeps.
 func sendObjectVersion(ctx context.Context, client *ProxyClient, objects object.Manager, n *Node, localID, bucket, key, versionID string) error {
+	return sendVersionCopy(ctx, client, objects, n, localID, bucket, key, versionID, nil)
+}
+
+// newLocations are the locations a copy carries in place of those of its
+// write here, and the number of their change.
+type newLocations struct {
+	gen       int64
+	locations []string
+}
+
+// sendNamingCopy copies one version of key to node n with locations that name
+// it, numbered gen: n stores the data as one of its holders.
+func sendNamingCopy(ctx context.Context, client *ProxyClient, objects object.Manager, n *Node, localID, bucket, key, versionID string, gen int64, locations []string) error {
+	return sendVersionCopy(ctx, client, objects, n, localID, bucket, key, versionID, &newLocations{gen: gen, locations: locations})
+}
+
+func sendVersionCopy(ctx context.Context, client *ProxyClient, objects object.Manager, n *Node, localID, bucket, key, versionID string, as *newLocations) error {
 	if raw, ok := objects.(object.RawObjectAccessor); ok {
-		if sent, err := sendRawReplica(ctx, client, raw, n, localID, bucket, key, versionID); sent {
+		if sent, err := sendRawReplica(ctx, client, raw, n, localID, bucket, key, versionID, as); sent {
 			return err
 		}
 		// Not eligible (plaintext/legacy/local-KEK object) or the replica
@@ -485,6 +507,9 @@ func sendObjectVersion(ctx context.Context, client *ProxyClient, objects object.
 		return fmt.Errorf("re-read for fanout: %w", readErr)
 	}
 	defer reader.Close()
+	if as != nil {
+		obj.Locations, obj.LocationsGen = as.locations, as.gen
+	}
 
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
@@ -500,9 +525,7 @@ func sendObjectVersion(ctx context.Context, client *ProxyClient, objects object.
 	setHAChecksum(req.Header, obj)
 	SetHAObjectLock(req.Header, obj)
 	SetHAAttributes(req.Header, obj)
-	if len(obj.Locations) > 0 {
-		req.Header.Set(HALocationsHeader, strings.Join(obj.Locations, ","))
-	}
+	SetHALocations(req.Header, obj)
 	req.Header.Set("Content-Type", obj.ContentType)
 	if obj.ContentDisposition != "" {
 		req.Header.Set("Content-Disposition", obj.ContentDisposition)
@@ -536,13 +559,16 @@ func sendObjectVersion(ctx context.Context, client *ProxyClient, objects object.
 }
 
 // sendRawReplica attempts the ciphertext transfer of the pinned version to
-func sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string) (sent bool, err error) {
+func sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObjectAccessor, n *Node, localID, bucket, key, versionID string, as *newLocations) (sent bool, err error) {
 	reader, sidecar, metaObj, readErr := raw.GetObjectRaw(ctx, bucket, key, versionID)
 	if readErr != nil {
 		// Let the legacy path surface the read error consistently.
 		return false, nil
 	}
 	defer reader.Close()
+	if as != nil {
+		metaObj.Locations, metaObj.LocationsGen = as.locations, as.gen
+	}
 
 	if !raw.CanReplicateRaw(sidecar) {
 		return false, nil

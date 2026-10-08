@@ -240,6 +240,42 @@ func TestHAReceiveKeepsTheTimeOfTheWrite(t *testing.T) {
 	assert.EqualValues(t, 1700000001000000005, marker)
 }
 
+// The locations of a copy's write and the number of the change that set them
+// are kept when it is received and sent with it when it is served.
+func TestTheLocationsOfACopyTravelWithIt(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "ha-locations-gen"
+	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucketName, OwnerID: "admin"}))
+	// The copy names this node, whether or not another test put it in a cluster.
+	self := "b"
+	if config, err := server.clusterManager.GetConfig(ctx); err == nil && config.IsClusterEnabled {
+		self = config.NodeID
+	}
+
+	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/k", strings.NewReader("copy"))
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	req.Header.Set(cluster.HABucketHeader, bucketName)
+	req.Header.Set(cluster.HALastModifiedHeader, "1700000000")
+	req.Header.Set(cluster.HALocationsHeader, "a,"+self)
+	req.Header.Set(cluster.HALocationsGenHeader, "2")
+	w := httptest.NewRecorder()
+	server.handleHAReceivePut(w, req)
+	require.Less(t, w.Code, 300, w.Body.String())
+	stored, err := server.metadataStore.GetObject(ctx, bucketName, "k")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", self}, stored.Locations)
+	assert.EqualValues(t, 2, stored.LocationsGen)
+
+	req = httptest.NewRequest("GET", "/api/internal/ha/objects/k?bucket="+bucketName, nil)
+	req = mux.SetURLVars(req, map[string]string{"key": "k"})
+	w = httptest.NewRecorder()
+	server.handleHAGetObject(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "a,"+self, w.Header().Get(cluster.HALocationsHeader))
+	assert.Equal(t, "2", w.Header().Get(cluster.HALocationsGenHeader))
+}
+
 // A delete from another node answers done when the key is gone here, refused
 // when its lock keeps it, failed otherwise.
 func TestHAReceiveDeleteSaysWhatCameOfIt(t *testing.T) {
@@ -267,4 +303,48 @@ func TestHAReceiveDeleteSaysWhatCameOfIt(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, send("held", held.VersionID), "held by its legal hold")
 	assert.Equal(t, http.StatusNoContent, send("never-written", ""), "already gone")
 	assert.Equal(t, http.StatusInternalServerError, haDeleteStatus(errors.New("disk failure")))
+}
+
+// A copy of a write made before this node deleted the key, one without a
+// version, is not stored: the node that sends it missed the delete. A copy of
+// a write made in the second of the delete or later is, whole or entry only.
+func TestACopyOfAWriteBeforeADeletionIsNotStored(t *testing.T) {
+	s := newClusterTestNode(t)
+	ctx := context.Background()
+	require.NoError(t, s.bucketManager.CreateBucket(ctx, "", "deleted-keys", "admin"))
+	deletedAt := time.Now().Unix()
+	for _, key := range []string{"whole", "entry"} {
+		require.NoError(t, cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeObject,
+			cluster.ObjectTombstoneID("deleted-keys", key), "peer", deletedAt))
+	}
+
+	put := func(at int64) int {
+		req := httptest.NewRequest(http.MethodPut, "/api/internal/ha/objects/whole", strings.NewReader("copy"))
+		req = mux.SetURLVars(req, map[string]string{"key": "whole"})
+		req.Header.Set(cluster.HABucketHeader, "deleted-keys")
+		req.Header.Set(cluster.HALastModifiedHeader, fmt.Sprintf("%d", at))
+		w := httptest.NewRecorder()
+		s.handleHAReceivePut(w, req)
+		return w.Code
+	}
+	require.Equal(t, http.StatusNoContent, put(deletedAt-60))
+	assert.False(t, holdsObject(s, "deleted-keys", "whole"), "written before the deletion")
+	require.Equal(t, http.StatusNoContent, put(deletedAt))
+	assert.True(t, holdsObject(s, "deleted-keys", "whole"), "written in the second of the deletion")
+
+	entry := func(at int64) int {
+		body := fmt.Sprintf(`{"bucket":"deleted-keys","key":"entry","size":4,"etag":"e4","last_modified":%q,"locations":["peer"]}`,
+			time.Unix(at, 0).UTC().Format(time.RFC3339))
+		w := httptest.NewRecorder()
+		s.handleHAReceiveObjectEntry(w, httptest.NewRequest(http.MethodPut, "/api/internal/cluster/ha/object-entry", strings.NewReader(body)))
+		return w.Code
+	}
+	w := httptest.NewRecorder()
+	s.handleHAReceiveObjectEntry(w, httptest.NewRequest(http.MethodPut, "/api/internal/cluster/ha/object-entry",
+		strings.NewReader(`{"bucket":"deleted-keys","key":"entry","size":4,"etag":"e4"}`)))
+	require.Equal(t, http.StatusBadRequest, w.Code, "an entry names the nodes holding its data")
+	require.Equal(t, http.StatusNoContent, entry(deletedAt-60))
+	assert.False(t, holdsObject(s, "deleted-keys", "entry"))
+	require.Equal(t, http.StatusNoContent, entry(deletedAt+1))
+	assert.True(t, holdsObject(s, "deleted-keys", "entry"))
 }
