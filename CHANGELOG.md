@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
+- The Docker image keeps its data in the directory `MAXIOFS_DATA_DIR` names, where it is mounted. It always used `/data`, so data written with the directory mounted elsewhere was lost when the container was recreated.
+- A success or error dialog of the console given markup shows it laid out, sanitized. The temporary credentials just issued, the policy of a temporary session and other dialogs showed their HTML as text.
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
 - Raw replica rollback retains recoverable backups when restoration fails.
 - Multipart completion waits for encryption to stop on failure or cancellation.
@@ -122,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With a replication factor above 1, the copies of a write follow the factor. A write with fewer copies than the factor, after a node holding one is removed or dead or the factor is raised, is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the other nodes remove theirs. This runs when a node is removed or marked dead, when the factor changes and after every full anti-entropy cycle. Each change of where a write's copies are is numbered, and every node keeps the newest, whichever order the changes, entries and copies arrive in.
 - A node under storage pressure that takes a write passes its copy to the node with the most free space among those holding the entry only, before the request returns. It keeps the copy when no node takes it.
 - The replication factor cannot go back to 1 while the cluster has more than one node (`409`).
+- Every node acts on a change of the replication factor, made on it or received from another node; the other nodes are told at once. They took the change within a minute and did nothing: only the node where it was made sent its buckets and repaired its copies.
+- A replication factor raised from 1 gives each object the node that holds it as its location before the buckets and entries are sent, and the copies the factor needs are then made, one per object. Every object was copied to every node.
+- Objects written before the cluster kept where their data is are given, by the copy repair, the nodes that hold them: the first of those nodes keeps the factor's copies, the others remove theirs, and missing copies are made. They were copied to every node.
+- The copy repair started by a change of membership or factor runs once the first copies to new nodes end.
+- A node under storage pressure stays in service and only takes no new copy of data. It was treated as down: with a factor of 1 the other nodes answered that its buckets did not exist and left them out of their lists, and with a factor above 1 it missed every entry, delete and change until the pressure ended.
+- A node that was dead and answers again is compared on every write, and the anti-entropy sends a node with older locations of a write the newer entry. A node back from the dead kept the locations it had and the copies made again elsewhere.
+- A node that leaves the cluster, or is removed, drops the entries of the objects the other nodes hold and keeps those it holds. It kept every entry and listed objects it could not read.
 - In a cluster, the capacity Veeam reads (SOSAPI `capacity.xml`) for a bucket without a quota of its own, whose tenant has one, subtracts what the tenant uses on every node. It subtracted what the tenant used on the node that answered. The tenant is the bucket's: a user without a tenant was given the disk.
 - With a replication factor above 1, the capacity Veeam reads for a bucket without a quota is the room of the cluster, each byte on factor different nodes; dead nodes do not count. It was the disk of the node that answered.
 - A change of the replication factor in the console starts the sync jobs after the request is answered. The jobs were cancelled with the request.

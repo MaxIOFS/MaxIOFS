@@ -118,8 +118,8 @@ func TestANodeEditIsStampedAfterItsLastChange(t *testing.T) {
 }
 
 // A node dead by this node's probes is back in service when it answers, and
-// is caught up from the time it was marked dead at the latest. A drained
-// node stays dead.
+// is compared on every write: the copies it held were made again elsewhere
+// meanwhile. A drained node stays dead.
 func TestADeadNodeIsBackWhenItAnswers(t *testing.T) {
 	db := setupDeadNodeReconcilerDB(t)
 	enableCluster(t, db)
@@ -150,7 +150,6 @@ func TestADeadNodeIsBackWhenItAnswers(t *testing.T) {
 	require.NoError(t, err)
 	r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, nil)
 	require.NoError(t, SetGlobalConfig(ctx, db, redistributionEnabledKey, "true"))
-	markedAt := time.Now().Unix()
 	require.NoError(t, r.RunOnce(ctx))
 	for _, id := range []string{"back", "drained", "silent"} {
 		n, err := mgr.GetNode(ctx, id)
@@ -163,7 +162,7 @@ func TestADeadNodeIsBackWhenItAnswers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, HealthStatusHealthy, st.Status)
 	assert.Equal(t, []string{"back"}, caughtUp)
-	assert.InDelta(t, markedAt, since.Unix(), 2, "caught up from when it was marked dead")
+	assert.EqualValues(t, 1, since.Unix(), "compared on every write")
 
 	st, err = mgr.CheckNodeHealth(ctx, "drained")
 	require.NoError(t, err)

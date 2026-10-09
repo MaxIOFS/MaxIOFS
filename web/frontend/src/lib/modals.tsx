@@ -248,6 +248,11 @@ export function ModalRenderer() {
     );
   }
 
+  // A message given as HTML is rendered as markup, sanitized.
+  const body = modal.isHtml
+    ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(modal.message) }} />
+    : modal.message;
+
   // Success modal
   if (modal.type === 'success') {
     return (
@@ -255,7 +260,7 @@ export function ModalRenderer() {
         isOpen={true}
         onClose={handleClose}
         title={modal.title}
-        message={modal.message}
+        message={body}
         buttonText={modal.confirmText}
       />
     );
@@ -268,7 +273,7 @@ export function ModalRenderer() {
         isOpen={true}
         onClose={handleClose}
         title={modal.title}
-        message={modal.message}
+        message={body}
         buttonText={modal.confirmText}
       />
     );

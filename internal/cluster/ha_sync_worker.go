@@ -135,7 +135,8 @@ func (w *HASyncWorker) Start(ctx context.Context) {
 
 // Trigger starts, when the replication factor is above 1, a sync job for every
 // healthy node that has not had one completed: it is sent every entry, and the
-// data it is to hold. It then repairs the copies (see RepairPlacement).
+// data it is to hold. It repairs the copies once those jobs end, so that every
+// node holds the entries whose copies change (see RepairPlacement).
 // Safe to call multiple times; already-running jobs are skipped.
 func (w *HASyncWorker) Trigger(ctx context.Context) {
 	if !w.mgr.IsClusterEnabled() {
@@ -153,8 +154,8 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer w.StartRepair(ctx)
 
+	var jobs []<-chan struct{}
 	for _, n := range healthy {
 		if n.ID == localID {
 			continue
@@ -197,8 +198,92 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 		logrus.WithFields(logrus.Fields{
 			"job_id": jobID, "node_id": n.ID,
 		}).Info("HASyncWorker: starting initial sync")
-		w.startJob(ctx, jobID, node, "", "")
+		jobs = append(jobs, w.startJob(ctx, jobID, node, "", ""))
 	}
+	if len(jobs) == 0 {
+		w.StartRepair(ctx)
+		return
+	}
+	w.Spawn(func() {
+		for _, done := range jobs {
+			<-done
+		}
+		w.StartRepair(ctx)
+	})
+}
+
+// FactorRaised runs on every node when the replication factor rises from 1.
+// Each bucket was on one node, which alone holds the data of its objects:
+// they are given this node as their location before its buckets and entries
+// are sent to the other nodes; the copies are made after (see Trigger).
+func (w *HASyncWorker) FactorRaised(ctx context.Context) {
+	if err := w.claimWrites(ctx); err != nil {
+		logrus.WithError(err).Warn("HASyncWorker: some writes held here name no node; the repair finds their holders")
+	}
+	w.Trigger(ctx)
+}
+
+// DropEntriesHeldElsewhere removes, once this node has left the cluster, its
+// entries of the writes whose data the nodes of the cluster hold, which it no
+// longer reaches; the writes it holds stay. localID is the ID it had in the
+// cluster.
+func (w *HASyncWorker) DropEntriesHeldElsewhere(ctx context.Context, localID string) error {
+	writer, ok := ReplicaWriter(w.objMgr)
+	if !ok {
+		return nil
+	}
+	return w.eachPage(ctx, func(ctx context.Context, bucket string, keys []string) error {
+		var errs error
+		for _, key := range keys {
+			writes, err := keyWrites(ctx, w.objMgr, bucket, key)
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			for _, v := range writes {
+				if v.IsDeleteMarker || len(v.Locations) == 0 || slices.Contains(v.Locations, localID) {
+					continue
+				}
+				errs = errors.Join(errs, writer.DropEntry(ctx, bucket, key, v.VersionID))
+			}
+		}
+		return errs
+	})
+}
+
+// claimWrites gives this node as the location of every write whose data it
+// holds and that names no node.
+func (w *HASyncWorker) claimWrites(ctx context.Context) error {
+	writer, ok := ReplicaWriter(w.objMgr)
+	if !ok {
+		return nil
+	}
+	localID, err := w.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		return err
+	}
+	return w.eachPage(ctx, func(ctx context.Context, bucket string, keys []string) error {
+		var errs error
+		for _, key := range keys {
+			writes, err := keyWrites(ctx, w.objMgr, bucket, key)
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			for _, v := range writes {
+				if !unplaced(v) {
+					continue
+				}
+				held, err := writer.HoldsData(ctx, bucket, key, v.VersionID)
+				if err != nil || !held {
+					errs = errors.Join(errs, err)
+					continue
+				}
+				errs = errors.Join(errs, writer.SetLocations(ctx, bucket, key, locationsChange(v, []string{localID}, 1)))
+			}
+		}
+		return errs
+	})
 }
 
 // GetSyncJobs returns all sync jobs ordered newest first (for status display).
@@ -240,8 +325,11 @@ func (w *HASyncWorker) GetSyncJobs(ctx context.Context) ([]SyncJobStatus, error)
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, startBucket, startKey string) {
+// startJob runs a sync job; the channel it returns is closed when the job
+// ends.
+func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, startBucket, startKey string) <-chan struct{} {
 	jobCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 
 	w.mu.Lock()
 	w.running[node.ID] = cancel
@@ -253,6 +341,7 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 			w.mu.Lock()
 			delete(w.running, node.ID)
 			w.mu.Unlock()
+			close(done)
 		}()
 
 		syncErr := w.runSync(jobCtx, jobID, node, startBucket, startKey)
@@ -282,7 +371,9 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 		w.mu.Lock()
 		delete(w.running, node.ID)
 		w.mu.Unlock()
+		close(done)
 	}
+	return done
 }
 
 func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, startBucket, startKey string) error {

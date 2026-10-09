@@ -271,7 +271,7 @@ func fanout(ctx context.Context, mgr *Manager, change string,
 		if n.ID == localID || n.HealthStatus == HealthStatusDead {
 			continue
 		}
-		if n.HealthStatus != HealthStatusHealthy {
+		if !n.InService() {
 			mgr.noteMissedWrites(ctx, localID, now, n.ID)
 			continue
 		}
@@ -360,7 +360,7 @@ func (b *BucketStates) SyncPeers(ctx context.Context) {
 		if n.ID == localID || n.HealthStatus == HealthStatusDead {
 			continue
 		}
-		if n.HealthStatus != HealthStatusHealthy {
+		if !n.InService() {
 			b.mgr.noteMissedWrites(ctx, localID, time.Now(), n.ID)
 			continue
 		}

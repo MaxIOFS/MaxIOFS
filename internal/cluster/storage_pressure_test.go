@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -231,22 +232,66 @@ func TestCheckNodeHealth_StoragePressure_NotSetWhenUnreachable(t *testing.T) {
 	assert.Empty(t, emitter.snapshot())
 }
 
-func TestGetHealthyNodes_ExcludesStoragePressure(t *testing.T) {
-	// Write path uses GetHealthyNodes — it must NOT include storage_pressure
-	// (otherwise a write would still be placed on a saturated node).
+// A node under storage pressure stays in service: it is listed with the
+// healthy nodes, serves and is sent every change, but takes no new data. A
+// write counts only the nodes that take data, and a node under pressure has
+// missed none of the writes.
+func TestANodeUnderStoragePressureIsInServiceButTakesNoData(t *testing.T) {
+	ctx := context.Background()
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	setReplicationFactor(t, db, 3)
+	m := newTestManager(t, db)
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	insertNode(t, db, "pressed", "pressed", HealthStatusStoragePressure, nil)
+	insertNode(t, db, "away", "away", HealthStatusUnavailable, nil)
+
+	nodes, err := m.GetHealthyNodes(ctx)
+	require.NoError(t, err)
+	var ids []string
+	for _, n := range nodes {
+		ids = append(ids, n.ID)
+		assert.True(t, n.InService(), n.ID)
+		assert.Equal(t, n.ID != "pressed", n.TakesData(), n.ID)
+	}
+	assert.ElementsMatch(t, []string{"local-node", "pressed"}, ids)
+
+	ok, err := m.ClusterCanAcceptWrites(ctx)
+	require.NoError(t, err)
+	assert.False(t, ok, "no other node takes data")
+	insertNode(t, db, "spare", "spare", HealthStatusHealthy, nil)
+	ok, err = m.ClusterCanAcceptWrites(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	m.noteMissedWrites(ctx, "local-node", time.Unix(100, 0))
+	missed := func(id string) bool {
+		var since sql.NullInt64
+		require.NoError(t, db.QueryRow(`SELECT replica_missed_since FROM cluster_nodes WHERE id = ?`, id).Scan(&since))
+		return since.Valid
+	}
+	assert.False(t, missed("pressed"), "a node under pressure is sent the writes")
+	assert.True(t, missed("away"))
+}
+
+// A node that answers again under storage pressure is caught up from its first
+// missed write, as a healthy one is.
+func TestCheckNodeHealth_StoragePressure_IsCaughtUp(t *testing.T) {
+	ctx := context.Background()
 	db := setupSPTestDB(t)
 	m := createTestHealthManager(t, db)
-
-	insert := func(id, status string) {
-		_, err := db.Exec(`INSERT INTO cluster_nodes (id, name, endpoint, node_token, health_status, is_stale)
-			VALUES (?, ?, ?, ?, ?, 0)`, id, id, "http://"+id, "tok", status)
-		require.NoError(t, err)
-	}
-	insert("n-healthy", HealthStatusHealthy)
-	insert("n-sp", HealthStatusStoragePressure)
-
-	nodes, err := m.GetHealthyNodes(context.Background())
+	capTotal, capUsed := int64(1000), int64(950)
+	srv := newSPHealthServer(t, &capTotal, &capUsed)
+	defer srv.Close()
+	var caughtUp []string
+	m.OnReplicaBack(func(nodeID string, _ time.Time) { caughtUp = append(caughtUp, nodeID) })
+	node := &Node{Name: "n1", Endpoint: srv.URL, NodeToken: "t"}
+	require.NoError(t, m.AddNode(ctx, node))
+	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ?, replica_missed_since = 100 WHERE id = ?`, HealthStatusUnavailable, node.ID)
 	require.NoError(t, err)
-	require.Len(t, nodes, 1)
-	assert.Equal(t, "n-healthy", nodes[0].ID)
+
+	s, err := m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, HealthStatusStoragePressure, s.Status)
+	assert.Equal(t, []string{node.ID}, caughtUp)
 }

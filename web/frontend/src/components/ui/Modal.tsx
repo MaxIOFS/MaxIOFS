@@ -300,7 +300,7 @@ export interface SuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  message: string;
+  message: React.ReactNode;
   buttonText?: string;
 }
 
@@ -330,9 +330,9 @@ export function SuccessModal({
         </h3>
 
         {/* Message */}
-        <p className="text-sm text-muted-foreground mb-6">
+        <div className="text-sm text-muted-foreground mb-6">
           {message}
-        </p>
+        </div>
 
         {/* Action */}
         <Button
@@ -351,7 +351,7 @@ export interface AlertModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  message: string;
+  message: React.ReactNode;
   buttonText?: string;
 }
 
@@ -381,9 +381,9 @@ export function AlertModal({
         </h3>
 
         {/* Message */}
-        <p className="text-sm text-muted-foreground mb-6 whitespace-pre-line">
+        <div className="text-sm text-muted-foreground mb-6 whitespace-pre-line">
           {message}
-        </p>
+        </div>
 
         {/* Action */}
         <Button

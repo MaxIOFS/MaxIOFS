@@ -6,12 +6,6 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 
 - [ ] Decide when to drop `internal/layout/`. It reads the previous on-disk layout, so while it ships an installation on 1.6.0 or older can upgrade straight to any release. Removing it makes 1.7.x a required stop.
 
-## Cluster: data on the factor's nodes
-
-- [ ] A test that the usage of every bucket and tenant is the same on every node.
-- [ ] Fill the locations of objects written before, on upgrade and when the factor rises from 1; until then their data is sent to every node. A node that leaves the cluster drops the entries whose data it does not hold.
-- [ ] A dead node that comes back keeps the locations it had: a change of locations made while it was dead does not reach it, and a copy it held and was replaced stays on it.
-
 ## IAM / STS
 
 - [ ] Decide whether a tenant is an AWS account. Role and policy names are unique across the deployment and ARNs carry no account (`arn:aws:iam:::policy/X`), so two tenants cannot reuse a name. Making them per-tenant means rebuilding both primary keys, rewriting stored ARNs and rekeying the cluster tombstones.

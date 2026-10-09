@@ -288,7 +288,7 @@ func (s *AntiEntropyScrubber) runCatchUp(ctx context.Context) {
 	}
 	// A node down again by now is caught up when it is next back.
 	for nodeID, t := range pending {
-		if node, err := s.mgr.GetNode(ctx, nodeID); err != nil || node.HealthStatus != HealthStatusHealthy {
+		if node, err := s.mgr.GetNode(ctx, nodeID); err != nil || !node.InService() {
 			retry(nodeID, t)
 			delete(pending, nodeID)
 		}
@@ -569,7 +569,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 			for i, d := range chunk {
 				names[i] = d.key
 			}
-			entries, _, err := s.fetchPeerChecksums(ctx, client, node, localID, bucketPath, names, false)
+			entries, _, err := fetchPeerChecksums(ctx, client, node, localID, bucketPath, names, false)
 			if err != nil {
 				errs = errors.Join(errs, err)
 				continue
@@ -651,7 +651,7 @@ func (s *AntiEntropyScrubber) processBatch(
 		if ctx.Err() != nil {
 			return
 		}
-		entries, listed, err := s.fetchPeerChecksums(ctx, client, peer, localID, bucketPath, keys, true)
+		entries, listed, err := fetchPeerChecksums(ctx, client, peer, localID, bucketPath, keys, true)
 		if err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath,
@@ -681,10 +681,10 @@ func (s *AntiEntropyScrubber) processBatch(
 			// The versions and delete markers held here that the peer lacks
 			// are sent to it, and the data it is to hold and lacks; the peer
 			// sends those it holds alone.
-			var missing, lost []object.ObjectVersion
+			var missing, lost, behind []object.ObjectVersion
 			fixed := true
 			if listed {
-				if missing, lost, err = s.versionsToSend(ctx, bucketPath, key, localID, peer.ID, peerEntry); err != nil {
+				if missing, lost, behind, err = s.versionsToSend(ctx, bucketPath, key, localID, peer.ID, peerEntry); err != nil {
 					logrus.WithError(err).WithFields(logrus.Fields{
 						"bucket": bucketPath, "key": key,
 					}).Warn("AntiEntropyScrubber: cannot list the versions of a key")
@@ -702,7 +702,13 @@ func (s *AntiEntropyScrubber) processBatch(
 			if lostCurrent {
 				lost = append(lost, object.ObjectVersion{Object: *local})
 			}
-			if divergence != divNone || len(missing) > 0 || len(lost) > 0 || !fixed {
+			// The same current object without a version, whose locations the
+			// peer has older: a node that was away missed their change.
+			if listed && !lostCurrent && divergence == divNone && local.VersionID == "" && peerEntry != nil && peerEntry.Found &&
+				local.LocationsGen > peerEntry.LocationsGen {
+				behind = append(behind, object.ObjectVersion{Object: *local})
+			}
+			if divergence != divNone || len(missing) > 0 || len(lost) > 0 || len(behind) > 0 || !fixed {
 				cp.DivergencesFound++
 				if action != actNone {
 					fixed = s.applyAction(ctx, client, peer, localID, bucketPath, key, local, peerEntry, action) && fixed
@@ -720,6 +726,14 @@ func (s *AntiEntropyScrubber) processBatch(
 						logrus.WithError(err).WithFields(logrus.Fields{
 							"peer": peer.ID, "bucket": bucketPath, "key": key,
 						}).Warn("AntiEntropyScrubber: data not sent to a node that is to hold it")
+						fixed = false
+					}
+				}
+				for _, v := range behind {
+					if err := sendEntryOf(ctx, client, s.objMgr, peer, localID, bucketPath, key, v.VersionID); err != nil {
+						logrus.WithError(err).WithFields(logrus.Fields{
+							"peer": peer.ID, "bucket": bucketPath, "key": key,
+						}).Warn("AntiEntropyScrubber: newer locations not sent")
 						fixed = false
 					}
 				}
@@ -755,8 +769,12 @@ type ChecksumEntry struct {
 	// the request asks for them; Held, those whose data the node holds.
 	Versions []string `json:"versions,omitempty"`
 	Held     []string `json:"held,omitempty"`
-	// Locations are the nodes the current object's entry names; HoldsCurrent,
-	// whether the node holds its data. Given with the versions.
+	// Gens are the numbers of the locations of the versions, those above 0.
+	Gens map[string]int64 `json:"gens,omitempty"`
+	// Locations are the nodes the current object's entry names, LocationsGen
+	// the number of their change; HoldsCurrent, whether the node holds its
+	// data. Given with the versions.
+	LocationsGen int64    `json:"locations_gen,omitempty"`
 	Locations    []string `json:"locations,omitempty"`
 	HoldsCurrent bool     `json:"holds_current,omitempty"`
 }
@@ -916,7 +934,7 @@ func (s *AntiEntropyScrubber) applyAction(
 // fetchPeerChecksums calls POST /api/internal/cluster/ha/checksum-batch on the
 // peer. With versions it asks for the IDs of each key's versions too; listed
 // reports whether the peer gave them.
-func (s *AntiEntropyScrubber) fetchPeerChecksums(
+func fetchPeerChecksums(
 	ctx context.Context,
 	client *ProxyClient,
 	peer *Node,
@@ -970,10 +988,10 @@ type ChecksumResponse struct {
 // versionsToSend sorts the versions and delete markers of key held here
 // against the peer's entry, oldest first: those it lacks, and those whose data
 // both this node and the peer are to hold and the peer does not.
-func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, key, localID, peerID string, peer *ChecksumEntry) (missing, lost []object.ObjectVersion, err error) {
+func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, key, localID, peerID string, peer *ChecksumEntry) (missing, lost, behind []object.ObjectVersion, err error) {
 	versions, err := keyVersions(ctx, s.objMgr, bucketPath, key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	there, held := make(map[string]bool), make(map[string]bool)
 	if peer != nil {
@@ -991,9 +1009,11 @@ func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, ke
 		case !v.IsDeleteMarker && !held[v.VersionID] &&
 			slices.Contains(v.Locations, peerID) && slices.Contains(v.Locations, localID):
 			lost = append(lost, v)
+		case !v.IsDeleteMarker && v.LocationsGen > peer.Gens[v.VersionID]:
+			behind = append(behind, v)
 		}
 	}
-	return missing, lost, nil
+	return missing, lost, behind, nil
 }
 
 // pullObjectFromPeer fetches the peer's copy and stores it locally as a

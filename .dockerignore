@@ -42,7 +42,7 @@ Thumbs.db
 .Trashes
 
 # Dependencies (downloaded during build)
-node_modules/
+**/node_modules
 
 # Environment
 .env

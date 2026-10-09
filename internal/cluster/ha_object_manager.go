@@ -755,7 +755,7 @@ func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op 
 		if n.ID == localID || n.HealthStatus == HealthStatusDead {
 			continue
 		}
-		if n.HealthStatus != HealthStatusHealthy || h.mgr.hasQueuedMetadataOps(ctx, n.ID) {
+		if !n.InService() || h.mgr.hasQueuedMetadataOps(ctx, n.ID) {
 			h.mgr.queueMetadataOp(ctx, n.ID, bucket, body)
 			continue
 		}

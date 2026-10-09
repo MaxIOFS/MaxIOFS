@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,7 +131,10 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 			_, err := node.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, peer.id)
 			require.NoError(t, err)
 		}
-		require.NoError(t, node.clusterManager.SetReplicationFactor(ctx, factor))
+		// A cluster that never changed its factor has a factor of 1 unset.
+		if factor > 1 {
+			require.NoError(t, node.clusterManager.SetReplicationFactor(ctx, factor))
+		}
 		// The nodes share the test machine's disk; how full it is must not
 		// put them under storage pressure.
 		require.NoError(t, cluster.SetGlobalConfig(ctx, node.db, "ha.storage_pressure_threshold_percent", "100"))
@@ -676,9 +680,9 @@ func TestALowerFactorDropsTheExtraCopies(t *testing.T) {
 }
 
 // A higher replication factor set from the console copies every write to the
-// nodes it needs, and the work goes on once the request is answered; the entry
-// the first sync sends the new holder, arriving after it is named, does not
-// undo it. Going back to a factor of 1 with several nodes is refused.
+// nodes it needs once the first syncs end, and the work goes on once the
+// request is answered. Going back to a factor of 1 with several nodes is
+// refused.
 func TestAHigherFactorAddsTheCopiesItNeeds(t *testing.T) {
 	c := newHACluster(t, 3, 2)
 	ctx := context.Background()
@@ -689,14 +693,17 @@ func TestAHigherFactorAddsTheCopiesItNeeds(t *testing.T) {
 	require.Len(t, locations, 2)
 	first := firstOf(c.byID(locations[0]), c.byID(locations[1]))
 	missing := c.except(c.byID(locations[0]), c.byID(locations[1]))[0]
-	named := func() {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-			if e, err := missing.metadataStore.GetObject(ctx, "placed", "k"); err == nil && slices.Contains(e.Locations, missing.id) {
-				return
-			}
-		}
+	// The entry the first sync sends is held a while: no copy is made before
+	// the sync ends.
+	var copiedDuringSync atomic.Bool
+	released := make(chan struct{})
+	var once sync.Once
+	hold := func() {
+		time.Sleep(500 * time.Millisecond)
+		copiedDuringSync.Store(missing.holds(t, "placed", "k", ""))
+		once.Do(func() { close(released) })
 	}
-	missing.onEntry.Store(&named)
+	missing.onEntry.Store(&hold)
 	for _, n := range c.nodes {
 		first.setFree(t, n, 900)
 		if n != first {
@@ -715,6 +722,12 @@ func TestAHigherFactorAddsTheCopiesItNeeds(t *testing.T) {
 	w := setFactor(3)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Eventually(t, func() bool { return missing.holds(t, "placed", "k", "") }, 15*time.Second, 50*time.Millisecond)
+	select {
+	case <-released:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the first sync did not send the entry")
+	}
+	assert.False(t, copiedDuringSync.Load(), "the copy is made once the sync ends")
 	for _, n := range c.nodes {
 		require.Eventually(t, func() bool { return len(n.entry(t, "placed", "k").Locations) == 3 }, 15*time.Second, 50*time.Millisecond)
 	}
@@ -728,6 +741,18 @@ func TestAHigherFactorAddsTheCopiesItNeeds(t *testing.T) {
 		}
 		return len(jobs) > 0
 	}, 15*time.Second, 50*time.Millisecond, "the sync jobs end after the request")
+
+	w = setFactor(2)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Eventually(t, func() bool {
+		var holders int
+		for _, n := range c.nodes {
+			if n.holds(t, "placed", "k", "") {
+				holders++
+			}
+		}
+		return holders == 2
+	}, 15*time.Second, 50*time.Millisecond, "with the syncs done, the copies are repaired at once")
 
 	assert.Equal(t, http.StatusConflict, setFactor(1).Code)
 }
@@ -758,7 +783,13 @@ func TestAFullCycleRepairsTheCopies(t *testing.T) {
 // underPressure makes n see itself under storage pressure.
 func (n *haNode) underPressure(t *testing.T) {
 	t.Helper()
-	_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusStoragePressure, n.id)
+	n.seesUnderPressure(t, n)
+}
+
+// seesUnderPressure makes n see peer under storage pressure.
+func (n *haNode) seesUnderPressure(t *testing.T, peer *haNode) {
+	t.Helper()
+	_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusStoragePressure, peer.id)
 	require.NoError(t, err)
 }
 
@@ -967,4 +998,419 @@ func TestVeeamSeesWhatATenantUsesOnEveryNode(t *testing.T) {
 	capacity, available := a.sosapiCapacity(t, "here")
 	assert.EqualValues(t, 1000, capacity)
 	assert.EqualValues(t, 600, available)
+}
+
+// The usage of every bucket and of its tenant is the same on every node and
+// counts each write once, whichever node takes it and whichever nodes hold its
+// data; what is counted as the writes go is what the entries count.
+func TestUsageIsTheSameOnEveryNode(t *testing.T) {
+	c := newHACluster(t, 3, 2)
+	a, b, far := c.nodes[0], c.nodes[1], c.nodes[2]
+	ctx := context.Background()
+	for _, n := range c.nodes {
+		require.NoError(t, n.authManager.CreateTenant(ctx, &auth.Tenant{ID: "acme", Name: "acme", DisplayName: "Acme", Status: "active"}))
+	}
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "acme", "plain", routingAdminID))
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "acme", "versions", routingAdminID))
+	require.NoError(t, a.bucketManager.SetVersioning(ctx, "acme", "versions", &bucket.VersioningConfig{Status: "Enabled"}))
+	a.setFree(t, b, 100)
+	a.setFree(t, far, 900)
+	put := func(n *haNode, bucket, key string, size int) *object.Object {
+		t.Helper()
+		obj, err := n.objectManager.PutObject(ctx, "acme/"+bucket, key, strings.NewReader(strings.Repeat("x", size)), http.Header{})
+		require.NoError(t, err)
+		return obj
+	}
+
+	put(a, "plain", "one", 100)
+	put(b, "plain", "two", 200)
+	put(far, "plain", "three", 300)
+	put(b, "plain", "one", 150)
+	_, err := far.objectManager.DeleteObject(ctx, "acme/plain", "two", false)
+	require.NoError(t, err)
+	upload, err := b.objectManager.CreateMultipartUpload(ctx, "acme/plain", "big", http.Header{})
+	require.NoError(t, err)
+	p1, err := b.objectManager.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader(bytes.Repeat([]byte("x"), 5<<20)))
+	require.NoError(t, err)
+	p2, err := b.objectManager.UploadPart(ctx, upload.UploadID, 2, strings.NewReader("tail"))
+	require.NoError(t, err)
+	_, err = b.objectManager.CompleteMultipartUpload(ctx, upload.UploadID, []object.Part{*p1, *p2})
+	require.NoError(t, err)
+	a.underPressure(t)
+	put(a, "plain", "moved", 40)
+
+	first := put(a, "versions", "v", 10)
+	put(b, "versions", "v", 20)
+	_, err = far.objectManager.DeleteObject(ctx, "acme/versions", "v", false)
+	require.NoError(t, err)
+	_, err = a.objectManager.DeleteObject(ctx, "acme/versions", "v", false, first.VersionID)
+	require.NoError(t, err)
+
+	plainSize := int64(150 + 300 + 5<<20 + 4 + 40)
+	check := func(when string) {
+		t.Helper()
+		for _, n := range c.nodes {
+			plain, err := n.metadataStore.GetBucket(ctx, "acme", "plain")
+			require.NoError(t, err)
+			assert.EqualValues(t, 4, plain.ObjectCount, "objects, %s, node %s", when, n.id)
+			assert.Equal(t, plainSize, plain.TotalSize, "size, %s, node %s", when, n.id)
+			versions, err := n.metadataStore.GetBucket(ctx, "acme", "versions")
+			require.NoError(t, err)
+			assert.EqualValues(t, 0, versions.ObjectCount, "versioned objects, %s, node %s", when, n.id)
+			assert.EqualValues(t, 20, versions.TotalSize, "versioned size, %s, node %s", when, n.id)
+			tenant, err := n.authManager.GetTenant(ctx, "acme")
+			require.NoError(t, err)
+			assert.Equal(t, plainSize+20, tenant.CurrentStorageBytes, "tenant, %s, node %s", when, n.id)
+		}
+	}
+	check("as the writes went")
+	for _, n := range c.nodes {
+		n.reconcileBucketStats(ctx)
+	}
+	check("counted from the entries")
+}
+
+// A factor raised from 1 on one node reaches every node: each gives its
+// writes, which no other node holds, itself as their location and sends its
+// buckets and entries; the copies the factor needs are then made, one per
+// write, and every node reads them.
+func TestAFactorRaisedFromOnePlacesTheWritesOfEveryNode(t *testing.T) {
+	c := newHACluster(t, 3, 1)
+	a := c.nodes[0]
+	ctx := context.Background()
+	type write struct {
+		owner                            *haNode
+		bucket, key, versionID, contents string
+	}
+	var writes []write
+	for i, n := range c.nodes {
+		name := fmt.Sprintf("own-%d", i)
+		require.NoError(t, n.bucketManager.CreateBucket(ctx, "", name, routingAdminID))
+		obj, err := n.objectManager.PutObject(ctx, name, "k", strings.NewReader(name), http.Header{})
+		require.NoError(t, err)
+		writes = append(writes, write{n, name, "k", obj.VersionID, name})
+	}
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "own-versions", routingAdminID))
+	require.NoError(t, a.bucketManager.SetVersioning(ctx, "", "own-versions", &bucket.VersioningConfig{Status: "Enabled"}))
+	for _, contents := range []string{"one", "two"} {
+		obj, err := a.objectManager.PutObject(ctx, "own-versions", "v", strings.NewReader(contents), http.Header{})
+		require.NoError(t, err)
+		writes = append(writes, write{a, "own-versions", "v", obj.VersionID, contents})
+	}
+
+	writer, ok := cluster.ReplicaWriter(a.objectManager)
+	require.True(t, ok)
+	const lostVersion = "1000000000000000000.lost"
+	require.NoError(t, writer.PutReplicaMetadata(ctx, &metadata.ObjectMetadata{Bucket: "own-versions", Key: "lost", VersionID: lostVersion,
+		Size: 4, ETag: "0123456789abcdef0123456789abcdef", LastModified: time.Now()}))
+
+	w := httptest.NewRecorder()
+	a.handleSetClusterHA(w, asGlobalAdmin(httptest.NewRequest(http.MethodPut, "/api/v1/cluster/ha", strings.NewReader(`{"factor":2}`)), nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	for _, wr := range writes {
+		require.Eventually(t, func() bool {
+			var holders int
+			var locations []string
+			for i, n := range c.nodes {
+				if n.holds(t, wr.bucket, wr.key, wr.versionID) {
+					holders++
+				}
+				e, err := n.metadataStore.GetObject(ctx, wr.bucket, wr.key, wr.versionID)
+				if err != nil || (i > 0 && !slices.Equal(e.Locations, locations)) {
+					return false
+				}
+				locations = e.Locations
+			}
+			return holders == 2 && len(locations) == 2 && slices.Contains(locations, wr.owner.id)
+		}, 15*time.Second, 50*time.Millisecond, "%s/%s", wr.bucket, wr.key)
+		for _, n := range c.nodes {
+			assert.Equal(t, wr.contents, getBody(t, n.s3, wr.bucket, wr.key, func(in *s3.GetObjectInput) {
+				if wr.versionID != "" {
+					in.VersionId = aws.String(wr.versionID)
+				}
+			}))
+		}
+	}
+	var copies int32
+	for _, n := range c.nodes {
+		copies += n.copies.Load()
+	}
+	assert.EqualValues(t, len(writes), copies, "one copy of each write is made")
+	lostEntry, err := a.metadataStore.GetObject(ctx, "own-versions", "lost", lostVersion)
+	require.NoError(t, err)
+	assert.Empty(t, lostEntry.Locations, "a write whose data is not here is not given this node")
+}
+
+// Writes that name no node, made before the cluster kept their locations, are
+// given the nodes that hold them by the first of those nodes, trimmed to the
+// factor, and a write held by fewer is copied; a node holding another write of
+// the key does not count. Without the answer of every healthy node they wait
+// for the next repair.
+func TestWritesThatNameNoNodeAreGivenTheirHolders(t *testing.T) {
+	c := newHACluster(t, 3, 2)
+	ctx := context.Background()
+	first := firstOf(c.nodes...)
+	silent, third := c.except(first)[0], c.except(first)[1]
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "old", routingAdminID))
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "oldv", routingAdminID))
+	require.NoError(t, c.nodes[0].bucketManager.SetVersioning(ctx, "", "oldv", &bucket.VersioningConfig{Status: "Enabled"}))
+	first.setFree(t, silent, 100)
+	first.setFree(t, third, 900)
+	first.seesUnderPressure(t, third)
+	at := time.Now().Truncate(time.Second)
+	const versionID = "1000000000000000000.old"
+	legacy := func(n *haNode, bucket, key, versionID, contents string, at time.Time) {
+		t.Helper()
+		copyCtx := object.WithReplicatedWrittenAt(object.WithReplicatedLastModified(object.WithReplicaCopy(ctx), at), at.UnixNano())
+		if versionID != "" {
+			copyCtx = object.WithReplicatedVersionID(copyCtx, versionID)
+		}
+		_, err := n.objectManager.(*cluster.HAObjectManager).Manager.PutObject(copyCtx, bucket, key, strings.NewReader(contents), http.Header{})
+		require.NoError(t, err)
+	}
+	for _, n := range c.nodes {
+		legacy(n, "old", "everywhere", "", "everywhere", at)
+		legacy(n, "oldv", "v", versionID, "v", at)
+	}
+	legacy(first, "old", "diverged", "", "one write", at)
+	legacy(silent, "old", "diverged", "", "one write", at)
+	legacy(third, "old", "diverged", "", "another write", at.Add(time.Second))
+	const loneVersion = "1000000000000000000.lone"
+	legacy(third, "old", "lone", "", "lone", at)
+	legacy(third, "oldv", "lonev", loneVersion, "lonev", at)
+	for _, held := range []struct{ bucket, key, versionID string }{{"old", "lone", ""}, {"oldv", "lonev", loneVersion}} {
+		entry, err := third.metadataStore.GetObject(ctx, held.bucket, held.key, held.versionID)
+		require.NoError(t, err)
+		for _, n := range []*haNode{first, silent} {
+			writer, ok := cluster.ReplicaWriter(n.objectManager)
+			require.True(t, ok)
+			require.NoError(t, writer.PutReplicaMetadata(ctx, entry))
+		}
+	}
+
+	silent.down.Store(true)
+	assert.Error(t, first.haSyncWorker.RepairPlacement(ctx))
+	assert.Empty(t, first.entry(t, "old", "everywhere").Locations, "without the answer of every healthy node")
+	silent.down.Store(false)
+	require.NoError(t, silent.haSyncWorker.RepairPlacement(ctx))
+	assert.Empty(t, silent.entry(t, "old", "everywhere").Locations, "a holder that is not the first leaves the write to it")
+
+	require.NoError(t, first.haSyncWorker.RepairPlacement(ctx))
+	assert.Equal(t, []string{first.id, third.id}, first.entry(t, "old", "everywhere").Locations, "the holders with the most free space, one under storage pressure too")
+	assert.Equal(t, []string{first.id, silent.id}, first.entry(t, "old", "diverged").Locations, "the node with another write does not hold this one")
+	for _, n := range c.nodes {
+		assert.Zero(t, n.copies.Load(), "the writes held by enough nodes are not copied")
+	}
+
+	require.NoError(t, third.haSyncWorker.RepairPlacement(ctx))
+	for _, w := range []struct{ bucket, key, versionID string }{{"old", "everywhere", ""}, {"oldv", "v", versionID}, {"old", "lone", ""}, {"oldv", "lonev", loneVersion}} {
+		locations := first.entry(t, w.bucket, w.key).Locations
+		require.Len(t, locations, 2, w.key)
+		var holders int
+		for _, n := range c.nodes {
+			assert.Equal(t, locations, n.entry(t, w.bucket, w.key).Locations, w.key)
+			assert.Equal(t, w.key, getBody(t, n.s3, w.bucket, w.key))
+			if n.holds(t, w.bucket, w.key, w.versionID) {
+				holders++
+			}
+		}
+		assert.Equal(t, 2, holders, w.key)
+	}
+	assert.Equal(t, first.id, first.entry(t, "oldv", "v").Locations[0], "adopted by the first of its holders")
+	assert.Contains(t, first.entry(t, "old", "lone").Locations, third.id)
+}
+
+// With a factor of 1, a bucket on a node under storage pressure is found and
+// listed from every node: its writes and reads reach it.
+func TestABucketOnANodeUnderStoragePressureIsReachedFromEveryNode(t *testing.T) {
+	c := newHACluster(t, 2, 1)
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	require.NoError(t, b.bucketManager.CreateBucket(ctx, "", "busy", routingAdminID))
+	a.seesUnderPressure(t, b)
+
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("busy"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	assert.True(t, b.holds(t, "busy", "k", ""))
+	assert.Equal(t, "data", getBody(t, a.s3, "busy", "k"))
+	listed, err := a.s3.ListBuckets(ctx, &s3.ListBucketsInput{})
+	require.NoError(t, err)
+	var names []string
+	for _, bk := range listed.Buckets {
+		names = append(names, *bk.Name)
+	}
+	assert.Contains(t, names, "busy")
+}
+
+// With a factor above 1, a node under storage pressure is given no new copy,
+// even with the most free space, but is sent the entry of every write, its
+// changes and its deletes.
+func TestANodeUnderStoragePressureTakesEntriesButNoNewData(t *testing.T) {
+	_, a, b, far := placedCluster(t, "placed")
+	ctx := context.Background()
+	a.seesUnderPressure(t, far)
+
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("placed"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	assert.False(t, far.holds(t, "placed", "k", ""))
+	assert.True(t, b.holds(t, "placed", "k", ""))
+	assert.Equal(t, []string{a.id, b.id}, far.entry(t, "placed", "k").Locations)
+
+	_, err = a.s3.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{Bucket: aws.String("placed"), Key: aws.String("k"),
+		Tagging: &types.Tagging{TagSet: []types.Tag{{Key: aws.String("team"), Value: aws.String("blue")}}}})
+	require.NoError(t, err)
+	tags, err := far.objectManager.GetObjectTagging(ctx, "placed", "k")
+	require.NoError(t, err)
+	require.Len(t, tags.Tags, 1)
+	assert.Equal(t, "blue", tags.Tags[0].Value)
+	_, err = a.s3.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{Bucket: aws.String("placed"),
+		Tagging: &types.Tagging{TagSet: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}}})
+	require.NoError(t, err)
+	placed, err := far.metadataStore.GetBucket(ctx, "", "placed")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", placed.Tags["env"])
+
+	_, err = a.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String("placed"), Key: aws.String("k")})
+	require.NoError(t, err)
+	_, err = far.metadataStore.GetObject(ctx, "placed", "k")
+	assert.ErrorIs(t, err, metadata.ErrObjectNotFound)
+}
+
+// A node under storage pressure does not pass its copy to another node under
+// pressure, and a repair makes no copy on one.
+func TestNoNewCopyGoesToANodeUnderStoragePressure(t *testing.T) {
+	_, a, b, far := placedCluster(t, "full")
+	ctx := context.Background()
+	a.underPressure(t)
+	a.seesUnderPressure(t, b)
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("full"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	assert.True(t, a.holds(t, "full", "k", ""))
+	assert.Equal(t, []string{a.id, far.id}, a.entry(t, "full", "k").Locations)
+
+	require.NoError(t, a.clusterManager.RemoveNode(ctx, far.id))
+	require.Eventually(t, func() bool {
+		return slices.Equal([]string{a.id}, a.entry(t, "full", "k").Locations)
+	}, 15*time.Second, 50*time.Millisecond)
+	assert.Zero(t, b.copies.Load(), "b is under storage pressure")
+}
+
+// A node back under storage pressure is caught up: it is sent every bucket and
+// the writes it missed.
+func TestANodeBackUnderStoragePressureIsCaughtUp(t *testing.T) {
+	_, a, _, far := placedCluster(t, "placed")
+	ctx := context.Background()
+	far.down.Store(true)
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("placed"), Key: aws.String("missed"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	far.down.Store(false)
+	a.seesUnderPressure(t, far)
+	require.NoError(t, a.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: "quiet", OwnerID: routingAdminID}))
+
+	startScrubber(t, a.Server)
+	a.antiEntropyScrubber.CatchUp(far.id, time.Unix(1, 0))
+	require.Eventually(t, func() bool {
+		_, err := far.metadataStore.GetObject(ctx, "placed", "missed")
+		return err == nil && hasBucket(far.Server, "", "quiet")
+	}, 15*time.Second, 50*time.Millisecond)
+}
+
+// A node that leaves the cluster drops the entries of the writes the other
+// nodes hold, a version as well as an object, and keeps and serves those it
+// holds.
+func TestANodeThatLeavesKeepsOnlyTheWritesItHolds(t *testing.T) {
+	_, a, b, far := placedCluster(t, "placed")
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "placedv", routingAdminID))
+	require.NoError(t, a.bucketManager.SetVersioning(ctx, "", "placedv", &bucket.VersioningConfig{Status: "Enabled"}))
+	b.setFree(t, a, 900)
+	b.setFree(t, far, 100)
+	put := func(n *haNode, bucket, key, contents string) *s3.PutObjectOutput {
+		t.Helper()
+		out, err := n.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key), Body: strings.NewReader(contents)})
+		require.NoError(t, err)
+		return out
+	}
+	put(a, "placed", "kept", "kept")
+	put(b, "placed", "gone", "gone")
+	first := put(a, "placedv", "v", "one")
+	put(b, "placedv", "v", "two")
+	require.True(t, far.holds(t, "placed", "kept", ""))
+	require.False(t, far.holds(t, "placed", "gone", ""))
+	_, err := far.objectManager.(*cluster.HAObjectManager).Manager.PutObject(ctx, "placed", "legacy", strings.NewReader("legacy"), http.Header{})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	far.handleLeaveCluster(w, asGlobalAdmin(httptest.NewRequest(http.MethodPost, "/api/v1/cluster/leave", nil), nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Eventually(t, func() bool {
+		_, err := far.metadataStore.GetObject(ctx, "placed", "gone")
+		versions, verr := far.metadataStore.GetObjectVersions(ctx, "placedv", "v")
+		return errors.Is(err, metadata.ErrObjectNotFound) && verr == nil && len(versions) == 1
+	}, 15*time.Second, 50*time.Millisecond)
+
+	assert.Equal(t, "kept", getBody(t, far.s3, "placed", "kept"))
+	assert.Equal(t, "legacy", getBody(t, far.s3, "placed", "legacy"), "an entry naming no node is held where its file is")
+	versions, err := far.metadataStore.GetObjectVersions(ctx, "placedv", "v")
+	require.NoError(t, err)
+	assert.Equal(t, *first.VersionId, versions[0].VersionID)
+	assert.Equal(t, "one", getBody(t, far.s3, "placedv", "v"))
+	placed, err := far.metadataStore.GetBucket(ctx, "", "placed")
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, placed.ObjectCount)
+	assert.EqualValues(t, 10, placed.TotalSize)
+}
+
+// A dead node that answers again is compared on every write: the locations
+// changed while it was dead reach it, and the copy it held, made again on
+// another node, is removed from it. A version as well as an object.
+func TestADeadNodeThatComesBackTakesTheLocationsChangedMeanwhile(t *testing.T) {
+	_, a, b, far := placedCluster(t, "placed")
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "placedv", routingAdminID))
+	require.NoError(t, a.bucketManager.SetVersioning(ctx, "", "placedv", &bucket.VersioningConfig{Status: "Enabled"}))
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("placed"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	version, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("placedv"), Key: aws.String("v"), Body: strings.NewReader("version")})
+	require.NoError(t, err)
+	require.True(t, far.holds(t, "placed", "k", ""))
+	require.True(t, far.holds(t, "placedv", "v", *version.VersionId))
+
+	setStatus := func(status string) {
+		t.Helper()
+		for _, n := range []*haNode{a, b} {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, status, far.id)
+			require.NoError(t, err)
+		}
+	}
+	setStatus(cluster.HealthStatusDead)
+	require.NoError(t, a.haSyncWorker.RepairPlacement(ctx))
+	require.Equal(t, []string{a.id, b.id}, a.entry(t, "placed", "k").Locations)
+	require.Equal(t, []string{a.id, far.id}, far.entry(t, "placed", "k").Locations, "a dead node is told nothing")
+
+	setStatus(cluster.HealthStatusHealthy)
+	startScrubber(t, a.Server)
+	runs := a.scrubRuns(t)
+	a.antiEntropyScrubber.CatchUp(far.id, time.Unix(1, 0))
+	require.Eventually(t, func() bool {
+		v, err := far.metadataStore.GetObject(ctx, "placedv", "v", *version.VersionId)
+		return err == nil && slices.Equal([]string{a.id, b.id}, v.Locations) &&
+			slices.Equal([]string{a.id, b.id}, far.entry(t, "placed", "k").Locations)
+	}, 15*time.Second, 50*time.Millisecond)
+	assert.False(t, far.holds(t, "placed", "k", ""))
+	assert.False(t, far.holds(t, "placedv", "v", *version.VersionId))
+	assert.Equal(t, "data", getBody(t, far.s3, "placed", "k"))
+
+	// Once the locations agree, a full cycle sends no entry.
+	require.Eventually(t, func() bool { return a.scrubRuns(t) > runs }, 15*time.Second, 50*time.Millisecond)
+	var entries atomic.Int32
+	count := func() { entries.Add(1) }
+	for _, n := range []*haNode{b, far} {
+		n.onEntry.Store(&count)
+	}
+	runs = a.scrubRuns(t)
+	a.antiEntropyScrubber.CatchUp(far.id, time.Unix(1, 0))
+	require.Eventually(t, func() bool { return a.scrubRuns(t) > runs }, 15*time.Second, 50*time.Millisecond)
+	assert.Zero(t, entries.Load(), "the locations agree")
 }

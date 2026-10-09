@@ -42,11 +42,18 @@ type Manager struct {
 	storagePressureFn StoragePressureEmitter
 	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
 	nodeRemoved       atomic.Pointer[func(nodeID string)]
+	left              atomic.Pointer[func(localID string)]
 }
 
 // OnNodeRemoved sets what runs when a member of the cluster is removed here.
 func (m *Manager) OnNodeRemoved(fn func(nodeID string)) {
 	m.nodeRemoved.Store(&fn)
+}
+
+// OnLeft sets what runs once this node has left the cluster, given the ID it
+// had in it.
+func (m *Manager) OnLeft(fn func(localID string)) {
+	m.left.Store(&fn)
 }
 
 // OnReplicaBack sets what runs when a node that missed writes is healthy
@@ -338,6 +345,7 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 
 // LeaveCluster removes this node from the cluster
 func (m *Manager) LeaveCluster(ctx context.Context) error {
+	localID, _ := m.GetLocalNodeID(ctx)
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE cluster_config SET is_cluster_enabled = 0
 	`)
@@ -346,6 +354,9 @@ func (m *Manager) LeaveCluster(ctx context.Context) error {
 	}
 
 	m.log.Info("Left cluster")
+	if fn := m.left.Load(); fn != nil && localID != "" {
+		(*fn)(localID)
+	}
 	return nil
 }
 
@@ -556,10 +567,11 @@ func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-// GetHealthyNodes returns all healthy nodes
+// GetHealthyNodes returns the nodes in service: healthy, or under storage
+// pressure (see Node.InService). Only the healthy ones take new data.
 func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	nodes, err := m.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes
-		WHERE health_status = ? ORDER BY priority ASC, name ASC`, HealthStatusHealthy)
+		WHERE health_status IN (?, ?) ORDER BY priority ASC, name ASC`, HealthStatusHealthy, HealthStatusStoragePressure)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list healthy nodes: %w", err)
 	}
@@ -929,10 +941,9 @@ func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
 	}
 	available := 0
 	for _, n := range healthy {
-		if n.ID == localID {
-			continue
+		if n.ID != localID && n.TakesData() {
+			available++
 		}
-		available++
 	}
 	return available >= neededReplicas, nil
 }

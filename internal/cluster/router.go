@@ -244,7 +244,7 @@ func (r *Router) isNodeHealthy(node *Node) bool {
 	if node == nil {
 		return false
 	}
-	return node.HealthStatus == HealthStatusHealthy
+	return node.InService()
 }
 
 // ShouldRouteToRemoteNode determines if a request should be routed to a remote node

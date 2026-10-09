@@ -77,10 +77,14 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	}
 	h.mgr.noteMissedWrites(ctx, localID, time.Now())
 
-	var others []*Node
+	var others, entriesOnly []*Node
 	for _, n := range healthy {
-		if n.ID != localID {
+		switch {
+		case n.ID == localID:
+		case n.TakesData():
 			others = append(others, n)
+		default:
+			entriesOnly = append(entriesOnly, n)
 		}
 	}
 	slices.SortStableFunc(others, func(a, b *Node) int {
@@ -101,6 +105,7 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 			p.entries = append(p.entries, n)
 		}
 	}
+	p.entries = append(p.entries, entriesOnly...)
 	return p, true
 }
 
@@ -195,6 +200,9 @@ func (h *HAObjectManager) relieve(ctx context.Context, p *placement, bucket, key
 	others := slices.DeleteFunc(slices.Clone(p.holders), func(id string) bool { return id == p.localID })
 	gen, locations := obj.LocationsGen, p.holders
 	for _, n := range p.entries {
+		if !n.TakesData() {
+			continue
+		}
 		gen++
 		named := append(slices.Clone(others), n.ID)
 		if err := sendNamingCopy(ctx, client, h.Manager, n, p.localID, bucket, key, obj.VersionID, gen, named); err != nil {

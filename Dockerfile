@@ -77,4 +77,3 @@ ENV MAXIOFS_DATA_DIR="/data"
 ENV MAXIOFS_LOG_LEVEL="info"
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["--data-dir", "/data"]

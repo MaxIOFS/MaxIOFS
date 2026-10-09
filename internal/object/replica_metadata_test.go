@@ -576,3 +576,28 @@ func TestARawCopyKeepsTheNewestLocationsOfItsWrite(t *testing.T) {
 	assert.Equal(t, []string{"b", "a"}, locations)
 	assert.EqualValues(t, 3, gen)
 }
+
+// A dropped entry is removed, a version under a retention as well as an
+// object without a version: the lock guards data this node does not hold.
+func TestADroppedEntryIsRemovedWhateverItsLock(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "v",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"}, ObjectLock: &metadata.ObjectLockMetadata{Enabled: true}}))
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b"}))
+	h := http.Header{}
+	h.Set("x-amz-object-lock-mode", RetentionModeCompliance)
+	h.Set("x-amz-object-lock-retain-until-date", time.Now().Add(48*time.Hour).UTC().Format(time.RFC3339))
+	locked, err := om.PutObject(ctx, "v", "k", strings.NewReader("locked"), h)
+	require.NoError(t, err)
+	_, err = om.PutObject(ctx, "b", "k", strings.NewReader("plain"), http.Header{})
+	require.NoError(t, err)
+
+	require.NoError(t, om.DropEntry(ctx, "v", "k", locked.VersionID))
+	_, err = om.ObjectEntry(ctx, "v", "k", locked.VersionID)
+	assert.Error(t, err, "a version under a retention")
+	require.NoError(t, om.DropEntry(ctx, "b", "k", ""))
+	_, err = om.ObjectEntry(ctx, "b", "k", "")
+	assert.Error(t, err, "an object without a version")
+}

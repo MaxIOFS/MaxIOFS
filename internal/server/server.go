@@ -624,6 +624,14 @@ func New(cfg *config.Config) (*Server, error) {
 	// The copies a removed node held, and those of every write once a day,
 	// are repaired.
 	clusterManager.OnNodeRemoved(func(string) { haSyncWorker.StartRepair(context.Background()) })
+	// A node that leaves the cluster keeps only the writes it holds.
+	clusterManager.OnLeft(func(localID string) {
+		haSyncWorker.Spawn(func() {
+			if err := haSyncWorker.DropEntriesHeldElsewhere(context.Background(), localID); err != nil {
+				logrus.WithError(err).Warn("Some writes the cluster holds were not dropped from this node")
+			}
+		})
+	})
 	antiEntropyScrubber.AfterCycle(func() { haSyncWorker.StartRepair(context.Background()) })
 
 	// Dead-node reconciler is wired below after the Server struct is built so

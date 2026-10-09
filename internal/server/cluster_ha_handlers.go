@@ -317,9 +317,10 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		"new_factor":      req.Factor,
 	}).Info("Cluster replication factor changed")
 
-	// The copies follow the new factor; the jobs outlive this request.
-	if req.Factor != currentFactor && s.haSyncWorker != nil {
-		s.haSyncWorker.Trigger(s.backgroundContext())
+	// Every node acts on the new factor; the others are told now.
+	if req.Factor != currentFactor {
+		s.factorChanged(currentFactor, req.Factor)
+		s.syncMembershipNow()
 	}
 
 	s.writeJSON(w, map[string]interface{}{
@@ -327,4 +328,20 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		"previous_factor": currentFactor,
 		"new_factor":      req.Factor,
 	})
+}
+
+// factorChanged makes this node act on a change of the replication factor,
+// made here or received from another node: from 1 it gives its writes their
+// location and sends its buckets (see FactorRaised); otherwise its copies
+// follow the new factor. The work outlives the request that brings it.
+func (s *Server) factorChanged(previous, factor int) {
+	if s.haSyncWorker == nil || previous == factor {
+		return
+	}
+	ctx := s.backgroundContext()
+	if previous <= 1 && factor > 1 {
+		s.goWorker("replication factor raised", func() { s.haSyncWorker.FactorRaised(ctx) })
+		return
+	}
+	s.haSyncWorker.Trigger(ctx)
 }

@@ -87,3 +87,15 @@ const (
 	HealthStatusDead            = "dead"
 	HealthStatusStoragePressure = "storage_pressure"
 )
+
+// InService reports whether a node serves requests and is sent every change:
+// a healthy node, or one under storage pressure.
+func (n *Node) InService() bool {
+	return n.HealthStatus == HealthStatusHealthy || n.HealthStatus == HealthStatusStoragePressure
+}
+
+// TakesData reports whether a node is given new copies of data: a node under
+// storage pressure is not.
+func (n *Node) TakesData() bool {
+	return n.HealthStatus == HealthStatusHealthy
+}

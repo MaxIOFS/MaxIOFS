@@ -20,6 +20,7 @@ type ReplicaMetadataWriter interface {
 	ObjectEntry(ctx context.Context, bucket, key, versionID string) (*metadata.ObjectMetadata, error)
 	HoldsData(ctx context.Context, bucket, key, versionID string) (bool, error)
 	SetLocations(ctx context.Context, bucket, key string, change LocationsChange) error
+	DropEntry(ctx context.Context, bucket, key, versionID string) error
 }
 
 // LocationsChange names the nodes that hold the data of one write: a version,
@@ -248,6 +249,17 @@ func (om *objectManager) SetLocations(ctx context.Context, bucket, key string, c
 	}
 	om.dropStaleData(ctx, entry, ref)
 	return nil
+}
+
+// DropEntry removes this node's entry of one write of key, a version or the
+// current object when versionID is empty, and gives its usage back: a node that
+// leaves a cluster drops the writes the other nodes hold. A lock on the write
+// does not keep the entry; it guards data this node does not hold.
+func (om *objectManager) DropEntry(ctx context.Context, bucket, key, versionID string) error {
+	if versionID != "" {
+		return om.deleteSpecificVersion(WithWriteRollback(ctx), bucket, key, versionID, true)
+	}
+	return om.deletePermanently(ctx, bucket, key, true)
 }
 
 // laterWriteHere reports whether the current entry, one without a version, was

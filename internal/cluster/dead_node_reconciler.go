@@ -280,14 +280,14 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 		return ErrBelowReplicationFactor
 	}
 
-	// Writes are not noted for a dead node: should it answer again, it is
-	// caught up from now at the latest.
+	// Writes are not noted for a dead node, and the copies it held are made
+	// again elsewhere: should it answer again, it is compared on every write.
 	now := time.Now()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE cluster_nodes
-		SET health_status = ?, updated_at = ?, replica_missed_since = COALESCE(replica_missed_since, ?)
+		SET health_status = ?, updated_at = ?, replica_missed_since = ?
 		WHERE id = ? AND health_status != ?
-	`, HealthStatusDead, now, now.Unix(), node.ID, HealthStatusDead)
+	`, HealthStatusDead, now, wholeCatchUp, node.ID, HealthStatusDead)
 	if err != nil {
 		return fmt.Errorf("mark dead: %w", err)
 	}
@@ -321,6 +321,10 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	}
 	return nil
 }
+
+// wholeCatchUp is the time (unix seconds) a node is noted as having missed
+// writes from when it is to be compared on every write once it is back.
+const wholeCatchUp = 1
 
 // ErrBelowReplicationFactor is returned when marking a node dead would leave
 // fewer healthy nodes than the replication factor.

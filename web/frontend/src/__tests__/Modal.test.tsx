@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Modal } from '@/components/ui/Modal';
+import ModalManager, { ModalRenderer } from '@/lib/modals';
 
 // A dialog that does not hold focus leaves the page behind the overlay
 // reachable: Tab walks into the sidebar and Enter activates it, while the user
@@ -73,5 +74,26 @@ describe('Modal focus handling', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAccessibleName('Bucket settings');
+  });
+});
+
+// A message given as HTML is laid out as the caller wrote it, sanitized. A
+// success or error dialog showed its tags as text: the STS credentials came
+// out as raw markup.
+describe('ModalManager HTML messages', () => {
+  afterEach(() => {
+    act(() => ModalManager.close());
+  });
+
+  it.each(['success', 'error'])('renders a %s message as markup', async (icon) => {
+    render(<ModalRenderer />);
+    act(() => {
+      void ModalManager.fire({ icon, title: 'Issued', html: '<code>AKIA123</code><script>window.hacked = 1</script>' });
+    });
+
+    const code = await screen.findByText('AKIA123');
+    expect(code.tagName).toBe('CODE');
+    expect(screen.queryByText(/<code>/)).toBeNull();
+    expect(document.querySelector('script')).toBeNull();
   });
 });

@@ -1278,6 +1278,14 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 				if ok {
 					entry.Held = append(entry.Held, id)
 				}
+				if holds {
+					if version, err := writer.ObjectEntry(r.Context(), req.Bucket, key, id); err == nil && version.LocationsGen > 0 {
+						if entry.Gens == nil {
+							entry.Gens = make(map[string]int64)
+						}
+						entry.Gens[id] = version.LocationsGen
+					}
+				}
 			}
 		}
 		if obj, err := s.objectManager.GetObjectMetadata(r.Context(), req.Bucket, key); err == nil && obj != nil {
@@ -1287,7 +1295,7 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 			entry.LastModified = obj.LastModified.Unix()
 			entry.WrittenAt = obj.WrittenAt
 			if req.Versions {
-				entry.Locations = obj.Locations
+				entry.Locations, entry.LocationsGen = obj.Locations, obj.LocationsGen
 				if entry.HoldsCurrent, err = held(key, ""); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return

@@ -127,7 +127,7 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node health: %w", err)
 	}
-	if status == HealthStatusHealthy {
+	if status == HealthStatusHealthy || status == HealthStatusStoragePressure {
 		m.catchUpReplica(ctx, nodeID)
 	}
 
@@ -320,8 +320,8 @@ func (m *Manager) noteMissedWrites(ctx context.Context, localID string, modified
 	ctx = context.WithoutCancel(ctx)
 	var err error
 	if len(nodeIDs) == 0 {
-		_, err = m.db.ExecContext(ctx, earliest+`WHERE id != ? AND health_status NOT IN (?, ?)`,
-			since, since, localID, HealthStatusHealthy, HealthStatusDead)
+		_, err = m.db.ExecContext(ctx, earliest+`WHERE id != ? AND health_status NOT IN (?, ?, ?)`,
+			since, since, localID, HealthStatusHealthy, HealthStatusStoragePressure, HealthStatusDead)
 	}
 	for _, id := range nodeIDs {
 		_, idErr := m.db.ExecContext(ctx, earliest+`WHERE id = ?`, since, since, id)

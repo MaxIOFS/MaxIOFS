@@ -28,6 +28,7 @@ func (s *Server) handleReceiveGlobalConfigSync(w http.ResponseWriter, r *http.Re
 	}
 
 	ctx := r.Context()
+	previousFactor, _ := s.clusterManager.GetReplicationFactor(ctx)
 	applied := 0
 	for _, entry := range req.Entries {
 		if cluster.IsNodeLocalConfig(entry.Key) {
@@ -60,6 +61,10 @@ func (s *Server) handleReceiveGlobalConfigSync(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		applied++
+	}
+
+	if factor, err := s.clusterManager.GetReplicationFactor(ctx); err == nil {
+		s.factorChanged(previousFactor, factor)
 	}
 
 	logrus.WithFields(logrus.Fields{
