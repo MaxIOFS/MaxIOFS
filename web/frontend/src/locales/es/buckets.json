@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "Escaneo de integridad en segundo plano en {{count}} buckets. Haga clic en el ícono de escudo para ver el progreso.",
   "activeStorageContainers": "Contenedores de almacenamiento activos",
   "storedAcrossAllBuckets": "Almacenado en todos los buckets",
-  "nodeColumn": "Nodo",
-  "local": "Local",
   "delete": "Eliminar",
   "scanning": "escaneando",
   "issueCount_one": "{{count}} problema",

@@ -169,8 +169,8 @@ func (ba *BucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tena
 		}(node)
 	}
 
-	// With a replication factor above 1 every node holds every bucket: each
-	// is listed once, as this node holds it when it does.
+	// Every node holds every bucket: each is listed once, as this node holds
+	// it when it does.
 	listed := make(map[string]bool, len(allBuckets))
 	for _, b := range allBuckets {
 		listed[b.TenantID+"/"+b.Name] = true

@@ -13,7 +13,6 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
-  ArrowRightLeft,
   Copy,
   Check,
   KeyRound,
@@ -260,13 +259,6 @@ export default function ClusterOverview() {
           >
             <Server className="h-4 w-4" />
             {t('manageNodes')}
-          </Button>
-          <Button
-            onClick={() => navigate('/cluster/migrations')}
-            variant="default"
-          >
-            <ArrowRightLeft className="h-4 w-4" />
-            {t('manageMigrations')}
           </Button>
           <Button
             onClick={() => navigate('/cluster/ha')}

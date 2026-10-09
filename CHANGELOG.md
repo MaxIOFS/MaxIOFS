@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- A replication factor of 1 keeps one copy of each object: on the node that takes the write, or on the node with the most free space when that node is under storage pressure. Every node holds every bucket and every object's entry, and lists and reads every object. Each bucket was on one node, which took all its writes: a bucket could not hold more than that node's disk. As with RAID 0, the objects of a node that is down are unreadable until it is back; a factor of 2 or 3 keeps copies on other nodes.
+- After the update, each node of a cluster with a factor of 1 gives the objects it holds itself as their location, once, at start, then sends the other nodes its buckets and their entries, without their data.
+- The replication factor goes back to 1 with several nodes: the copies it does not need are removed.
+- Console: the replication factor descriptions say how many copies of each object are kept and where.
 - Multipart completion streams parts directly into one encrypted storage write.
 - Removed two full-object reads and two full-object writes from multipart completion.
 - Multipart completion keeps only one part reader open at a time.
@@ -15,15 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Invalid Object Lock headers on PUT are rejected with `InvalidRequest`; the object is not stored.
 - DELETE and batch delete on a missing bucket return 404 (`NoSuchBucket` in the S3 API).
 - A node that comes back after missing writes is caught up at once: the node that accepted them compares the objects modified since the first missed write and sends the deletes the peer missed.
-- `POST /api/v1/cluster/buckets/{bucket}/migrate` answers `202` and moves the bucket in the background, on the node it lives on; a request that reaches another node is forwarded there. `delete_source: false` is refused and `verify_data` is ignored: the source copy is always removed and the copy always verified.
-- While a bucket is migrated its writes answer `503` (S3 `ServiceUnavailable`, console `BUCKET_MIGRATING`), and lifecycle skips it; reads go on.
 - A node checks its own buckets before a cached location. A request forwarded to a node that no longer holds the bucket answers `503` with `X-MaxIOFS-Bucket-Not-Here`, and the forwarding node forgets the location.
-- With a replication factor above 1, the coordinator expires objects by lifecycle rules and its deletes reach the other nodes; every node aborts the incomplete multipart uploads started on it. Expiration ran on the node the rule was set on, and its deletes did not reach the others.
+- In a cluster, the coordinator expires objects by lifecycle rules and its deletes reach the other nodes; every node aborts the incomplete multipart uploads started on it. Expiration ran on the node the rule was set on, and its deletes did not reach the others.
 - A bucket's `UpdatedAt` dates its configuration: object writes and statistics recounts no longer change it.
 - The secret stored credentials are encrypted with (identity provider secrets, replication destination keys, share link keys) lives in the database, like the KEK. The first start stores `auth.encryption_secret`, or else an explicit `auth.jwt_secret`, or else a generated one; the configuration is not read again. The JWT secret no longer encrypts anything. Migration 21.
 - In a cluster every node holds the cluster's encryption secret: a node that joins takes it; the coordinator gives it to a node that holds another, which re-encrypts what it stores. The Nodes page marks a node that holds another secret.
 - At startup the log names the stored credentials the encryption secret does not decrypt.
-- With a replication factor above 1, only the coordinator writes inventory reports and runs scheduled replication rules.
+- In a cluster, only the coordinator writes inventory reports and runs scheduled replication rules.
 - Only a node without data joins a cluster. A node holding a bucket, a tenant, a user besides its first administrator, an access key, a group, an identity provider, an IAM policy or role created on it, a share or a replication rule is refused (`409`, naming what it holds) and stays as it was. Its data was mixed into the cluster's, and its global users were deleted.
 - A copy of a write without a version made before the current one does not replace it on the node that receives it, whichever order the copies arrive in.
 - A node that deleted a key does not store a copy of a write made before the delete. After a partition, the catch-up of the node that missed the delete could send the object back, and it stayed on both nodes.
@@ -32,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
+- A node installed after a cluster setting changed takes the change, and the defaults it sends replace no setting of the other nodes. A default no one changed was dated by the start of the node that stored it: a node that joined later kept its replication factor of 1, sent it to the other nodes, and they took it and removed copies.
 - The Docker image keeps its data in the directory `MAXIOFS_DATA_DIR` names, where it is mounted. It always used `/data`, so data written with the directory mounted elsewhere was lost when the container was recreated.
 - A success or error dialog of the console given markup shows it laid out, sanitized. The temporary credentials just issued, the policy of a temporary session and other dialogs showed their HTML as text.
 - Failed raw replica overwrites restore the previous data and sidecar, including existing versions.
@@ -55,8 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A write that misses HA quorum removes its local version even under the retention or legal hold it set; the client was told the write failed.
 - Encryption migration keeps a crash-recoverable backup of each object and restores it when the rewrite or its verification fails.
 - `docs/API.md` listed console routes that do not exist and missed many that do; its route tables now match the router.
-- Bucket migration moves the bucket. It read the objects from a SQLite table that does not exist and failed at its first step; its receiving side wrote configuration to another missing table. It copies every version and delete marker with ID, time, metadata, tags, ACL and lock state, the bucket configuration, ACL and database rows (shares, inventory, replication), verifies the copy, then removes the bucket from the source. A restart during the copy undoes it; one during the hand-over finishes it.
-- Bucket migration requires a global administrator; listing and reading migration jobs too.
 - Copies between nodes that re-encrypt the data (objects under a node's own key) carry tags, ACL, restore state and the multipart ETag; they were lost. Bytes that do not match the version's ETag are refused.
 - A copy of a version into a bucket whose versioning was suspended since is stored as that version; it replaced the current object. A copied delete marker stays a delete marker; it deleted the current object.
 - The initial sync of a new replica copies the current object without a version ID of a suspended bucket whose key also has older versions; it was skipped.
@@ -76,12 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every console request about a bucket's settings or objects goes to the node that holds it. Setting changes went to the coordinator, which answered `404` unless it held the bucket; most other requests ran on the receiving node.
 - Creating a bucket whose name another node holds answers `409`, from the S3 API and the console. A second bucket of that name was created on the receiving node.
 - Bucket permissions are granted on the coordinator for a bucket held by any node. The coordinator looked for the bucket among its own.
-- With a replication factor above 1, buckets reach every node. Creating a bucket, changing its configuration or ACL, and deleting it are sent to the other nodes before the request returns; a node that missed them is sent every bucket before the objects when it is caught up, when it becomes a replica, at every anti-entropy cycle and when a node starts. A bucket existed only on the node that created it: the other nodes refused its objects, so each write was kept on one node, and its configuration applied on one node. A cluster in that state converges after the upgrade.
+- In a cluster, buckets reach every node. Creating a bucket, changing its configuration or ACL, and deleting it are sent to the other nodes before the request returns; a node that missed them is sent every bucket before the objects when it is caught up, when it becomes a replica, at every anti-entropy cycle and when a node starts. A bucket existed only on the node that created it: the other nodes refused its objects, so each write was kept on one node, and its configuration applied on one node. A cluster in that state converges after the upgrade.
 - A tenant deletion received from another node no longer removes a tenant changed here after the deletion, with its users and access keys. The tenants table keeps change times as unix seconds and they were read as timestamps, so the deletion always won.
 - The reconciliation of a node back from a partition read the tenants' change times the same way and failed whenever a tenant existed.
 - Stored credentials are decrypted after a restart when neither `auth.jwt_secret` nor `auth.encryption_secret` is configured. They were encrypted with a JWT secret generated anew each start, so a restart made share links, replication destination keys and identity provider secrets unreadable. Those stored before this release have to be entered again; the log names them.
 - The settings API no longer returns the JWT signing secret; the console showed it under Security.
-- With a replication factor above 1, shares, replication rules, inventory configurations and inventory reports reach every node. A change is sent to the other nodes before the request returns; a node that missed it is sent every row after the buckets. They existed only on the node where they were created, and worked only through it. Rows created before the upgrade reach every node at the next synchronization.
+- In a cluster, shares, replication rules, inventory configurations and inventory reports reach every node. A change is sent to the other nodes before the request returns; a node that missed it is sent every row after the buckets. They existed only on the node where they were created, and worked only through it. Rows created before the upgrade reach every node at the next synchronization.
 - The sync of a replication rule's existing objects, and each scheduled run, queues every object of the bucket; it queued the first 10,000.
 - Replication of a tenant's bucket reads and lists its objects under the tenant. It looked for a bucket of that name without tenant.
 - An inventory report lists every object of the bucket; it listed the first 10,000.
@@ -115,31 +116,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A bucket deleted in the second of its last write is deleted on the other nodes; they kept it.
 - A delete marker reaches the other nodes with its time. Each node gave it the time it received it.
 - A group deletion received from another node keeps the time it was made; a revoked STS session too. Each node dated the revocations it received with the time of reception, again on every cycle, so they were never forgotten.
-- With a replication factor above 1, every node holds the entry of every object and the factor's nodes hold its data: the node that takes the write and the healthy nodes with the most free space. A node that does not hold the data reads it from one that does, a range alone; HEAD, listings, versions, tags and ACLs are answered from the entry. A write's data went to the first nodes by priority, and a node without it answered `404`, listed only what it held, and kept what another node deleted or overwrote.
-- With a replication factor above 1, a delete reaches every node.
+- In a cluster, every node holds the entry of every object and the factor's nodes hold its data: the node that takes the write and the healthy nodes with the most free space. A node that does not hold the data reads it from one that does, a range alone; HEAD, listings, versions, tags and ACLs are answered from the entry. A write's data went to the first nodes by priority, and a node without it answered `404`, listed only what it held, and kept what another node deleted or overwrote.
+- In a cluster, a delete reaches every node.
 - A read whose data no node holding it serves is answered `503` with `Retry-After` (S3 `ServiceUnavailable`), in the console too.
 - HEAD, `GetObjectAttributes` and `RestoreObject` with `versionId`, the download token and the presigned URL check the object's entry and do not open its data.
-- With a replication factor above 1, the parts, completion and abort of a multipart upload are made on the node the upload was started on, whichever node they reach, and listing a bucket's uploads covers every node. A load balancer that spread them answered `NoSuchUpload`. The upload ID names its node; an upload started before the upgrade is made where its requests arrive, as before.
-- With a replication factor above 1, the anti-entropy, the catch-up of a node that was away and the first copy to a new node send each node the entries it lacks and the data of the writes it holds, and compare every pair of healthy nodes. They compared a node with the first nodes by priority only and sent them every object's data. A node that holds a write and lost its data is sent it again.
-- With a replication factor above 1, the copies of a write follow the factor. A write with fewer copies than the factor, after a node holding one is removed or dead or the factor is raised, is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the other nodes remove theirs. This runs when a node is removed or marked dead, when the factor changes and after every full anti-entropy cycle. Each change of where a write's copies are is numbered, and every node keeps the newest, whichever order the changes, entries and copies arrive in.
+- In a cluster, the parts, completion and abort of a multipart upload are made on the node the upload was started on, whichever node they reach, and listing a bucket's uploads covers every node. A load balancer that spread them answered `NoSuchUpload`. The upload ID names its node; an upload started before the upgrade is made where its requests arrive, as before.
+- In a cluster, the anti-entropy, the catch-up of a node that was away and the first copy to a new node send each node the entries it lacks and the data of the writes it holds, and compare every pair of healthy nodes. They compared a node with the first nodes by priority only and sent them every object's data. A node that holds a write and lost its data is sent it again.
+- In a cluster, the copies of a write follow the factor. A write with fewer copies than the factor, after a node holding one is removed or dead or the factor is raised, is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the other nodes remove theirs. This runs when a node is removed or marked dead, when the factor changes and after every full anti-entropy cycle. Each change of where a write's copies are is numbered, and every node keeps the newest, whichever order the changes, entries and copies arrive in.
 - A node under storage pressure that takes a write passes its copy to the node with the most free space among those holding the entry only, before the request returns. It keeps the copy when no node takes it.
-- The replication factor cannot go back to 1 while the cluster has more than one node (`409`).
 - Every node acts on a change of the replication factor, made on it or received from another node; the other nodes are told at once. They took the change within a minute and did nothing: only the node where it was made sent its buckets and repaired its copies.
-- A replication factor raised from 1 gives each object the node that holds it as its location before the buckets and entries are sent, and the copies the factor needs are then made, one per object. Every object was copied to every node.
+- A replication factor raised from 1 makes the copies the factor needs, one per object. Every object was copied to every node.
 - Objects written before the cluster kept where their data is are given, by the copy repair, the nodes that hold them: the first of those nodes keeps the factor's copies, the others remove theirs, and missing copies are made. They were copied to every node.
 - The copy repair started by a change of membership or factor runs once the first copies to new nodes end.
+- A slow node, one whose health check takes over a second, is in service and takes data like a healthy one. It was treated as down. A node whose disk is past the threshold is under storage pressure even when slow.
 - A node under storage pressure stays in service and only takes no new copy of data. It was treated as down: with a factor of 1 the other nodes answered that its buckets did not exist and left them out of their lists, and with a factor above 1 it missed every entry, delete and change until the pressure ended.
 - A node that was dead and answers again is compared on every write, and the anti-entropy sends a node with older locations of a write the newer entry. A node back from the dead kept the locations it had and the copies made again elsewhere.
 - A node that leaves the cluster, or is removed, drops the entries of the objects the other nodes hold and keeps those it holds. It kept every entry and listed objects it could not read.
 - In a cluster, the capacity Veeam reads (SOSAPI `capacity.xml`) for a bucket without a quota of its own, whose tenant has one, subtracts what the tenant uses on every node. It subtracted what the tenant used on the node that answered. The tenant is the bucket's: a user without a tenant was given the disk.
-- With a replication factor above 1, the capacity Veeam reads for a bucket without a quota is the room of the cluster, each byte on factor different nodes; dead nodes do not count. It was the disk of the node that answered.
+- In a cluster, the capacity Veeam reads for a bucket without a quota is the room of the cluster, each byte on factor different nodes; dead nodes do not count. It was the disk of the node that answered.
 - A change of the replication factor in the console starts the sync jobs after the request is answered. The jobs were cancelled with the request.
-- With a replication factor above 1, a bucket is listed once in the console and in S3 `ListBuckets`. It was listed once per node holding it.
+- In a cluster, a bucket is listed once in the console and in S3 `ListBuckets`. It was listed once per node holding it.
 - The degraded-cluster message is each node's own and says whether writes are kept on fewer nodes or refused. A node showed the message of the last node that sent it its settings.
 - A node that fails to apply a delete from another node answers so, and is caught up from it when it is back; it answered success. A node that keeps the object under a retention or a legal hold answers that it refused the delete, and is not marked unavailable for it.
 - A node that fails a replicated write is unavailable from that failure on: the dead-node threshold counts from it. The failure also turned a dead node back to unavailable.
 - An initial copy to a new replica that fails to send some objects says how many in its job, on the HA page too, and the replica is caught up from the oldest of them. They were missing on the replica until the daily anti-entropy.
-- A node that joins a cluster whose replication factor is above 1 is sent the buckets and objects at once. It got them from the anti-entropy, 5 to 60 minutes after start-up.
+- A node that joins a cluster is sent the buckets and objects at once. It got them from the anti-entropy, 5 to 60 minutes after start-up.
 - The catch-up of a node that missed writes, and the anti-entropy, compare every version and delete marker of a key and send those the other node lacks. Only the current version was compared and sent: a node away while a key was written more than once never got the versions before the last.
 - A version or delete marker a node deleted is not stored again when a node that missed the delete sends it, or gives it, a copy.
 - A copy the anti-entropy sends keeps the object's tags, ACL and ETag, and is sent encrypted when the other node can decrypt it. It lost them.
@@ -149,20 +150,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Console, dark theme: the light-blue metric icons (Total Objects, Admin Users) and the drop zone of the bucket page no longer show a light background; the dark shades they used were not defined. Checkboxes, date pickers, select lists and autofilled fields follow the theme.
 
 ### Removed
+- Bucket migration between nodes: the console Migrations page, `POST /api/v1/cluster/buckets/{bucket}/migrate`, `GET /api/v1/cluster/migrations`, `GET /api/v1/cluster/migrations/{id}`, `GET /api/v1/cluster/buckets` and the internal `/migration/*` endpoints. Every node holds every bucket, and the copies of each object go to the nodes with the most free space.
+- Console: the Node column of the bucket list and the node choice when creating a bucket.
 - Console: the Join Existing Cluster form of a standalone node. It sent the cluster token and an address to the endpoint that takes the join package of an existing node, and always failed. A node joins from the console of a node of the cluster: Manage Nodes, Add Node.
 - The stale-node reconciler and its endpoints `/api/internal/cluster/state-snapshot` and `/api/internal/cluster/ha/objects/changed-since`. It never ran: no node ever marked itself stale. A node away for long is sent what it missed by keeping deletions until every node has them.
 - The replica-first S3 read: each read was first sent to another node's cluster port, which serves no S3 request and answered 404, then served by the node that received it.
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
 
 ### Added
+- Factor-1 tests between three complete nodes: one copy where the write is made, read and deleted from every node; a write moved off a node under storage pressure; an update from buckets kept on one node; the factor lowered to 1.
+- Cluster setting tests: a node installed after a change takes it; its defaults replace no change.
 - Write-path I/O accounting tests for PUT, overwrites, versioning and multipart uploads.
 - Multipart streaming regression tests for cancellation, read failures, rollback and retry.
 - Quota tests for concurrent writers, slow tenant checks, writes finishing or refused during a check, and deletes over the limit.
 - Object Lock tests for PUT headers, HA replica transfers and quorum rollback of protected versions.
 - Rollback tests for raw replica overwrites and failed encryption migration restores.
 - HA tests for mirror writes with a node down, the catch-up of a returning node (window, deletes, retries) and quota error codes.
-- Bucket migration tests between two complete nodes: every version and its state moved and verified, writes held and writes under way waited for, failure, verification, uploads in progress, restarts during the copy and the hand-over, a live bucket on the target, stale locations.
-- Cluster routing tests with an AWS SDK client and the console between two complete nodes: bucket operations reach the node that holds the bucket, bucket names are unique across nodes, bucket permissions find a bucket on another node.
+- Cluster routing tests with an AWS SDK client and the console between two complete nodes: requests about a bucket a node does not hold yet reach the node that holds it, bucket names are unique across nodes, bucket permissions find a bucket on another node.
 - Tests for suspended DELETE, bucket creation over a pending removal, object ACL ownership and migration, and tenant usage and synchronisation between nodes.
 - HA bucket tests between two complete nodes: every bucket change reaches the other node, in both directions; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data; refusals. Lifecycle expiration on the coordinator only.
 - Encryption secret tests: stored once and kept across restarts; adoption re-encrypts every stored credential in one transaction; each component's credentials re-encrypted; a real join between two nodes; the coordinator gives its secret and no other node can; the settings never show the JWT secret.

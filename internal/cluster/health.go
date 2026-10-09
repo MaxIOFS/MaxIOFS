@@ -65,9 +65,9 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	}
 	if !result.Healthy {
 		status = HealthStatusUnavailable
-	} else if result.LatencyMs > 1000 {
-		status = HealthStatusDegraded
 	} else {
+		// A full disk outweighs a slow answer: a slow node takes new data, one
+		// under storage pressure does not.
 		threshold, release := m.loadStoragePressureThresholds(ctx)
 		switch {
 		case node.HealthStatus == HealthStatusStoragePressure && result.CapacityTotal > 0 && usagePct >= release:
@@ -75,6 +75,8 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 			status = HealthStatusStoragePressure
 		case result.CapacityTotal > 0 && usagePct >= threshold:
 			status = HealthStatusStoragePressure
+		case result.LatencyMs > 1000:
+			status = HealthStatusDegraded
 		default:
 			status = HealthStatusHealthy
 		}
@@ -127,7 +129,7 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node health: %w", err)
 	}
-	if status == HealthStatusHealthy || status == HealthStatusStoragePressure {
+	if (&Node{HealthStatus: status}).InService() {
 		m.catchUpReplica(ctx, nodeID)
 	}
 
@@ -320,8 +322,8 @@ func (m *Manager) noteMissedWrites(ctx context.Context, localID string, modified
 	ctx = context.WithoutCancel(ctx)
 	var err error
 	if len(nodeIDs) == 0 {
-		_, err = m.db.ExecContext(ctx, earliest+`WHERE id != ? AND health_status NOT IN (?, ?, ?)`,
-			since, since, localID, HealthStatusHealthy, HealthStatusStoragePressure, HealthStatusDead)
+		_, err = m.db.ExecContext(ctx, earliest+`WHERE id != ? AND health_status NOT IN (?, ?, ?, ?)`,
+			since, since, localID, HealthStatusHealthy, HealthStatusDegraded, HealthStatusStoragePressure, HealthStatusDead)
 	}
 	for _, id := range nodeIDs {
 		_, idErr := m.db.ExecContext(ctx, earliest+`WHERE id = ?`, since, since, id)

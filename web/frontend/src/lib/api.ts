@@ -61,10 +61,6 @@ import type {
   NodeHealthStatus,
   CacheStats,
   ListNodesResponse,
-  BucketWithReplication,
-  MigrationJob,
-  MigrateBucketRequest,
-  ListMigrationsResponse,
   LatenciesResponse,
   ThroughputResponse,
   SearchObjectsRequest,
@@ -2018,11 +2014,6 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async getClusterBuckets(): Promise<{ buckets: BucketWithReplication[]; total: number }> {
-    const response = await apiClient.get<APIResponse<{ buckets: BucketWithReplication[]; total: number }>>('/cluster/buckets');
-    return response.data.data!;
-  }
-
   static async getBucketReplicas(bucket: string): Promise<{ bucket: string; rules: any[]; total: number }> {
     const response = await apiClient.get<APIResponse<{ bucket: string; rules: any[]; total: number }>>(`/cluster/buckets/${bucket}/replicas`);
     return response.data.data!;
@@ -2110,23 +2101,6 @@ export class APIClient {
   static async drainClusterNode(nodeId: string, reason?: string): Promise<{ message: string; node_id: string; reason: string }> {
     const response = await apiClient.post(`/cluster/nodes/${nodeId}/drain`, reason ? { reason } : {});
     return response.data.data;
-  }
-
-  // Cluster Migration methods
-  static async migrateBucket(bucket: string, request: MigrateBucketRequest): Promise<MigrationJob> {
-    const response = await apiClient.post<APIResponse<MigrationJob>>(`/cluster/buckets/${bucket}/migrate`, request);
-    return response.data.data!;
-  }
-
-  static async listMigrations(bucket?: string): Promise<ListMigrationsResponse> {
-    const params = bucket ? { bucket } : {};
-    const response = await apiClient.get<APIResponse<ListMigrationsResponse>>('/cluster/migrations', { params });
-    return response.data.data!;
-  }
-
-  static async getMigration(id: number): Promise<MigrationJob> {
-    const response = await apiClient.get<APIResponse<MigrationJob>>(`/cluster/migrations/${id}`);
-    return response.data.data!;
   }
 
   // Identity Provider Management

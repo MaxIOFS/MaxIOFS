@@ -195,28 +195,17 @@ func TestInventoryOnANodeThatIsNotTheCoordinator(t *testing.T) {
 	assert.Zero(t, reports(p.a), "the coordinator writes it")
 }
 
-// With a replication factor of 1 each node keeps the rows of its own buckets:
-// a change is dated but not sent, and reaches the other node once the factor
-// rises.
-func TestHARowsFollowTheReplicationFactor(t *testing.T) {
+// Every node holds the rows of every bucket, whatever the factor: with a
+// factor of 1 a change reaches the other node before the request returns.
+func TestHARowsReachEveryNodeWhateverTheFactor(t *testing.T) {
 	p := newHAPair(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	factor := func(n int) {
-		t.Helper()
-		for _, s := range []*Server{p.a, p.b} {
-			require.NoError(t, s.clusterManager.SetReplicationFactor(ctx, n))
-		}
+	ctx := context.Background()
+	for _, s := range []*Server{p.a, p.b} {
+		require.NoError(t, s.clusterManager.SetReplicationFactor(ctx, 1))
 	}
-	factor(1)
 	require.NoError(t, p.a.replicationManager.CreateRule(ctx, testRule("kept", "rows")))
-	assert.Zero(t, rowCount(t, p.b, "replication_rules", "kept"))
+	assert.Equal(t, 1, rowCount(t, p.b, "replication_rules", "kept"))
 	assert.Equal(t, 1, rowCount(t, p.a, "ha_row_versions", "kept"), "the change is dated")
-
-	factor(2)
-	p.a.antiEntropyScrubber.Start(ctx)
-	require.Eventually(t, func() bool { return rowCount(t, p.b, "replication_rules", "kept") == 1 },
-		10*time.Second, 20*time.Millisecond)
 }
 
 // A change that cannot be dated is not sent, and every other node is recorded

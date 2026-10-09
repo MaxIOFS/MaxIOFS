@@ -295,3 +295,78 @@ func TestCheckNodeHealth_StoragePressure_IsCaughtUp(t *testing.T) {
 	require.Equal(t, HealthStatusStoragePressure, s.Status)
 	assert.Equal(t, []string{node.ID}, caughtUp)
 }
+
+// A slow node is in service and takes data like a healthy one: a write counts
+// it and it misses no write; marking another node dead and the degraded state
+// of the cluster count it among the nodes that take data.
+func TestASlowNodeIsInServiceAndTakesData(t *testing.T) {
+	ctx := context.Background()
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	setReplicationFactor(t, db, 3)
+	require.NoError(t, SetGlobalConfig(ctx, db, redistributionEnabledKey, "true"))
+	m := newTestManager(t, db)
+	long := time.Now().Add(-48 * time.Hour)
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	insertNode(t, db, "slow", "slow", HealthStatusDegraded, nil)
+	insertNode(t, db, "slower", "slower", HealthStatusDegraded, nil)
+	insertNode(t, db, "gone", "gone", HealthStatusUnavailable, &long)
+
+	nodes, err := m.GetHealthyNodes(ctx)
+	require.NoError(t, err)
+	var ids []string
+	for _, n := range nodes {
+		ids = append(ids, n.ID)
+		assert.True(t, n.TakesData(), n.ID)
+	}
+	assert.ElementsMatch(t, []string{"local-node", "slow", "slower"}, ids)
+	_, err = db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = 'slower'`, HealthStatusStoragePressure)
+	require.NoError(t, err)
+	ok, err := m.ClusterCanAcceptWrites(ctx)
+	require.NoError(t, err)
+	assert.True(t, ok, "the slow node takes the copy a write needs")
+	_, err = db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = 'slower'`, HealthStatusDegraded)
+	require.NoError(t, err)
+
+	m.noteMissedWrites(ctx, "local-node", time.Unix(100, 0))
+	var since sql.NullInt64
+	require.NoError(t, db.QueryRow(`SELECT replica_missed_since FROM cluster_nodes WHERE id = 'slow'`).Scan(&since))
+	assert.False(t, since.Valid, "a slow node is sent the writes")
+
+	require.NoError(t, NewDeadNodeReconciler(m, &fakeSyncTrigger{}, nil).RunOnce(ctx))
+	gone, err := m.GetNode(ctx, "gone")
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusDead, gone.HealthStatus, "three nodes that take data remain")
+	assert.Empty(t, ClusterDegradedReason(ctx, db))
+}
+
+// A slow node whose disk is past the threshold is under storage pressure: a
+// full disk outweighs a slow answer. A slow node with room is degraded, and is
+// caught up when it answers again.
+func TestCheckNodeHealth_SlowAndFullIsUnderPressure(t *testing.T) {
+	ctx := context.Background()
+	db := setupSPTestDB(t)
+	m := createTestHealthManager(t, db)
+	used := int64(950)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(1100 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]int64{"capacity_total": 1000, "capacity_used": used})
+	}))
+	defer srv.Close()
+	node := &Node{Name: "n1", Endpoint: srv.URL, NodeToken: "t"}
+	require.NoError(t, m.AddNode(ctx, node))
+
+	s, err := m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusStoragePressure, s.Status)
+
+	used = 500
+	var caughtUp []string
+	m.OnReplicaBack(func(nodeID string, _ time.Time) { caughtUp = append(caughtUp, nodeID) })
+	_, err = db.Exec(`UPDATE cluster_nodes SET health_status = ?, replica_missed_since = 100 WHERE id = ?`, HealthStatusUnavailable, node.ID)
+	require.NoError(t, err)
+	s, err = m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusDegraded, s.Status)
+	assert.Equal(t, []string{node.ID}, caughtUp, "a slow node back is caught up")
+}

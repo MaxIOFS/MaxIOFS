@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_cluster_health_node ON cluster_health_history(nod
 CREATE INDEX IF NOT EXISTS idx_cluster_health_timestamp ON cluster_health_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_cluster_health_status ON cluster_health_history(health_status);
 
--- Bucket migrations between cluster nodes
+-- Bucket migrations of earlier versions; no longer written
 CREATE TABLE IF NOT EXISTS cluster_migrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bucket_name TEXT NOT NULL,
@@ -125,7 +125,37 @@ func InitSchema(db *sql.DB) error {
 	if err := applyRowVersionMigration(db); err != nil {
 		return err
 	}
-	return applyMembershipMigration(db)
+	if err := applyMembershipMigration(db); err != nil {
+		return err
+	}
+	return applyWritesPlacedMigration(db)
+}
+
+// applyWritesPlacedMigration adds the record that this node gave its writes
+// their location (see HASyncWorker.PlaceWrites).
+func applyWritesPlacedMigration(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(cluster_config)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "writes_placed" {
+			rows.Close()
+			return nil
+		}
+	}
+	rows.Close()
+	if _, err := db.Exec("ALTER TABLE cluster_config ADD COLUMN writes_placed INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("failed to add column writes_placed: %w", err)
+	}
+	return nil
 }
 
 // applyMembershipMigration adds what every node keeps alike of a node (when

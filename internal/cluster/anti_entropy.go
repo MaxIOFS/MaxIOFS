@@ -90,6 +90,7 @@ type AntiEntropyScrubber struct {
 	pending  map[string]time.Time // node ID → earliest write it missed
 
 	afterCycle atomic.Pointer[func()]
+	place      atomic.Pointer[func(context.Context) error]
 }
 
 // catchUpMargin widens a catch-up window: a delete's tombstone is dated a
@@ -112,6 +113,19 @@ func NewAntiEntropyScrubber(objMgr object.Manager, bucketMgr bucket.Manager, mgr
 // AfterCycle sets what runs after each full cycle completes.
 func (s *AntiEntropyScrubber) AfterCycle(fn func()) {
 	s.afterCycle.Store(&fn)
+}
+
+// SetPlaceWrites sets what places the writes held here before a cycle or a
+// catch-up sends entries (see HASyncWorker.PlaceWrites).
+func (s *AntiEntropyScrubber) SetPlaceWrites(fn func(context.Context) error) {
+	s.place.Store(&fn)
+}
+
+func (s *AntiEntropyScrubber) placeWrites(ctx context.Context) error {
+	if fn := s.place.Load(); fn != nil {
+		return (*fn)(ctx)
+	}
+	return nil
 }
 
 // SetBucketStates makes every cycle start by sending the peers every bucket,
@@ -348,9 +362,9 @@ func (s *AntiEntropyScrubber) runCycle(ctx context.Context, resume *ScrubCheckpo
 	if !s.mgr.IsClusterEnabled() {
 		return true
 	}
-	factor, err := s.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
-		return err == nil
+	if err := s.placeWrites(ctx); err != nil {
+		logrus.WithError(err).Warn("AntiEntropyScrubber: the writes held here are not placed; skipping cycle")
+		return false
 	}
 
 	s.buckets.SyncPeers(ctx)
@@ -1107,10 +1121,6 @@ func urlEscapeBucket(b string) string {
 func (s *AntiEntropyScrubber) healthyPeers(ctx context.Context, localID string) ([]*Node, error) {
 	healthy, err := s.mgr.GetHealthyNodes(ctx)
 	if err != nil {
-		return nil, err
-	}
-	factor, err := s.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
 		return nil, err
 	}
 	// Every node holds every entry.

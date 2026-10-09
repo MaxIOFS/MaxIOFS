@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "Integrity scan running in background on {{count}} buckets. Click the shield icon to view progress.",
   "activeStorageContainers": "Active storage containers",
   "storedAcrossAllBuckets": "Stored across all buckets",
-  "nodeColumn": "Node",
-  "local": "Local",
   "delete": "Delete",
   "scanning": "scanning",
   "issueCount_one": "{{count}} issue",

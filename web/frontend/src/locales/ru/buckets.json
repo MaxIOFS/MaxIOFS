@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "Фоновое сканирование целостности выполняется для {{count}} бакетов. Нажмите на значок щита для просмотра прогресса.",
   "activeStorageContainers": "Активные контейнеры хранилища",
   "storedAcrossAllBuckets": "Хранится во всех бакетах",
-  "nodeColumn": "Узел",
-  "local": "Локальный",
   "delete": "Удалить",
   "scanning": "сканирование",
   "issueCount_one": "{{count}} проблема",

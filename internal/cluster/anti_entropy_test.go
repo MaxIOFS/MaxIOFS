@@ -291,27 +291,8 @@ func TestRunCycle_ClusterDisabled_NoOp(t *testing.T) {
 	scrubber.runCycle(context.Background(), nil, 0)
 }
 
-func TestRunCycle_FactorOne_NoOp(t *testing.T) {
-	db, cleanup := setupQuorumTestDB(t)
-	defer cleanup()
-	mgr := NewManager(db, "http://localhost:8080", "http://localhost:8082")
-	ctx := context.Background()
-
-	_, err := mgr.InitializeCluster(ctx, "local-node", "us-east-1", "http://localhost:8082")
-	require.NoError(t, err)
-	require.NoError(t, mgr.SetReplicationFactor(ctx, 1))
-
-	scrubber := NewAntiEntropyScrubber(nil, nil, mgr, newFakeRawKV())
-	scrubber.runCycle(ctx, nil, 0)
-
-	// No row should have been inserted because the cycle exited before beginCycle.
-	var n int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ha_scrub_runs`).Scan(&n))
-	assert.Equal(t, 0, n)
-}
-
 // Every node holds every entry: the anti-entropy compares with every other
-// healthy node, and with none under a factor of 1.
+// healthy node, whatever the factor.
 func TestHealthyPeers_EveryOtherHealthyNode(t *testing.T) {
 	db, cleanup := setupQuorumTestDB(t)
 	defer cleanup()
@@ -347,7 +328,7 @@ func TestHealthyPeers_EveryOtherHealthyNode(t *testing.T) {
 	require.NoError(t, mgr.SetReplicationFactor(ctx, 1))
 	peers, err = scrubber.healthyPeers(ctx, localID)
 	require.NoError(t, err)
-	assert.Empty(t, peers)
+	assert.Len(t, peers, 3)
 }
 
 // ── ListRecentRuns / pruneRuns ───────────────────────────────────────────────

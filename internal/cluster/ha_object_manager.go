@@ -439,7 +439,7 @@ func (h *HAObjectManager) deleteTargets(ctx context.Context, deleted time.Time) 
 		return nil, 0, false
 	}
 	factor, err := h.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
+	if err != nil {
 		return nil, 0, false
 	}
 	localID, err := h.mgr.GetLocalNodeID(ctx)
@@ -728,10 +728,6 @@ type HAMetadataOp struct {
 // in order when the node is caught up.
 func (h *HAObjectManager) fanoutMetadata(ctx context.Context, bucket string, op HAMetadataOp) {
 	if !h.mgr.IsClusterEnabled() {
-		return
-	}
-	factor, err := h.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
 		return
 	}
 	localID, err := h.mgr.GetLocalNodeID(ctx)

@@ -109,8 +109,8 @@ func coordinatorExemptPath(path string) bool {
 		}
 	}
 
-	// A bucket's own state is kept by the node that holds the bucket, which the
-	// request is routed to, and needs no arbitration.
+	// A bucket's own state is on every node, which sends its changes to the
+	// others, and needs no arbitration.
 	return bucketScopedPath(path)
 }
 

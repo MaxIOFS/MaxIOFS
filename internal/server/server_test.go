@@ -3177,20 +3177,6 @@ func TestHandleCheckNodeHealth(t *testing.T) {
 	})
 }
 
-// TestHandleGetClusterBuckets tests getting cluster buckets
-func TestHandleGetClusterBuckets(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should list cluster buckets", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cluster/buckets", nil, "", "admin-1", true)
-
-		rr := httptest.NewRecorder()
-		server.handleGetClusterBuckets(rr, req)
-
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
 // TestHandleGetBucketReplicas tests getting bucket replicas
 func TestHandleGetBucketReplicas(t *testing.T) {
 	server := getSharedServer()
@@ -4738,84 +4724,6 @@ func TestHandleReceiveBucketPermissionSync(t *testing.T) {
 // ============================================================================
 // Additional Handler Tests for Coverage
 // ============================================================================
-
-func TestHandleGetMigration(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("only a global administrator sees migrations", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/cluster/migrations/123", nil)
-		req = mux.SetURLVars(req, map[string]string{"id": "123"})
-		rr := httptest.NewRecorder()
-		server.handleGetMigration(rr, req)
-		assert.Equal(t, http.StatusForbidden, rr.Code)
-
-		req = createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/123", nil, "default", "admin1", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "123"})
-		rr = httptest.NewRecorder()
-		server.handleGetMigration(rr, req)
-		assert.Equal(t, http.StatusForbidden, rr.Code, "a tenant administrator is not a global one")
-	})
-
-	t.Run("should return bad request for invalid migration ID", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/nonexistent", nil, "", "global-admin", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent"})
-		rr := httptest.NewRecorder()
-		server.handleGetMigration(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should return not found for nonexistent numeric migration", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cluster/migrations/999999", nil, "", "global-admin", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "999999"})
-		rr := httptest.NewRecorder()
-		server.handleGetMigration(rr, req)
-		assert.Equal(t, http.StatusNotFound, rr.Code)
-	})
-}
-
-func TestHandleListMigrations(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("only a global administrator sees migrations", func(t *testing.T) {
-		rr := httptest.NewRecorder()
-		server.handleListMigrations(rr, httptest.NewRequest("GET", "/api/v1/cluster/migrations", nil))
-		assert.Equal(t, http.StatusForbidden, rr.Code)
-
-		rr = httptest.NewRecorder()
-		server.handleListMigrations(rr, createAuthenticatedRequest("GET", "/api/v1/cluster/migrations", nil, "default", "admin1", true))
-		assert.Equal(t, http.StatusForbidden, rr.Code)
-	})
-
-	t.Run("should list migrations for a global administrator", func(t *testing.T) {
-		rr := httptest.NewRecorder()
-		server.handleListMigrations(rr, createAuthenticatedRequest("GET", "/api/v1/cluster/migrations", nil, "", "global-admin", true))
-		assert.Equal(t, http.StatusOK, rr.Code)
-	})
-}
-
-func TestHandleMigrateBucket(t *testing.T) {
-	server := getSharedServer()
-	migrate := func(tenantID string, admin bool, body string) int {
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/buckets/test/migrate", strings.NewReader(body), tenantID, "u", admin)
-		req = mux.SetURLVars(req, map[string]string{"bucket": "test"})
-		rr := httptest.NewRecorder()
-		server.handleMigrateBucket(rr, req)
-		return rr.Code
-	}
-
-	t.Run("only a global administrator migrates a bucket", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/v1/cluster/buckets/test/migrate", nil)
-		req = mux.SetURLVars(req, map[string]string{"bucket": "test"})
-		rr := httptest.NewRecorder()
-		server.handleMigrateBucket(rr, req)
-		assert.Equal(t, http.StatusForbidden, rr.Code)
-		assert.Equal(t, http.StatusForbidden, migrate("default", true, `{"target_node_id":"n"}`))
-	})
-
-	t.Run("without a cluster there is nowhere to move it", func(t *testing.T) {
-		assert.Equal(t, http.StatusBadRequest, migrate("", true, `{"target_node_id":"n"}`))
-	})
-}
 
 func TestHandleProfile(t *testing.T) {
 	server := getSharedServer()
@@ -6658,27 +6566,6 @@ func TestHandleShareObjectEdgeCases(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.handleShareObject(rr, req)
 		assert.Contains(t, []int{http.StatusNotFound, http.StatusOK, http.StatusCreated, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
-// Test handleMigrateBucket edge cases
-func TestHandleMigrateBucketEdgeCases(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/migrate", strings.NewReader(body), "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleMigrateBucket(rr, req)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError}, rr.Code)
-	})
-
-	t.Run("should handle migration with valid data", func(t *testing.T) {
-		body := `{"bucket": "test-bucket", "destination_node": "node-1"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/migrate", strings.NewReader(body), "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleMigrateBucket(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusAccepted, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusInternalServerError}, rr.Code)
 	})
 }
 

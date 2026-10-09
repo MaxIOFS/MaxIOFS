@@ -8,8 +8,7 @@ import (
 )
 
 // HABucketManager sends every change to a bucket to the other nodes of a
-// cluster whose replication factor is above 1. Usage counters are each node's
-// own and are not sent.
+// cluster. Usage counters are each node's own and are not sent.
 type HABucketManager struct {
 	bucket.Manager
 	states *BucketStates

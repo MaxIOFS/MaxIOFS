@@ -15,12 +15,11 @@
 4. [Cluster Setup](#cluster-setup)
 5. [Configuration](#configuration)
 6. [Cluster Replication](#cluster-replication)
-7. [Bucket Migration](#bucket-migration)
-8. [Dashboard UI](#dashboard-ui)
-9. [API Reference](#api-reference)
-10. [Security](#security)
-11. [Monitoring & Health](#monitoring--health)
-12. [Troubleshooting](#troubleshooting)
+7. [Dashboard UI](#dashboard-ui)
+8. [API Reference](#api-reference)
+9. [Security](#security)
+10. [Monitoring & Health](#monitoring--health)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -42,7 +41,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ Tombstone-based deletion sync (prevents entity resurrection)
 - ✅ Health monitoring (30-second intervals)
 - ✅ Bucket location cache (5ms vs 50ms latency)
-- ✅ Bucket migration between nodes for capacity rebalancing
+- ✅ Every node holds every bucket; each object's copies go to the nodes with the most free space, whatever the factor
 - ✅ **Partitions and long absences** — writes and deletions are ordered by time; a deletion is kept until every node has it
 - ✅ Web-based cluster management dashboard
 
@@ -59,14 +58,20 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 A cluster has two planes, and it is worth knowing how each one behaves.
 
 **The data plane (S3 API, port 8080) needs no coordinator at all.** Every node
-serves reads and writes on its own. With a replication factor above 1, a write's
-data is copied to the factor's nodes and its entry to every other healthy node
-before it is acknowledged (see [Objects](#objects)), and half of the factor's
+serves reads and writes on its own. A write's data is copied to the factor's
+nodes and its entry to every other healthy node before it is acknowledged (see [Objects](#objects)), and half of the factor's
 copies, rounded up and counting the local one, must hold the data. A factor of 2 is
 therefore a mirror, like RAID 1: with its peer down, the survivor keeps accepting
 writes on its own copy. A factor of 3 needs one of its two peers, so it keeps
 writing with one node down and answers `503 ServiceUnavailable`
 (`Retry-After: 30`) only with both down.
+
+**A factor of 1 is like RAID 0.** Each object has one copy: on the node that
+took the write, or on the node with the most free space when that node is under
+storage pressure. The space of every node is used before any node runs out.
+While a node is down, reads of its objects answer `503 ServiceUnavailable`
+with `Retry-After`; when it is back they are served again. An object whose node
+is lost is lost. For redundancy, use a factor of 2 or 3.
 
 **A node that missed writes is caught up as soon as it is back.** The node that
 accepted them records, per peer, the time of the earliest write that peer
@@ -96,8 +101,8 @@ nodes cannot edit the same entity at the same instant and quietly disagree about
 the result. Configuration — users, access keys, policies, roles, tenants, bucket
 permissions — is written on the elected node; a change made on any other node is
 forwarded to it, which is invisible to whoever is using the console. A bucket's
-own settings and objects are kept by the node that holds the bucket: console
-requests about them are forwarded to that node and do not need the coordinator.
+own settings and objects are on every node: console requests about them are
+served by the node they reach and do not need the coordinator.
 
 **When the coordinator dies, the nodes that are still alive hold an election and
 one of them takes over.** The majority is counted over the nodes that answer,
@@ -180,11 +185,10 @@ and its health checks, synchronization and the requests forwarded to it fail.
 - Tracks nodes in SQLite database (`cluster_config`, `cluster_nodes`)
 
 **2. Smart Router**
-- Routes every S3 and console request about a bucket to the node that holds it
+- Every node holds every bucket and serves it
+- A request about a bucket that has not reached this node yet goes to the node that holds it: after an update from a version that kept each bucket on one node, until the nodes have sent each other their buckets
 - Bucket names are unique in the cluster: creating a bucket another node holds answers `409`
-- Automatic failover to healthy nodes
-- Caches the node each remote bucket lives on (5-minute TTL)
-- Proxies requests to remote nodes when needed
+- Caches the node of such a bucket (5-minute TTL)
 
 **3. Health Checker**
 - Monitors all nodes every 30 seconds
@@ -192,9 +196,9 @@ and its health checks, synchronization and the requests forwarded to it fail.
 - Updates status: healthy (<1s), degraded (1-5s), unavailable (>5s)
 
 **4. Bucket Location Cache**
-- In-memory cache of the node each remote bucket lives on, 5-minute TTL
+- In-memory cache of the node of a bucket this node does not hold, 5-minute TTL
 - A bucket this node holds is served here, whatever the cache says
-- A forwarded request answered `503` with `X-MaxIOFS-Bucket-Not-Here` (the bucket left that node) removes the entry; the client's retry is routed again
+- A forwarded request answered `503` with `X-MaxIOFS-Bucket-Not-Here` (the bucket is not on that node) removes the entry; the client's retry is routed again
 
 ---
 
@@ -455,7 +459,7 @@ object without a version ID last; a copy is stored as the version it copies,
 whatever the receiving bucket's versioning status is. An object the sync fails
 to send is left to the catch-up: the job says how many, and the replica is
 recorded as having missed writes from the oldest of them. A node that joins a
-cluster whose replication factor is above 1 starts its initial sync at once.
+cluster starts its initial sync at once.
 
 When fewer peers confirm than the replication factor needs (a factor of 3 with
 both peers failing), Node 1 answers `503 ServiceUnavailable` (`Retry-After: 30`)
@@ -481,9 +485,9 @@ marks a node that holds another secret.
 
 ### Objects
 
-With a replication factor above 1 every node holds the entry of every object —
-its versions, delete markers, tags, ACL, retention and legal hold — and the
-factor's nodes hold its data.
+Every node holds the entry of every object — its versions, delete markers,
+tags, ACL, retention and legal hold — and the factor's nodes hold its data. With
+a factor of 1 an object has one copy.
 
 - A write's data is held by the node that takes it and the healthy nodes with the most free space, up to the factor; free space is what each node's last health check reported, and a node under storage pressure takes no new data. The entry names the nodes that hold the data and reaches every other healthy node before the request returns.
 - Listings, HEAD, versions, tags and ACLs are answered from the entry on any node. A GET on a node that does not hold the data reads it from a node that does, healthy nodes first, a range alone; a node that holds another write of the key is passed over. With no node holding the data answering, the read is answered `503` with `Retry-After`.
@@ -493,14 +497,14 @@ factor's nodes hold its data.
 - The anti-entropy, a catch-up and the first copy to a new node send each node the entries it lacks and the data of the writes it holds. A node that holds a write and lost its data is sent it again.
 - The copies follow the factor. When a node holding copies is removed or marked dead, when the factor changes, and after each full anti-entropy cycle, a write with fewer copies than the factor is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the others remove theirs. Each write is repaired by the first of its living holders by node ID. A new node gets no copies of the writes made before it joined.
 - Each change of where a write's copies are is numbered. Every node keeps the newest, whichever order the changes, entries and copies arrive in: an entry or a copy with older locations does not change them, and a copy is stored only on a node they name. The anti-entropy compares the numbers too and sends a node with older locations the newer entry.
-- The factor cannot go back to 1 while the cluster has more than one node (`409`).
-- Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. From a factor of 1, each node gives the objects it holds, which no other node holds, itself as their location, then sends its buckets and their entries; the copies are repaired once those first copies end.
+- Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. A higher factor adds the copies once the first syncs end; a lower one removes the copies it does not need.
+- After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, a request about a bucket it lacks goes to the node that holds it, and a bucket it has may not list every object yet.
 - An object written before the cluster kept where its data is names no node. The copy repair asks every other healthy node which of these it holds; the first of the holders by node ID gives each its holders, trimmed to the factor, and makes the copies it lacks. Without the answer of every healthy node it waits for the next repair.
 - The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, as their last health checks found their disks.
 
 ### Buckets
 
-With a replication factor above 1 every node holds every bucket.
+Every node holds every bucket, whatever the factor.
 
 - Creating a bucket, changing its configuration or ACL, and deleting it reach every other node before the request returns. Usage (object count, size) is each node's own and is not sent.
 - A node that is down or does not take the change is recorded as having missed a write. When it is caught up, it is sent every bucket and every deletion before the objects. A new replica, and every peer at the start of an anti-entropy cycle and when a node starts, is sent them too. A cluster whose buckets exist only on the node that created them converges this way after the upgrade.
@@ -515,14 +519,13 @@ With a replication factor above 1 every node holds every bucket.
 
 ### Bucket rows
 
-With a replication factor above 1 every node also holds the rows a bucket keeps in the node's database: shares, replication rules, inventory configurations and inventory reports.
+Every node also holds the rows a bucket keeps in the node's database: shares, replication rules, inventory configurations and inventory reports.
 
 - A change is sent to every other node before the request returns. A node that is down or does not take it is recorded as having missed a write; it is sent every row, after the buckets, when it is caught up, at the start of an anti-entropy cycle and when a node starts.
 - Each row carries the time of its last change, to the nanosecond. A later change wins; at the same time a deletion wins. Rows from before the upgrade carry no time and reach every node.
 - Two rows that may not coexist (two shares of one object, two inventory configurations of a tenant's bucket) end as the later one on every node.
 - A report whose configuration was deleted is not stored. A row a node cannot store (unknown column, missing tenant) is refused and logged by the sending node.
 - Expired shares are not sent: every node removes them.
-- With a replication factor of 1 each node keeps the rows of its own buckets; changes are still dated, and reach the other nodes if the factor rises.
 - A deletion is kept at least 7 days, and until every member of the cluster has been sent it.
 - Stored credentials in these rows are encrypted with the cluster's encryption secret, which every node holds.
 
@@ -579,6 +582,7 @@ Every node holds the list of nodes. A change to a node (name, region, priority, 
 - **Leave** (console, the node itself): the node tells every node it reaches to remove it, then leaves. The others pass the removal on. A node that leaves, or is removed, drops the entries of the objects the other nodes hold and keeps those it holds; an entry naming no node is held where its file is.
 - **Drain** (console, any other node): planned decommissioning. Every node marks the node dead and makes the copies it held again elsewhere. A drained node stays out of service even when it answers. Refused with `409` when it would leave fewer healthy nodes than the replication factor.
 - **Dead**: a node unreachable for longer than `ha.dead_node_threshold_hours` (24 hours) is marked dead by each node from its own health checks. When it answers again it is back in service and is compared on every write: the copies it held were made again elsewhere meanwhile, and their new locations reach it.
+- **Slow**: a node whose health check takes over a second is shown as degraded. It stays in service and takes data like a healthy one.
 - **Storage pressure**: a node whose disk reaches `ha.storage_pressure_threshold_percent` (90 %) is under storage pressure until it drops below `ha.storage_pressure_release_percent` (85 %), and the console is alerted both ways. It stays in service: its buckets are found and listed from every node, it is sent every entry, delete and change, and it counts as alive. It takes no new copy of data: writes, repairs and moves place copies on the other nodes.
 - **Join**: only a node without data joins a cluster. A node that holds a bucket, a tenant, a user besides its first administrator, an access key, a group, an identity provider, an IAM policy or role created on it, a share or a replication rule is refused with `409`, which names what it holds, and stays as it was. Its first administrator, settings and keys are not data.
 - A node that joins a cluster takes the cluster's list of nodes. What it held of a cluster it was in before is dropped.
@@ -629,149 +633,6 @@ POST /api/v1/cluster/replication
 
 ---
 
-## Bucket Migration
-
-### Overview
-
-A migration moves a bucket from the node it lives on to another node, in a cluster with replication factor 1. With a factor above 1 every node holds every bucket and a migration is refused.
-
-A bucket moves whole:
-
-- every version and delete marker, with its data, version ID, modification time, headers, user metadata, tags, ACL, retention, legal hold and restore state; multipart ETags; the current object without a version ID of a bucket whose versioning is suspended
-- the bucket configuration (versioning, Object Lock, policy, lifecycle, CORS, encryption, tags, quota, notification, logging, website, ownership controls) and the bucket ACL
-- the bucket's rows in the node database: shares, inventory configurations and reports, replication rules, queue and status
-
-Requirements:
-
-- global administrator
-- replication factor 1
-- target node healthy
-- no multipart upload in progress in the bucket: complete or abort them first (`409` otherwise)
-
-### How It Works
-
-The migration runs on the node the bucket lives on; a console request that reaches another node is forwarded there. The request answers `202 Accepted` and the job runs in the background.
-
-1. **Hold writes.** New writes to the bucket are refused with `503`: S3 `ServiceUnavailable` with `Retry-After: 60`, console code `BUCKET_MIGRATING`. Writes under way finish first; the copy starts after them. Reads continue. Lifecycle skips the bucket.
-2. **Stage.** The target creates the bucket with its configuration and ACL, hidden: not listed, not routed to, `404` to peers.
-3. **Copy and verify.** Keys in pages of 1,000; each key's versions oldest first, delete markers as markers. After each page the target describes every key it holds: each version's ID and a digest of its ETag, size, modification time, headers, metadata, tags, ACL, lock state and restore state. Any difference fails the migration.
-4. **Commit.** Status `committing`. The target stores the bucket's rows and makes the bucket visible. The source hides its copy, deletes the bucket's rows, ACL and data, and stops counting the bucket's bytes in the tenant's usage on that node.
-5. **Complete.** The bucket takes writes again, on the target.
-
-A failure before step 4 leaves the bucket on the source unchanged: its writes are admitted again at once, the hidden copy on the target is removed (retried every 30 s until the target answers or leaves the cluster) and the status is `failed` with `error_message`.
-
-A failure during step 4 is retried every 30 s until the hand-over is done. A committed move is never undone.
-
-A restart of the source node:
-
-- `in_progress`: the migration is undone as above.
-- `committing`: the bucket's writes are held again before the node serves requests, and the hand-over is finished.
-
-Routing after the move: a node checks its own buckets before any cached location. A node that forwards a request to the node the bucket left receives `503` with `X-MaxIOFS-Bucket-Not-Here`, forgets the cached location, and the client's retry reaches the target.
-
-**Migration States:**
-
-| State | Description |
-|-------|-------------|
-| `in_progress` | Writes held; copying and verifying |
-| `committing` | Copy verified; handing the bucket over. Finished after a restart |
-| `completed` | The bucket lives on the target node |
-| `failed` | Nothing moved; the bucket stays on the source node (`error_message`) |
-
-### Starting a Migration
-
-**Via Web Console:**
-
-1. Cluster → Migrations → **Migrate Bucket**
-2. Select the bucket (the buckets of the node the console is connected to) and the target node (healthy nodes only)
-3. **Start Migration**
-
-**Via API:**
-
-```bash
-POST /api/v1/cluster/buckets/{bucket}/migrate
-{
-  "target_node_id": "uuid-target-node"
-}
-
-# 202 Accepted
-{
-  "success": true,
-  "data": {
-    "id": 1,
-    "bucket_name": "my-bucket",
-    "source_node_id": "uuid-source-node",
-    "target_node_id": "uuid-target-node",
-    "status": "in_progress",
-    "objects_total": 10000,
-    "objects_migrated": 0,
-    "bytes_total": 104857600,
-    "bytes_migrated": 0,
-    "delete_source": true,
-    "verify_data": true,
-    "started_at": "2026-09-28T10:30:00Z"
-  }
-}
-```
-
-| Status | Cause |
-|--------|-------|
-| `202` | Migration started |
-| `400` | Cluster not enabled, replication factor above 1, target not in the cluster, target is the source, `delete_source: false` |
-| `403` | Not a global administrator |
-| `404` | The bucket does not live on this node |
-| `409` | Target not healthy, bucket already being migrated, multipart uploads in progress |
-
-`delete_source: false` is refused: a bucket lives on one node. The copy is always verified; `verify_data` is ignored.
-
-### Monitoring Migration Progress
-
-```bash
-GET /api/v1/cluster/migrations
-GET /api/v1/cluster/migrations?bucket=my-bucket
-GET /api/v1/cluster/migrations/{id}
-```
-
-Global administrators only. Jobs are recorded on the source node.
-
-| Field | Meaning |
-|-------|---------|
-| `objects_total`, `bytes_total` | The bucket's counters when the migration started; bytes include every version |
-| `objects_migrated` | Keys copied whose current version is visible |
-| `bytes_migrated` | Bytes of every version copied |
-| `error_message` | Cause of a failure; last error while retrying |
-
-### Before Migrating
-
-- Free space on the target ≥ `bytes_total` of the bucket.
-- The bucket takes no writes for the duration of the migration; S3 clients retry `503` by default.
-- Complete or abort multipart uploads in progress.
-
-### Troubleshooting Migrations
-
-| `error_message` contains | Cause |
-|--------------------------|-------|
-| `lives on this node` | A bucket of that name lives on the target |
-| `differs from this node's` | Verification failed; nothing moved. Check the target's log |
-| `multipart uploads in progress` | Complete or abort them |
-| `interrupted by a restart` | The source restarted during the copy; start the migration again |
-
-A job that stays `committing` means the target does not answer; the hand-over is retried every 30 s.
-
-**HMAC errors between nodes:**
-
-```bash
-# Cluster tokens must match
-sqlite3 /data/node1/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
-sqlite3 /data/node2/db/maxiofs.db "SELECT cluster_token FROM cluster_config;"
-
-# Clocks must be synchronized (NTP)
-ssh node1 "date -u"
-ssh node2 "date -u"
-```
-
----
-
 ## Dashboard UI
 
 ### Accessing Cluster Dashboard
@@ -818,7 +679,6 @@ Primary endpoint groups:
 
 - Cluster management: initialize, join, status, nodes, health, cache.
 - Cluster replication: rules, bulk replication, status.
-- Bucket migration: start migration, list jobs, inspect job details.
 
 ---
 
@@ -1047,10 +907,6 @@ ssh node2 "date -u"
 ```bash
 # Check cache stats
 curl -X GET "http://localhost:8081/api/v1/cluster/cache/stats" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Buckets of this node
-curl -X GET "http://localhost:8081/api/v1/cluster/buckets" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

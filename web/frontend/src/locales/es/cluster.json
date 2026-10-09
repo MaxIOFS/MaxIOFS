@@ -33,7 +33,6 @@
 
   "manageReplication": "Gestionar Replicación",
   "manageNodes": "Gestionar Nodos",
-  "manageMigrations": "Gestionar Migraciones",
 
   "totalNodes": "Total de Nodos",
   "nodesInCluster": "Nodos en el clúster",
@@ -187,43 +186,13 @@
   "replicateDeletions": "Replicar eliminaciones",
   "replicateMetadata": "Replicar metadatos",
 
-  "bucketMigrationsTitle": "Migraciones de Buckets",
-  "bucketMigrationsDesc": "Ver el historial de migraciones y gestionar las migraciones activas",
-  "moveBucketsDesc": "Mover buckets entre nodos del clúster",
-  "migrateBucket": "Migrar Bucket",
-  "allMigrations": "Todos ({{count}})",
-  "activeMigrations": "Activos ({{count}})",
-  "completedMigrations": "Completados ({{count}})",
-  "failedMigrations": "Fallidos ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "Bucket",
-  "colSourceTarget": "Origen → Destino",
   "colProgress": "Progreso",
-  "colDataSize": "Tamaño de Datos",
-  "colStarted": "Iniciado",
-  "objectsProgress": "{{migrated}} / {{total}} objetos",
 
-  "noMigrationsYet": "No hay migraciones aún",
-  "noFilterMigrations": "No hay migraciones {{filter}}",
-  "startMigratingBuckets": "Comienza migrando buckets entre nodos",
-  "tryDifferentFilter": "Intenta seleccionar un filtro diferente",
   "details": "Detalles",
 
-  "migrateBucketTitle": "Migrar Bucket",
   "bucketLabel": "Bucket *",
-  "selectBucket": "Seleccionar un bucket",
-  "targetNodeLabel": "Nodo Destino *",
-  "selectTargetNodeOption": "Seleccionar nodo destino",
-  "onlyHealthyNodesExcluding": "Solo se muestran nodos saludables (excluyendo el nodo origen {{id}})",
-  "onlyHealthyNodes": "Solo se muestran nodos saludables",
-  "migrationWarning": "El bucket se mueve: cada versión se copia al nodo destino y se verifica, y después se elimina de este nodo. Mientras se mueve, el bucket no admite escrituras (las lecturas continúan). Las subidas multiparte en curso deben completarse o cancelarse antes. Asegúrate de que el nodo destino tenga espacio suficiente.",
-  "startMigration": "Iniciar Migración",
 
-  "selectBucketAndNode": "Por favor selecciona un bucket y un nodo destino",
-  "sameNodeError": "¡El nodo origen y el nodo destino no pueden ser el mismo!",
-  "migrationStartedSuccess": "¡Migración iniciada correctamente!",
-  "failedToStartMigration": "Error al iniciar la migración",
   "loadingNodes2": "Cargando nodos...",
 
   "haReplication": "Replicación HA",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "Factor de replicación cambiado a ×{{factor}}",
 
   "factorNoReplication": "Sin replicación",
-  "factorNoReplicationDesc": "Copia única — sin redundancia. El clúster falla si algún nodo cae.",
+  "factorNoReplicationDesc": "Una copia de cada objeto, en el nodo con espacio. Sin redundancia: mientras un nodo está caído, sus objetos no se pueden leer.",
   "factorMirror": "Espejo (×2)",
-  "factorMirrorDesc": "Dos copias completas. Tolera 1 fallo de nodo simultáneo.",
+  "factorMirrorDesc": "Dos copias de cada objeto, en nodos distintos. Tolera la caída de 1 nodo.",
   "factorTriple": "Triple copia (×3)",
-  "factorTripleDesc": "Tres copias completas. Tolera 2 fallos de nodo simultáneos.",
+  "factorTripleDesc": "Tres copias de cada objeto, en nodos distintos. Tolera 2 caídas de nodo simultáneas.",
 
   "replicaSyncStatus": "Estado de sincronización de réplicas",
   "replicaSyncDesc": "Trabajos de sincronización inicial y de recuperación para cada nodo réplica",

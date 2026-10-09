@@ -202,13 +202,12 @@ This section covers how to add, remove, and handle nodes in a cluster.
    - Remove the node from the load balancer or set its weight to 0.
    - Wait for a grace period (e.g., 5–10 minutes) to allow in‑flight requests to finish.
 
-2. **Migrate buckets (if node holds primary buckets)**
-   - From the Console:
-     - Use the **Bucket Migration** feature to move buckets off the node to other nodes.
-     - Wait for each migration to complete successfully.
+2. **Drain the node** (Cluster → HA → Drain)
+   - Every node holds every bucket; the node holds a copy of some objects.
+   - With a replication factor of 2 or 3, the copies the node held are made again on the other nodes.
+   - With a replication factor of 1, the node holds the only copy of its objects: they are unreadable once it is drained.
 
 3. **Verify cluster state**
-   - Ensure no buckets remain assigned to the node in the Cluster dashboard.
    - Confirm replication queues are empty or at expected levels.
 
 4. **Remove from cluster configuration**
@@ -415,7 +414,7 @@ Restores in a cluster are more complex. **Preferred** strategy:
 - Avoid partial restores of individual nodes unless strictly necessary.
 - Instead:
   - Bring up a **new node** from a backup and join it to the cluster.
-  - Use **bucket migration** to move data off old nodes if needed.
+  - Drain the old nodes: with a factor of 2 or 3 their copies are made again on the other nodes.
 
 If you must restore a specific node:
 
@@ -627,6 +626,6 @@ No error messages during open means WAL replay succeeded. If you see `pebble: co
 For deeper architectural details, always refer back to:
 
 - `ARCHITECTURE.md` – System components and data flow.  
-- `CLUSTER.md` – Cluster behavior, replication, and bucket migration.  
+- `CLUSTER.md` – Cluster behavior, object placement and replication.  
 - `SECURITY.md` – Security model and best practices.  
 - `TESTING.md` – Test coverage and guidelines.

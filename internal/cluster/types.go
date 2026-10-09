@@ -89,13 +89,13 @@ const (
 )
 
 // InService reports whether a node serves requests and is sent every change:
-// a healthy node, or one under storage pressure.
+// a healthy node, a slow one, or one under storage pressure.
 func (n *Node) InService() bool {
-	return n.HealthStatus == HealthStatusHealthy || n.HealthStatus == HealthStatusStoragePressure
+	return n.TakesData() || n.HealthStatus == HealthStatusStoragePressure
 }
 
-// TakesData reports whether a node is given new copies of data: a node under
-// storage pressure is not.
+// TakesData reports whether a node is given new copies of data: a healthy or
+// slow node, not one under storage pressure.
 func (n *Node) TakesData() bool {
-	return n.HealthStatus == HealthStatusHealthy
+	return n.HealthStatus == HealthStatusHealthy || n.HealthStatus == HealthStatusDegraded
 }

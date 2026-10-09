@@ -33,7 +33,6 @@
 
   "manageReplication": "Управление репликацией",
   "manageNodes": "Управление узлами",
-  "manageMigrations": "Управление миграциями",
 
   "totalNodes": "Всего узлов",
   "nodesInCluster": "Узлов в кластере",
@@ -187,43 +186,13 @@
   "replicateDeletions": "Реплицировать удаления",
   "replicateMetadata": "Реплицировать метаданные",
 
-  "bucketMigrationsTitle": "Миграции бакетов",
-  "bucketMigrationsDesc": "Просмотр истории миграций и управление активными миграциями",
-  "moveBucketsDesc": "Перемещение бакетов между узлами кластера",
-  "migrateBucket": "Мигрировать бакет",
-  "allMigrations": "Все ({{count}})",
-  "activeMigrations": "Активные ({{count}})",
-  "completedMigrations": "Завершённые ({{count}})",
-  "failedMigrations": "С ошибками ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "Бакет",
-  "colSourceTarget": "Источник → Назначение",
   "colProgress": "Прогресс",
-  "colDataSize": "Размер данных",
-  "colStarted": "Начато",
-  "objectsProgress": "{{migrated}} / {{total}} объектов",
 
-  "noMigrationsYet": "Миграций пока нет",
-  "noFilterMigrations": "Нет {{filter}} миграций",
-  "startMigratingBuckets": "Начните миграцию бакетов между узлами",
-  "tryDifferentFilter": "Попробуйте выбрать другой фильтр",
   "details": "Подробности",
 
-  "migrateBucketTitle": "Мигрировать бакет",
   "bucketLabel": "Бакет *",
-  "selectBucket": "Выберите бакет",
-  "targetNodeLabel": "Целевой узел *",
-  "selectTargetNodeOption": "Выберите целевой узел",
-  "onlyHealthyNodesExcluding": "Показаны только работоспособные узлы (кроме исходного узла {{id}})",
-  "onlyHealthyNodes": "Показаны только работоспособные узлы",
-  "migrationWarning": "Бакет перемещается: каждая версия копируется на целевой узел и проверяется, после чего удаляется с этого узла. Во время перемещения бакет не принимает записи (чтение продолжается). Незавершённые multipart-загрузки нужно завершить или отменить заранее. Убедитесь, что на целевом узле достаточно места.",
-  "startMigration": "Начать миграцию",
 
-  "selectBucketAndNode": "Пожалуйста, выберите бакет и целевой узел",
-  "sameNodeError": "Исходный и целевой узлы не могут совпадать!",
-  "migrationStartedSuccess": "Миграция успешно запущена!",
-  "failedToStartMigration": "Не удалось запустить миграцию",
   "loadingNodes2": "Загрузка узлов...",
 
   "haReplication": "HA-репликация",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "Коэффициент репликации изменён до ×{{factor}}",
 
   "factorNoReplication": "Без репликации",
-  "factorNoReplicationDesc": "Одна копия — без избыточности. Кластер выходит из строя при отказе любого узла.",
+  "factorNoReplicationDesc": "Одна копия каждого объекта, на узле со свободным местом. Без избыточности: пока узел недоступен, его объекты нельзя прочитать.",
   "factorMirror": "Зеркалирование (×2)",
-  "factorMirrorDesc": "Две полные копии. Выдерживает одновременный отказ 1 узла.",
+  "factorMirrorDesc": "Две копии каждого объекта на разных узлах. Выдерживает отказ 1 узла.",
   "factorTriple": "Тройная копия (×3)",
-  "factorTripleDesc": "Три полные копии. Выдерживает одновременный отказ 2 узлов.",
+  "factorTripleDesc": "Три копии каждого объекта на разных узлах. Выдерживает одновременный отказ 2 узлов.",
 
   "replicaSyncStatus": "Статус синхронизации реплик",
   "replicaSyncDesc": "Начальная и догоняющая синхронизация для каждого узла реплики",

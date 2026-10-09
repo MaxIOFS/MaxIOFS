@@ -44,7 +44,6 @@ const IAM                = React.lazy(() => import('@/pages/iam/index'));
 // Cluster pages grouped in a single chunk — always visited together
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
-const ClusterMigrations  = React.lazy(() => import('@/pages/cluster/Migrations'));
 const ClusterHA          = React.lazy(() => import('@/pages/cluster/HA'));
 
 // Error Boundary to catch React render crashes and show a recovery UI
@@ -353,16 +352,6 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterNodes />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/cluster/migrations"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <ClusterMigrations />
                   </AppLayout>
                 </ProtectedRoute>
               }

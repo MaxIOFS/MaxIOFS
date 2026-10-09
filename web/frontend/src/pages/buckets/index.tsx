@@ -593,7 +593,6 @@ export default function BucketsPage() {
                       </button>
                     </TableHead>
                     <TableHead>{t('region')}</TableHead>
-                    <TableHead>{t('nodeColumn')}</TableHead>
                     <TableHead>{t('owner')}</TableHead>
                     <TableHead>
                       <button onClick={() => handleSort('objectCount')} className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-brand-600 dark:hover:text-brand-400 transition-colors">
@@ -664,21 +663,6 @@ export default function BucketsPage() {
 
                         <TableCell className="whitespace-nowrap">
                           <span className="text-sm">{bucket.region || 'us-east-1'}</span>
-                        </TableCell>
-
-                        <TableCell className="whitespace-nowrap">
-                          {(() => {
-                            const nodeName = bucket.node_name || bucket.nodeName;
-                            const nodeStatus = bucket.node_status || bucket.nodeStatus;
-                            if (!nodeName) return <span className="text-xs text-muted-foreground italic">{t('local')}</span>;
-                            const isLocal = nodeStatus === 'local';
-                            return (
-                              <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${isLocal ? 'bg-green-500' : 'bg-blue-500'}`} />
-                                <span className="text-sm">{nodeName}</span>
-                              </div>
-                            );
-                          })()}
                         </TableCell>
 
                         <TableCell className="whitespace-nowrap">

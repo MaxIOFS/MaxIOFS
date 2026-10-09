@@ -219,8 +219,8 @@ func TestSpaceForCopies(t *testing.T) {
 	}
 }
 
-// The room of a cluster whose nodes all hold every bucket counts every node
-// but the dead ones; outside a cluster, or with a factor of 1, there is none.
+// The room of a cluster counts every node but the dead ones, each byte once
+// per copy; outside a cluster there is none.
 func TestTheClusterSpace(t *testing.T) {
 	ctx := context.Background()
 	db := setupDeadNodeReconcilerDB(t)
@@ -240,11 +240,13 @@ func TestTheClusterSpace(t *testing.T) {
 	}
 	_, err := db.Exec(`UPDATE cluster_nodes SET capacity_total = 5000 WHERE id = 'gone'`)
 	require.NoError(t, err)
-	_, _, ok = mgr.Space(ctx)
-	assert.False(t, ok, "with a factor of 1")
+	capacity, available, ok := mgr.Space(ctx)
+	require.True(t, ok)
+	assert.EqualValues(t, 3000, capacity)
+	assert.EqualValues(t, 1500, available, "with a factor of 1, 800, 600 and 100 free")
 
 	setReplicationFactor(t, db, 2)
-	capacity, available, ok := mgr.Space(ctx)
+	capacity, available, ok = mgr.Space(ctx)
 	require.True(t, ok)
 	assert.EqualValues(t, 1500, capacity)
 	assert.EqualValues(t, 700, available, "800, 600 and 100 free: the 800 holds one copy of 700 at most")

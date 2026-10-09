@@ -86,10 +86,5 @@
   "loadingMessage": "\"{{name}}\" wird konfiguriert",
   "ownerUserLabel": "Eigentümer-Benutzer",
   "ownerTenantLabel": "Eigentümer-Mandant",
-  "noEmail": "Keine E-Mail",
-  "targetNode": "Ziel-Knoten",
-  "targetNodeHelp": "Wählen Sie den Cluster-Knoten, auf dem dieser Bucket erstellt werden soll. Wählen Sie basierend auf dem verfügbaren Festplattenspeicher.",
-  "targetNodeLocal": "(dieser Knoten)",
-  "targetNodeFree": "{{free}} frei",
-  "targetNodeUnknown": "Speicher unbekannt"
+  "noEmail": "Keine E-Mail"
 }

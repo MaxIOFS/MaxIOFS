@@ -24,13 +24,9 @@ func (s *Server) tenantBucketCount(ctx context.Context, tenantID string) (int64,
 	return int64(len(buckets)), nil
 }
 
-// tenantStorage is the storage a tenant uses, on every node of the cluster.
-func (s *Server) tenantStorage(ctx context.Context, tenant *auth.Tenant) int64 {
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() && s.quotaAggregator != nil {
-		if total, err := s.quotaAggregator.GetTenantTotalStorage(ctx, tenant.ID); err == nil {
-			return total
-		}
-	}
+// tenantStorage is the storage a tenant uses. Every node of a cluster holds the
+// entry of every object, so this node's count is the cluster's.
+func (s *Server) tenantStorage(_ context.Context, tenant *auth.Tenant) int64 {
 	return tenant.CurrentStorageBytes
 }
 

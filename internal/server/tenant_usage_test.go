@@ -121,13 +121,16 @@ func TestStatsPassCorrectsTheTenantStorage(t *testing.T) {
 // In a cluster a tenant's buckets are counted on every node, each once however
 // many nodes hold it.
 func TestTenantBucketCountCoversTheCluster(t *testing.T) {
-	c := newMigrationCluster(t)
+	c := newRoutingPair(t)
 	ctx := context.Background()
 	const tenantID = "t-cluster-count"
-	for _, s := range []*Server{c.source, c.target} {
+	// The target, outside the cluster here, sends its buckets nowhere; the
+	// source sends its own to the target.
+	for _, s := range []*Server{c.target, c.source} {
 		require.NoError(t, s.authManager.CreateTenant(ctx, &auth.Tenant{ID: tenantID, Name: tenantID, Status: "active"}))
-		require.NoError(t, s.bucketManager.CreateBucket(ctx, tenantID, "on-both", "u"))
 	}
+	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, tenantID, "on-both", "u"))
+	require.NoError(t, c.source.bucketManager.CreateBucket(ctx, tenantID, "on-both", "u"))
 	require.NoError(t, c.source.bucketManager.CreateBucket(ctx, tenantID, "only-here", "u"))
 	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, tenantID, "only-there", "u"))
 

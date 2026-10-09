@@ -125,7 +125,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/cluster` | Cluster manager, smart router, health checker, bucket location cache |
 | `internal/cluster` | 6 sync managers: users, tenants, access keys, bucket permissions, IDP providers, group mappings |
 | `internal/cluster` | Tombstone-based deletion sync, circuit breaker, rate limiter |
-| `internal/cluster` | Bucket migration between nodes, replication queue/workers |
+| `internal/cluster` | Membership, health, object placement and copies between nodes, replication queue/workers |
 | `internal/cluster` | HA object manager: quorum writes, local rollback on quorum failure, anti-entropy |
 | `internal/clusterauth` | Inter-node request signature definition |
 | `internal/transfer` | Progress-based stall watchdog for requests that carry object data |

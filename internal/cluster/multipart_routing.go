@@ -14,19 +14,12 @@ import (
 )
 
 // UploadNode returns the node a multipart upload was started on, where its
-// parts, completion and abort are made, when every node holds every bucket (a
-// replication factor above 1); with a factor of 1 a request goes to the
-// bucket's node, which holds its uploads. local is true when that is this
-// node, or when the upload ID names no node. A node that is no longer in the
+// parts, completion and abort are made. local is true when that is this node,
+// or when the upload ID names no node. A node that is no longer in the
 // cluster is ErrNodeNotFound: its uploads are gone.
 func (m *Manager) UploadNode(ctx context.Context, uploadID string) (node *Node, local bool, err error) {
 	owner := object.UploadOwner(uploadID)
 	if owner == "" || !m.IsClusterEnabled() {
-		return nil, true, nil
-	}
-	if factor, err := m.GetReplicationFactor(ctx); err != nil {
-		return nil, false, err
-	} else if factor <= 1 {
 		return nil, true, nil
 	}
 	localID, err := m.GetLocalNodeID(ctx)
@@ -44,15 +37,10 @@ func (m *Manager) UploadNode(ctx context.Context, uploadID string) (node *Node, 
 }
 
 // PeerMultipartUploads lists the multipart uploads of a bucket started on the
-// other healthy nodes, when every node holds every bucket (a replication factor
-// above 1). A node that does not answer is left out.
+// other healthy nodes. A node that does not answer is left out.
 func (m *Manager) PeerMultipartUploads(ctx context.Context, bucket string) ([]object.MultipartUpload, error) {
 	if !m.IsClusterEnabled() {
 		return nil, nil
-	}
-	factor, err := m.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
-		return nil, err
 	}
 	localID, err := m.GetLocalNodeID(ctx)
 	if err != nil {

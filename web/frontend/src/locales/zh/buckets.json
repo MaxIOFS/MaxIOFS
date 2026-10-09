@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "完整性扫描正在 {{count}} 个存储桶的后台运行，点击盾牌图标查看进度。",
   "activeStorageContainers": "活跃存储容器",
   "storedAcrossAllBuckets": "存储在所有存储桶中",
-  "nodeColumn": "节点",
-  "local": "本地",
   "delete": "删除",
   "scanning": "扫描中",
   "issueCount_one": "{{count}} 个问题",

@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "{{count}}個のバケットでバックグラウンド整合性スキャンが実行中です。シールドアイコンをクリックして進捗を確認してください。",
   "activeStorageContainers": "アクティブなストレージコンテナ",
   "storedAcrossAllBuckets": "全バケットの合計",
-  "nodeColumn": "ノード",
-  "local": "ローカル",
   "delete": "削除",
   "scanning": "スキャン中",
   "issueCount_one": "{{count}}件の問題",

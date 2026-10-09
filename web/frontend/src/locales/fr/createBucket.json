@@ -86,10 +86,5 @@
   "loadingMessage": "Configuration de \"{{name}}\"",
   "ownerUserLabel": "Utilisateur propriétaire",
   "ownerTenantLabel": "Tenant propriétaire",
-  "noEmail": "aucun e-mail",
-  "targetNode": "Nœud cible",
-  "targetNodeHelp": "Sélectionnez le nœud du cluster où ce bucket sera créé. Choisissez en fonction de l'espace disque disponible.",
-  "targetNodeLocal": "(ce nœud)",
-  "targetNodeFree": "{{free}} libre",
-  "targetNodeUnknown": "espace inconnu"
+  "noEmail": "aucun e-mail"
 }

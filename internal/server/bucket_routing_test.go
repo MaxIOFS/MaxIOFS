@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
@@ -24,12 +25,47 @@ import (
 
 const routingAdminID = "routing-admin"
 
-// newRoutingCluster is a migration cluster whose target serves its S3 API to
-// the source, and an S3 client of the source signed as a global administrator
-// both nodes know.
-func newRoutingCluster(t *testing.T) (*migrationCluster, *s3.Client) {
+// routingPair is a cluster seen from source: target holds buckets source does
+// not, as a bucket that has not reached every node yet after an update from a
+// version that kept each bucket on one node.
+type routingPair struct {
+	source, target *Server
+	sourceID       string
+	targetID       string
+	token          string
+}
+
+func newRoutingPair(t *testing.T) *routingPair {
 	t.Helper()
-	c := newMigrationCluster(t)
+	c := &routingPair{source: newClusterTestNode(t), target: newClusterTestNode(t)}
+	ctx := context.Background()
+	ts := httptest.NewServer(c.target.clusterServer.Handler)
+	t.Cleanup(ts.Close)
+
+	_, err := c.source.clusterManager.InitializeCluster(ctx, "source", "us-east-1", "http://source.invalid")
+	require.NoError(t, err)
+	c.sourceID, err = c.source.clusterManager.GetLocalNodeID(ctx)
+	require.NoError(t, err)
+	c.token, err = c.source.clusterManager.GetLocalNodeToken(ctx)
+	require.NoError(t, err)
+	target := &cluster.Node{Name: "target", Endpoint: ts.URL, NodeToken: c.token, Region: "us-east-1", Priority: 100, Metadata: "{}"}
+	require.NoError(t, c.source.clusterManager.AddNode(ctx, target))
+	_, err = c.source.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, target.ID)
+	require.NoError(t, err)
+	c.targetID = target.ID
+	require.NoError(t, c.target.clusterManager.AddNode(ctx, &cluster.Node{
+		ID: c.sourceID, Name: "source", Endpoint: "http://source.invalid", NodeToken: c.token,
+		Region: "us-east-1", Priority: 100, Metadata: "{}",
+	}))
+	return c
+}
+
+// newRoutingCluster is a routing pair whose target serves its S3 API to the
+// source, and an S3 client of the source signed as a global administrator
+// both nodes know.
+func newRoutingCluster(t *testing.T) (*routingPair, *s3.Client) {
+	t.Helper()
+	c := newRoutingPair(t)
 	ctx := context.Background()
 
 	targetS3 := httptest.NewServer(c.target.httpServer.Handler)
@@ -64,8 +100,8 @@ func newRoutingCluster(t *testing.T) (*migrationCluster, *s3.Client) {
 	return c, client
 }
 
-// Every S3 request about a bucket goes to the node that holds it, whatever the
-// operation.
+// Every S3 request about a bucket this node does not hold goes to the node that
+// holds it, whatever the operation.
 func TestS3RequestsGoToTheBucketsNode(t *testing.T) {
 	c, client := newRoutingCluster(t)
 	ctx := context.Background()
@@ -163,11 +199,11 @@ func (n *consoleNode) requests() []string {
 	return append([]string(nil), n.sent...)
 }
 
-// Every console request about a bucket's own state goes to the node that holds
-// the bucket, whatever the operation. Its permissions are cluster
+// Every console request about the state of a bucket this node does not hold
+// goes to the node that holds it, whatever the operation. Its permissions are cluster
 // configuration and go to the coordinator; a bucket held here is served here.
 func TestConsoleBucketRequestsGoToTheBucketsNode(t *testing.T) {
-	c := newMigrationCluster(t)
+	c := newRoutingPair(t)
 	ctx := context.Background()
 	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, "", "far", "admin"))
 	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, "", "far-empty", "admin"))
@@ -222,7 +258,7 @@ func TestConsoleBucketRequestsGoToTheBucketsNode(t *testing.T) {
 // A bucket's permissions are granted where the coordinator runs, which finds
 // the bucket on whichever node holds it, under the tenant it belongs to.
 func TestBucketPermissionsFindTheBucketOnAnotherNode(t *testing.T) {
-	c := newMigrationCluster(t)
+	c := newRoutingPair(t)
 	ctx := context.Background()
 	now := time.Now().Unix()
 	require.NoError(t, c.target.authManager.CreateTenant(ctx, &auth.Tenant{ID: "t-far", Name: "t-far", Status: "active"}))
@@ -252,7 +288,7 @@ func TestBucketPermissionsFindTheBucketOnAnotherNode(t *testing.T) {
 // Bucket names are unique in the cluster: the console refuses one another node
 // holds.
 func TestConsoleCreateBucketSeesTheWholeCluster(t *testing.T) {
-	c := newMigrationCluster(t)
+	c := newRoutingPair(t)
 	ctx := context.Background()
 	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, "", "taken", "admin"))
 	create := func(name string) *httptest.ResponseRecorder {

@@ -43,7 +43,6 @@ func toMetadataBucket(b *Bucket) *metadata.BucketMetadata {
 		Quota: b.Quota,
 
 		// HA replication
-		HA: b.HA,
 	}
 }
 
@@ -85,7 +84,6 @@ func fromMetadataBucket(mb *metadata.BucketMetadata) *Bucket {
 		Quota: mb.Quota,
 
 		// HA replication
-		HA: mb.HA,
 	}
 }
 

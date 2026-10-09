@@ -56,15 +56,14 @@ type placement struct {
 	pressured bool
 }
 
-// place chooses the nodes of a write made here when every node holds every
-// bucket (a replication factor above 1): this node and the healthy nodes with
-// the most free space hold its data, up to the factor; the other healthy
-// nodes hold its entry. A node neither healthy nor dead misses the write and
+// place chooses the nodes of a write made here in a cluster: this node and the
+// healthy nodes with the most free space hold its data, up to the factor; the
+// other healthy nodes hold its entry. A node neither healthy nor dead misses the write and
 // is caught up when it is back. This node, under storage pressure, then passes
 // its copy on (see relieve).
 func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	factor, err := h.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
+	if err != nil {
 		return nil, false
 	}
 	localID, err := h.mgr.GetLocalNodeID(ctx)
@@ -109,16 +108,15 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	return p, true
 }
 
-// Space is, when every node holds every bucket (a replication factor above 1),
-// the data the cluster has room for and the room left, as each node's last
-// health check found its disk: each byte is held on factor different nodes.
-// Dead nodes do not count.
+// Space is the data a cluster has room for and the room left, as each node's
+// last health check found its disk: each byte is held on factor different
+// nodes. Dead nodes do not count.
 func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool) {
 	if !m.IsClusterEnabled() {
 		return 0, 0, false
 	}
 	factor, err := m.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
+	if err != nil {
 		return 0, 0, false
 	}
 	nodes, err := m.ListNodes(ctx)

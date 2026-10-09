@@ -422,7 +422,7 @@ func TestHAWriteSkippingADownPeerRecordsTheMiss(t *testing.T) {
 	require.NoError(t, local.store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "skip"}))
 	hits := 0
 	mgr, db, nodes := newClusterWithPeers(t, 2, failingPeer(t, &hits))
-	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusDegraded, nodes[0].ID)
+	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, HealthStatusUnavailable, nodes[0].ID)
 	require.NoError(t, err)
 
 	before := time.Now().Unix()

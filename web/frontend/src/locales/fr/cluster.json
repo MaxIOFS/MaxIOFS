@@ -33,7 +33,6 @@
 
   "manageReplication": "Gérer la réplication",
   "manageNodes": "Gérer les nœuds",
-  "manageMigrations": "Gérer les migrations",
 
   "totalNodes": "Total des nœuds",
   "nodesInCluster": "Nœuds dans le cluster",
@@ -187,43 +186,13 @@
   "replicateDeletions": "Répliquer les suppressions",
   "replicateMetadata": "Répliquer les métadonnées",
 
-  "bucketMigrationsTitle": "Migrations de buckets",
-  "bucketMigrationsDesc": "Voir l'historique des migrations et gérer les migrations actives",
-  "moveBucketsDesc": "Déplacer des buckets entre les nœuds du cluster",
-  "migrateBucket": "Migrer un bucket",
-  "allMigrations": "Toutes ({{count}})",
-  "activeMigrations": "Actives ({{count}})",
-  "completedMigrations": "Terminées ({{count}})",
-  "failedMigrations": "Échouées ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "Bucket",
-  "colSourceTarget": "Source → Cible",
   "colProgress": "Progression",
-  "colDataSize": "Taille des données",
-  "colStarted": "Démarrée",
-  "objectsProgress": "{{migrated}} / {{total}} objets",
 
-  "noMigrationsYet": "Aucune migration pour l'instant",
-  "noFilterMigrations": "Aucune migration {{filter}}",
-  "startMigratingBuckets": "Commencer la migration de buckets entre les nœuds",
-  "tryDifferentFilter": "Essayez de sélectionner un autre filtre",
   "details": "Détails",
 
-  "migrateBucketTitle": "Migrer un bucket",
   "bucketLabel": "Bucket *",
-  "selectBucket": "Sélectionner un bucket",
-  "targetNodeLabel": "Nœud cible *",
-  "selectTargetNodeOption": "Sélectionner le nœud cible",
-  "onlyHealthyNodesExcluding": "Seuls les nœuds sains (excluant le nœud source {{id}}) sont affichés",
-  "onlyHealthyNodes": "Seuls les nœuds sains sont affichés",
-  "migrationWarning": "Le bucket est déplacé : chaque version est copiée sur le nœud cible et vérifiée, puis supprimée de ce nœud. Pendant le déplacement, le bucket n'accepte aucune écriture (les lectures continuent). Les téléversements multipart en cours doivent être terminés ou annulés avant. Assurez-vous que le nœud cible dispose d'un espace de stockage suffisant.",
-  "startMigration": "Démarrer la migration",
 
-  "selectBucketAndNode": "Veuillez sélectionner un bucket et un nœud cible",
-  "sameNodeError": "Le nœud source et le nœud cible ne peuvent pas être identiques !",
-  "migrationStartedSuccess": "Migration démarrée avec succès !",
-  "failedToStartMigration": "Échec du démarrage de la migration",
   "loadingNodes2": "Chargement des nœuds...",
 
   "haReplication": "Réplication HA",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "Facteur de réplication modifié à ×{{factor}}",
 
   "factorNoReplication": "Aucune réplication",
-  "factorNoReplicationDesc": "Copie unique — aucune redondance. Le cluster tombe en panne si un nœud s'arrête.",
+  "factorNoReplicationDesc": "Une copie de chaque objet, sur le nœud qui a de la place. Aucune redondance : tant qu'un nœud est arrêté, ses objets ne peuvent pas être lus.",
   "factorMirror": "Miroir (×2)",
-  "factorMirrorDesc": "Deux copies complètes. Tolère 1 panne de nœud simultanée.",
+  "factorMirrorDesc": "Deux copies de chaque objet, sur des nœuds différents. Tolère la panne d'1 nœud.",
   "factorTriple": "Triple copie (×3)",
-  "factorTripleDesc": "Trois copies complètes. Tolère 2 pannes de nœuds simultanées.",
+  "factorTripleDesc": "Trois copies de chaque objet, sur des nœuds différents. Tolère 2 pannes de nœuds simultanées.",
 
   "replicaSyncStatus": "Statut de synchronisation des répliques",
   "replicaSyncDesc": "Tâches de synchronisation initiale et de rattrapage pour chaque nœud réplique",

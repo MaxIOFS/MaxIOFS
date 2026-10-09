@@ -73,9 +73,6 @@ type Server struct {
 	replicationManager  *replication.Manager
 	clusterManager      *cluster.Manager
 	clusterRouter       *cluster.Router
-	bucketGate          *cluster.BucketWriteGate
-	bucketMigrator      *cluster.BucketMigrator
-	migrationTarget     *cluster.MigrationTarget
 	bucketStateReceiver *cluster.BucketStateReceiver
 	rowStates           *cluster.RowStates
 	bucketAggregator    *cluster.BucketAggregator
@@ -516,21 +513,14 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize quota aggregator for cross-node quota checking
 	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)
 
-	// Connect cluster manager and quota aggregator to auth manager for cluster-aware quota checking
+	// Every node holds the entry of every object: a tenant's usage on this node
+	// is its usage in the cluster, and quota checks read it here.
 	if am, ok := authManager.(interface {
 		SetClusterManager(interface {
 			IsClusterEnabled() bool
 		})
 	}); ok {
 		am.SetClusterManager(clusterManager)
-	}
-
-	if am, ok := authManager.(interface {
-		SetQuotaAggregator(interface {
-			GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
-		})
-	}); ok {
-		am.SetQuotaAggregator(quotaAggregator)
 	}
 
 	// Initialize tenant synchronization manager
@@ -584,17 +574,10 @@ func New(cfg *config.Config) (*Server, error) {
 	// a cluster created or joined while running replicates without a restart.
 	objectManager = cluster.NewHAObjectManager(objectManager, clusterManager)
 
-	// Bucket migration: the gate that holds a migrating bucket's writes, and
-	// this node's side of a move as its source and as its target.
-	bucketGate := cluster.NewBucketWriteGate()
 	aclMgr, _ := bucketManager.GetACLManager().(acl.Manager)
-	bucketMigrator := cluster.NewBucketMigrator(clusterManager, objectManager, metadataStore, bucketManager, aclMgr, authManager, bucketGate)
-	migrationTarget := cluster.NewMigrationTarget(metadataStore, objectManager, bucketManager, aclMgr, storageBackend, db)
-	lifecycleWorker.SetWriteGate(bucketGate.Enter)
 
-	// With a replication factor above 1 every node holds every bucket: its
-	// changes, and those of the rows it keeps in this database, are sent to
-	// the other nodes. One node, the coordinator, runs the jobs that act on
+	// Every node of a cluster holds every bucket: its changes, and those of
+	// the rows it keeps in this database, are sent to the other nodes. One node, the coordinator, runs the jobs that act on
 	// every bucket: it expires objects through the manager that sends its
 	// deletes, writes the inventory reports and runs the scheduled
 	// replication rules.
@@ -633,6 +616,7 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	})
 	antiEntropyScrubber.AfterCycle(func() { haSyncWorker.StartRepair(context.Background()) })
+	antiEntropyScrubber.SetPlaceWrites(haSyncWorker.PlaceWrites)
 
 	// Dead-node reconciler is wired below after the Server struct is built so
 	// it can capture the notification hub for SSE emission.
@@ -686,9 +670,6 @@ func New(cfg *config.Config) (*Server, error) {
 		clusterManager:          clusterManager,
 		clusterRouter:           clusterRouter,
 		clusterServer:           clusterServer,
-		bucketGate:              bucketGate,
-		bucketMigrator:          bucketMigrator,
-		migrationTarget:         migrationTarget,
 		bucketStateReceiver:     bucketStateReceiver,
 		rowStates:               rowStates,
 		haSyncWorker:            haSyncWorker,
@@ -794,18 +775,11 @@ func New(cfg *config.Config) (*Server, error) {
 
 // runsClusterJobsHere decides whether this node runs the jobs that act on
 // every bucket: lifecycle expiration, inventory reports and scheduled
-// replication. Always outside a cluster whose buckets are on every node; only
-// on the coordinator inside one, which sends what it writes to the others.
-func runsClusterJobsHere(cm interface {
-	IsClusterEnabled() bool
-	GetReplicationFactor(ctx context.Context) (int, error)
-}, leader interface{ IsLeader() bool }) func() bool {
+// replication. Always outside a cluster; only on the coordinator inside one,
+// which sends what it writes to the others.
+func runsClusterJobsHere(cm interface{ IsClusterEnabled() bool }, leader interface{ IsLeader() bool }) func() bool {
 	return func() bool {
-		if !cm.IsClusterEnabled() {
-			return true
-		}
-		factor, err := cm.GetReplicationFactor(context.Background())
-		return err == nil && (factor <= 1 || leader.IsLeader())
+		return !cm.IsClusterEnabled() || leader.IsLeader()
 	}
 }
 
@@ -841,10 +815,6 @@ func (s *Server) Start(ctx context.Context) error {
 	} else if adopted > 0 {
 		logrus.WithField("objects", adopted).Info("Object ACLs moved to their objects")
 	}
-
-	// Before serving: a bucket whose move was being committed takes no writes
-	// until the move is finished.
-	s.bucketMigrator.Start(ctx)
 
 	// Enable runtime profiling
 	runtime.SetBlockProfileRate(1)     // Enable block profiling
@@ -1282,8 +1252,8 @@ type clusterBucketManagerAdapter struct {
 	metaStore metadata.Store
 }
 
-// GetBucketTenant answers only for a bucket that lives here: a copy a
-// migration is filling or has left behind is not one.
+// GetBucketTenant answers only for a bucket that lives here: a copy a bucket
+// migration of an earlier version left is not one.
 func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
 	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
 	if err != nil {
@@ -1552,9 +1522,6 @@ func (s *Server) setupRoutes() error {
 	// A request about a bucket that lives on another node goes there.
 	s3Router.Use(apiHandler.BucketRoutingMiddleware)
 
-	// A bucket being migrated off this node takes no writes until it moves.
-	s3Router.Use(s.bucketWriteGate(s3GateReads, refuseS3BucketWrite))
-
 	// S3 access logging: capture every request after auth so the user is in context.
 	s3Router.Use(s.s3AccessLoggingMiddleware())
 
@@ -1656,10 +1623,6 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/ha/object-entry", s.handleHAGetObjectEntry).Methods("GET")
 	hmac.HandleFunc("/ha/bucket-state", s.handleHABucketState).Methods("POST")
 	hmac.HandleFunc("/ha/row-states", s.handleHARowStates).Methods("POST")
-	hmac.HandleFunc("/migration/stage", s.handleMigrationStage).Methods("POST")
-	hmac.HandleFunc("/migration/manifest", s.handleMigrationManifest).Methods("POST")
-	hmac.HandleFunc("/migration/commit", s.handleMigrationCommit).Methods("POST")
-	hmac.HandleFunc("/migration/abort", s.handleMigrationAbort).Methods("POST")
 
 	logrus.WithField("address", s.clusterServer.Addr).Info("Cluster inter-node routes registered")
 }

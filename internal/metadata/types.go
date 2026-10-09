@@ -98,15 +98,11 @@ type BucketMetadata struct {
 	TotalSize   int64 `json:"total_size"`
 
 	Quota *BucketQuota `json:"quota,omitempty"`
-
-	// HA replication — nil means factor 1 (no HA, single node)
-	HA *BucketHA `json:"ha,omitempty"`
 }
 
-// BucketMovingKey marks, in a bucket's Metadata, a copy that is not where the
-// bucket lives: the one a migration is filling on the node it moves the bucket
-// to, or the one it leaves behind once the move is committed. Such a copy is
-// not listed and does not answer for the bucket.
+// BucketMovingKey marks, in a bucket's Metadata, a copy a bucket migration of
+// an earlier version was filling or left behind. Such a copy is not listed and
+// does not answer for the bucket.
 const BucketMovingKey = "cluster:migration"
 
 // Moving reports whether b is such a copy.
@@ -118,22 +114,6 @@ func (b *BucketMetadata) Moving() bool {
 type BucketQuota struct {
 	MaxSizeBytes   int64 `json:"max_size_bytes,omitempty"`   // hard cap on total stored bytes (0 = unlimited)
 	MaxObjectCount int64 `json:"max_object_count,omitempty"` // hard cap on object count (0 = unlimited)
-}
-
-// BucketHA holds the high-availability replication state for a bucket.
-type BucketHA struct {
-	PrimaryNodeID string          `json:"primary_node_id"`
-	ReplicaNodes  []HAReplicaNode `json:"replica_nodes,omitempty"`
-}
-
-// HAReplicaNode tracks the state of one HA replica on a given cluster node.
-type HAReplicaNode struct {
-	NodeID string `json:"node_id"`
-	// Status values: "syncing" | "ready" | "stale" | "pending_removal" | "storage_pressure"
-	Status string `json:"status"`
-	// Progress is 0-100 and only meaningful when Status == "syncing"
-	Progress int       `json:"progress,omitempty"`
-	SyncedAt time.Time `json:"synced_at,omitempty"`
 }
 
 // WebsiteMetadata represents static website hosting configuration for a bucket.

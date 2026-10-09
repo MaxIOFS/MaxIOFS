@@ -33,7 +33,6 @@
 
   "manageReplication": "レプリケーションを管理",
   "manageNodes": "ノードを管理",
-  "manageMigrations": "マイグレーションを管理",
 
   "totalNodes": "ノード総数",
   "nodesInCluster": "クラスター内のノード",
@@ -187,43 +186,13 @@
   "replicateDeletions": "削除をレプリケート",
   "replicateMetadata": "メタデータをレプリケート",
 
-  "bucketMigrationsTitle": "バケットマイグレーション",
-  "bucketMigrationsDesc": "マイグレーション履歴を表示してアクティブなマイグレーションを管理",
-  "moveBucketsDesc": "クラスターノード間でバケットを移動",
-  "migrateBucket": "バケットをマイグレート",
-  "allMigrations": "すべて ({{count}})",
-  "activeMigrations": "アクティブ ({{count}})",
-  "completedMigrations": "完了 ({{count}})",
-  "failedMigrations": "失敗 ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "バケット",
-  "colSourceTarget": "ソース → ターゲット",
   "colProgress": "進捗",
-  "colDataSize": "データサイズ",
-  "colStarted": "開始日時",
-  "objectsProgress": "{{migrated}} / {{total}} オブジェクト",
 
-  "noMigrationsYet": "マイグレーションはまだありません",
-  "noFilterMigrations": "{{filter}}のマイグレーションなし",
-  "startMigratingBuckets": "ノード間でバケットのマイグレーションを開始",
-  "tryDifferentFilter": "別のフィルターを選択してみてください",
   "details": "詳細",
 
-  "migrateBucketTitle": "バケットをマイグレート",
   "bucketLabel": "バケット *",
-  "selectBucket": "バケットを選択",
-  "targetNodeLabel": "ターゲットノード *",
-  "selectTargetNodeOption": "ターゲットノードを選択",
-  "onlyHealthyNodesExcluding": "正常なノードのみ表示（ソースノード{{id}}を除く）",
-  "onlyHealthyNodes": "正常なノードのみ表示",
-  "migrationWarning": "バケットは移動されます。すべてのバージョンがターゲットノードにコピーされて検証された後、このノードから削除されます。移動中、バケットは書き込みを受け付けません（読み取りは継続します）。進行中のマルチパートアップロードは事前に完了または中止してください。ターゲットノードに十分なストレージ容量があることを確認してください。",
-  "startMigration": "マイグレーションを開始",
 
-  "selectBucketAndNode": "バケットとターゲットノードを選択してください",
-  "sameNodeError": "ソースノードとターゲットノードは同じにできません！",
-  "migrationStartedSuccess": "マイグレーションが正常に開始されました！",
-  "failedToStartMigration": "マイグレーションの開始に失敗しました",
   "loadingNodes2": "ノードを読み込み中...",
 
   "haReplication": "HAレプリケーション",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "レプリケーションファクターが×{{factor}}に変更されました",
 
   "factorNoReplication": "レプリケーションなし",
-  "factorNoReplicationDesc": "シングルコピー — 冗長性なし。いずれかのノードがダウンするとクラスターが失敗します。",
+  "factorNoReplicationDesc": "各オブジェクトのコピーは1つで、空き容量のあるノードに置かれます。冗長性なし：ノードが停止している間、そのノードのオブジェクトは読み取れません。",
   "factorMirror": "ミラー (×2)",
-  "factorMirrorDesc": "2つの完全なコピー。1台のノードの同時障害を許容します。",
+  "factorMirrorDesc": "各オブジェクトのコピーを別々のノードに2つ保持します。1台のノード障害を許容します。",
   "factorTriple": "トリプルコピー (×3)",
-  "factorTripleDesc": "3つの完全なコピー。2台のノードの同時障害を許容します。",
+  "factorTripleDesc": "各オブジェクトのコピーを別々のノードに3つ保持します。2台のノードの同時障害を許容します。",
 
   "replicaSyncStatus": "レプリカ同期ステータス",
   "replicaSyncDesc": "各レプリカノードの初期および追いつき同期ジョブ",

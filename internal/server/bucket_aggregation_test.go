@@ -111,8 +111,8 @@ func TestHandleListBuckets_SingleNodeStandalone(t *testing.T) {
 	assert.Len(t, bucketsData, 2, "Should return all local buckets in standalone mode")
 }
 
-// TestHandleListBuckets_ShowsRealNodeNames verifies the listing carries the real node name
-func TestHandleListBuckets_ShowsRealNodeNames(t *testing.T) {
+// Every node of a cluster holds every bucket: the listing names no node.
+func TestHandleListBuckets_NamesNoNode(t *testing.T) {
 	server, _, cleanup := setupServerWithCluster(t)
 	defer cleanup()
 
@@ -159,11 +159,10 @@ func TestHandleListBuckets_ShowsRealNodeNames(t *testing.T) {
 	bucketMap, ok := bucketsData[0].(map[string]interface{})
 	assert.True(t, ok)
 
-	// Should show real node name from cluster config
-	nodeName := bucketMap["node_name"]
-	assert.NotNil(t, nodeName)
-	assert.Equal(t, "test-node", nodeName, "Should show real node name from cluster config")
-	assert.NotEqual(t, "local", nodeName, "Should not show generic 'local'")
+	assert.Equal(t, "local-bucket", bucketMap["name"])
+	for _, field := range []string{"node_id", "node_name", "node_status"} {
+		assert.NotContains(t, bucketMap, field)
+	}
 }
 
 // TestHandleListBuckets_TenantIsolation tests that tenants only see their own buckets

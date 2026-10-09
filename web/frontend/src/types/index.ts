@@ -289,13 +289,6 @@ export interface Bucket {
   objectCount?: number; // Alias for compatibility
   size?: number; // Backend uses 'size'
   totalSize?: number; // Alias for compatibility
-  // Cluster-specific fields (only populated in multi-node cluster mode)
-  node_id?: string; // Backend uses snake_case
-  nodeId?: string; // Alias for compatibility
-  node_name?: string; // Backend uses snake_case
-  nodeName?: string; // Alias for compatibility
-  node_status?: string; // Backend uses snake_case
-  nodeStatus?: string; // Alias for compatibility
 }
 
 export interface VersioningConfig {
@@ -774,17 +767,6 @@ export interface EditBucketForm {
   encryption?: EncryptionConfig;
 }
 
-export interface BucketWithReplication {
-  name: string;
-  tenant_id?: string;
-  primary_node: string;
-  replica_count: number;
-  has_replication: boolean;
-  replication_rules: number;
-  object_count: number;
-  total_size: number;
-}
-
 export interface CreateUserForm {
   username: string;
   email?: string;
@@ -1197,37 +1179,6 @@ export interface CacheStats {
 export interface ListNodesResponse {
   nodes: ClusterNode[];
   total: number;
-}
-
-// Cluster Migration Types
-export type MigrationStatus = 'pending' | 'in_progress' | 'committing' | 'completed' | 'failed' | 'cancelled';
-
-export interface MigrationJob {
-  id: number;
-  bucket_name: string;
-  source_node_id: string;
-  target_node_id: string;
-  status: MigrationStatus;
-  objects_total: number;
-  objects_migrated: number;
-  bytes_total: number;
-  bytes_migrated: number;
-  delete_source: boolean;
-  verify_data: boolean;
-  started_at?: string;
-  completed_at?: string;
-  created_at: string;
-  updated_at: string;
-  error_message?: string;
-}
-
-export interface MigrateBucketRequest {
-  target_node_id: string;
-}
-
-export interface ListMigrationsResponse {
-  migrations: MigrationJob[];
-  count: number;
 }
 
 // Identity Provider Types

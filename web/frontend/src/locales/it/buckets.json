@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "Analisi integrità in corso in background su {{count}} bucket. Fare clic sull'icona scudo per visualizzare l'avanzamento.",
   "activeStorageContainers": "Contenitori di archiviazione attivi",
   "storedAcrossAllBuckets": "Archiviati in tutti i bucket",
-  "nodeColumn": "Nodo",
-  "local": "Locale",
   "delete": "Elimina",
   "scanning": "analisi in corso",
   "issueCount_one": "{{count}} problema",

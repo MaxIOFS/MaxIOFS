@@ -357,9 +357,9 @@ func (c requestValuesShutdownContext) Value(key interface{}) interface{} {
 	return c.values.Value(key)
 }
 
-// BucketRoutingMiddleware sends a request about a bucket to the node the
-// bucket lives on, whatever the operation, and answers a request another node
-// sent here for a bucket this node no longer holds.
+// BucketRoutingMiddleware sends a request about a bucket this node does not
+// hold yet to the node that holds it, whatever the operation, and answers a
+// request another node sent here for a bucket this node does not hold.
 func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if bucket := mux.Vars(r)["bucket"]; bucket != "" && h.proxyBucketRequest(w, r, bucket) {

@@ -33,7 +33,6 @@
 
   "manageReplication": "Gestisci replica",
   "manageNodes": "Gestisci nodi",
-  "manageMigrations": "Gestisci migrazioni",
 
   "totalNodes": "Nodi totali",
   "nodesInCluster": "Nodi nel cluster",
@@ -187,43 +186,13 @@
   "replicateDeletions": "Replica eliminazioni",
   "replicateMetadata": "Replica metadati",
 
-  "bucketMigrationsTitle": "Migrazioni bucket",
-  "bucketMigrationsDesc": "Visualizza la cronologia delle migrazioni e gestisci le migrazioni attive",
-  "moveBucketsDesc": "Sposta bucket tra nodi cluster",
-  "migrateBucket": "Migra bucket",
-  "allMigrations": "Tutte ({{count}})",
-  "activeMigrations": "Attive ({{count}})",
-  "completedMigrations": "Completate ({{count}})",
-  "failedMigrations": "Non riuscite ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "Bucket",
-  "colSourceTarget": "Sorgente → Destinazione",
   "colProgress": "Avanzamento",
-  "colDataSize": "Dimensione dati",
-  "colStarted": "Avviato",
-  "objectsProgress": "{{migrated}} / {{total}} oggetti",
 
-  "noMigrationsYet": "Nessuna migrazione ancora",
-  "noFilterMigrations": "Nessuna migrazione {{filter}}",
-  "startMigratingBuckets": "Inizia a migrare bucket tra nodi",
-  "tryDifferentFilter": "Prova a selezionare un filtro diverso",
   "details": "Dettagli",
 
-  "migrateBucketTitle": "Migra bucket",
   "bucketLabel": "Bucket *",
-  "selectBucket": "Seleziona un bucket",
-  "targetNodeLabel": "Nodo di destinazione *",
-  "selectTargetNodeOption": "Seleziona nodo di destinazione",
-  "onlyHealthyNodesExcluding": "Vengono mostrati solo i nodi integri (escluso il nodo sorgente {{id}})",
-  "onlyHealthyNodes": "Vengono mostrati solo i nodi integri",
-  "migrationWarning": "Il bucket viene spostato: ogni versione viene copiata sul nodo di destinazione e verificata, poi rimossa da questo nodo. Durante lo spostamento il bucket non accetta scritture (le letture continuano). I caricamenti multipart in corso devono essere completati o annullati prima. Assicurati che il nodo di destinazione abbia spazio sufficiente.",
-  "startMigration": "Avvia migrazione",
 
-  "selectBucketAndNode": "Selezionare un bucket e un nodo di destinazione",
-  "sameNodeError": "Il nodo sorgente e il nodo di destinazione non possono essere gli stessi!",
-  "migrationStartedSuccess": "Migrazione avviata con successo!",
-  "failedToStartMigration": "Impossibile avviare la migrazione",
   "loadingNodes2": "Caricamento nodi...",
 
   "haReplication": "Replica HA",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "Fattore di replica modificato a ×{{factor}}",
 
   "factorNoReplication": "Nessuna replica",
-  "factorNoReplicationDesc": "Copia singola — nessuna ridondanza. Il cluster fallisce se un nodo si guasta.",
+  "factorNoReplicationDesc": "Una copia di ogni oggetto, sul nodo con spazio. Nessuna ridondanza: finché un nodo è fermo, i suoi oggetti non possono essere letti.",
   "factorMirror": "Mirror (×2)",
-  "factorMirrorDesc": "Due copie complete. Tollera 1 guasto simultaneo di nodo.",
+  "factorMirrorDesc": "Due copie di ogni oggetto, su nodi diversi. Tollera il guasto di 1 nodo.",
   "factorTriple": "Copia tripla (×3)",
-  "factorTripleDesc": "Tre copie complete. Tollera 2 guasti simultanei di nodi.",
+  "factorTripleDesc": "Tre copie di ogni oggetto, su nodi diversi. Tollera 2 guasti simultanei di nodi.",
 
   "replicaSyncStatus": "Stato sincronizzazione repliche",
   "replicaSyncDesc": "Lavori di sincronizzazione iniziali e di recupero per ogni nodo replica",

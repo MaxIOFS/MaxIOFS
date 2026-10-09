@@ -243,15 +243,6 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "factor must be 1, 2, or 3", http.StatusBadRequest)
 		return
 	}
-	// With a factor above 1 the data of a bucket is spread over the nodes; a
-	// factor of 1 keeps each bucket on one node.
-	if current, err := s.clusterManager.GetReplicationFactor(r.Context()); err == nil && current > 1 && req.Factor == 1 {
-		if all, err := s.clusterManager.ListNodes(r.Context()); err == nil && len(all) > 1 {
-			s.writeError(w, "A cluster of several nodes cannot go back to a factor of 1: its buckets are spread over the nodes", http.StatusConflict)
-			return
-		}
-	}
-
 	// Verify enough healthy nodes exist for the requested factor
 	nodes, err := s.clusterManager.GetHealthyNodes(r.Context())
 	if err != nil {
@@ -331,17 +322,11 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 }
 
 // factorChanged makes this node act on a change of the replication factor,
-// made here or received from another node: from 1 it gives its writes their
-// location and sends its buckets (see FactorRaised); otherwise its copies
-// follow the new factor. The work outlives the request that brings it.
+// made here or received from another node: its copies follow the new factor.
+// The work outlives the request that brings it.
 func (s *Server) factorChanged(previous, factor int) {
 	if s.haSyncWorker == nil || previous == factor {
 		return
 	}
-	ctx := s.backgroundContext()
-	if previous <= 1 && factor > 1 {
-		s.goWorker("replication factor raised", func() { s.haSyncWorker.FactorRaised(ctx) })
-		return
-	}
-	s.haSyncWorker.Trigger(ctx)
+	s.haSyncWorker.Trigger(s.backgroundContext())
 }

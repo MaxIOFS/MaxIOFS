@@ -32,58 +32,58 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 
 ---
 
-## MaxIOFS vs MinIO AIStor
+## How MaxIOFS compares
 
 > Honest comparison — no marketing claims. Choose based on your actual requirements.
 >
-> **Which MinIO this compares against.** MinIO Community Edition's repository was
-> marked as no longer maintained in February 2026, and the web console had already
-> been removed from it in 2025. Development moved to **AIStor**, MinIO's
-> proprietary product, so AIStor is what a comparison today has to be against.
-> AIStor ships a **Free tier**: no capacity limit, no cost, and full features —
-> but **single-node only**, and it requires a licence file to run. Multi-node,
-> high availability and replication are Enterprise. Rows below mark which tier a
-> feature needs.
+> **AIStor** is MinIO's product; MinIO Community Edition is no longer maintained,
+> so AIStor is the MinIO compared here. Its **Free** tier has no capacity limit
+> and no cost, but runs on a single node and needs a licence file; multi-node,
+> high availability and replication are **Enterprise**. **Garage** is a
+> lightweight store for geo-distributed clusters. **Ceph** is compared through
+> its S3 gateway (RGW).
 
-| Feature | MaxIOFS | AIStor Free | AIStor Enterprise |
-|---------|---------|-------------|-------------------|
-| **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution or resale | Proprietary, paid |
-| **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary + licence file |
-| **Multi-node cluster / HA** | ✅ Up to 5 nodes, quorum writes, anti-entropy | ❌ Standalone only | ✅ Horizontally scalable |
-| **Replication** | ✅ To AWS S3, any S3-compatible endpoint, or other MaxIOFS nodes (realtime, scheduled, batch) | ❌ Enterprise only | ✅ Site, bucket and batch |
-| **Erasure coding** | ❌ Not yet — N-way replication across nodes | ✅ Across drives in one node, with bitrot protection | ✅ Across drives and nodes |
-| **Data tiering** (lifecycle *transitions* to cold storage — separate from the expiration rules below) | ❌ Not supported | ❌ Enterprise only | ✅ ILM tiering to cloud |
-| **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys, cross-tenant admin visibility | ❌ No native multi-tenancy — separate deployments per tenant | ❌ Same |
-| **IAM** | ✅ AWS IAM protocol — users, policies with versions, roles, `AssumeRole`; permissions picked from a catalogue, no JSON to hand-write | ✅ IAM-style, policy documents | ✅ Same |
-| **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ Supported | ✅ Same |
-| **Web console** | ✅ Embedded, full-featured | ✅ Included | ✅ Included |
-| **SSO / Identity Providers** | ✅ LDAP/AD + OAuth2/OIDC with auto-provisioning and group mappings | ✅ LDAP + OIDC | ✅ Same |
-| **Audit logging** | ✅ 20+ event types, filterable viewer, CSV export, syslog targets | ✅ Webhook-based | ✅ Same |
-| **Object integrity** | ✅ Background scrubber — MD5 recomputed per object, per-bucket and cluster-wide | ✅ Bitrot detection on read and heal | ✅ Plus background healing visibility |
-| **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, per-version, Veeam B&R validated | ✅ COMPLIANCE + GOVERNANCE | ✅ Same |
-| **Lifecycle rules** | ✅ Object and noncurrent-version expiration, expired delete-marker cleanup, AbortIncompleteMultipartUpload — executed by a background worker | ⚠️ Expiration only — transitions are Enterprise | ✅ Full |
-| **Bucket notifications** | ✅ Webhook after every mutating operation | ✅ Webhook + Kafka + NATS + Redis… | ✅ Same |
-| **Static website hosting** | ✅ Subdomain routing, index/error documents, routing rules | ✅ | ✅ |
-| **S3 Select** | ✅ SQL on CSV/JSON (SQLite-based, SELECT/WHERE/GROUP BY) | ✅ | ✅ |
-| **Encryption** | ✅ AES-256-GCM envelope, per-object DEK, KEK rotation, recovery bundle | ✅ SSE-S3 / SSE-KMS / SSE-C | ✅ Same |
-| **Maintenance mode** | ✅ Read-only mode via console toggle | ❌ | ❌ |
-| **SMTP alerting** | ✅ Disk + quota threshold alerts by email | ❌ (external alertmanager) | ❌ (external alertmanager) |
-| **Diagnostics / profiling** | ✅ `/debug/pprof`, Prometheus + Grafana dashboard | ❌ Enterprise only | ✅ Full toolkit |
-| **Metadata engine** | Pebble (CockroachDB LSM-tree, pure Go, crash-safe WAL) | On the storage layer; no external metadata DB | Same |
-| **Support** | Community | Community Slack | 24/7/365, <4 h SLA |
-| **Target scale** | Single node to 5-node cluster | Single node, unlimited capacity | Petabyte to exabyte |
+| Feature | MaxIOFS | AIStor | Garage | Ceph (RGW) |
+|---------|---------|--------|--------|------------|
+| **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution | AGPL-3.0 | LGPL |
+| **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary | Monitors, managers, OSDs and RGW daemons, usually through cephadm or Rook |
+| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
+| **Erasure coding** | ❌ Not yet — whole copies | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
+| **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ⚠️ Enterprise only (site, bucket, batch) | ❌ No replication API | ⚠️ Between zones of a multisite configuration |
+| **Tiering** (lifecycle transitions to colder storage) | ❌ | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
+| **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys | ❌ Separate deployments per tenant | ❌ | ✅ RGW tenants |
+| **Access control** | ✅ AWS IAM protocol — users, versioned policies, roles, `AssumeRole`; bucket policies and ACLs | ✅ IAM-style policies | ⚠️ Per-access-key-per-bucket permissions; no bucket policies or ACLs | ✅ Users, bucket and user policies, roles, ACLs |
+| **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ | ❌ | ✅ |
+| **Web console** | ✅ Embedded | ✅ | ❌ CLI and admin API; third-party web UIs | ✅ Ceph Dashboard |
+| **SSO / identity providers** | ✅ LDAP/AD and OAuth2/OIDC, auto-provisioning, group mappings | ✅ LDAP and OIDC | ❌ | ✅ LDAP, Keystone, OIDC |
+| **Versioning** | ✅ | ✅ | ❌ | ✅ |
+| **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, legal hold, Veeam B&R validated | ✅ | ❌ | ✅ |
+| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
+| **Bucket notifications** | ✅ Webhook | ✅ Webhook, Kafka, NATS, Redis and more | ❌ | ✅ HTTP, Kafka, AMQP |
+| **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, no redirects | ✅ |
+| **S3 Select** | ✅ SQL on CSV/JSON | ✅ | ❌ | ✅ CSV, JSON, Parquet |
+| **Encryption at rest** | ✅ Always on: AES-256-GCM envelope, per-object keys, KEK rotation, recovery bundle | ✅ SSE-S3, SSE-KMS, SSE-C | ⚠️ SSE-C only; disk encryption recommended | ✅ SSE-S3, SSE-KMS, SSE-C |
+| **Background integrity check** | ✅ Scrubber recomputes each object's MD5 | ✅ Bitrot detection and healing | ✅ Data scrub | ✅ Deep scrub |
+| **Audit logging** | ✅ 20+ event types, console viewer, CSV export, syslog | ✅ Webhook | — | ✅ Operations log |
+| **Metrics** | ✅ Prometheus, Grafana dashboard | ✅ Prometheus | ✅ Prometheus | ✅ Prometheus |
+| **Support** | Community | Free: community; Enterprise: 24/7, SLA | Community | Community; commercial vendors |
+| **Target scale** | Single node to a 5-node cluster | Free: one node; Enterprise: petabytes to exabytes | Small to medium clusters across sites | Large clusters, petabytes and beyond |
 
-**Use MaxIOFS when:** you want multi-node redundancy, multi-tenancy or replication
-without paying for a licence, you need the console and SSO in one binary, and your
-scale fits on a few nodes. Being MIT also matters if you intend to modify or
-redistribute it — AIStor's licence does not permit that at any tier.
+**Use MaxIOFS when:** you want one binary with the console, multi-tenancy, SSO,
+IAM, Object Lock and replication included, on one node or a few, without a
+licence fee. MIT also lets you modify and redistribute it.
 
-**Use AIStor Free when:** one machine is enough and you want erasure coding across
-its drives, which MaxIOFS does not do yet. You are accepting a proprietary licence
-file and no path to a second node without paying.
+**Use AIStor when:** one machine is enough and you want erasure coding across its
+drives (Free), or you need petabyte-scale clusters, tiering and a support SLA
+(Enterprise). You accept a proprietary licence.
 
-**Use AIStor Enterprise when:** you need petabyte-to-exabyte scale, cloud tiering,
-or a support contract with an SLA.
+**Use Garage when:** you spread a small cluster over several sites with slow or
+unreliable links, on modest hardware, and do not need versioning, Object Lock,
+bucket policies or server-side encryption.
+
+**Use Ceph when:** you need large scale, erasure coding across nodes, tiering, or
+block and file storage next to object storage, and you have the people to run a
+Ceph cluster.
 
 ---
 
@@ -198,11 +198,11 @@ or a support contract with an SLA.
 - Anti-entropy, dead-node redistribution, storage-pressure health state
 - Elected coordinator for configuration changes; a surviving node takes over when it fails
 - HMAC-authenticated inter-node replication
-- Bucket migration between nodes (factor 1): every version with its metadata, tags, ACL and lock state, the bucket's configuration, ACL and database rows; the copy is verified before the source is removed, and the bucket takes no writes while it moves
+- Every node holds every bucket; each object's copies go to the nodes with the most free space. A factor of 1 keeps one copy (like RAID 0: a node down makes its objects unreadable until it is back)
 - 6-entity sync (users, tenants, access keys, bucket permissions, IDP providers, group mappings)
 - Tombstone-based deletion sync — prevents entity resurrection in bidirectional sync
 - JWT secret cluster sync — sessions valid across all nodes
-- Deduplicated bucket list — replicated buckets appear once in listings
+- A bucket is listed once, whichever node answers
 
 </details>
 
@@ -358,7 +358,7 @@ cd web/frontend && npm run test        # 112 frontend tests
 
 ## Known Limitations
 
-- **No erasure coding** — single-node data redundancy relies on filesystem/RAID; cluster mode replicates full objects
+- **No erasure coding** — single-node data redundancy relies on filesystem/RAID; a cluster keeps whole copies of each object, one per node up to the factor
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned

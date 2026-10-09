@@ -292,12 +292,20 @@ func TestIsNodeHealthy(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Degraded node",
+			name: "Slow node",
 			node: &Node{
 				Name:         "degraded",
 				HealthStatus: HealthStatusDegraded,
 			},
-			expected: false,
+			expected: true,
+		},
+		{
+			name: "Node under storage pressure",
+			node: &Node{
+				Name:         "full",
+				HealthStatus: HealthStatusStoragePressure,
+			},
+			expected: true,
 		},
 		{
 			name: "Unavailable node",

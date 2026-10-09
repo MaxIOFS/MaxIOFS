@@ -86,10 +86,5 @@
   "loadingMessage": "「{{name}}」を設定中",
   "ownerUserLabel": "オーナーユーザー",
   "ownerTenantLabel": "オーナーテナント",
-  "noEmail": "メールなし",
-  "targetNode": "ターゲットノード",
-  "targetNodeHelp": "このバケットを作成するクラスターノードを選択してください。利用可能なディスクスペースに基づいて選択してください。",
-  "targetNodeLocal": "（このノード）",
-  "targetNodeFree": "{{free}} 空き",
-  "targetNodeUnknown": "スペース不明"
+  "noEmail": "メールなし"
 }

@@ -59,10 +59,6 @@ type BucketResponse struct {
 	Lifecycle           *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 	Tags                map[string]string         `json:"tags,omitempty"`
 	Metadata            map[string]string         `json:"metadata,omitempty"`
-	// Cluster-specific fields (only populated in multi-node cluster mode)
-	NodeID     string `json:"node_id,omitempty"`
-	NodeName   string `json:"node_name,omitempty"`
-	NodeStatus string `json:"node_status,omitempty"`
 }
 
 type ObjectResponse struct {
@@ -335,9 +331,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 			next.ServeHTTP(w, r)
 		})
 	})
-
-	// A bucket being migrated off this node takes no writes until it moves.
-	router.Use(s.bucketWriteGate(consoleGateReads, refuseConsoleBucketWrite))
 
 	router.Use(s.pendingPasswordChangeMiddleware)
 
@@ -619,13 +612,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/ha/sync-jobs", s.handleGetHASyncJobs).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/ha/scrub-status", s.handleGetHAScrubStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/ha/degraded-state", s.handleGetClusterDegradedState).Methods("GET", "OPTIONS")
-	router.HandleFunc("/cluster/buckets", s.handleGetClusterBuckets).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/buckets/{bucket}/replicas", s.handleGetBucketReplicas).Methods("GET", "OPTIONS")
-
-	// Cluster bucket migration endpoints
-	router.HandleFunc("/cluster/buckets/{bucket}/migrate", s.handleMigrateBucket).Methods("POST", "OPTIONS")
-	router.HandleFunc("/cluster/migrations", s.handleListMigrations).Methods("GET", "OPTIONS")
-	router.HandleFunc("/cluster/migrations/{id}", s.handleGetMigration).Methods("GET", "OPTIONS")
 
 	// Performance metrics endpoints (accessible to all authenticated users)
 	router.HandleFunc("/metrics/performance/latencies", s.HandleGetPerformanceLatencies).Methods("GET", "OPTIONS")
@@ -1151,53 +1138,26 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Extract tenant ID from user context
 	tenantID := user.TenantID
 
-	// Check if cluster mode is enabled
-	isClusterEnabled := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
-
-	// Get local node name (for standalone display and response fallback)
-	var localNodeName string
-	if isClusterEnabled {
-		config, err := s.clusterManager.GetConfig(r.Context())
-		if err == nil {
-			localNodeName = config.NodeName
-		}
-	}
-	if localNodeName == "" {
-		localNodeName = "standalone"
-	}
-
-	// STEP 1 & 2: Get bucket list. In cluster mode aggregate from all nodes.
-	type nodeInfo struct {
-		name   string
-		status string // "local" | "remote"
-	}
+	// STEP 1 & 2: Get bucket list. Every node of a cluster holds every bucket;
+	// one that has not reached this node yet is listed from the others.
 	var allBuckets []bucket.Bucket
-	var bucketNodeMap map[string]nodeInfo // bucket name -> node info
-
-	if isClusterEnabled && s.bucketAggregator != nil {
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() && s.bucketAggregator != nil {
 		aggregated, err := s.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		allBuckets = make([]bucket.Bucket, 0, len(aggregated))
-		bucketNodeMap = make(map[string]nodeInfo)
 		for _, bwl := range aggregated {
 			allBuckets = append(allBuckets, bucketWithLocationToBucket(bwl))
-			bucketNodeMap[bwl.Name] = nodeInfo{name: bwl.NodeName, status: bwl.NodeStatus}
 		}
 	} else {
-		// Standalone or no aggregator: local buckets only
 		localBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		allBuckets = localBuckets
-		bucketNodeMap = make(map[string]nodeInfo)
-		for _, b := range localBuckets {
-			bucketNodeMap[b.Name] = nodeInfo{name: localNodeName, status: "local"}
-		}
 	}
 
 	// STEP 3: Apply permission filtering
@@ -1210,15 +1170,9 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// STEP 4: Build response with node information
+	// STEP 4: Build response
 	response := make([]BucketResponse, len(filteredBuckets))
 	for i, b := range filteredBuckets {
-		ni := bucketNodeMap[b.Name]
-		if ni.name == "" {
-			ni.name = localNodeName
-			ni.status = "local"
-		}
-
 		response[i] = BucketResponse{
 			Name:                b.Name,
 			TenantID:            b.TenantID,
@@ -1237,8 +1191,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Lifecycle:           b.Lifecycle,
 			Tags:                b.Tags,
 			Metadata:            b.Metadata,
-			NodeName:            ni.name,
-			NodeStatus:          ni.status,
 		}
 	}
 
@@ -1273,7 +1225,7 @@ func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
 	}
 }
 
-// proxyConsoleRequest checks if a bucket lives on a remote cluster node and, if so,
+// proxyConsoleRequest checks if a bucket this node does not hold yet is on a remote cluster node and, if so,
 var consoleProxyClient = &http.Client{
 	Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -1370,8 +1322,8 @@ func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, buc
 	return true
 }
 
-// consoleBucketRouting sends a request about a bucket's own state to the node
-// the bucket lives on, whatever the operation.
+// consoleBucketRouting sends a request about the state of a bucket this node
+// does not hold yet to the node that holds it, whatever the operation.
 func (s *Server) consoleBucketRouting(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if bucket := mux.Vars(r)["bucket"]; bucket != "" && bucketScopedPath(r.URL.Path) && s.proxyConsoleRequest(w, r, bucket) {
@@ -1432,7 +1384,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
 		Lifecycle         *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 		Tags              map[string]string         `json:"tags,omitempty"`
-		NodeID            string                    `json:"node_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1460,54 +1411,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	if s.bucketOnAnotherNode(r.Context(), req.Name) {
 		s.writeError(w, "Bucket already exists", http.StatusConflict)
 		return
-	}
-
-	// Cluster: if a specific node is requested and it is not the local node, proxy the creation.
-	// The remote node will perform its own quota and validation checks.
-	if req.NodeID != "" && r.Header.Get("X-MaxIOFS-Proxied") != "true" &&
-		s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
-		if req.NodeID != localNodeID {
-			targetNode, nodeErr := s.clusterManager.GetNode(r.Context(), req.NodeID)
-			if nodeErr != nil || targetNode == nil {
-				s.writeError(w, "Target cluster node not found", http.StatusBadRequest)
-				return
-			}
-			consoleBase := deriveConsoleURL(targetNode)
-			if consoleBase == "" {
-				s.writeError(w, "Cannot determine remote console URL for target node", http.StatusInternalServerError)
-				return
-			}
-			// Re-encode payload without node_id to prevent proxy loops on the remote node
-			req.NodeID = ""
-			payload, _ := json.Marshal(req)
-			proxyReq, proxyErr := http.NewRequestWithContext(r.Context(), "POST",
-				consoleBase+"/api/v1/buckets", bytes.NewReader(payload))
-			if proxyErr != nil {
-				s.writeError(w, "Failed to build proxy request", http.StatusInternalServerError)
-				return
-			}
-			proxyReq.Header.Set("Content-Type", "application/json")
-			proxyReq.ContentLength = int64(len(payload))
-			if authHdr := r.Header.Get("Authorization"); authHdr != "" {
-				proxyReq.Header.Set("Authorization", authHdr)
-			}
-			proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
-			proxyResp, proxyDoErr := consoleProxyClient.Do(proxyReq)
-			if proxyDoErr != nil {
-				s.writeError(w, "Failed to proxy bucket creation to target node: "+proxyDoErr.Error(), http.StatusBadGateway)
-				return
-			}
-			defer proxyResp.Body.Close()
-			for k, vs := range proxyResp.Header {
-				for _, v := range vs {
-					w.Header().Add(k, v)
-				}
-			}
-			w.WriteHeader(proxyResp.StatusCode)
-			io.Copy(w, proxyResp.Body) //nolint:errcheck
-			return
-		}
 	}
 
 	var targetTenantID string
@@ -1656,13 +1559,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	if req.Region != "" {
 		bucketInfo.Region = req.Region
-	}
-
-	// Assign HA primary node — always set so bucket aggregator knows which node owns this bucket
-	if s.clusterManager != nil {
-		if nodeID, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != "" {
-			bucketInfo.HA = &metadata.BucketHA{PrimaryNodeID: nodeID}
-		}
 	}
 
 	// Guardar configuraciones
@@ -4809,7 +4705,7 @@ func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Req
 	}
 
 	// Permissions are cluster configuration, written on the coordinator, which
-	// need not be the node that holds the bucket.
+	// may not hold the bucket yet.
 	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil &&
 		!s.bucketInCluster(r.Context(), bucketTenantID, bucketName) {
 		if s.isGlobalAdmin(currentUser) {

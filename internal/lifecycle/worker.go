@@ -18,7 +18,6 @@ type Worker struct {
 	objectManager    object.Manager
 	metadataStore    metadata.Store
 	defaultAbortDays func() int
-	writeGate        func(bucket string) (leave func(), ok bool)
 	expires          func() bool
 	ticker           *time.Ticker
 	stopChan         chan struct{}
@@ -40,13 +39,6 @@ func NewWorker(bucketManager bucket.Manager, objectManager object.Manager, metad
 // buckets that carry no AbortIncompleteMultipartUpload rule of their own.
 func (w *Worker) SetDefaultAbortIncompleteDays(days func() int) {
 	w.defaultAbortDays = days
-}
-
-// SetWriteGate puts each bucket's pass through enter: a bucket whose
-// writes are held, as while it is migrated, is skipped, and whoever holds them
-// waits for a pass under way.
-func (w *Worker) SetWriteGate(enter func(bucket string) (leave func(), ok bool)) {
-	w.writeGate = enter
 }
 
 // SetObjectManager replaces the object manager the worker deletes through,
@@ -144,18 +136,7 @@ func (w *Worker) processLifecyclePolicies(ctx context.Context) {
 	}
 
 	for _, bkt := range buckets {
-		if w.writeGate == nil {
-			w.processBucket(ctx, bkt)
-			continue
-		}
-		leave, ok := w.writeGate(bkt.Name)
-		if !ok {
-			continue
-		}
-		func() {
-			defer leave()
-			w.processBucket(ctx, bkt)
-		}()
+		w.processBucket(ctx, bkt)
 	}
 
 	logrus.Debug("Lifecycle policy processing completed")

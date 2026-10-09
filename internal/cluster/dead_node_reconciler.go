@@ -244,13 +244,14 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback on failure is intentional
 
-	// Count healthy nodes excluding the candidate. UNAVAILABLE/DEGRADED nodes
-	// do not contribute to write capacity and are not counted, so an UNAVAILABLE
-	// node reaching the dead threshold never inflates the safety count.
+	// Count the nodes that take data, healthy or slow, excluding the candidate.
+	// Unavailable nodes and nodes under storage pressure do not contribute to
+	// write capacity and are not counted, so an unavailable node reaching the
+	// dead threshold never inflates the safety count.
 	var healthyExcludingCandidate int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status = ? AND id != ?`,
-		HealthStatusHealthy, node.ID,
+		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND id != ?`,
+		HealthStatusHealthy, HealthStatusDegraded, node.ID,
 	).Scan(&healthyExcludingCandidate); err != nil {
 		return fmt.Errorf("count healthy nodes: %w", err)
 	}
@@ -343,7 +344,7 @@ func (r *DeadNodeReconciler) recomputeClusterDegradedState(ctx context.Context) 
 
 	var healthy int
 	if err := r.mgr.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status = ?`, HealthStatusHealthy,
+		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?)`, HealthStatusHealthy, HealthStatusDegraded,
 	).Scan(&healthy); err != nil {
 		r.log.WithError(err).Warn("Failed to count healthy nodes for degraded-state check")
 		return

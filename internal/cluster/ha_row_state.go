@@ -18,8 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// With a replication factor above 1 every node also holds the rows a bucket
-// keeps in the node's database: its inventory configurations and reports, its
+// Every node of a cluster also holds the rows a bucket keeps in the node's
+// database: its inventory configurations and reports, its
 // replication rules and its shares. A change is sent to every other node
 // before the request returns; a node that misses it is sent every row with the
 // buckets. Two versions of a row are ordered by the time of the change; at the

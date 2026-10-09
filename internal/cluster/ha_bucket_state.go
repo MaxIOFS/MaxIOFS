@@ -19,8 +19,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// With a replication factor above 1 every node holds every bucket, with the
-// same configuration and ACL. A change is sent to every other node before the
+// Every node of a cluster holds every bucket, with the same configuration and
+// ACL, whatever the replication factor. A change is sent to every other node before the
 // request returns; a node that misses it is sent the state of every bucket when
 // it is caught up, and so is a new replica and every peer at the start of an
 // anti-entropy cycle. Two versions of a bucket are ordered by the time of the
@@ -157,13 +157,9 @@ func (b *BucketStates) SetRowStates(rows *RowStates) {
 }
 
 // replicatesBuckets reports whether every node holds every bucket: in a
-// cluster whose replication factor is above 1.
-func replicatesBuckets(ctx context.Context, mgr *Manager) bool {
-	if !mgr.IsClusterEnabled() {
-		return false
-	}
-	factor, err := mgr.GetReplicationFactor(ctx)
-	return err == nil && factor > 1
+// cluster, whatever its replication factor.
+func replicatesBuckets(_ context.Context, mgr *Manager) bool {
+	return mgr.IsClusterEnabled()
 }
 
 func (b *BucketStates) active(ctx context.Context) bool {
@@ -444,6 +440,11 @@ type objectRemover interface {
 // NewBucketStateReceiver wires the receiving side. remover is this node's own
 // bucket manager, which does not tell the other nodes; objects deletes this
 // node's copies; publish sends a bucket this node holds to the others.
+// bucketRemover deletes a bucket with everything in it.
+type bucketRemover interface {
+	ForceDeleteBucket(ctx context.Context, tenantID, name string) error
+}
+
 func NewBucketStateReceiver(store metadata.Store, backend storage.Backend, aclMgr acl.Manager, remover bucketRemover,
 	retention retentionChecker, keys keyLister, db *sql.DB, objects objectRemover,
 	publish func(ctx context.Context, tenantID, name string)) *BucketStateReceiver {

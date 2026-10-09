@@ -64,7 +64,7 @@ func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 		return nil
 	}
 	factor, err := w.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
+	if err != nil {
 		return err
 	}
 	ha, ok := w.objMgr.(*HAObjectManager)

@@ -292,8 +292,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", noop).Methods("OPTIONS")
 }
 
-// BucketRoutingMiddleware sends a request about a bucket to the node the
-// bucket lives on.
+// BucketRoutingMiddleware sends a request about a bucket this node does not
+// hold yet to the node that holds it.
 func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
 	return h.s3Handler.BucketRoutingMiddleware(next)
 }

@@ -278,7 +278,11 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	now := time.Now()
+	// A default no one changed is dated at the epoch, so any change made on
+	// any node is newer: a node installed after a setting changed takes the
+	// change, and its default replaces nothing. A default seeded with the
+	// time of its seeding, and never changed, is dated so too.
+	epoch := time.Unix(0, 0).UTC()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction for cluster global config defaults: %w", err)
@@ -289,9 +293,15 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			INSERT INTO cluster_global_config (key, value, description, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(key) DO NOTHING
-		`, key, config.value, config.description, now, now)
+		`, key, config.value, config.description, epoch, epoch)
 		if err != nil {
 			return fmt.Errorf("failed to insert default config %s: %w", key, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE cluster_global_config SET created_at = ?, updated_at = ?
+			WHERE key = ? AND value = ? AND created_at = updated_at
+		`, epoch, epoch, key, config.value); err != nil {
+			return fmt.Errorf("failed to date default config %s: %w", key, err)
 		}
 	}
 

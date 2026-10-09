@@ -53,8 +53,6 @@
   "integrityScanRunning_other": "Integritätsscan läuft im Hintergrund für {{count}} Buckets. Klicken Sie auf das Schild-Symbol, um den Fortschritt anzuzeigen.",
   "activeStorageContainers": "Aktive Speicher-Container",
   "storedAcrossAllBuckets": "Gespeichert in allen Buckets",
-  "nodeColumn": "Knoten",
-  "local": "Lokal",
   "delete": "Löschen",
   "scanning": "Wird gescannt",
   "issueCount_one": "{{count}} Problem",

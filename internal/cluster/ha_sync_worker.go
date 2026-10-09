@@ -54,6 +54,9 @@ type HASyncWorker struct {
 	running map[string]context.CancelFunc // nodeID → cancel func
 	// repairing is set while a repair of the copies runs.
 	repairing atomic.Bool
+	// placing is held while PlaceWrites runs; placed is set once it has.
+	placing sync.Mutex
+	placed  atomic.Bool
 }
 
 // Stop cancels the in-flight syncs and waits for them. Their final status write
@@ -93,9 +96,24 @@ func (w *HASyncWorker) SetBucketStates(b *BucketStates) {
 	w.buckets = b
 }
 
-// Start resumes any sync jobs that were still running when the server last stopped.
+// Start resumes any sync jobs that were still running when the server last
+// stopped. A node whose writes are not placed yet, with a factor of 1, places
+// them and sends the other nodes its buckets and entries (see PlaceWrites).
 // Must be called once at startup, before serving requests.
 func (w *HASyncWorker) Start(ctx context.Context) {
+	if w.mgr.IsClusterEnabled() {
+		factor, err := w.mgr.GetReplicationFactor(ctx)
+		placed, perr := w.mgr.writesPlaced(ctx)
+		if err == nil && perr == nil && factor <= 1 && !placed {
+			w.Spawn(func() {
+				if err := w.PlaceWrites(ctx); err != nil {
+					logrus.WithError(err).Warn("HASyncWorker: the writes held here are not placed; the anti-entropy places them")
+					return
+				}
+				w.Trigger(ctx)
+			})
+		}
+	}
 	rows, err := w.mgr.db.QueryContext(ctx,
 		`SELECT id, target_node_id, last_checkpoint_bucket, last_checkpoint_key
 		 FROM ha_sync_jobs WHERE status = ?`, SyncJobRunning)
@@ -133,17 +151,12 @@ func (w *HASyncWorker) Start(ctx context.Context) {
 	}
 }
 
-// Trigger starts, when the replication factor is above 1, a sync job for every
-// healthy node that has not had one completed: it is sent every entry, and the
-// data it is to hold. It repairs the copies once those jobs end, so that every
+// Trigger starts a sync job for every healthy node that has not had one
+// completed: it is sent every entry, and the data it is to hold. It repairs the copies once those jobs end, so that every
 // node holds the entries whose copies change (see RepairPlacement).
 // Safe to call multiple times; already-running jobs are skipped.
 func (w *HASyncWorker) Trigger(ctx context.Context) {
 	if !w.mgr.IsClusterEnabled() {
-		return
-	}
-	factor, err := w.mgr.GetReplicationFactor(ctx)
-	if err != nil || factor <= 1 {
 		return
 	}
 	localID, err := w.mgr.GetLocalNodeID(ctx)
@@ -212,15 +225,47 @@ func (w *HASyncWorker) Trigger(ctx context.Context) {
 	})
 }
 
-// FactorRaised runs on every node when the replication factor rises from 1.
-// Each bucket was on one node, which alone holds the data of its objects:
-// they are given this node as their location before its buckets and entries
-// are sent to the other nodes; the copies are made after (see Trigger).
-func (w *HASyncWorker) FactorRaised(ctx context.Context) {
-	if err := w.claimWrites(ctx); err != nil {
-		logrus.WithError(err).Warn("HASyncWorker: some writes held here name no node; the repair finds their holders")
+// PlaceWrites gives this node, with a factor of 1, as the location of every
+// write it holds that names no node: a write made before the node was in a
+// cluster, or while a factor of 1 kept each bucket on one node. The other
+// nodes are then sent its entry without its data. It runs once per node,
+// before anything sends entries to another node (sync, anti-entropy and
+// catch-up). A write it fails to place is placed by the repair (see adopt).
+func (w *HASyncWorker) PlaceWrites(ctx context.Context) error {
+	if w.placed.Load() {
+		return nil
 	}
-	w.Trigger(ctx)
+	w.placing.Lock()
+	defer w.placing.Unlock()
+	if w.placed.Load() {
+		return nil
+	}
+	factor, err := w.mgr.GetReplicationFactor(ctx)
+	if err != nil {
+		return err
+	}
+	if factor > 1 {
+		return nil
+	}
+	done, err := w.mgr.writesPlaced(ctx)
+	if err != nil {
+		return err
+	}
+	if !done {
+		logrus.Info("HASyncWorker: placing the writes held here")
+		if err := w.claimWrites(ctx); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			logrus.WithError(err).Warn("HASyncWorker: some writes held here name no node; the repair finds their holders")
+		}
+		if err := w.mgr.setWritesPlaced(ctx); err != nil {
+			return err
+		}
+		logrus.Info("HASyncWorker: the writes held here are placed")
+	}
+	w.placed.Store(true)
+	return nil
 }
 
 // DropEntriesHeldElsewhere removes, once this node has left the cluster, its
@@ -377,6 +422,9 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 }
 
 func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, startBucket, startKey string) error {
+	if err := w.PlaceWrites(ctx); err != nil {
+		return fmt.Errorf("place the writes held here: %w", err)
+	}
 	localID, err := w.mgr.GetLocalNodeID(ctx)
 	if err != nil {
 		return fmt.Errorf("get local node ID: %w", err)

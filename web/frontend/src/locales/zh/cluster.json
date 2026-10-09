@@ -33,7 +33,6 @@
 
   "manageReplication": "管理复制",
   "manageNodes": "管理节点",
-  "manageMigrations": "管理迁移",
 
   "totalNodes": "节点总数",
   "nodesInCluster": "集群中的节点",
@@ -187,43 +186,13 @@
   "replicateDeletions": "复制删除操作",
   "replicateMetadata": "复制元数据",
 
-  "bucketMigrationsTitle": "存储桶迁移",
-  "bucketMigrationsDesc": "查看迁移历史并管理活跃迁移",
-  "moveBucketsDesc": "在集群节点之间移动存储桶",
-  "migrateBucket": "迁移存储桶",
-  "allMigrations": "全部 ({{count}})",
-  "activeMigrations": "活跃 ({{count}})",
-  "completedMigrations": "已完成 ({{count}})",
-  "failedMigrations": "已失败 ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "存储桶",
-  "colSourceTarget": "来源 → 目标",
   "colProgress": "进度",
-  "colDataSize": "数据大小",
-  "colStarted": "开始时间",
-  "objectsProgress": "{{migrated}} / {{total}} 个对象",
 
-  "noMigrationsYet": "尚无迁移",
-  "noFilterMigrations": "没有 {{filter}} 迁移",
-  "startMigratingBuckets": "开始在节点之间迁移存储桶",
-  "tryDifferentFilter": "请尝试选择不同的筛选条件",
   "details": "详情",
 
-  "migrateBucketTitle": "迁移存储桶",
   "bucketLabel": "存储桶 *",
-  "selectBucket": "选择存储桶",
-  "targetNodeLabel": "目标节点 *",
-  "selectTargetNodeOption": "选择目标节点",
-  "onlyHealthyNodesExcluding": "仅显示健康节点（不包括源节点 {{id}}）",
-  "onlyHealthyNodes": "仅显示健康节点",
-  "migrationWarning": "存储桶将被移动：每个版本都会复制到目标节点并经过验证，然后从本节点删除。移动期间存储桶不接受写入（读取不受影响）。进行中的分段上传必须先完成或中止。请确保目标节点有足够的存储空间。",
-  "startMigration": "开始迁移",
 
-  "selectBucketAndNode": "请选择存储桶和目标节点",
-  "sameNodeError": "源节点和目标节点不能相同！",
-  "migrationStartedSuccess": "迁移已成功启动！",
-  "failedToStartMigration": "启动迁移失败",
   "loadingNodes2": "正在加载节点...",
 
   "haReplication": "HA 复制",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "复制因子已更改为 ×{{factor}}",
 
   "factorNoReplication": "无复制",
-  "factorNoReplicationDesc": "单副本 — 无冗余。任何节点宕机集群将失败。",
+  "factorNoReplicationDesc": "每个对象一个副本，存放在有空间的节点上。无冗余：节点宕机期间，其上的对象无法读取。",
   "factorMirror": "镜像 (×2)",
-  "factorMirrorDesc": "两个完整副本，可容忍 1 个节点同时故障。",
+  "factorMirrorDesc": "每个对象两个副本，位于不同节点。可容忍 1 个节点故障。",
   "factorTriple": "三重副本 (×3)",
-  "factorTripleDesc": "三个完整副本，可容忍 2 个节点同时故障。",
+  "factorTripleDesc": "每个对象三个副本，位于不同节点。可容忍 2 个节点同时故障。",
 
   "replicaSyncStatus": "副本同步状态",
   "replicaSyncDesc": "每个副本节点的初始和追赶同步任务",

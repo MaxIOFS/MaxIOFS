@@ -705,78 +705,6 @@ func (s *Server) handleCheckNodeHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, healthStatus)
 }
 
-// handleGetClusterBuckets lists all buckets with replication information
-func (s *Server) handleGetClusterBuckets(w http.ResponseWriter, r *http.Request) {
-	caller := s.getAuthUser(r)
-	if caller == nil {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-	tenantID := caller.TenantID
-	if s.isGlobalAdmin(caller) {
-		tenantID = "" // a global administrator sees all buckets
-	}
-
-	// List all buckets
-	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list buckets")
-		s.writeError(w, "Failed to list buckets: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Build response with replication info for each bucket
-	type BucketWithReplication struct {
-		Name             string `json:"name"`
-		TenantID         string `json:"tenant_id,omitempty"`
-		PrimaryNode      string `json:"primary_node"`
-		ReplicaCount     int    `json:"replica_count"`
-		HasReplication   bool   `json:"has_replication"`
-		ReplicationRules int    `json:"replication_rules"`
-		ObjectCount      int64  `json:"object_count"`
-		TotalSize        int64  `json:"total_size"`
-	}
-
-	var bucketsWithReplication []BucketWithReplication
-
-	for _, bucket := range buckets {
-		// Get replication rules for this bucket
-		rules, err := s.replicationManager.GetRulesForBucket(r.Context(), bucket.Name)
-		if err != nil {
-			logrus.WithError(err).WithField("bucket", bucket.Name).Warn("Failed to get replication rules")
-			rules = nil
-		}
-
-		replicaCount := len(rules)
-		hasReplication := replicaCount > 0
-
-		// Determine primary node (local node if cluster is enabled)
-		primaryNode := "local"
-		if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-			config, err := s.clusterManager.GetConfig(r.Context())
-			if err == nil {
-				primaryNode = config.NodeName
-			}
-		}
-
-		bucketsWithReplication = append(bucketsWithReplication, BucketWithReplication{
-			Name:             bucket.Name,
-			TenantID:         bucket.TenantID,
-			PrimaryNode:      primaryNode,
-			ReplicaCount:     replicaCount,
-			HasReplication:   hasReplication,
-			ReplicationRules: replicaCount,
-			ObjectCount:      bucket.ObjectCount,
-			TotalSize:        bucket.TotalSize,
-		})
-	}
-
-	s.writeJSON(w, map[string]interface{}{
-		"buckets": bucketsWithReplication,
-		"total":   len(bucketsWithReplication),
-	})
-}
-
 // handleGetBucketReplicas gets replication info for a specific bucket
 func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1197,8 +1125,8 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 		s.groupSyncMgr.SyncToNode(ctx, newNode)
 	}
 
-	// With a replication factor above 1 the node is sent every bucket and the
-	// entry of every object; it has none of them.
+	// The node is sent every bucket and the entry of every object; it has none
+	// of them.
 	if s.haSyncWorker != nil {
 		s.haSyncWorker.Trigger(ctx)
 	}

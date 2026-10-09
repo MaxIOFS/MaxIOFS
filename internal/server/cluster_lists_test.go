@@ -66,6 +66,45 @@ func TestAPeersDegradedReasonIsNotTaken(t *testing.T) {
 	assert.Equal(t, "48", threshold, "the cluster's settings are taken")
 }
 
+// A setting changed before a node was installed is taken by the node: a
+// default no one changed is older than any change. A default the node sends
+// does not replace a change on the others.
+func TestANewNodeTakesTheClustersSettings(t *testing.T) {
+	ctx := context.Background()
+	cluster1 := newClusterTestNode(t)
+	installed := newClusterTestNode(t)
+	send := func(to *Server, entry cluster.GlobalConfigEntry) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		to.handleReceiveGlobalConfigSync(w, fromPeer(t, http.MethodPost, "/api/internal/cluster/global-config-sync",
+			map[string]any{"entries": []cluster.GlobalConfigEntry{entry}}))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+	sent := func(from *Server, key string) cluster.GlobalConfigEntry {
+		t.Helper()
+		e := cluster.GlobalConfigEntry{Key: key}
+		var raw any
+		require.NoError(t, from.db.QueryRowContext(ctx, `SELECT value, updated_at FROM cluster_global_config WHERE key = ?`, key).Scan(&e.Value, &raw))
+		e.UpdatedAt, _ = cluster.SQLiteTimestampUnix(raw)
+		return e
+	}
+
+	require.NoError(t, cluster1.clusterManager.SetReplicationFactor(ctx, 2))
+	_, err := cluster1.db.ExecContext(ctx, `UPDATE cluster_global_config SET updated_at = ? WHERE key = 'ha.replication_factor'`,
+		time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+
+	send(cluster1, sent(installed, "ha.replication_factor"))
+	factor, err := cluster1.clusterManager.GetReplicationFactor(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, factor, "the new node's default does not replace the cluster's factor")
+
+	send(installed, sent(cluster1, "ha.replication_factor"))
+	factor, err = installed.clusterManager.GetReplicationFactor(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, factor, "the new node takes the cluster's factor")
+}
+
 // A read is served from this node's copy: it is not sent to the other node,
 // whose cluster port serves no S3 request.
 func TestAReadIsServedHere(t *testing.T) {

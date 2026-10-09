@@ -86,10 +86,5 @@
   "loadingMessage": "Настройка «{{name}}»",
   "ownerUserLabel": "Пользователь-владелец",
   "ownerTenantLabel": "Тенант-владелец",
-  "noEmail": "email не указан",
-  "targetNode": "Целевой узел",
-  "targetNodeHelp": "Выберите узел кластера, на котором будет создан этот бакет. Выбирайте исходя из доступного дискового пространства.",
-  "targetNodeLocal": "(этот узел)",
-  "targetNodeFree": "{{free}} свободно",
-  "targetNodeUnknown": "пространство неизвестно"
+  "noEmail": "email не указан"
 }

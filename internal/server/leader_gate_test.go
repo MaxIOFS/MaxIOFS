@@ -77,7 +77,7 @@ func TestGate_BucketStateGoesToItsNode(t *testing.T) {
 		"/api/v1/buckets/b/versioning",
 		"/api/v1/buckets/b/objects/k/permissions",
 		"/api/v1/buckets/permissions/policy",
-		"/api/v1/cluster/buckets/b/migrate",
+		"/api/v1/cluster/buckets/b/replicas",
 	} {
 		assert.True(t, bucketScopedPath(path), path)
 		assert.True(t, coordinatorExemptPath(path), path)

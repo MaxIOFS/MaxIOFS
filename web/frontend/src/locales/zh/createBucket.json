@@ -86,10 +86,5 @@
   "loadingMessage": "正在配置 \"{{name}}\"",
   "ownerUserLabel": "所有者用户",
   "ownerTenantLabel": "所有者租户",
-  "noEmail": "无电子邮件",
-  "targetNode": "目标节点",
-  "targetNodeHelp": "选择将创建此存储桶的集群节点，根据可用磁盘空间进行选择。",
-  "targetNodeLocal": "（此节点）",
-  "targetNodeFree": "{{free}} 可用",
-  "targetNodeUnknown": "空间未知"
+  "noEmail": "无电子邮件"
 }

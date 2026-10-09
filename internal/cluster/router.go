@@ -10,8 +10,7 @@ import (
 )
 
 // BucketNotHereHeader answers a request forwarded for a bucket the node does
-// not hold: the location the sender remembered is stale, as after the bucket
-// was migrated.
+// not hold: the location the sender remembered is stale.
 const BucketNotHereHeader = "X-MaxIOFS-Bucket-Not-Here"
 
 // Router handles routing of S3 operations to appropriate cluster nodes
@@ -277,9 +276,8 @@ func (r *Router) RouteRequest(ctx context.Context, bucket string) (*Node, bool, 
 		return nil, true, nil // true = bucket is local
 	}
 
-	// A migration moves a bucket, so the local copy is checked before any
-	// remembered location: the node it moved to must not keep forwarding it to
-	// the node it left.
+	// The local copy is checked before any remembered location: a bucket that
+	// has reached this node is served here.
 	if _, err := r.bucketManager.GetBucketTenant(ctx, bucket); err == nil {
 		r.cache.Delete(bucket)
 		return nil, true, nil

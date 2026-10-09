@@ -33,7 +33,6 @@
 
   "manageReplication": "Replikation verwalten",
   "manageNodes": "Knoten verwalten",
-  "manageMigrations": "Migrationen verwalten",
 
   "totalNodes": "Knoten gesamt",
   "nodesInCluster": "Knoten im Cluster",
@@ -187,43 +186,13 @@
   "replicateDeletions": "Löschvorgänge replizieren",
   "replicateMetadata": "Metadaten replizieren",
 
-  "bucketMigrationsTitle": "Bucket-Migrationen",
-  "bucketMigrationsDesc": "Migrationsverlauf anzeigen und aktive Migrationen verwalten",
-  "moveBucketsDesc": "Buckets zwischen Cluster-Knoten verschieben",
-  "migrateBucket": "Bucket migrieren",
-  "allMigrations": "Alle ({{count}})",
-  "activeMigrations": "Aktiv ({{count}})",
-  "completedMigrations": "Abgeschlossen ({{count}})",
-  "failedMigrations": "Fehlgeschlagen ({{count}})",
 
-  "colId": "ID",
-  "colBucket": "Bucket",
-  "colSourceTarget": "Quelle → Ziel",
   "colProgress": "Fortschritt",
-  "colDataSize": "Datengröße",
-  "colStarted": "Gestartet",
-  "objectsProgress": "{{migrated}} / {{total}} Objekte",
 
-  "noMigrationsYet": "Noch keine Migrationen",
-  "noFilterMigrations": "Keine {{filter}} Migrationen",
-  "startMigratingBuckets": "Mit der Migration von Buckets zwischen Knoten beginnen",
-  "tryDifferentFilter": "Versuchen Sie, einen anderen Filter auszuwählen",
   "details": "Details",
 
-  "migrateBucketTitle": "Bucket migrieren",
   "bucketLabel": "Bucket *",
-  "selectBucket": "Bucket auswählen",
-  "targetNodeLabel": "Zielknoten *",
-  "selectTargetNodeOption": "Zielknoten auswählen",
-  "onlyHealthyNodesExcluding": "Nur fehlerfreie Knoten (außer Quellknoten {{id}}) werden angezeigt",
-  "onlyHealthyNodes": "Nur fehlerfreie Knoten werden angezeigt",
-  "migrationWarning": "Der Bucket wird verschoben: Jede Version wird auf den Zielknoten kopiert und geprüft und danach von diesem Knoten entfernt. Während des Verschiebens nimmt der Bucket keine Schreibvorgänge an (Lesevorgänge laufen weiter). Laufende Multipart-Uploads müssen vorher abgeschlossen oder abgebrochen werden. Stellen Sie sicher, dass der Zielknoten genügend Speicherplatz hat.",
-  "startMigration": "Migration starten",
 
-  "selectBucketAndNode": "Bitte wählen Sie einen Bucket und einen Zielknoten aus",
-  "sameNodeError": "Quellknoten und Zielknoten dürfen nicht identisch sein!",
-  "migrationStartedSuccess": "Migration erfolgreich gestartet!",
-  "failedToStartMigration": "Migration konnte nicht gestartet werden",
   "loadingNodes2": "Knoten werden geladen...",
 
   "haReplication": "HA-Replikation",
@@ -255,11 +224,11 @@
   "factorChangedSuccess": "Replikationsfaktor auf ×{{factor}} geändert",
 
   "factorNoReplication": "Keine Replikation",
-  "factorNoReplicationDesc": "Einzelne Kopie — keine Redundanz. Cluster fällt aus, wenn ein Knoten ausfällt.",
+  "factorNoReplicationDesc": "Eine Kopie jedes Objekts, auf dem Knoten mit freiem Speicher. Keine Redundanz: Solange ein Knoten ausgefallen ist, sind seine Objekte nicht lesbar.",
   "factorMirror": "Spiegel (×2)",
-  "factorMirrorDesc": "Zwei vollständige Kopien. Toleriert 1 gleichzeitigen Knotenausfall.",
+  "factorMirrorDesc": "Zwei Kopien jedes Objekts auf verschiedenen Knoten. Toleriert den Ausfall von 1 Knoten.",
   "factorTriple": "Dreifache Kopie (×3)",
-  "factorTripleDesc": "Drei vollständige Kopien. Toleriert 2 gleichzeitige Knotenausfälle.",
+  "factorTripleDesc": "Drei Kopien jedes Objekts auf verschiedenen Knoten. Toleriert 2 gleichzeitige Knotenausfälle.",
 
   "replicaSyncStatus": "Replikat-Synchronisationsstatus",
   "replicaSyncDesc": "Initiale und Nachhol-Synchronisationsjobs für jeden Replikatknoten",

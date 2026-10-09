@@ -360,6 +360,21 @@ func (m *Manager) LeaveCluster(ctx context.Context) error {
 	return nil
 }
 
+// writesPlaced reports whether this node gave its writes their location.
+func (m *Manager) writesPlaced(ctx context.Context) (bool, error) {
+	var placed int
+	if err := m.db.QueryRowContext(ctx, `SELECT writes_placed FROM cluster_config LIMIT 1`).Scan(&placed); err != nil {
+		return false, err
+	}
+	return placed == 1, nil
+}
+
+// setWritesPlaced records that this node gave its writes their location.
+func (m *Manager) setWritesPlaced(ctx context.Context) error {
+	_, err := m.db.ExecContext(ctx, `UPDATE cluster_config SET writes_placed = 1`)
+	return err
+}
+
 // IsClusterEnabled checks if cluster mode is enabled
 func (m *Manager) IsClusterEnabled() bool {
 	var enabled int
@@ -567,11 +582,12 @@ func (m *Manager) RemoveNode(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-// GetHealthyNodes returns the nodes in service: healthy, or under storage
-// pressure (see Node.InService). Only the healthy ones take new data.
+// GetHealthyNodes returns the nodes in service: healthy, slow, or under
+// storage pressure (see Node.InService). Those under pressure take no new data.
 func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 	nodes, err := m.queryNodes(ctx, `SELECT `+nodeColumns("")+` FROM cluster_nodes
-		WHERE health_status IN (?, ?) ORDER BY priority ASC, name ASC`, HealthStatusHealthy, HealthStatusStoragePressure)
+		WHERE health_status IN (?, ?, ?) ORDER BY priority ASC, name ASC`,
+		HealthStatusHealthy, HealthStatusDegraded, HealthStatusStoragePressure)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list healthy nodes: %w", err)
 	}

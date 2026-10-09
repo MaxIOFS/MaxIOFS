@@ -699,7 +699,6 @@ session: it opens only the resource it was minted for.
 | POST | `/api/v1/cluster/nodes/{id}/drain` | Take a remote node out of service on every node and make its copies again elsewhere; `409` when it would leave fewer healthy nodes than the replication factor (global admin only) |
 | GET | `/api/v1/cluster/cache/stats` | Bucket location cache statistics |
 | POST | `/api/v1/cluster/cache/invalidate` | Invalidate the bucket location cache |
-| GET | `/api/v1/cluster/buckets` | Buckets with replication information |
 | GET | `/api/v1/cluster/buckets/{bucket}/replicas` | Replication information for one bucket |
 
 ### High Availability
@@ -715,18 +714,6 @@ session: it opens only the resource it was minted for.
 The factor is 1, 2 or 3. Setting it requires as many healthy nodes as the factor,
 and on every node free space of at least the current data divided by the factor,
 plus 20%.
-
-### Cluster Migrations
-
-Global administrators only. See [CLUSTER.md](CLUSTER.md#bucket-migration).
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/cluster/buckets/{bucket}/migrate` | Move the bucket to `target_node_id`. Runs on the node the bucket lives on; answers `202` with the job. `400`: cluster not enabled, factor above 1, unknown target, target is the source, `delete_source: false`. `404`: the bucket does not live on this node. `409`: target not healthy, migration running, multipart uploads in progress |
-| GET | `/api/v1/cluster/migrations` | Jobs this node ran as source (`?bucket=` filters). Status `in_progress`, `committing`, `completed` or `failed` |
-| GET | `/api/v1/cluster/migrations/{id}` | One job |
-
-While a bucket is migrated, its writes answer `503` (S3 `ServiceUnavailable`, console code `BUCKET_MIGRATING`) with `Retry-After: 60`; reads go on.
 
 ### Notifications (SSE)
 
@@ -768,7 +755,7 @@ While a bucket is migrated, its writes answer `503` (S3 `ServiceUnavailable`, co
 </Error>
 ```
 
-Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`; a write to a bucket being migrated, with `Retry-After: 60`; a request that reached a node the bucket has left, with `Retry-After: 1`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`; a request forwarded to a node that does not hold the bucket, with `Retry-After: 1`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
 
 ### Console API (JSON)
 
@@ -779,7 +766,7 @@ Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`
 }
 ```
 
-HTTP status codes: 200 (success), 202 (accepted, runs in the background), 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 429 (rate limited), 500 (server error), 503 (maintenance mode: code `MAINTENANCE_MODE`; bucket being migrated: code `BUCKET_MIGRATING`)
+HTTP status codes: 200 (success), 202 (accepted, runs in the background), 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 429 (rate limited), 500 (server error), 503 (maintenance mode: code `MAINTENANCE_MODE`)
 
 ---
 
