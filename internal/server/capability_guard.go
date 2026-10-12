@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 )
 
 func (s *Server) requireCapability(w http.ResponseWriter, r *http.Request, capability, message string) bool {
@@ -73,8 +74,13 @@ func (s *Server) userCanPerformConsoleS3Action(r *http.Request, user *auth.User,
 	if user == nil {
 		return false
 	}
+	bucketPolicy := bucket.DecideBucketPolicy(r.Context(), s.bucketManager, bucketTenantID, action, resource,
+		bucket.PolicyPrincipals(user))
 	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 	if isGlobalAdmin {
+		if bucketPolicy == auth.BucketPolicyDeny {
+			return false
+		}
 		if bucketTenantID == "" {
 			return true
 		}
@@ -97,7 +103,7 @@ func (s *Server) userCanPerformConsoleS3Action(r *http.Request, user *auth.User,
 			return false
 		}
 	}
-	return set.Allows(auth.AccessRequest{Action: action, Resource: resource, Owner: auth.OwnedBy(bucketTenantID)})
+	return set.Allows(auth.AccessRequest{Action: action, Resource: resource, Owner: auth.OwnedBy(bucketTenantID), BucketPolicy: bucketPolicy})
 }
 
 func (s *Server) requireConsoleBucketS3Action(w http.ResponseWriter, r *http.Request, bucketName, action, message string) bool {

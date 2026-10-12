@@ -283,8 +283,10 @@ func TestRunOnce_ClusterDegradedResolved(t *testing.T) {
 	assert.True(t, foundResolved, "must emit cluster_degraded_resolved on recovery")
 }
 
-// TestDrainNode_Success verifies the manual drain path marks dead immediately.
-func TestDrainNode_Success(t *testing.T) {
+// A drain leaves the node in service and moves its copies; the node is out
+// of service once its health check says it holds no data, and the drained
+// node is not counted among those that take data.
+func TestDrainNode_MovesTheCopiesThenTakesTheNodeOut(t *testing.T) {
 	db := setupDeadNodeReconcilerDB(t)
 	enableCluster(t, db)
 	setReplicationFactor(t, db, 2)
@@ -297,17 +299,83 @@ func TestDrainNode_Success(t *testing.T) {
 	emitter := &captureEmitter{}
 	syncer := &fakeSyncTrigger{}
 	r := NewDeadNodeReconciler(mgr, syncer, emitter.emit)
+	ctx := context.Background()
 
-	require.NoError(t, r.DrainNode(context.Background(), "n3", "decommission"))
+	require.NoError(t, r.DrainNode(ctx, "n3", "decommission"))
+	n3, err := mgr.GetNode(ctx, "n3")
+	require.NoError(t, err)
+	assert.True(t, n3.Drained)
+	assert.Equal(t, HealthStatusHealthy, n3.HealthStatus, "it serves while its copies move")
+	assert.True(t, n3.InService())
+	assert.False(t, n3.TakesData())
+	assert.Eventually(t, func() bool { return syncer.Calls() == 1 }, time.Second, 10*time.Millisecond, "its copies are moved")
+	assert.Empty(t, emitter.snapshot())
+	assert.ErrorIs(t, r.DrainNode(ctx, "n2", ""), ErrDrainBelowReplicationFactor, "one node would be left to take data")
 
-	var status string
-	require.NoError(t, db.QueryRow(`SELECT health_status FROM cluster_nodes WHERE id = 'n3'`).Scan(&status))
-	assert.Equal(t, HealthStatusDead, status)
+	require.NoError(t, r.RunOnce(ctx))
+	n3, err = mgr.GetNode(ctx, "n3")
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusHealthy, n3.HealthStatus, "it holds data still")
+	assert.Eventually(t, func() bool { return syncer.Calls() == 2 }, time.Second, 10*time.Millisecond, "the move is retried")
 
+	mgr.noteDrainDone("n3", true)
+	require.NoError(t, r.RunOnce(ctx))
+	n3, err = mgr.GetNode(ctx, "n3")
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusDead, n3.HealthStatus)
 	events := emitter.snapshot()
 	require.NotEmpty(t, events)
 	assert.Equal(t, EventNodeDead, events[0].Kind)
-	assert.Equal(t, "decommission", events[0].Reason)
+	assert.Equal(t, "drained", events[0].Reason)
+}
+
+// A node being drained takes no data: it does not count among the nodes that
+// keep the factor, when another node would be marked dead or for the degraded
+// state of the cluster.
+func TestADrainedNodeDoesNotCountForTheDeadSafety(t *testing.T) {
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	setReplicationFactor(t, db, 2)
+	require.NoError(t, SetGlobalConfig(context.Background(), db, redistributionEnabledKey, "true"))
+	long := time.Now().Add(-48 * time.Hour)
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	insertNode(t, db, "draining", "draining", HealthStatusHealthy, nil)
+	insertNode(t, db, "gone", "gone", HealthStatusUnavailable, &long)
+	_, err := db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = 'draining'`)
+	require.NoError(t, err)
+	mgr := newTestManager(t, db)
+	r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, nil)
+
+	require.NoError(t, r.RunOnce(context.Background()))
+	gone, err := mgr.GetNode(context.Background(), "gone")
+	require.NoError(t, err)
+	assert.Equal(t, HealthStatusUnavailable, gone.HealthStatus, "one node would be left to take data")
+	assert.NotEmpty(t, ClusterDegradedReason(context.Background(), db), "the cluster cannot keep the factor")
+}
+
+// A drained node that does not answer is out of service at once when its
+// copies are held elsewhere; with a factor of 1 it is waited for.
+func TestDrainNode_AnUnavailableNode(t *testing.T) {
+	for _, factor := range []int{1, 2} {
+		db := setupDeadNodeReconcilerDB(t)
+		enableCluster(t, db)
+		setReplicationFactor(t, db, factor)
+		insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+		insertNode(t, db, "n2", "n2", HealthStatusHealthy, nil)
+		insertNode(t, db, "down", "down", HealthStatusUnavailable, nil)
+		mgr := newTestManager(t, db)
+		r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, nil)
+
+		require.NoError(t, r.DrainNode(context.Background(), "down", ""))
+		n, err := mgr.GetNode(context.Background(), "down")
+		require.NoError(t, err)
+		assert.True(t, n.Drained)
+		if factor == 1 {
+			assert.Equal(t, HealthStatusUnavailable, n.HealthStatus, "its objects are moved once it is back")
+		} else {
+			assert.Equal(t, HealthStatusDead, n.HealthStatus, "the others hold its copies")
+		}
+	}
 }
 
 // TestDrainNode_DeadNode drains a node already dead by the probes, so it

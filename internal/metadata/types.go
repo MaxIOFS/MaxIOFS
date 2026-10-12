@@ -72,7 +72,6 @@ type BucketMetadata struct {
 	OwnerID   string    `json:"owner_id"`
 	OwnerType string    `json:"owner_type"` // "user" or "tenant"
 	Region    string    `json:"region,omitempty"`
-	IsPublic  bool      `json:"is_public"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 

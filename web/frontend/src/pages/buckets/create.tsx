@@ -20,6 +20,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { escapeHtml } from '@/lib/utils';
+import { PublicAccessBlockFields } from '@/components/PublicAccessBlockFields';
+import type { PublicAccessBlockConfig } from '@/types';
 
 interface BucketCreationConfig {
   // General
@@ -31,7 +33,6 @@ interface BucketCreationConfig {
   // Ownership
   ownerId: string;
   ownerType: 'tenant' | '';
-  isPublic: boolean;
 
   // Versioning
   versioningEnabled: boolean;
@@ -47,11 +48,7 @@ interface BucketCreationConfig {
   encryptionType: 'AES256';
 
   // Access Control
-  blockPublicAccess: boolean;
-  blockPublicAcls: boolean;
-  ignorePublicAcls: boolean;
-  blockPublicPolicy: boolean;
-  restrictPublicBuckets: boolean;
+  publicAccessBlock: PublicAccessBlockConfig;
 
   // Lifecycle
   lifecycleEnabled: boolean;
@@ -72,7 +69,6 @@ export default function CreateBucketPage() {
     region: 'us-east-1',
     ownerId: '',
     ownerType: '',
-    isPublic: false,
     versioningEnabled: false,
     objectLockEnabled: false,
     retentionMode: '',
@@ -81,11 +77,12 @@ export default function CreateBucketPage() {
     // Server-side encryption is always on (envelope, AES-256-GCM)
     encryptionEnabled: true,
     encryptionType: 'AES256',
-    blockPublicAccess: true,
-    blockPublicAcls: true,
-    ignorePublicAcls: true,
-    blockPublicPolicy: true,
-    restrictPublicBuckets: true,
+    publicAccessBlock: {
+      blockPublicAcls: true,
+      ignorePublicAcls: true,
+      blockPublicPolicy: true,
+      restrictPublicBuckets: true,
+    },
     lifecycleEnabled: false,
     expirationDays: 365,
     tags: [],
@@ -105,7 +102,6 @@ export default function CreateBucketPage() {
         region: config.region,
         ownerId: config.ownerId || undefined,
         ownerType: config.ownerType || undefined,
-        isPublic: config.isPublic,
         versioning: config.versioningEnabled ? { status: 'Enabled' } : undefined,
         // Encryption is always on server-side; sent explicitly for clarity.
         encryption: { type: config.encryptionType },
@@ -115,12 +111,7 @@ export default function CreateBucketPage() {
           days: config.retentionDays > 0 ? config.retentionDays : undefined,
           years: config.retentionYears > 0 ? config.retentionYears : undefined,
         } : undefined,
-        publicAccessBlock: {
-          blockPublicAcls: config.blockPublicAcls,
-          ignorePublicAcls: config.ignorePublicAcls,
-          blockPublicPolicy: config.blockPublicPolicy,
-          restrictPublicBuckets: config.restrictPublicBuckets,
-        },
+        publicAccessBlock: config.publicAccessBlock,
         lifecycle: config.lifecycleEnabled && config.expirationDays > 0 ? {
           rules: [{
             id: 'expiration',
@@ -364,22 +355,6 @@ export default function CreateBucketPage() {
                           </select>
                         </div>
                       )}
-
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="isPublic"
-                          checked={config.isPublic}
-                          onChange={(e) => updateConfig('isPublic', e.target.checked)}
-                          className="rounded border-border"
-                        />
-                        <label htmlFor="isPublic" className="text-sm font-medium text-foreground">
-                          {t('makePublic')}
-                        </label>
-                      </div>
-                      <p className="text-xs text-muted-foreground ml-6">
-                        {t('makePublicHelp')}
-                      </p>
                     </div>
                   </div>
                 )}
@@ -651,47 +626,10 @@ export default function CreateBucketPage() {
                   {t('accessControlInfo')}
                 </div>
 
-                <div className="space-y-3">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={config.blockPublicAcls}
-                      onChange={(e) => updateConfig('blockPublicAcls', e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('blockPublicAcls')}</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={config.ignorePublicAcls}
-                      onChange={(e) => updateConfig('ignorePublicAcls', e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('ignorePublicAcls')}</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={config.blockPublicPolicy}
-                      onChange={(e) => updateConfig('blockPublicPolicy', e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('blockPublicPolicy')}</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={config.restrictPublicBuckets}
-                      onChange={(e) => updateConfig('restrictPublicBuckets', e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('restrictPublicBuckets')}</span>
-                  </label>
-                </div>
+                <PublicAccessBlockFields
+                  value={config.publicAccessBlock}
+                  onChange={(value) => updateConfig('publicAccessBlock', value)}
+                />
             </div>
           )}
             </div>

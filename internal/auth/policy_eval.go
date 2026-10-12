@@ -50,27 +50,32 @@ func ParseIAMPolicy(raw string, maxBytes int) (*Policy, error) {
 
 // EvaluateIAMDocuments applies a set of policy documents to one
 func EvaluateIAMDocuments(documents []string, action, resource string) bool {
-	if action == "" {
-		return false
-	}
+	allowed, denied := evaluateIAMDocuments(documents, action, resource)
+	return allowed && !denied
+}
 
-	allowed := false
+// evaluateIAMDocuments reports whether the set of documents allows the request
+// and whether it denies it explicitly. A document that cannot be read denies.
+func evaluateIAMDocuments(documents []string, action, resource string) (allowed, denied bool) {
+	if action == "" {
+		return false, true
+	}
 	for _, raw := range documents {
 		var policy Policy
 		if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &policy); err != nil {
-			return false
+			return false, true
 		}
 		for _, st := range policy.Statement {
 			if !stsActionMatches(st.Action, action) || !stsResourceMatches(st.Resource, resource) {
 				continue
 			}
 			if st.Effect == EffectDeny {
-				return false
+				return false, true
 			}
 			if st.Effect == EffectAllow {
 				allowed = true
 			}
 		}
 	}
-	return allowed
+	return allowed, false
 }

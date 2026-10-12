@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -30,7 +29,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/settings"
-	"github.com/maxiofs/maxiofs/internal/transfer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,7 +46,6 @@ type BucketResponse struct {
 	Region              string                    `json:"region,omitempty"`
 	OwnerID             string                    `json:"owner_id,omitempty"`
 	OwnerType           string                    `json:"owner_type,omitempty"`
-	IsPublic            bool                      `json:"is_public,omitempty"`
 	ObjectCount         int64                     `json:"object_count"`
 	ObjectCountIsApprox bool                      `json:"object_count_is_approx,omitempty"` // True if count is truncated
 	Size                int64                     `json:"size"`
@@ -282,9 +279,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	}
 	router.Use(middleware.CORSWithConfig(corsConfig))
 
+	router.Use(s.policyRequestFacts)
 	router.Use(s.consoleAuthMiddleware)
-
-	router.Use(s.consoleBucketRouting)
 
 	router.Use(s.coordinatorMiddleware)
 
@@ -605,8 +601,6 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleRemoveClusterNode).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/cluster/nodes/{nodeId}/health", s.handleCheckNodeHealth).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/nodes/{nodeId}/drain", s.handleDrainClusterNode).Methods("POST", "OPTIONS")
-	router.HandleFunc("/cluster/cache/stats", s.handleGetCacheStats).Methods("GET", "OPTIONS")
-	router.HandleFunc("/cluster/cache/invalidate", s.handleInvalidateCache).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/ha", s.handleGetClusterHA).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/ha", s.handleSetClusterHA).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/cluster/ha/sync-jobs", s.handleGetHASyncJobs).Methods("GET", "OPTIONS")
@@ -1054,10 +1048,9 @@ func getClientIP(r *http.Request, trustedProxies []string) string {
 	}
 	// Strip IPv6 brackets if present
 	remoteHost = strings.Trim(remoteHost, "[]")
-	upstreamIP := net.ParseIP(remoteHost)
 
 	// Only honour proxy headers when the direct peer is trusted
-	if upstreamIP != nil && isIPTrusted(upstreamIP, trustedProxies) {
+	if fromTrustedProxy(r, trustedProxies) {
 		// X-Forwarded-For may contain a comma-separated chain; the leftmost
 		// entry is the original client IP as reported by the first proxy.
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
@@ -1138,26 +1131,11 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	// Extract tenant ID from user context
 	tenantID := user.TenantID
 
-	// STEP 1 & 2: Get bucket list. Every node of a cluster holds every bucket;
-	// one that has not reached this node yet is listed from the others.
-	var allBuckets []bucket.Bucket
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() && s.bucketAggregator != nil {
-		aggregated, err := s.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
-		if err != nil {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		allBuckets = make([]bucket.Bucket, 0, len(aggregated))
-		for _, bwl := range aggregated {
-			allBuckets = append(allBuckets, bucketWithLocationToBucket(bwl))
-		}
-	} else {
-		localBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
-		if err != nil {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		allBuckets = localBuckets
+	// STEP 1 & 2: Get bucket list. Every node of a cluster holds every bucket.
+	allBuckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// STEP 3: Apply permission filtering
@@ -1180,7 +1158,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 			Region:              b.Region,
 			OwnerID:             b.OwnerID,
 			OwnerType:           b.OwnerType,
-			IsPublic:            b.IsPublic,
 			ObjectCount:         b.ObjectCount,
 			ObjectCountIsApprox: false, // Exact count from incremental updates
 			Size:                b.TotalSize,
@@ -1197,182 +1174,12 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, response)
 }
 
-// bucketWithLocationToBucket converts cluster.BucketWithLocation to bucket.Bucket for filtering.
-func bucketWithLocationToBucket(bwl cluster.BucketWithLocation) bucket.Bucket {
-	return bucket.Bucket{
-		Name:        bwl.Name,
-		TenantID:    bwl.TenantID,
-		OwnerID:     bwl.OwnerID,
-		OwnerType:   bwl.OwnerType,
-		CreatedAt:   bwl.CreatedAt,
-		Versioning:  parseVersioningFromString(bwl.Versioning),
-		ObjectCount: bwl.ObjectCount,
-		TotalSize:   bwl.SizeBytes,
-		ObjectLock:  bwl.ObjectLock,
-		Encryption:  bwl.Encryption,
-		Metadata:    bwl.Metadata,
-		Tags:        bwl.Tags,
-	}
-}
-
-// parseVersioningFromString converts versioning string to VersioningConfig
-func parseVersioningFromString(versioningStr string) *bucket.VersioningConfig {
-	if versioningStr == "" {
-		return nil
-	}
-	return &bucket.VersioningConfig{
-		Status: versioningStr,
-	}
-}
-
-// proxyConsoleRequest checks if a bucket this node does not hold yet is on a remote cluster node and, if so,
-var consoleProxyClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
-	},
-}
-
-func (s *Server) proxyConsoleRequest(w http.ResponseWriter, r *http.Request, bucketName string) bool {
-	if s.clusterRouter == nil || s.clusterManager == nil {
-		return false
-	}
-	// Prevent infinite proxy loops
-	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
-		if s.bucketLeftThisNode(r.Context(), bucketName) {
-			w.Header().Set(cluster.BucketNotHereHeader, "true")
-			w.Header().Set("Retry-After", "1")
-			s.writeError(w, "The bucket is no longer on the node this request was sent to; retry it",
-				http.StatusServiceUnavailable)
-			return true
-		}
-		return false
-	}
-
-	node, isLocal, err := s.clusterRouter.RouteRequest(r.Context(), bucketName)
-	if err != nil || isLocal || node == nil {
-		return false
-	}
-
-	baseURL := node.APIURL
-	if baseURL == "" {
-		// Fallback: use Endpoint (cluster port) host and try console port 8081
-		baseURL = node.Endpoint
-	}
-	targetBase := deriveConsoleURL(node)
-	if targetBase == "" {
-		return false
-	}
-	targetURL := strings.TrimRight(targetBase, "/") + r.URL.RequestURI()
-
-	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
-	if err != nil {
-		logrus.WithError(err).Warn("proxyConsoleRequest: failed to create request")
-		return false
-	}
-	proxyReq.ContentLength = r.ContentLength
-
-	// Copy relevant headers (JWT auth, content-type, etc.)
-	for key, values := range r.Header {
-		// Skip hop-by-hop and cluster-specific headers
-		switch strings.ToLower(key) {
-		case "connection", "keep-alive", "transfer-encoding", "upgrade":
-			continue
-		}
-		for _, v := range values {
-			proxyReq.Header.Add(key, v)
-		}
-	}
-	// Mark as proxied to prevent loops
-	proxyReq.Header.Set("X-MaxIOFS-Proxied", "true")
-
-	// Bounded by progress, not by elapsed time: an object may take as long as it
-	// takes, but a node that falls silent mid-transfer is cut.
-	resp, err := transfer.Do(consoleProxyClient, proxyReq, transfer.DefaultStallTimeout)
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"node":   node.Name,
-			"url":    targetURL,
-			"error":  err.Error(),
-		}).Error("proxyConsoleRequest: failed to forward request")
-		s.writeError(w, "The node that owns this bucket could not be reached",
-			http.StatusBadGateway)
-		return true
-	}
-	defer resp.Body.Close()
-	if resp.Header.Get(cluster.BucketNotHereHeader) != "" {
-		resp.Header.Del(cluster.BucketNotHereHeader)
-		s.clusterRouter.InvalidateCache(bucketName)
-	}
-
-	// Copy response headers and status
-	for key, values := range resp.Header {
-		for _, v := range values {
-			w.Header().Add(key, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body) //nolint:errcheck
-	return true
-}
-
-// consoleBucketRouting sends a request about the state of a bucket this node
-// does not hold yet to the node that holds it, whatever the operation.
-func (s *Server) consoleBucketRouting(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if bucket := mux.Vars(r)["bucket"]; bucket != "" && bucketScopedPath(r.URL.Path) && s.proxyConsoleRequest(w, r, bucket) {
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// bucketLeftThisNode reports whether a request forwarded here as the node
-// holding bucket finds it gone: the sender remembered a stale location.
-func (s *Server) bucketLeftThisNode(ctx context.Context, bucket string) bool {
-	b, err := s.metadataStore.GetBucketByName(ctx, bucket)
-	if errors.Is(err, metadata.ErrBucketNotFound) {
-		return true
-	}
-	return err == nil && b.Moving()
-}
-
-// deriveConsoleURL builds the console API base URL for a remote node.
-func deriveConsoleURL(node *cluster.Node) string {
-	// Prefer Endpoint (always has internal IP), fall back to APIURL.
-	src := node.Endpoint
-	if src == "" {
-		src = node.APIURL
-	}
-	if src == "" {
-		return ""
-	}
-
-	parsed, err := url.Parse(src)
-	if err != nil {
-		return ""
-	}
-	host := parsed.Hostname()
-	if host == "" {
-		return ""
-	}
-	// Internal traffic uses plain HTTP — no TLS cert issues on the cluster LAN.
-	return fmt.Sprintf("http://%s:8081", host)
-}
-
 func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name       string                   `json:"name"`
 		Region     string                   `json:"region,omitempty"`
 		OwnerID    string                   `json:"ownerId,omitempty"`
 		OwnerType  string                   `json:"ownerType,omitempty"` // "user" or "tenant"
-		IsPublic   bool                     `json:"isPublic,omitempty"`
 		Versioning *bucket.VersioningConfig `json:"versioning,omitempty"`
 		ObjectLock *struct {
 			Enabled bool   `json:"enabled"`
@@ -1404,12 +1211,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionCreateBucket, "You do not have permission to create buckets") {
-		return
-	}
-
-	// Bucket names are unique in the cluster.
-	if s.bucketOnAnotherNode(r.Context(), req.Name) {
-		s.writeError(w, "Bucket already exists", http.StatusConflict)
 		return
 	}
 
@@ -1488,12 +1289,10 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	if isTenantAdmin {
 		bucketInfo.OwnerID = user.TenantID
 		bucketInfo.OwnerType = "tenant"
-		bucketInfo.IsPublic = false
 	} else if user.TenantID != "" {
 		// Regular tenant user — owns the bucket individually (TenantID scopes it to the tenant)
 		bucketInfo.OwnerID = user.ID
 		bucketInfo.OwnerType = "user"
-		bucketInfo.IsPublic = false
 	} else if isGlobalAdmin {
 		// ONLY global admins can specify custom ownership
 		if req.OwnerID != "" {
@@ -1502,12 +1301,10 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		if req.OwnerType != "" {
 			bucketInfo.OwnerType = req.OwnerType
 		}
-		bucketInfo.IsPublic = req.IsPublic
 	} else {
 		// Global user without tenant — assign as owner so they can see their own bucket.
 		bucketInfo.OwnerID = user.ID
 		bucketInfo.OwnerType = "user"
-		bucketInfo.IsPublic = req.IsPublic
 	}
 
 	if req.Versioning != nil {
@@ -3465,6 +3262,15 @@ func (s *Server) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 			resp["bucket_count"] = len(buckets)
 		}
 	}
+	// The other nodes take a drained node that holds no data out of service,
+	// and show how far one that holds some is in moving it.
+	if s.clusterManager != nil && s.clusterManager.LocalDrainDone(r.Context()) {
+		resp["drain_done"] = true
+	} else if s.haSyncWorker != nil {
+		if p := s.haSyncWorker.DrainProgress(); p != nil {
+			resp["drain"] = p
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
@@ -4704,10 +4510,7 @@ func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Permissions are cluster configuration, written on the coordinator, which
-	// may not hold the bucket yet.
-	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil &&
-		!s.bucketInCluster(r.Context(), bucketTenantID, bucketName) {
+	if _, err := s.bucketManager.GetBucketInfo(r.Context(), bucketTenantID, bucketName); err != nil {
 		if s.isGlobalAdmin(currentUser) {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 		} else {
@@ -4717,34 +4520,6 @@ func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Req
 	}
 
 	return bucketTenantID, true
-}
-
-// bucketInCluster reports whether a tenant has the named bucket on a node of
-// the cluster.
-func (s *Server) bucketInCluster(ctx context.Context, tenantID, bucketName string) bool {
-	if s.bucketAggregator == nil || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
-		return false
-	}
-	buckets, err := s.bucketAggregator.ListAllBucketsFromAllNodes(ctx, tenantID)
-	if err != nil {
-		return false
-	}
-	for _, b := range buckets {
-		if b.Name == bucketName && b.TenantID == tenantID {
-			return true
-		}
-	}
-	return false
-}
-
-// bucketOnAnotherNode reports whether another node of the cluster holds the
-// named bucket.
-func (s *Server) bucketOnAnotherNode(ctx context.Context, name string) bool {
-	if s.clusterRouter == nil || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
-		return false
-	}
-	node, isLocal, err := s.clusterRouter.RouteRequest(ctx, name)
-	return err == nil && !isLocal && node != nil
 }
 
 func (s *Server) scopedBucketPermissionManager() (scopedBucketPermissionManager, bool) {
@@ -6079,6 +5854,10 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.requirePublicACLAllowed(w, r, tenantID, bucketName, aclData.IsPublic()) {
+		return
+	}
+
 	// Set bucket ACL
 	if err := s.bucketManager.SetBucketACL(r.Context(), tenantID, bucketName, aclData); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -6090,6 +5869,26 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// requirePublicACLAllowed answers 403 for a public ACL when the bucket's Block
+// Public Access blocks public ACLs.
+func (s *Server) requirePublicACLAllowed(w http.ResponseWriter, r *http.Request, tenantID, bucketName string, public bool) bool {
+	if !public {
+		return true
+	}
+	err := bucket.CheckPublicACL(r.Context(), s.bucketManager, tenantID, bucketName)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, bucket.ErrPublicACLBlocked):
+		s.writeError(w, `This bucket's Block Public Access blocks public ACLs: turn off "Block public ACLs" to set one`, http.StatusForbidden)
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		s.writeError(w, "Bucket not found", http.StatusNotFound)
+	default:
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+	}
+	return false
 }
 
 // Object ACL handlers
@@ -6179,6 +5978,10 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	internalACL, err := aclMgr.GetCannedACL(cannedACL, "maxiofs", "MaxIOFS")
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Invalid canned ACL: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if !s.requirePublicACLAllowed(w, r, tenantID, bucketName, internalACL.IsPublic()) {
 		return
 	}
 
@@ -6295,31 +6098,25 @@ func (s *Server) handlePutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Strip UTF-8 BOM if present
-	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
-	body = bytes.TrimPrefix(body, []byte{0xC3, 0xAF, 0xC2, 0xBB, 0xC2, 0xBF})
-
-	// Validate JSON format
-	var policyDoc bucket.Policy
-	if err := json.Unmarshal(body, &policyDoc); err != nil {
-		logrus.WithError(err).Error("PutBucketPolicy: Failed to parse policy JSON")
-		s.writeError(w, "The policy is not valid JSON", http.StatusBadRequest)
+	policyDoc, err := bucket.ValidatePolicy(body, bucketName)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Validate policy structure
-	if policyDoc.Version == "" {
-		s.writeError(w, "Policy must contain a Version field", http.StatusBadRequest)
-		return
-	}
-
-	if len(policyDoc.Statement) == 0 {
-		s.writeError(w, "Policy must contain at least one Statement", http.StatusBadRequest)
+	if err := bucket.CheckPublicPolicy(r.Context(), s.bucketManager, tenantID, bucketName, policyDoc); err != nil {
+		switch {
+		case errors.Is(err, bucket.ErrPublicPolicyBlocked):
+			s.writeError(w, `This bucket's Block Public Access blocks public bucket policies: turn off "Block public bucket policies" to set one`, http.StatusForbidden)
+		case errors.Is(err, bucket.ErrBucketNotFound):
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+		default:
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	// Set the bucket policy
-	if err := s.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, &policyDoc); err != nil {
+	if err := s.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, policyDoc); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 			return

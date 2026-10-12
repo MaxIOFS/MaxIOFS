@@ -82,6 +82,13 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 		}
 	}
 
+	if node.Drained {
+		m.noteDrainDone(nodeID, result.Healthy && result.DrainDone)
+		if result.Healthy {
+			m.noteDrainProgress(nodeID, result.Drain)
+		}
+	}
+
 	// A node dead by this node's own probes is back in service once it answers
 	// again, and is caught up from its first missed write. A drained node stays
 	// dead.
@@ -246,15 +253,19 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 
 	// Parse capacity and bucket count from the health response (best-effort, flat JSON).
 	var body struct {
-		CapacityTotal uint64 `json:"capacity_total"`
-		CapacityUsed  uint64 `json:"capacity_used"`
-		BucketCount   int    `json:"bucket_count"`
+		CapacityTotal uint64         `json:"capacity_total"`
+		CapacityUsed  uint64         `json:"capacity_used"`
+		BucketCount   int            `json:"bucket_count"`
+		DrainDone     bool           `json:"drain_done"`
+		Drain         *DrainProgress `json:"drain"`
 	}
 	result := &HealthCheckResult{Healthy: true, LatencyMs: latency}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
 		result.CapacityTotal = int64(body.CapacityTotal)
 		result.CapacityUsed = int64(body.CapacityUsed)
 		result.BucketCount = body.BucketCount
+		result.DrainDone = body.DrainDone
+		result.Drain = body.Drain
 	}
 	return result
 }

@@ -118,29 +118,27 @@ func TestStatsPassCorrectsTheTenantStorage(t *testing.T) {
 	assert.Equal(t, int64(64), tenant.CurrentStorageBytes)
 }
 
-// In a cluster a tenant's buckets are counted on every node, each once however
-// many nodes hold it.
+// In a cluster a tenant's buckets are counted once each, wherever they were
+// created: every node holds them.
 func TestTenantBucketCountCoversTheCluster(t *testing.T) {
-	c := newRoutingPair(t)
+	c := newHACluster(t, 2, 1)
+	a, b := c.nodes[0], c.nodes[1]
 	ctx := context.Background()
 	const tenantID = "t-cluster-count"
-	// The target, outside the cluster here, sends its buckets nowhere; the
-	// source sends its own to the target.
-	for _, s := range []*Server{c.target, c.source} {
-		require.NoError(t, s.authManager.CreateTenant(ctx, &auth.Tenant{ID: tenantID, Name: tenantID, Status: "active"}))
+	for _, n := range c.nodes {
+		require.NoError(t, n.authManager.CreateTenant(ctx, &auth.Tenant{ID: tenantID, Name: tenantID, Status: "active"}))
 	}
-	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, tenantID, "on-both", "u"))
-	require.NoError(t, c.source.bucketManager.CreateBucket(ctx, tenantID, "on-both", "u"))
-	require.NoError(t, c.source.bucketManager.CreateBucket(ctx, tenantID, "only-here", "u"))
-	require.NoError(t, c.target.bucketManager.CreateBucket(ctx, tenantID, "only-there", "u"))
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, tenantID, "made-here", "u"))
+	require.NoError(t, b.bucketManager.CreateBucket(ctx, tenantID, "made-there", "u"))
+	require.NoError(t, b.bucketManager.CreateBucket(ctx, tenantID, "made-there-too", "u"))
 
-	count, err := c.source.tenantBucketCount(ctx, tenantID)
+	count, err := a.tenantBucketCount(ctx, tenantID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
 
 	req := createAuthenticatedRequest(http.MethodGet, "/api/v1/tenants", nil, "", "global-admin", true)
 	w := httptest.NewRecorder()
-	c.source.handleListTenants(w, req)
+	a.handleListTenants(w, req)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var listed struct {
 		Data struct {

@@ -685,6 +685,10 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !h.requirePublicACLAllowed(w, r, bucketName, objectKey, aclData.IsPublic()) {
+		return
+	}
+
 	// Set ACL using object manager
 	if err := h.objectManager.SetObjectACL(r.Context(), bucketPath, objectKey, aclData, versionID); err != nil {
 		if err == object.ErrObjectNotFound {
@@ -752,6 +756,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.requireObjectLockHeaderActions(w, r, destBucket, destKey) {
+		return
+	}
+	if !h.requireACLHeaderAllowed(w, r, destBucket, destKey) {
 		return
 	}
 

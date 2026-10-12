@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "セキュリティとアクセス",
-      "description": "バケットポリシー、ACL、CORS設定"
+      "description": "パブリックアクセスのブロック、バケットポリシー、ACL、CORS設定"
     },
     "lifecycle": {
       "label": "ライフサイクル",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "バケットポリシー",
     "sectionTitle": "アクセスポリシー",
-    "description": "JSONポリシードキュメントを使用してきめ細かい権限を定義",
+    "description": "このバケットに対する操作を、テナントのユーザー、または Principal \"*\" で全員に許可または拒否します。ここでの Deny は他のどの権限よりも優先されます。",
     "policyActive": "✓ ポリシー有効",
     "statements_one": "{{count}}件のステートメント",
     "statements_other": "{{count}}件のステートメント",
@@ -134,12 +134,13 @@
         "name": "完全パブリックアクセス",
         "description": "全員にすべての操作を許可"
       }
-    }
+    },
+    "blockedByPublicAccess": "「パブリックバケットポリシーをブロック」が有効です。全員にアクセスを許可するポリシーは拒否されます。"
   },
   "acl": {
     "title": "アクセス制御リスト (ACL)",
     "sectionTitle": "バケット権限",
-    "description": "このバケットにアクセスできるユーザーを制御",
+    "description": "認証情報のないリクエストに何を許可するかを決めます。認証情報のあるユーザーは、そのユーザーの権限とバケットポリシーで決まります。",
     "currentAcl": "現在のACL: ",
     "private": "プライベート",
     "publicRead": "パブリック読み取り",
@@ -148,22 +149,37 @@
     "viewAcl": "ACLを表示",
     "manageAcl": "ACLを管理",
     "modalTitle": "バケットアクセス制御リスト (ACL)",
-    "aclInfo": "ACL（アクセス制御リスト）は、バケットにアクセスできるユーザーとその権限を定義します。シンプルな権限管理には既成のACLを選択してください。",
+    "aclInfo": "ACL は認証情報のないリクエストにのみ適用されます。認証情報のあるユーザーは、そのユーザーの権限とバケットポリシーで決まります。",
     "selectLevel": "権限レベルを選択",
     "privateLabel": "プライベート",
-    "privateDesc": "オーナーがFULL_CONTROLを取得します。他の誰もアクセス権を持ちません。",
+    "privateDesc": "認証情報のないリクエストは拒否されます。",
     "publicReadLabel": "パブリック読み取り",
-    "publicReadDesc": "オーナーがFULL_CONTROLを取得します。誰でも（匿名ユーザーを含む）オブジェクトを読み取れます。",
+    "publicReadDesc": "認証情報のないリクエストでオブジェクトの読み取りと一覧表示ができます。",
     "publicReadWriteLabel": "パブリック読み取り/書き込み",
-    "publicReadWriteDesc": "オーナーがFULL_CONTROLを取得します。誰でもオブジェクトを読み取りおよび書き込みできます。",
+    "publicReadWriteDesc": "認証情報のないリクエストでオブジェクトの書き込みと削除もできます。",
     "publicReadWriteCaution": "注意して使用してください！",
-    "authenticatedReadLabel": "認証済み読み取り",
-    "authenticatedReadDesc": "オーナーがFULL_CONTROLを取得します。認証済みのMaxIOFSユーザーはオブジェクトを読み取れます。",
     "publicWarning": "このACLはパブリックアクセスを許可します。インターネット上の誰でもバケットにアクセスできます。",
     "cancel": "キャンセル",
     "saving": "保存中...",
     "saveAcl": "ACLを保存",
-    "savedSuccess": "バケットACLが正常に更新されました"
+    "savedSuccess": "バケットACLが正常に更新されました",
+    "ignoredByPublicAccess": "パブリックアクセスのブロックによりこのACLは無視されます。認証情報のないリクエストは拒否されます。",
+    "blockedByPublicAccess": "「パブリックACLをブロック」が有効です。パブリックACLを選択するには、パブリックアクセスのブロックで無効にしてください。"
+  },
+  "publicAccess": {
+    "title": "パブリックアクセスのブロック",
+    "description": "下の ACL とバケットポリシーによるパブリックな許可を無効にします。これ自体は何も許可しません。共有リンク、署名付き URL、静的ウェブサイトホスティングには影響しません。",
+    "blockPublicAcls": "パブリックACLをブロック",
+    "blockPublicAclsHelp": "全員または認証済みユーザー全員にアクセスを許可する新しいACLを拒否します。既に設定されているACLは維持されます。",
+    "ignorePublicAcls": "既存のパブリックACLを無視",
+    "ignorePublicAclsHelp": "既に設定されているものを含め、パブリックACLは認証情報のないリクエストに何も許可しません。",
+    "blockPublicPolicy": "パブリックバケットポリシーをブロック",
+    "blockPublicPolicyHelp": "全員にアクセスを許可するバケットポリシーを拒否します。既に設定されているポリシーは維持されます。",
+    "restrictPublicBuckets": "パブリックバケットを制限",
+    "restrictPublicBucketsHelp": "全員にアクセスを許可するバケットポリシーは、認証情報のないリクエストに何も許可しません。",
+    "save": "保存",
+    "saving": "保存中...",
+    "savedSuccess": "パブリックアクセスのブロックを更新しました"
   },
   "tags": {
     "title": "タグ",

@@ -20,7 +20,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
-	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -238,18 +237,6 @@ func TestSetClusterManager(t *testing.T) {
 	assert.NotNil(t, env.handler.clusterManager)
 }
 
-// TestSetBucketAggregator tests the SetBucketAggregator function
-func TestSetBucketAggregator(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Create mock bucket aggregator
-	mockBA := &mockBucketAggregator{}
-
-	env.handler.SetBucketAggregator(mockBA)
-	assert.NotNil(t, env.handler.bucketAggregator)
-}
-
 // ============================================
 // Tests for getUserIDOrAnonymous (0% coverage)
 // ============================================
@@ -441,86 +428,6 @@ func TestCheckPublicObjectAccess_FallbackToBucket(t *testing.T) {
 // ============================================
 
 // ============================================
-
-// ============================================
-// Tests for checkBucketPolicyPermission (0% coverage)
-// ============================================
-
-func TestCheckBucketPolicyPermission_NoPolicy(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket without policy
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "no-policy-bucket", env.userID)
-	require.NoError(t, err)
-
-	// Check permission - should return false (no policy = no policy-based permission)
-	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "no-policy-bucket", env.userID, "s3:ListBucket")
-	assert.False(t, hasPermission)
-}
-
-func TestCheckBucketPolicyPermission_WithPolicy(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "policy-bucket", env.userID)
-	require.NoError(t, err)
-
-	// Set a permissive policy
-	policy := &bucket.Policy{
-		Version: "2012-10-17",
-		Statement: []bucket.Statement{
-			{
-				Sid:       "AllowAll",
-				Effect:    "Allow",
-				Principal: "*",
-				Action:    "s3:*",
-				Resource:  "arn:aws:s3:::policy-bucket/*",
-			},
-		},
-	}
-	err = env.bucketManager.SetBucketPolicy(ctx, env.tenantID, "policy-bucket", policy)
-	require.NoError(t, err)
-
-	// Check permission - should return true with wildcard policy
-	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "policy-bucket", env.userID, "s3:GetObject")
-	assert.True(t, hasPermission)
-}
-
-func TestCheckBucketPolicyPermission_ObjectAction(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create bucket with policy
-	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "object-policy-bucket", env.userID)
-	require.NoError(t, err)
-
-	policy := &bucket.Policy{
-		Version: "2012-10-17",
-		Statement: []bucket.Statement{
-			{
-				Sid:       "AllowGetObject",
-				Effect:    "Allow",
-				Principal: "*",
-				Action:    "s3:GetObject",
-				Resource:  "arn:aws:s3:::object-policy-bucket/*",
-			},
-		},
-	}
-	err = env.bucketManager.SetBucketPolicy(ctx, env.tenantID, "object-policy-bucket", policy)
-	require.NoError(t, err)
-
-	// Check object-level action (GetObject contains "Object")
-	hasPermission := env.handler.checkBucketPolicyPermission(nil, env.tenantID, "object-policy-bucket", env.userID, "s3:GetObject")
-	assert.True(t, hasPermission)
-}
 
 // ============================================
 // Tests for DeleteObjects (batch delete)
@@ -765,16 +672,6 @@ func (m *mockClusterManager) GetLocalNodeToken(_ context.Context) (string, error
 
 func (m *mockClusterManager) GetTLSConfig() *tls.Config {
 	return nil
-}
-
-type mockBucketAggregator struct{}
-
-func (m *mockBucketAggregator) ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error) {
-	return []cluster.BucketWithLocation{}, nil
-}
-
-func (m *mockBucketAggregator) ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error) {
-	return []cluster.BucketWithLocation{}, nil
 }
 
 // ============================================

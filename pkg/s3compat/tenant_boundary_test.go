@@ -115,7 +115,7 @@ func TestSubresourceAuthorization_TenantAdminCanPutBucketPolicy(t *testing.T) {
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "tenant-admin-policy", env.userID))
 
 	tenantAdmin := &auth.User{ID: "tenant-admin", TenantID: env.tenantID, Roles: []string{auth.RoleTenantAdmin}}
-	body := strings.NewReader(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::tenant-admin-policy/*"]}]}`)
+	body := strings.NewReader(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"tenant-admin"},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::tenant-admin-policy/*"]}]}`)
 	req := httptest.NewRequest(http.MethodPut, "/tenant-admin-policy?policy", body)
 	req = mux.SetURLVars(req, map[string]string{"bucket": "tenant-admin-policy"})
 	req = req.WithContext(setUserInContext(req.Context(), tenantAdmin))

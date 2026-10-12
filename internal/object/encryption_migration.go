@@ -62,6 +62,10 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 			skipped++
 		}
 	}
+	// Objects stored before their sidecars kept the Object Lock state get it.
+	if err := om.syncLockSidecars(ctx, bucket, key, refs); err != nil {
+		return converted, skipped, err
+	}
 	return converted, skipped, nil
 }
 

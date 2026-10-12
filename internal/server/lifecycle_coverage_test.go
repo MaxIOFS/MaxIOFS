@@ -22,7 +22,6 @@ var lifecycleRelease = map[string]string{
 	"bucketManager":       "registry: bucketManager",
 	"metricsManager":      "registry: metrics",
 	"replicationManager":  "registry: replication",
-	"clusterRouter":       "registry: clusterRouter",
 	"apiRateLimiter":      "registry: apiRateLimiter",
 	"lifecycleWorker":     "registry: lifecycle",
 	"inventoryWorker":     "registry: inventory",
@@ -46,8 +45,6 @@ var lifecycleRelease = map[string]string{
 	"globalConfigSyncMgr":     "registry: globalConfigSync",
 
 	"objectManager":       "no lifecycle of its own; wraps the stores",
-	"bucketAggregator":    "no background work; per-request fanout only",
-	"quotaAggregator":     "no background work; per-request fanout only",
 	"notificationManager": "no background work",
 	"notificationHub":     "per-client goroutines, ended when the request ends",
 	"shareManager":        "no background work",

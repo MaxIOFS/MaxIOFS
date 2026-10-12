@@ -13,6 +13,15 @@ const (
 	MetadataVersionField = "maxiofs-version"
 )
 
+// Sidecar fields keeping an object's Object Lock state, so that a metadata
+// store rebuilt from the files gets it back: the retention mode and the date
+// it holds until (RFC 3339), and the legal hold when on.
+const (
+	MetadataLockModeField  = "maxiofs-lock-mode"
+	MetadataLockUntilField = "maxiofs-lock-until"
+	MetadataLegalHoldField = "maxiofs-legal-hold"
+)
+
 // MetadataGeneratedKey marks a metadata map that was derived from the bytes on
 const MetadataGeneratedKey = "maxiofs-metadata-generated"
 

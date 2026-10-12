@@ -1084,7 +1084,6 @@ func setupTestHandler() (*Handler, *MockBucketManager, *MockObjectManager, *Mock
 		":8081",
 		"/tmp",
 		nil, // clusterManager
-		nil, // bucketAggregator
 	)
 
 	return handler, mockBucket, mockObject, mockAuth
@@ -1185,6 +1184,10 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 				mockBucket.On("GetBucketACL", mock.Anything, mock.Anything, "test-bucket").Return(
 					nil, nil,
 				).Once()
+				// The bucket policy decides first for requests without credentials.
+				mockBucket.On("GetBucketPolicy", mock.Anything, mock.Anything, "test-bucket").Return(
+					nil, bucket.ErrPolicyNotFound,
+				).Maybe()
 			}
 			if tc.name == "GetObject" {
 				mockBucket.On("BucketExists", mock.Anything, mock.Anything, "test-bucket").Return(
@@ -1194,6 +1197,10 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 				mockBucket.On("GetBucketACL", mock.Anything, mock.Anything, "test-bucket").Return(
 					nil, nil,
 				).Once()
+				// The bucket policy decides first for requests without credentials.
+				mockBucket.On("GetBucketPolicy", mock.Anything, mock.Anything, "test-bucket").Return(
+					nil, bucket.ErrPolicyNotFound,
+				).Maybe()
 			}
 
 			req := httptest.NewRequest(tc.method, tc.path, nil)

@@ -48,7 +48,9 @@ func (s *Server) authorizeBucketQuota(w http.ResponseWriter, r *http.Request, bu
 			set = nil
 		}
 	}
-	if !set.Allows(auth.AccessRequest{Action: action, Resource: consoleBucketARN(bucketName), Owner: auth.OwnedBy(tenantID)}) {
+	if !set.Allows(auth.AccessRequest{Action: action, Resource: consoleBucketARN(bucketName), Owner: auth.OwnedBy(tenantID),
+		BucketPolicy: bucket.DecideBucketPolicy(r.Context(), s.bucketManager, tenantID, action, consoleBucketARN(bucketName),
+			bucket.PolicyPrincipals(user))}) {
 		s.writeError(w, "You do not have permission to access this bucket's quota", http.StatusForbidden)
 		return "", false
 	}

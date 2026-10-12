@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "Sicherheit & Zugriff",
-      "description": "Bucket-Richtlinie, ACL und CORS-Konfiguration"
+      "description": "Öffentlichen Zugriff blockieren, Bucket-Richtlinie, ACL und CORS-Konfiguration"
     },
     "lifecycle": {
       "label": "Lebenszyklus",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "Bucket-Richtlinie",
     "sectionTitle": "Zugriffsrichtlinie",
-    "description": "Definieren Sie feingranulare Berechtigungen mit JSON-Richtliniendokumenten",
+    "description": "Erlaubt oder verweigert Aktionen auf diesem Bucket für Benutzer seines Mandanten oder mit Principal \"*\" für alle. Ein Deny hier hat Vorrang vor jeder anderen Berechtigung.",
     "policyActive": "✓ Richtlinie aktiv",
     "statements_one": "{{count}} Anweisung",
     "statements_other": "{{count}} Anweisungen",
@@ -134,12 +134,13 @@
         "name": "Vollständiger öffentlicher Zugriff",
         "description": "Alle Operationen für jeden erlauben"
       }
-    }
+    },
+    "blockedByPublicAccess": "„Öffentliche Bucket-Richtlinien blockieren“ ist aktiv: Eine Richtlinie, die allen Zugriff gewährt, wird abgelehnt."
   },
   "acl": {
     "title": "Zugriffssteuerungsliste (ACL)",
     "sectionTitle": "Bucket-Berechtigungen",
-    "description": "Steuern Sie, wer auf diesen Bucket zugreifen kann",
+    "description": "Legt fest, was Anfragen ohne Anmeldedaten dürfen. Über Benutzer mit Anmeldedaten entscheiden ihre Berechtigungen und die Bucket-Richtlinie.",
     "currentAcl": "Aktuelle ACL: ",
     "private": "Privat",
     "publicRead": "Öffentliches Lesen",
@@ -148,22 +149,37 @@
     "viewAcl": "ACL anzeigen",
     "manageAcl": "ACL verwalten",
     "modalTitle": "Bucket-Zugriffssteuerungsliste (ACL)",
-    "aclInfo": "ACL (Zugriffssteuerungsliste) definiert, wer auf Ihren Bucket zugreifen und welche Berechtigungen er haben kann. Wählen Sie eine vordefinierte ACL für einfaches Berechtigungsmanagement.",
+    "aclInfo": "Die ACL gilt nur für Anfragen ohne Anmeldedaten. Über Benutzer mit Anmeldedaten entscheiden ihre Berechtigungen und die Bucket-Richtlinie.",
     "selectLevel": "Berechtigungsstufe auswählen",
     "privateLabel": "Privat",
-    "privateDesc": "Eigentümer erhält FULL_CONTROL. Kein anderer hat Zugriffsrechte.",
+    "privateDesc": "Anfragen ohne Anmeldedaten werden abgelehnt.",
     "publicReadLabel": "Öffentliches Lesen",
-    "publicReadDesc": "Eigentümer erhält FULL_CONTROL. Jeder (einschließlich anonymer Benutzer) kann Objekte LESEN.",
+    "publicReadDesc": "Anfragen ohne Anmeldedaten können die Objekte lesen und auflisten.",
     "publicReadWriteLabel": "Öffentliches Lesen/Schreiben",
-    "publicReadWriteDesc": "Eigentümer erhält FULL_CONTROL. Jeder kann Objekte LESEN und SCHREIBEN.",
+    "publicReadWriteDesc": "Anfragen ohne Anmeldedaten können außerdem Objekte schreiben und löschen.",
     "publicReadWriteCaution": "Mit Vorsicht verwenden!",
-    "authenticatedReadLabel": "Authentifiziertes Lesen",
-    "authenticatedReadDesc": "Eigentümer erhält FULL_CONTROL. Jeder authentifizierte MaxIOFS-Benutzer kann Objekte LESEN.",
     "publicWarning": "Diese ACL gewährt öffentlichen Zugriff. Jeder im Internet kann auf Ihren Bucket zugreifen.",
     "cancel": "Abbrechen",
     "saving": "Wird gespeichert...",
     "saveAcl": "ACL speichern",
-    "savedSuccess": "Bucket-ACL erfolgreich aktualisiert"
+    "savedSuccess": "Bucket-ACL erfolgreich aktualisiert",
+    "ignoredByPublicAccess": "Die Blockierung des öffentlichen Zugriffs ignoriert diese ACL: Anfragen ohne Anmeldedaten werden abgelehnt.",
+    "blockedByPublicAccess": "„Öffentliche ACLs blockieren“ ist aktiv: Deaktivieren Sie es unter „Öffentlichen Zugriff blockieren“, um eine öffentliche ACL zu wählen."
+  },
+  "publicAccess": {
+    "title": "Öffentlichen Zugriff blockieren",
+    "description": "Hebt die öffentlichen Freigaben der ACL und der Bucket-Richtlinie unten auf. Selbst gewährt es nichts. Freigabelinks, vorsignierte URLs und statisches Website-Hosting sind nicht betroffen.",
+    "blockPublicAcls": "Öffentliche ACLs blockieren",
+    "blockPublicAclsHelp": "Lehnt neue ACLs ab, die allen oder jedem authentifizierten Benutzer Zugriff gewähren. Bereits gesetzte ACLs bleiben erhalten.",
+    "ignorePublicAcls": "Vorhandene öffentliche ACLs ignorieren",
+    "ignorePublicAclsHelp": "Öffentliche ACLs, auch bereits gesetzte, gewähren Anfragen ohne Anmeldedaten nichts.",
+    "blockPublicPolicy": "Öffentliche Bucket-Richtlinien blockieren",
+    "blockPublicPolicyHelp": "Lehnt eine Bucket-Richtlinie ab, die allen Zugriff gewährt. Eine bereits gesetzte Richtlinie bleibt erhalten.",
+    "restrictPublicBuckets": "Öffentliche Buckets einschränken",
+    "restrictPublicBucketsHelp": "Eine Bucket-Richtlinie, die allen Zugriff gewährt, gewährt Anfragen ohne Anmeldedaten nichts.",
+    "save": "Speichern",
+    "saving": "Wird gespeichert...",
+    "savedSuccess": "Blockierung des öffentlichen Zugriffs aktualisiert"
   },
   "tags": {
     "title": "Tags",

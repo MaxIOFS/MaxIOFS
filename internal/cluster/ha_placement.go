@@ -52,15 +52,16 @@ type placement struct {
 	holders []string
 	remote  []*Node
 	entries []*Node
-	// pressured is set when this node is under storage pressure.
-	pressured bool
+	// passOn is set when this node keeps no new data: under storage pressure
+	// or drained.
+	passOn bool
 }
 
 // place chooses the nodes of a write made here in a cluster: this node and the
 // healthy nodes with the most free space hold its data, up to the factor; the
 // other healthy nodes hold its entry. A node neither healthy nor dead misses the write and
-// is caught up when it is back. This node, under storage pressure, then passes
-// its copy on (see relieve).
+// is caught up when it is back. This node, under storage pressure or drained,
+// then passes its copy on (see relieve).
 func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	factor, err := h.mgr.GetReplicationFactor(ctx)
 	if err != nil {
@@ -94,7 +95,7 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	})
 	p := &placement{localID: localID, factor: factor, holders: []string{localID}}
 	if local, err := h.mgr.GetNode(ctx, localID); err == nil {
-		p.pressured = local.HealthStatus == HealthStatusStoragePressure
+		p.passOn = local.HealthStatus == HealthStatusStoragePressure || local.Drained
 	}
 	for _, n := range others {
 		if len(p.holders) < factor {
@@ -185,12 +186,12 @@ func (h *HAObjectManager) replicate(ctx context.Context, p *placement, bucket, k
 }
 
 // relieve passes this node's copy of a write, when this node is under storage
-// pressure, to the node with the most free space among those that hold its
-// entry only; the copy stays here when none takes it. Each copy names its node
+// pressure or drained, to the node with the most free space among those that
+// hold its entry only; the copy stays here when none takes it. Each copy names its node
 // with a number of its own, and every node is then told the holders with a
 // higher one.
 func (h *HAObjectManager) relieve(ctx context.Context, p *placement, bucket, key string, obj *object.Object) {
-	if !p.pressured || len(p.entries) == 0 {
+	if !p.passOn || len(p.entries) == 0 {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)

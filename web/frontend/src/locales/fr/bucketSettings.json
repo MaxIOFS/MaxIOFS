@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "Sécurité et accès",
-      "description": "Politique de bucket, ACL et configuration CORS"
+      "description": "Blocage de l'accès public, politique de bucket, ACL et configuration CORS"
     },
     "lifecycle": {
       "label": "Cycle de vie",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "Politique de bucket",
     "sectionTitle": "Politique d'accès",
-    "description": "Définir des permissions détaillées à l'aide de documents de politique JSON",
+    "description": "Autorise ou refuse des actions sur ce bucket aux utilisateurs de son tenant, ou à tout le monde avec Principal \"*\". Un Deny ici l'emporte sur toute autre autorisation.",
     "policyActive": "✓ Politique active",
     "statements_one": "{{count}} instruction",
     "statements_other": "{{count}} instructions",
@@ -134,12 +134,13 @@
         "name": "Accès public complet",
         "description": "Autoriser toutes les opérations à tout le monde"
       }
-    }
+    },
+    "blockedByPublicAccess": "« Bloquer les politiques de bucket publiques » est activé : une politique qui donne accès à tout le monde est refusée."
   },
   "acl": {
     "title": "Liste de contrôle d'accès (ACL)",
     "sectionTitle": "Permissions du bucket",
-    "description": "Contrôler qui peut accéder à ce bucket",
+    "description": "Décide de ce que peuvent faire les requêtes sans identifiants. Les utilisateurs avec identifiants dépendent de leurs autorisations et de la politique de bucket.",
     "currentAcl": "ACL actuelle : ",
     "private": "Privé",
     "publicRead": "Lecture publique",
@@ -148,22 +149,37 @@
     "viewAcl": "Voir l'ACL",
     "manageAcl": "Gérer l'ACL",
     "modalTitle": "Liste de contrôle d'accès du bucket (ACL)",
-    "aclInfo": "L'ACL (Access Control List) définit qui peut accéder à votre bucket et quelles permissions il a. Choisissez une ACL prédéfinie pour une gestion simple des permissions.",
+    "aclInfo": "L'ACL ne s'applique qu'aux requêtes sans identifiants. Les utilisateurs avec identifiants dépendent de leurs autorisations et de la politique de bucket.",
     "selectLevel": "Sélectionner le niveau de permission",
     "privateLabel": "Privé",
-    "privateDesc": "Le propriétaire obtient FULL_CONTROL. Personne d'autre n'a de droits d'accès.",
+    "privateDesc": "Les requêtes sans identifiants sont refusées.",
     "publicReadLabel": "Lecture publique",
-    "publicReadDesc": "Le propriétaire obtient FULL_CONTROL. Tout le monde (y compris les utilisateurs anonymes) peut LIRE les objets.",
+    "publicReadDesc": "Les requêtes sans identifiants peuvent lire et lister les objets.",
     "publicReadWriteLabel": "Lecture/écriture publique",
-    "publicReadWriteDesc": "Le propriétaire obtient FULL_CONTROL. Tout le monde peut LIRE et ÉCRIRE des objets.",
+    "publicReadWriteDesc": "Les requêtes sans identifiants peuvent aussi écrire et supprimer des objets.",
     "publicReadWriteCaution": "À utiliser avec précaution !",
-    "authenticatedReadLabel": "Lecture authentifiée",
-    "authenticatedReadDesc": "Le propriétaire obtient FULL_CONTROL. Tout utilisateur MaxIOFS authentifié peut LIRE les objets.",
     "publicWarning": "Cette ACL accorde un accès public. Toute personne sur Internet peut accéder à votre bucket.",
     "cancel": "Annuler",
     "saving": "Enregistrement...",
     "saveAcl": "Enregistrer l'ACL",
-    "savedSuccess": "ACL du bucket mise à jour avec succès"
+    "savedSuccess": "ACL du bucket mise à jour avec succès",
+    "ignoredByPublicAccess": "Le blocage de l'accès public ignore cette ACL : les requêtes sans identifiants sont refusées.",
+    "blockedByPublicAccess": "« Bloquer les ACL publiques » est activé : désactivez-le dans Blocage de l'accès public pour choisir une ACL publique."
+  },
+  "publicAccess": {
+    "title": "Blocage de l'accès public",
+    "description": "Annule les autorisations publiques de l'ACL et de la politique de bucket ci-dessous. N'accorde rien par lui-même. Les liens de partage, les URL présignées et l'hébergement de site web statique ne sont pas concernés.",
+    "blockPublicAcls": "Bloquer les ACL publiques",
+    "blockPublicAclsHelp": "Refuse les nouvelles ACL qui donnent accès à tout le monde ou à tout utilisateur authentifié. Les ACL déjà définies sont conservées.",
+    "ignorePublicAcls": "Ignorer les ACL publiques existantes",
+    "ignorePublicAclsHelp": "Les ACL publiques, y compris celles déjà définies, n'accordent rien aux requêtes sans identifiants.",
+    "blockPublicPolicy": "Bloquer les politiques de bucket publiques",
+    "blockPublicPolicyHelp": "Refuse une politique de bucket qui donne accès à tout le monde. Une politique déjà définie est conservée.",
+    "restrictPublicBuckets": "Restreindre les buckets publics",
+    "restrictPublicBucketsHelp": "Une politique de bucket qui donne accès à tout le monde n'accorde rien aux requêtes sans identifiants.",
+    "save": "Enregistrer",
+    "saving": "Enregistrement...",
+    "savedSuccess": "Blocage de l'accès public mis à jour"
   },
   "tags": {
     "title": "Étiquettes",

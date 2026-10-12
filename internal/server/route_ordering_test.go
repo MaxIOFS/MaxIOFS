@@ -26,8 +26,8 @@ func TestRouteOrdering_ClusterNotCapturedByS3(t *testing.T) {
 
 	// Test cluster endpoints WITHOUT authentication
 	clusterEndpoints := []string{
-		"/api/internal/cluster/buckets",
-		"/api/internal/cluster/tenant/test-tenant/storage",
+		"/api/internal/cluster/ha/multipart-uploads",
+		"/api/internal/cluster/ha/object-entry",
 	}
 
 	for _, endpoint := range clusterEndpoints {
@@ -84,7 +84,7 @@ func TestRouteOrdering_ClusterWithValidAuth(t *testing.T) {
 	req, err := proxyClient.CreateAuthenticatedRequest(
 		ctx,
 		"GET",
-		ts.URL+"/api/internal/cluster/buckets?tenant_id=test",
+		ts.URL+"/api/internal/cluster/ha/multipart-uploads?bucket=test",
 		nil,
 		config.NodeID,
 		config.ClusterToken,
@@ -185,7 +185,7 @@ func TestRouteOrdering_BugReproduction(t *testing.T) {
 	ts := httptest.NewServer(server.clusterServer.Handler)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/internal/cluster/buckets")
+	resp, err := http.Get(ts.URL + "/api/internal/cluster/ha/multipart-uploads")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -231,8 +231,8 @@ func TestRouteOrdering_MultipleClusterEndpoints(t *testing.T) {
 		method      string
 		description string
 	}{
-		{"/api/internal/cluster/buckets", "GET", "Bucket aggregation endpoint"},
-		{"/api/internal/cluster/tenant/abc123/storage", "GET", "Storage quota endpoint"},
+		{"/api/internal/cluster/ha/multipart-uploads", "GET", "Multipart uploads endpoint"},
+		{"/api/internal/cluster/ha/object-entry", "GET", "Object entry endpoint"},
 		{"/api/internal/cluster/access-key-sync", "POST", "Access key sync endpoint"},
 		{"/api/internal/cluster/user-sync", "POST", "User sync endpoint"},
 	}

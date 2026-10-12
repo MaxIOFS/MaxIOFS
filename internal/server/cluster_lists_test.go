@@ -22,17 +22,6 @@ func TestABucketOnEveryNodeIsListedOnce(t *testing.T) {
 	require.NoError(t, p.a.bucketManager.CreateBucket(ctx, "", "everywhere", "admin"))
 	require.True(t, hasBucket(p.b, "", "everywhere"))
 
-	listed, err := p.a.bucketAggregator.ListAllBucketsFromAllNodes(ctx, "")
-	require.NoError(t, err)
-	count := 0
-	for _, b := range listed {
-		if b.Name == "everywhere" {
-			count++
-			assert.Equal(t, p.aID, b.NodeID, "the copy of the node asked")
-		}
-	}
-	assert.Equal(t, 1, count)
-
 	w := httptest.NewRecorder()
 	p.a.handleListBuckets(w, asGlobalAdmin(httptest.NewRequest(http.MethodGet, "/api/v1/buckets", nil), nil))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -40,7 +29,7 @@ func TestABucketOnEveryNodeIsListedOnce(t *testing.T) {
 		Data []BucketResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	count = 0
+	count := 0
 	for _, b := range body.Data {
 		if b.Name == "everywhere" {
 			count++

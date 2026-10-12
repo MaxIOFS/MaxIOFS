@@ -7,16 +7,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// tenantBucketCount is the number of buckets a tenant has, on every node of
-// the cluster.
+// tenantBucketCount is the number of buckets a tenant has. Every node of a
+// cluster holds every bucket.
 func (s *Server) tenantBucketCount(ctx context.Context, tenantID string) (int64, error) {
-	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() && s.bucketAggregator != nil {
-		buckets, err := s.bucketAggregator.ListAllBucketsFromAllNodes(ctx, tenantID)
-		if err != nil {
-			return 0, err
-		}
-		return int64(len(buckets)), nil
-	}
 	buckets, err := s.bucketManager.ListBuckets(ctx, tenantID)
 	if err != nil {
 		return 0, err

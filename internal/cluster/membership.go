@@ -152,6 +152,70 @@ func (m *Manager) LeaveRemoval(ctx context.Context) (*NodeList, error) {
 	return &NodeList{Removed: map[string]int64{localID: DeletedAfter(changed)}, SourceNodeID: localID}, nil
 }
 
+// setLocalDrainDone takes this node, drained and holding no write, out of
+// service: it answers no S3 request and reports the end of its drain to the
+// other nodes, which take it out of service too.
+func (m *Manager) setLocalDrainDone(ctx context.Context) error {
+	localID, err := m.GetLocalNodeID(ctx)
+	if err != nil {
+		return err
+	}
+	res, err := m.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ?, updated_at = ?
+		WHERE id = ? AND drained = 1 AND health_status != ?`, HealthStatusDead, time.Now(), localID, HealthStatusDead)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		m.log.Info("This node is drained: it holds no data and is out of service")
+	}
+	return nil
+}
+
+// LocalDrainDone reports whether this node, in a cluster, was drained and
+// holds no data any more.
+func (m *Manager) LocalDrainDone(ctx context.Context) bool {
+	var done int
+	err := m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cluster_config c JOIN cluster_nodes n ON n.id = c.node_id
+		WHERE c.is_cluster_enabled = 1 AND n.drained = 1 AND n.health_status = ?`, HealthStatusDead).Scan(&done)
+	return err == nil && done > 0
+}
+
+// noteDrainDone records what a drained node's last health check said of its
+// drain.
+func (m *Manager) noteDrainDone(nodeID string, done bool) {
+	if done {
+		m.drainsDone.Store(nodeID, true)
+	} else {
+		m.drainsDone.Delete(nodeID)
+	}
+}
+
+// noteDrainProgress records how far a drained node's last health check said
+// it is in moving its objects.
+func (m *Manager) noteDrainProgress(nodeID string, p *DrainProgress) {
+	if p != nil {
+		m.drainProgress.Store(nodeID, p)
+	} else {
+		m.drainProgress.Delete(nodeID)
+	}
+}
+
+// DrainProgressOf is how far a drained node said, at its last health check,
+// it is in moving its objects; nil when it said nothing.
+func (m *Manager) DrainProgressOf(nodeID string) *DrainProgress {
+	if p, ok := m.drainProgress.Load(nodeID); ok {
+		return p.(*DrainProgress)
+	}
+	return nil
+}
+
+// drainDone reports whether a drained node's last health check said it holds
+// no data any more.
+func (m *Manager) drainDone(nodeID string) bool {
+	_, ok := m.drainsDone.Load(nodeID)
+	return ok
+}
+
 // setDrained marks a node drained on every node: the mark travels with the
 // node's other fields.
 func (m *Manager) setDrained(ctx context.Context, q sqlQuerier, nodeID string) error {

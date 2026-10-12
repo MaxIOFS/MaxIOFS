@@ -72,11 +72,8 @@ type Server struct {
 	notificationManager *notifications.Manager
 	replicationManager  *replication.Manager
 	clusterManager      *cluster.Manager
-	clusterRouter       *cluster.Router
 	bucketStateReceiver *cluster.BucketStateReceiver
 	rowStates           *cluster.RowStates
-	bucketAggregator    *cluster.BucketAggregator
-	quotaAggregator     *cluster.QuotaAggregator
 	apiRateLimiter      *auth.APIRateLimiter // per-user S3 API rate limiter
 	tenantSyncMgr       *cluster.TenantSyncManager
 	userSyncMgr         *cluster.UserSyncManager
@@ -492,36 +489,7 @@ func New(cfg *config.Config) (*Server, error) {
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL, clusterURL)
 
 	// Get local node ID from cluster config (if cluster is initialized)
-	localNodeID := ""
-	clusterConfig, err := clusterManager.GetConfig(context.Background())
-	if err == nil {
-		localNodeID = clusterConfig.NodeID
-	}
-
-	// Create adapters for cluster router
-	bucketManagerAdapter := &clusterBucketManagerAdapter{mgr: bucketManager, metaStore: metadataStore}
 	supervise(reg, "replication", replicationManager)
-
-	replicationManagerAdapter := &clusterReplicationManagerAdapter{mgr: replicationManager}
-
-	// Initialize cluster router with adapters
-	clusterRouter := supervise(reg, "clusterRouter", cluster.NewRouter(clusterManager, bucketManagerAdapter, replicationManagerAdapter, localNodeID))
-
-	// Initialize bucket aggregator for cross-node bucket listing
-	bucketAggregator := cluster.NewBucketAggregator(clusterManager, bucketManager)
-
-	// Initialize quota aggregator for cross-node quota checking
-	quotaAggregator := cluster.NewQuotaAggregator(clusterManager)
-
-	// Every node holds the entry of every object: a tenant's usage on this node
-	// is its usage in the cluster, and quota checks read it here.
-	if am, ok := authManager.(interface {
-		SetClusterManager(interface {
-			IsClusterEnabled() bool
-		})
-	}); ok {
-		am.SetClusterManager(clusterManager)
-	}
 
 	// Initialize tenant synchronization manager
 	tenantSyncMgr := supervise(reg, "tenantSync", cluster.NewTenantSyncManager(db, clusterManager))
@@ -668,7 +636,6 @@ func New(cfg *config.Config) (*Server, error) {
 		notificationManager:     notificationManager,
 		replicationManager:      replicationManager,
 		clusterManager:          clusterManager,
-		clusterRouter:           clusterRouter,
 		clusterServer:           clusterServer,
 		bucketStateReceiver:     bucketStateReceiver,
 		rowStates:               rowStates,
@@ -676,8 +643,6 @@ func New(cfg *config.Config) (*Server, error) {
 		antiEntropyScrubber:     antiEntropyScrubber,
 		deadNodeReconciler:      deadNodeReconciler,
 		reg:                     reg,
-		bucketAggregator:        bucketAggregator,
-		quotaAggregator:         quotaAggregator,
 		apiRateLimiter:          apiRateLimiter,
 		tenantSyncMgr:           tenantSyncMgr,
 		userSyncMgr:             userSyncMgr,
@@ -1003,9 +968,6 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		s.clusterManager.StartCertRenewal(ctx)
 		logrus.Info("Cluster certificate renewal checker started")
 
-		s.goWorker("bucket count updater", func() { s.updateBucketCountPeriodically(ctx, 30*time.Second) })
-		logrus.Info("Bucket count updater started")
-
 		if s.tenantSyncMgr != nil {
 			s.tenantSyncMgr.Start(ctx)
 			logrus.Info("Tenant synchronization manager started")
@@ -1246,110 +1208,6 @@ func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName
 	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey, tenantID)
 }
 
-// clusterBucketManagerAdapter adapts bucket.Manager to cluster.BucketManager interface
-type clusterBucketManagerAdapter struct {
-	mgr       bucket.Manager
-	metaStore metadata.Store
-}
-
-// GetBucketTenant answers only for a bucket that lives here: a copy a bucket
-// migration of an earlier version left is not one.
-func (a *clusterBucketManagerAdapter) GetBucketTenant(ctx context.Context, bucket string) (string, error) {
-	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
-	if err != nil {
-		return "", err
-	}
-	if bucketMeta.Moving() {
-		return "", metadata.ErrBucketNotFound
-	}
-	return bucketMeta.TenantID, nil
-}
-
-func (a *clusterBucketManagerAdapter) BucketExists(ctx context.Context, tenant, bucket string) (bool, error) {
-	bucketMeta, err := a.metaStore.GetBucketByName(ctx, bucket)
-	if err != nil {
-		if err == metadata.ErrBucketNotFound {
-			return false, nil
-		}
-		return false, err
-	}
-	// Empty tenant means "look across all tenants" — required by inter-node existence
-	// checks where the caller doesn't know the tenant.
-	return (tenant == "" || bucketMeta.TenantID == tenant) && !bucketMeta.Moving(), nil
-}
-
-// clusterReplicationManagerAdapter adapts replication.Manager to cluster.ReplicationManager interface
-type clusterReplicationManagerAdapter struct {
-	mgr *replication.Manager
-}
-
-func (a *clusterReplicationManagerAdapter) GetReplicationRules(ctx context.Context, tenantID, bucket string) ([]cluster.ReplicationRule, error) {
-	// Get all rules for this tenant
-	rules, err := a.mgr.ListRules(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter rules by bucket and convert to cluster.ReplicationRule
-	var clusterRules []cluster.ReplicationRule
-	for _, rule := range rules {
-		// Check if this rule applies to the bucket
-		if rule.SourceBucket == bucket {
-			clusterRules = append(clusterRules, cluster.ReplicationRule{
-				ID:                  rule.ID,
-				DestinationEndpoint: rule.DestinationEndpoint,
-				DestinationBucket:   rule.DestinationBucket,
-				Enabled:             rule.Enabled,
-			})
-		}
-	}
-
-	return clusterRules, nil
-}
-
-// updateBucketCountPeriodically updates the bucket count for the local node periodically
-func (s *Server) updateBucketCountPeriodically(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Update immediately on start
-	s.updateLocalBucketCount(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.updateLocalBucketCount(ctx)
-		}
-	}
-}
-
-// updateLocalBucketCount counts buckets and updates the local node's bucket_count
-func (s *Server) updateLocalBucketCount(ctx context.Context) {
-	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
-		return
-	}
-
-	// Count total buckets across all tenants
-	buckets, err := s.bucketManager.ListBuckets(ctx, "") // Empty tenant = all buckets
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to count buckets for cluster node update")
-		return
-	}
-
-	bucketCount := len(buckets)
-
-	// Update the cluster node
-	err = s.clusterManager.UpdateLocalNodeBucketCount(ctx, bucketCount)
-	if err != nil {
-		logrus.WithError(err).Warn("Failed to update local node bucket count")
-		return
-	}
-
-	logrus.WithField("bucket_count", bucketCount).Info("Updated local node bucket count")
-}
-
 func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
 	apiRouter := mux.NewRouter()
@@ -1386,7 +1244,6 @@ func (s *Server) setupRoutes() error {
 		s.config.ConsoleListen,
 		s.config.DataDir,
 		s.clusterManager,
-		s.bucketAggregator,
 	)
 	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)
 	apiHandler.SetTenantUsage(s.tenantStorage)
@@ -1406,9 +1263,6 @@ func (s *Server) setupRoutes() error {
 	if s.replicationManager != nil {
 		apiHandler.SetReplicationManager(s.replicationManager)
 	}
-	if s.clusterRouter != nil {
-		apiHandler.SetClusterRouter(s.clusterRouter)
-	}
 	if s.clusterManager != nil {
 		apiHandler.SetUploadRouter(s.clusterManager)
 	}
@@ -1421,6 +1275,10 @@ func (s *Server) setupRoutes() error {
 	s3Router.Use(middleware.S3RequestLog)
 	// S3 HEADERS MUST BE SECOND - ensures headers are present on ALL responses including auth errors
 	s3Router.Use(middleware.S3Headers())
+	// A drained node that holds no data serves no S3 request.
+	s3Router.Use(s.drainedNodeGate)
+	// What bucket policy conditions test: client address and TLS.
+	s3Router.Use(s.policyRequestFacts)
 	// VERBOSE LOGGING - logs EVERY request with full details
 	s3Router.Use(middleware.VerboseLogging())
 	s3Router.Use(middleware.CORS())
@@ -1585,9 +1443,6 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
 	hmac.Use(clusterAuth.ClusterAuth)
 	hmac.HandleFunc("/peer-node", s.handleRegisterPeerNode).Methods("POST")
-	hmac.HandleFunc("/bucket-exists/{name}", s.handleBucketExists).Methods("GET")
-	hmac.HandleFunc("/buckets", s.handleGetLocalBuckets).Methods("GET")
-	hmac.HandleFunc("/tenant/{tenantID}/storage", s.handleGetTenantStorage).Methods("GET")
 	hmac.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
 	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
 	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")

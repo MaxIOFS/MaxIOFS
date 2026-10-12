@@ -23,13 +23,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { formatBytes } from '@/lib/utils';
+import type { DrainProgress } from '@/types';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown' | 'dead' | 'storage_pressure';
 type SyncStatus = 'running' | 'done' | 'failed';
 
-function HealthBadge({ status }: { status: string }) {
+function HealthBadge({ status, drained }: { status: string; drained?: boolean }) {
   const { t } = useTranslation('cluster');
   const s = status as HealthStatus;
+  if (drained && s === 'dead')
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground text-sm font-medium">
+        <PowerOff className="h-4 w-4" /> {t('statusDrained')}
+      </span>
+    );
   if (s === 'healthy')
     return (
       <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
@@ -64,6 +71,51 @@ function HealthBadge({ status }: { status: string }) {
     <span className="inline-flex items-center gap-1 text-muted-foreground text-sm">
       <HelpCircle className="h-4 w-4" /> {t('statusUnknown')}
     </span>
+  );
+}
+
+// timeLeft is a duration in seconds as the language says a time ahead.
+function timeLeft(seconds: number, language: string): string {
+  const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'always' });
+  if (seconds < 90) return rtf.format(Math.ceil(seconds), 'second');
+  if (seconds < 90 * 60) return rtf.format(Math.ceil(seconds / 60), 'minute');
+  if (seconds < 36 * 3600) return rtf.format(Math.round(seconds / 3600), 'hour');
+  return rtf.format(Math.round(seconds / 86400), 'day');
+}
+
+// DrainStatus shows how far a node being drained is in moving its objects.
+function DrainStatus({ status, progress }: { status: string; progress?: DrainProgress }) {
+  const { t, i18n } = useTranslation('cluster');
+  if (status === 'unavailable' || status === 'unknown') {
+    return <p className="mt-1 text-xs font-normal text-amber-600 dark:text-amber-400">{t('drainWaiting')}</p>;
+  }
+  if (!progress) {
+    return <p className="mt-1 text-xs font-normal text-muted-foreground">{t('drainCounting')}</p>;
+  }
+  const movedObjects = progress.total_objects - progress.remaining_objects;
+  const movedBytes = progress.total_bytes - progress.remaining_bytes;
+  const pct = progress.total_bytes > 0
+    ? (movedBytes / progress.total_bytes) * 100
+    : progress.total_objects > 0 ? (movedObjects / progress.total_objects) * 100 : 100;
+  return (
+    <div className="mt-2 w-64 font-normal">
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className="h-1.5 rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t('drainMoved', {
+          moved: movedObjects.toLocaleString(i18n.language),
+          total: progress.total_objects.toLocaleString(i18n.language),
+          movedSize: formatBytes(movedBytes),
+          totalSize: formatBytes(progress.total_bytes),
+        })}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {progress.eta_seconds > 0
+          ? t('drainEta', { when: timeLeft(progress.eta_seconds, i18n.language) })
+          : t('drainEtaUnknown')}
+      </p>
+    </div>
   );
 }
 
@@ -511,7 +563,7 @@ export default function ClusterHA() {
                     : 0;
                 const isPressure = usagePct >= 80;
                 const isLocal = node.id === data.local_node_id;
-                const drainDisabled = isLocal || node.drained || drainMutation.isPending;
+                const drainDisabled = node.drained || drainMutation.isPending;
 
                 return (
                   <tr key={node.id} className="border-b border-border last:border-0 hover:bg-muted/20">
@@ -523,12 +575,17 @@ export default function ClusterHA() {
                           <span className="text-xs text-muted-foreground font-normal">{t('thisNode')}</span>
                         )}
                         {node.drained && (
-                          <span className="text-xs text-muted-foreground font-normal">{t('drainedNode')}</span>
+                          <span className="text-xs text-muted-foreground font-normal">
+                            {node.health_status === 'dead' ? t('drainedNode') : t('drainingNode')}
+                          </span>
                         )}
                       </div>
+                      {node.drained && node.health_status !== 'dead' && (
+                        <DrainStatus status={node.health_status} progress={node.drain_progress} />
+                      )}
                     </td>
                     <td className="px-6 py-4">
-                      <HealthBadge status={node.health_status} />
+                      <HealthBadge status={node.health_status} drained={node.drained} />
                     </td>
                     <td className="px-6 py-4 text-muted-foreground">{formatBytes(node.capacity_used)}</td>
                     <td className="px-6 py-4 text-muted-foreground">{formatBytes(node.capacity_free)}</td>
@@ -558,7 +615,7 @@ export default function ClusterHA() {
                         variant="outline"
                         disabled={drainDisabled}
                         onClick={() => handleDrainNode(node.id, node.name)}
-                        title={isLocal ? t('drainLocalDisabled') : node.drained ? t('drainDrainedDisabled') : t('drainNode')}
+                        title={node.drained ? t('drainDrainedDisabled') : t('drainNode')}
                       >
                         <PowerOff className="h-3.5 w-3.5 mr-1" />
                         {t('drainNode')}

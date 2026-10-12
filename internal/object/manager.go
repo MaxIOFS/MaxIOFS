@@ -594,6 +594,7 @@ func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data
 	if err != nil {
 		return nil, err
 	}
+	setLockFields(storageMetadata, retention, legalHold)
 
 	// Generate versionID if versioning is enabled
 	var versionID string
@@ -1725,9 +1726,20 @@ func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key str
 	}
 
 	obj.Retention = config
+	if err := om.saveLockInSidecar(ctx, om.lockRef(bucket, key, obj), obj.Retention, obj.LegalHold); err != nil {
+		return fmt.Errorf("failed to keep the retention in the sidecar: %w", err)
+	}
 
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
+}
+
+// lockRef is the file of the version obj names.
+func (om *objectManager) lockRef(bucket, key string, obj *Object) storage.ObjectRef {
+	if obj.VersionID != "" {
+		return om.versionRef(bucket, key, obj.VersionID)
+	}
+	return om.objectRef(bucket, key)
 }
 
 func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key string, versionID ...string) (*LegalHoldConfig, error) {
@@ -1765,6 +1777,9 @@ func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key str
 	}
 
 	obj.LegalHold = config
+	if err := om.saveLockInSidecar(ctx, om.lockRef(bucket, key, obj), obj.Retention, obj.LegalHold); err != nil {
+		return fmt.Errorf("failed to keep the legal hold in the sidecar: %w", err)
+	}
 
 	metaObj := toMetadataObject(obj)
 	return om.metadataStore.PutObject(ctx, metaObj)
@@ -2268,6 +2283,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	if err != nil {
 		return nil, err
 	}
+	if err := om.saveLockInSidecar(ctx, objectRef, object.Retention, object.LegalHold); err != nil {
+		return nil, fmt.Errorf("failed to keep the object lock in the sidecar: %w", err)
+	}
 
 	// From this point on PutObjectVersion/PutObject handle cleanup on failure.
 	needsCombinedFileCleanup = false
@@ -2765,7 +2783,8 @@ func isProtectedStorageMetadataKey(key string) bool {
 	case "encrypted", "original-size", "original-etag",
 		"wrapped-dek", "wrapped-dek-iv", "kek-version",
 		"size", "etag", "last_modified",
-		"x-amz-server-side-encryption", "x-amz-server-side-encryption-algorithm":
+		"x-amz-server-side-encryption", "x-amz-server-side-encryption-algorithm",
+		storage.MetadataLockModeField, storage.MetadataLockUntilField, storage.MetadataLegalHoldField:
 		return true
 	}
 	return false

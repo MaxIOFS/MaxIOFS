@@ -18,7 +18,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/kek"
-	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 )
 
@@ -242,22 +241,10 @@ func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Enrich with real bucket counts from local storage
+	// Every node holds every bucket.
 	if s.bucketManager != nil {
-		buckets, err := s.bucketManager.ListBuckets(r.Context(), "")
-		if err == nil {
+		if buckets, err := s.bucketManager.ListBuckets(r.Context(), ""); err == nil {
 			status.TotalBuckets = len(buckets)
-			replicated := 0
-			if s.replicationManager != nil {
-				for _, b := range buckets {
-					rules, err := s.replicationManager.GetRulesForBucket(r.Context(), b.Name)
-					if err == nil && len(rules) > 0 {
-						replicated++
-					}
-				}
-			}
-			status.ReplicatedBuckets = replicated
-			status.LocalBuckets = status.TotalBuckets - replicated
 		}
 	}
 
@@ -755,138 +742,6 @@ func (s *Server) handleGetBucketReplicas(w http.ResponseWriter, r *http.Request)
 		"rules":  views,
 		"total":  len(views),
 	})
-}
-
-// handleGetCacheStats gets bucket location cache statistics
-func (s *Server) handleGetCacheStats(w http.ResponseWriter, r *http.Request) {
-	if s.clusterRouter == nil {
-		s.writeError(w, "Cluster router not initialized", http.StatusServiceUnavailable)
-		return
-	}
-
-	stats := s.clusterRouter.GetCacheStats()
-	s.writeJSON(w, stats)
-}
-
-// handleInvalidateCache invalidates the bucket location cache
-func (s *Server) handleInvalidateCache(w http.ResponseWriter, r *http.Request) {
-	if s.clusterRouter == nil {
-		s.writeError(w, "Cluster router not initialized", http.StatusServiceUnavailable)
-		return
-	}
-
-	var req struct {
-		Bucket string `json:"bucket,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// If bucket is specified, invalidate just that bucket
-	// Otherwise, clear the entire cache
-	if req.Bucket != "" {
-		s.clusterRouter.InvalidateCache(req.Bucket)
-		s.writeJSON(w, map[string]interface{}{
-			"message": "Cache invalidated for bucket: " + req.Bucket,
-		})
-	} else {
-		// To clear entire cache, we need to add a method to Router
-		// For now, return error
-		s.writeError(w, "Bucket parameter is required. To clear entire cache, restart the service.", http.StatusBadRequest)
-		return
-	}
-}
-
-// handleGetLocalBuckets returns buckets from this node only (internal cluster API)
-func (s *Server) handleGetLocalBuckets(w http.ResponseWriter, r *http.Request) {
-	// Extract tenant_id from query parameters
-	tenantID := r.URL.Query().Get("tenant_id")
-
-	// List buckets from local node only
-	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list local buckets")
-		s.writeError(w, "Failed to list buckets: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Convert to BucketWithLocation format
-	bucketsWithLocation := make([]cluster.BucketWithLocation, len(buckets))
-	for i, bucket := range buckets {
-		versioningStr := ""
-		if bucket.Versioning != nil {
-			versioningStr = bucket.Versioning.Status
-		}
-
-		bucketsWithLocation[i] = cluster.BucketWithLocation{
-			Name:        bucket.Name,
-			TenantID:    bucket.TenantID,
-			CreatedAt:   bucket.CreatedAt,
-			Versioning:  versioningStr,
-			ObjectCount: bucket.ObjectCount,
-			SizeBytes:   bucket.TotalSize,
-			Metadata:    bucket.Metadata,
-			Tags:        bucket.Tags,
-			// NodeID and NodeName will be filled by the aggregator
-		}
-	}
-
-	s.writeClusterJSON(w, map[string]interface{}{
-		"buckets": bucketsWithLocation,
-	})
-}
-
-// handleBucketExists checks if a bucket exists on this node (internal cluster API).
-// Returns 200 if the bucket exists locally, 404 if not found.
-func (s *Server) handleBucketExists(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["name"]
-
-	bucketMeta, err := s.metadataStore.GetBucketByName(r.Context(), bucketName)
-	if err != nil {
-		if err == metadata.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-			return
-		}
-		logrus.WithError(err).WithField("bucket", bucketName).Error("Failed to check bucket existence")
-		s.writeError(w, "Failed to check bucket: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if bucketMeta.Moving() {
-		s.writeError(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
-	s.writeClusterJSON(w, map[string]interface{}{
-		"exists": true,
-		"bucket": bucketName,
-	})
-}
-
-// handleGetTenantStorage returns tenant storage usage from this node only (internal cluster API)
-func (s *Server) handleGetTenantStorage(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tenantID := vars["tenantID"]
-
-	// Get tenant from auth manager
-	tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
-	if err != nil {
-		logrus.WithError(err).WithField("tenant_id", tenantID).Error("Failed to get tenant")
-		s.writeError(w, "Failed to get tenant: "+err.Error(), http.StatusNotFound)
-		return
-	}
-
-	// Return storage info in TenantStorageInfo format
-	storageInfo := cluster.TenantStorageInfo{
-		TenantID:            tenant.ID,
-		CurrentStorageBytes: tenant.CurrentStorageBytes,
-		NodeID:              "", // Will be filled by aggregator
-		NodeName:            "", // Will be filled by aggregator
-	}
-
-	s.writeClusterJSON(w, storageInfo)
 }
 
 // handleRegisterPeerNode receives a new peer node registration from another cluster member.

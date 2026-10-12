@@ -25,7 +25,9 @@ type Node struct {
 	// ChangedAt is when the fields every node holds alike last changed (unix
 	// seconds): name, endpoint, API URL, token, region, priority and Drained.
 	ChangedAt int64 `json:"changed_at"`
-	// Drained marks a node an administrator took out of service on every node.
+	// Drained marks a node an administrator takes out of the cluster: it takes
+	// no new data and its copies are moved to the other nodes; once it holds
+	// none it is out of service (dead) on every node.
 	Drained bool `json:"drained"`
 }
 
@@ -40,15 +42,13 @@ type HealthStatus struct {
 
 // ClusterStatus represents overall cluster status
 type ClusterStatus struct {
-	IsEnabled         bool      `json:"is_enabled"`
-	TotalNodes        int       `json:"total_nodes"`
-	HealthyNodes      int       `json:"healthy_nodes"`
-	DegradedNodes     int       `json:"degraded_nodes"`
-	UnavailableNodes  int       `json:"unavailable_nodes"`
-	TotalBuckets      int       `json:"total_buckets"`
-	ReplicatedBuckets int       `json:"replicated_buckets"`
-	LocalBuckets      int       `json:"local_buckets"`
-	LastUpdated       time.Time `json:"last_updated"`
+	IsEnabled        bool      `json:"is_enabled"`
+	TotalNodes       int       `json:"total_nodes"`
+	HealthyNodes     int       `json:"healthy_nodes"`
+	DegradedNodes    int       `json:"degraded_nodes"`
+	UnavailableNodes int       `json:"unavailable_nodes"`
+	TotalBuckets     int       `json:"total_buckets"`
+	LastUpdated      time.Time `json:"last_updated"`
 }
 
 // ClusterConfig represents this node's cluster configuration
@@ -76,6 +76,24 @@ type HealthCheckResult struct {
 	CapacityTotal int64  `json:"capacity_total,omitempty"`
 	CapacityUsed  int64  `json:"capacity_used,omitempty"`
 	BucketCount   int    `json:"bucket_count,omitempty"`
+	// DrainDone is set by a drained node that holds no data any more.
+	DrainDone bool `json:"drain_done,omitempty"`
+	// Drain is how far a drained node is in moving its objects off.
+	Drain *DrainProgress `json:"drain,omitempty"`
+}
+
+// DrainProgress is how far a drained node is in moving its objects to the
+// other nodes, as it counts them: what it held when the move started, and
+// what it holds still. EtaSeconds is the time left at the pace so far; 0 while
+// nothing has moved.
+type DrainProgress struct {
+	StartedAt        time.Time `json:"started_at"`
+	TotalObjects     int64     `json:"total_objects"`
+	TotalBytes       int64     `json:"total_bytes"`
+	RemainingObjects int64     `json:"remaining_objects"`
+	RemainingBytes   int64     `json:"remaining_bytes"`
+	EtaSeconds       int64     `json:"eta_seconds"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // Health status constants
@@ -89,13 +107,17 @@ const (
 )
 
 // InService reports whether a node serves requests and is sent every change:
-// a healthy node, a slow one, or one under storage pressure.
+// a healthy node, a slow one, or one under storage pressure, drained or not.
 func (n *Node) InService() bool {
-	return n.TakesData() || n.HealthStatus == HealthStatusStoragePressure
+	switch n.HealthStatus {
+	case HealthStatusHealthy, HealthStatusDegraded, HealthStatusStoragePressure:
+		return true
+	}
+	return false
 }
 
 // TakesData reports whether a node is given new copies of data: a healthy or
-// slow node, not one under storage pressure.
+// slow node, not one under storage pressure nor one being drained.
 func (n *Node) TakesData() bool {
-	return n.HealthStatus == HealthStatusHealthy || n.HealthStatus == HealthStatusDegraded
+	return !n.Drained && (n.HealthStatus == HealthStatusHealthy || n.HealthStatus == HealthStatusDegraded)
 }

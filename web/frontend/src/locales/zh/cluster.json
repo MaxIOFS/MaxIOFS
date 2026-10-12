@@ -31,7 +31,6 @@
   "failedToRetrieveToken": "获取集群令牌失败",
   "close": "关闭",
 
-  "manageReplication": "管理复制",
   "manageNodes": "管理节点",
 
   "totalNodes": "节点总数",
@@ -44,10 +43,6 @@
   "offlineOrUnreachable": "离线或不可达",
   "totalBuckets": "存储桶总数",
   "acrossAllNodes": "跨所有节点",
-  "replicatedBuckets": "已复制存储桶",
-  "withReplicationConfigured": "已配置复制",
-  "localBuckets": "本地存储桶",
-  "notReplicated": "未复制",
 
   "thisNodeInfo": "此节点信息",
   "nodeNameLabel": "节点名称",
@@ -61,11 +56,6 @@
   "confirmRemoveNode": "您确定要从集群中删除此节点吗？",
   "failedToRemoveNode": "删除节点失败",
   "failedToCheckHealth": "检查节点健康状态失败",
-  "failedToBulkReplication": "配置批量复制失败",
-  "syncIntervalMin10": "同步间隔至少需要 10 秒",
-  "bulkReplicationSuccess": "批量集群复制已配置！\n\n成功：{{created}}\n失败：{{failed}}",
-  "failedBuckets": "失败的存储桶：",
-  "failedBucketsFirst5": "失败的存储桶（前 5 个）：",
 
   "statusHealthy": "健康",
   "statusDegraded": "降级",
@@ -74,7 +64,15 @@
   "statusDead": "已宕机",
   "statusStoragePressure": "存储压力",
   "thisNode": "（此节点）",
-  "drainedNode": "(已退役)",
+  "drainedNode": "(已排空 — 可以移除)",
+  "drainingNode": "(排空中)",
+  "drainWaiting": "正在等待节点响应：节点恢复后将移动其对象。",
+  "drainCounting": "正在统计其对象…",
+  "drainMoved": "已移动 {{moved}}/{{total}} 个对象（{{movedSize}}/{{totalSize}}）",
+  "drainEta": "预计 {{when}} 完成",
+  "drainEtaUnknown": "正在估算剩余时间…",
+  "statusDrained": "已排空",
+  "statusDraining": "排空中",
   "encryptionSecretMismatch": "加密密钥不同",
   "encryptionSecretMismatchHint": "此节点无法解密其他节点存储的凭据。协调节点会在一分钟内向其发送密钥；如果问题仍然存在，请检查两个节点的日志。",
 
@@ -82,11 +80,10 @@
   "clusterDegradedFallback": "集群无法维持配置的复制因子，请添加容量或降低复制因子。",
 
   "drainNode": "排空",
-  "drainLocalDisabled": "无法排空本地节点 — 请从其他集群节点执行排空操作。",
-  "drainDrainedDisabled": "节点已经退役。",
+  "drainDrainedDisabled": "节点已排空或正在排空。",
   "drainNodeConfirmTitle": "排空节点",
-  "drainNodeConfirmBody": "将节点 {{node}} 标记为宕机并立即重新分配其副本？用于计划退役。",
-  "drainNodeSuccess": "节点 {{node}} 已排空 — 重新分配已开始。",
+  "drainNodeConfirmBody": "排空节点 {{node}}？它不再接收新数据，并将其对象移动到其他节点。当它不再持有对象时，将不再响应请求，可以从集群中移除。",
+  "drainNodeSuccess": "已开始排空 {{node}} — 其对象正在移动到其他节点。",
 
   "scrubberTitle": "反熵清理程序",
   "scrubberDesc": "在后台扫描副本以检测和修复静默偏差。",
@@ -105,7 +102,6 @@
   "clusterNodesTitle": "集群节点",
   "manageNodesDesc": "管理您的 MaxIOFS 集群中的节点",
   "refresh": "刷新",
-  "configureNodeReplication": "配置节点复制",
   "addNode": "添加节点",
   "clusterNodesCount": "集群节点 ({{count}})",
 
@@ -113,7 +109,6 @@
   "colEndpoint": "端点",
   "colStatus": "状态",
   "colLatency": "延迟",
-  "colBuckets": "存储桶",
   "colPriority": "优先级",
   "colActions": "操作",
 
@@ -140,50 +135,12 @@
   "metadataJson": "元数据 (JSON)",
   "healthStatus": "健康状态：",
   "latency": "延迟：",
-  "bucketCount": "存储桶数量：",
   "saveChanges": "保存更改",
 
-  "configureNodeReplicationTitle": "配置节点间复制",
-  "bulkReplicationDesc": "这将为<strong>所有本地存储桶</strong>配置集群复制到所选目标节点，节点使用集群令牌进行身份验证，无需凭据。",
-  "targetNode": "目标节点 *",
-  "selectTargetNode": "选择目标节点...",
-  "allBucketsReplicatedHint": "所有本地存储桶将被复制到此节点，注意：本地节点不显示（无法复制到自身）。",
-  "syncInterval": "同步间隔（秒）*",
-  "syncIntervalHint": "最少 10 秒，实时 HA 使用 60，备份使用更高的值。",
-  "configuring": "配置中...",
-  "configureReplication": "配置复制",
 
-  "loadingBuckets": "正在加载存储桶...",
-  "failedToLoadBuckets": "加载存储桶失败",
-  "replicationConfiguredSuccess": "集群复制配置成功！",
-  "failedToConfigureReplication": "配置复制失败",
-  "targetNodeNotFound": "未找到目标节点",
 
-  "clusterBucketReplication": "集群存储桶复制",
-  "clusterBucketReplicationDesc": "配置集群节点之间的高可用复制",
   "allBuckets": "所有存储桶 ({{count}})",
-  "replicated": "已复制 ({{count}})",
-  "localOnly": "仅本地 ({{count}})",
-  "objectsCount": "对象：{{count}}",
-  "sizeLabel": "大小：{{size}}",
-  "statusReplicated": "已复制",
-  "statusLocalOnly": "仅本地",
-  "manageReplicationBtn": "管理复制",
-  "configureReplicationBtn": "配置复制",
-  "noBucketsMatchingFilter": "未找到匹配筛选条件的存储桶",
 
-  "configureClusterReplicationTitle": "配置集群复制",
-  "clusterReplicationInfoTitle": "集群复制",
-  "clusterReplicationInfoDesc": "节点使用集群令牌进行身份验证，无需凭据。对象在复制过程中自动加密/解密。",
-  "sourceBucket": "源存储桶",
-  "destinationNode": "目标节点 *",
-  "selectDestinationNode": "选择目标节点...",
-  "localNodeNotShownHint": "注意：本地节点不显示，集群复制用于不同 MaxIOFS 服务器之间的 HA。",
-  "someNodesUnhealthy": "⚠️ 部分节点不健康，复制可能受到影响。",
-  "syncIntervalHintLong": "最少 10 秒，实时 HA 使用 60，备份使用更高的值（例如 21600 = 6 小时）。",
-  "prefixFilter": "前缀筛选（可选）",
-  "prefixFilterHint": "仅复制键以此前缀开头的对象",
-  "replicateDeletions": "复制删除操作",
   "replicateMetadata": "复制元数据",
 
 
@@ -193,7 +150,6 @@
 
   "bucketLabel": "存储桶 *",
 
-  "loadingNodes2": "正在加载节点...",
 
   "haReplication": "HA 复制",
   "haReplicationDesc": "集群范围复制因子 — 应用于所有节点上的所有存储桶",
@@ -245,7 +201,6 @@
   "syncFailed": "失败",
   "syncPending": "待处理",
 
-  "nodeStorage": "节点存储",
   "nodeStorage_one": "节点存储（{{count}} 个节点）",
   "nodeStorage_other": "节点存储（{{count}} 个节点）",
   "colUsed": "已用",

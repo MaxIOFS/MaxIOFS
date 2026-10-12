@@ -43,6 +43,11 @@ type Manager struct {
 	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
 	nodeRemoved       atomic.Pointer[func(nodeID string)]
 	left              atomic.Pointer[func(localID string)]
+	// drainsDone holds the drained nodes whose last health check said they
+	// hold no data any more, and drainProgress how far the others said they
+	// are in moving their objects.
+	drainsDone    sync.Map
+	drainProgress sync.Map
 }
 
 // OnNodeRemoved sets what runs when a member of the cluster is removed here.
@@ -636,11 +641,7 @@ func (m *Manager) GetClusterStatus(ctx context.Context) (*ClusterStatus, error) 
 		return nil, fmt.Errorf("failed to get cluster status: %w", err)
 	}
 
-	// TODO: Get bucket counts from bucket manager or replication manager
-	// For now, set to 0
 	status.TotalBuckets = 0
-	status.ReplicatedBuckets = 0
-	status.LocalBuckets = 0
 
 	return status, nil
 }
@@ -653,31 +654,6 @@ func generateClusterToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// UpdateNodeBucketCount updates the bucket count for a specific node
-func (m *Manager) UpdateNodeBucketCount(ctx context.Context, nodeID string, bucketCount int) error {
-	_, err := m.db.ExecContext(ctx, `
-		UPDATE cluster_nodes
-		SET bucket_count = ?, updated_at = ?
-		WHERE id = ?
-	`, bucketCount, time.Now(), nodeID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update bucket count: %w", err)
-	}
-
-	return nil
-}
-
-// UpdateLocalNodeBucketCount updates the bucket count for the local node
-func (m *Manager) UpdateLocalNodeBucketCount(ctx context.Context, bucketCount int) error {
-	config, err := m.GetConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster config: %w", err)
-	}
-
-	return m.UpdateNodeBucketCount(ctx, config.NodeID, bucketCount)
 }
 
 // GetNodeToken retrieves the node_token for a given node ID
@@ -910,19 +886,6 @@ func (m *Manager) GetReplicationFactor(ctx context.Context) (int, error) {
 		factor = 1
 	}
 	return factor, nil
-}
-
-// GetLocalTenantStorage returns the current_storage_bytes for a tenant from the
-// local node's DB only.  Used by QuotaAggregator to avoid double-counting when
-// HA replication is active (every node holds the same data).
-func (m *Manager) GetLocalTenantStorage(ctx context.Context, tenantID string) (int64, error) {
-	var bytes int64
-	err := m.db.QueryRowContext(ctx,
-		`SELECT current_storage_bytes FROM tenants WHERE id = ?`, tenantID).Scan(&bytes)
-	if err == sql.ErrNoRows {
-		return 0, nil // tenant not found — no storage used
-	}
-	return bytes, err
 }
 
 // SetReplicationFactor persists the cluster-wide replication factor.

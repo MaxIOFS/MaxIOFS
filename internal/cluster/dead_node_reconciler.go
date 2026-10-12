@@ -132,7 +132,7 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// A drain is an administrator's decision: it applies with automatic
+	// A drain is an administrator's decision: it goes on with automatic
 	// redistribution off as well.
 	r.applyDrains(ctx)
 	if !r.redistributionEnabled(ctx) {
@@ -158,9 +158,11 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	return nil
 }
 
-// DrainNode is invoked by the admin endpoint to immediately mark a node dead,
-// bypassing the threshold timer. The local node cannot be drained via this
-// path — callers must check that before invoking this function.
+// DrainNode starts the drain of a node, asked for by an administrator: the
+// node takes no new data and its copies are moved to the other nodes (see
+// RepairPlacement); once it holds none it is out of service on every node. A
+// drain is refused when the other nodes that take data are fewer than the
+// replication factor.
 func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason string) error {
 	if !r.mgr.IsClusterEnabled() {
 		return fmt.Errorf("cluster is not enabled")
@@ -176,24 +178,43 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 	if node.Drained {
 		return fmt.Errorf("node already drained")
 	}
-	if reason == "" {
-		reason = "manual drain"
+	factor, err := r.mgr.GetReplicationFactor(ctx)
+	if err != nil {
+		return err
 	}
-
 	if node.HealthStatus != HealthStatusDead {
-		if err := r.markDeadIfSafe(ctx, node, reason); err != nil {
-			return err
+		var takers int
+		if err := r.mgr.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0 AND id != ?`,
+			HealthStatusHealthy, HealthStatusDegraded, nodeID,
+		).Scan(&takers); err != nil {
+			return fmt.Errorf("count the nodes that take data: %w", err)
+		}
+		if takers < factor {
+			return ErrDrainBelowReplicationFactor
 		}
 	}
 	if err := r.mgr.setDrained(ctx, r.mgr.db, nodeID); err != nil {
 		return err
 	}
+	if reason == "" {
+		reason = "manual drain"
+	}
+	r.log.WithFields(logrus.Fields{"node_id": nodeID, "reason": reason}).Info("Drain started")
+	node.Drained = true
+	localID, _ := r.mgr.GetLocalNodeID(ctx)
+	r.applyDrain(context.WithoutCancel(ctx), node, localID, factor)
 
 	r.recomputeClusterDegradedState(ctx)
 	return nil
 }
 
-// ApplyDrains marks dead the nodes drained on another node.
+// ErrDrainBelowReplicationFactor is returned when the nodes left to hold a
+// drained node's copies would be fewer than the replication factor.
+var ErrDrainBelowReplicationFactor = errors.New("the other nodes that take data are fewer than the replication factor")
+
+// ApplyDrains acts on the drains made on another node, as the periodic pass
+// does.
 func (r *DeadNodeReconciler) ApplyDrains(ctx context.Context) {
 	if !r.mgr.IsClusterEnabled() {
 		return
@@ -210,14 +231,48 @@ func (r *DeadNodeReconciler) applyDrains(ctx context.Context) {
 		r.log.WithError(err).Warn("Failed to list drained nodes")
 		return
 	}
+	if len(nodes) == 0 {
+		return
+	}
+	factor, err := r.mgr.GetReplicationFactor(ctx)
+	if err != nil {
+		return
+	}
 	localID, _ := r.mgr.GetLocalNodeID(ctx)
 	for _, node := range nodes {
-		if node.ID == localID {
-			continue
-		}
-		if err := r.markDeadIfSafe(ctx, node, "drained"); err != nil && !errors.Is(err, ErrBelowReplicationFactor) {
-			r.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to mark a drained node dead")
-		}
+		r.applyDrain(ctx, node, localID, factor)
+	}
+}
+
+// applyDrain acts on a drained node not yet out of service. Another node that
+// said it holds no data any more is taken out of service, and so is one not in
+// service when its copies are held elsewhere (a factor above 1). Otherwise the
+// copies are moved on: by every node, this one included, and by the drained
+// node itself.
+func (r *DeadNodeReconciler) applyDrain(ctx context.Context, node *Node, localID string, factor int) {
+	var err error
+	switch {
+	case node.ID == localID:
+		r.moveCopies(ctx)
+		return
+	case r.mgr.drainDone(node.ID):
+		// It holds no copy: the nodes left need not hold the factor's.
+		err = r.markDead(ctx, node, "drained", false)
+	case !node.InService() && factor > 1:
+		err = r.markDeadIfSafe(ctx, node, "drained while unavailable")
+	default:
+		r.moveCopies(ctx)
+		return
+	}
+	if err != nil && !errors.Is(err, ErrBelowReplicationFactor) {
+		r.log.WithError(err).WithField("node_id", node.ID).Warn("Failed to take a drained node out of service")
+	}
+}
+
+// moveCopies starts the copy repair, which moves the copies of drained nodes.
+func (r *DeadNodeReconciler) moveCopies(ctx context.Context) {
+	if r.syncer != nil {
+		r.Spawn(func() { r.syncer.Trigger(ctx) })
 	}
 }
 
@@ -232,7 +287,14 @@ func (r *DeadNodeReconciler) findDeadCandidates(ctx context.Context, cutoff time
 }
 
 // markDeadIfSafe marks the node dead unless doing so would reduce the count of
+// nodes that take data below the replication factor.
 func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, reason string) error {
+	return r.markDead(ctx, node, reason, true)
+}
+
+// markDead marks the node dead; with safe, not when the nodes left that take
+// data would be fewer than the replication factor.
+func (r *DeadNodeReconciler) markDead(ctx context.Context, node *Node, reason string, safe bool) error {
 	factor, err := r.mgr.GetReplicationFactor(ctx)
 	if err != nil {
 		factor = 1
@@ -244,19 +306,20 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback on failure is intentional
 
-	// Count the nodes that take data, healthy or slow, excluding the candidate.
-	// Unavailable nodes and nodes under storage pressure do not contribute to
-	// write capacity and are not counted, so an unavailable node reaching the
-	// dead threshold never inflates the safety count.
+	// Count the nodes that take data, healthy or slow and not drained,
+	// excluding the candidate. Unavailable, drained and storage-pressure nodes
+	// do not contribute to write capacity and are not counted, so an
+	// unavailable node reaching the dead threshold never inflates the safety
+	// count.
 	var healthyExcludingCandidate int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND id != ?`,
+		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0 AND id != ?`,
 		HealthStatusHealthy, HealthStatusDegraded, node.ID,
 	).Scan(&healthyExcludingCandidate); err != nil {
 		return fmt.Errorf("count healthy nodes: %w", err)
 	}
 
-	if healthyExcludingCandidate < factor {
+	if safe && healthyExcludingCandidate < factor {
 		r.log.WithFields(logrus.Fields{
 			"node_id":            node.ID,
 			"node_name":          node.Name,
@@ -344,7 +407,7 @@ func (r *DeadNodeReconciler) recomputeClusterDegradedState(ctx context.Context) 
 
 	var healthy int
 	if err := r.mgr.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?)`, HealthStatusHealthy, HealthStatusDegraded,
+		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0`, HealthStatusHealthy, HealthStatusDegraded,
 	).Scan(&healthy); err != nil {
 		r.log.WithError(err).Warn("Failed to count healthy nodes for degraded-state check")
 		return

@@ -1320,6 +1320,234 @@ func TestAnEarlierNodesSyncAndCatchUpSendNoData(t *testing.T) {
 	}
 }
 
+// With a factor above 1 a node does not give the writes it holds itself
+// alone: their other holders keep their copies, and the copy repair gives
+// them all their holders.
+func TestWritesAreNotPlacedAboveAFactorOfOne(t *testing.T) {
+	c := newHACluster(t, 2, 2)
+	a := c.nodes[0]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "mirror", routingAdminID))
+	_, err := a.objectManager.(*cluster.HAObjectManager).Manager.PutObject(ctx, "mirror", "k", strings.NewReader("k"), http.Header{})
+	require.NoError(t, err)
+
+	require.NoError(t, a.haSyncWorker.PlaceWrites(ctx))
+	assert.Empty(t, a.entry(t, "mirror", "k").Locations)
+}
+
+// A drained node's objects are moved to the other nodes, whatever the
+// factor, and it serves them meanwhile. Once it holds none it answers no S3
+// request, its health check included, and the other nodes take it out of
+// service; later writes go to them. A node can drain itself.
+func TestADrainedNodeMovesItsObjectsAndGoesOutOfService(t *testing.T) {
+	for _, factor := range []int{1, 2} {
+		t.Run(fmt.Sprintf("factor %d", factor), func(t *testing.T) {
+			c := newHACluster(t, 3, factor)
+			a, b, far := c.nodes[0], c.nodes[1], c.nodes[2]
+			ctx := context.Background()
+			require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "moving", routingAdminID))
+			require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "movingv", routingAdminID))
+			require.NoError(t, a.bucketManager.SetVersioning(ctx, "", "movingv", &bucket.VersioningConfig{Status: "Enabled"}))
+			type write struct{ bucket, key, versionID, body string }
+			var writes []write
+			for _, k := range []string{"k1", "k2"} {
+				_, err := b.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("moving"), Key: aws.String(k), Body: strings.NewReader(k)})
+				require.NoError(t, err)
+				writes = append(writes, write{"moving", k, "", k})
+			}
+			for _, body := range []string{"one", "two"} {
+				out, err := b.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("movingv"), Key: aws.String("v"), Body: strings.NewReader(body)})
+				require.NoError(t, err)
+				writes = append(writes, write{"movingv", "v", *out.VersionId, body})
+			}
+			for _, wr := range writes {
+				require.True(t, b.holds(t, wr.bucket, wr.key, wr.versionID), "%s/%s starts on b", wr.bucket, wr.key)
+			}
+
+			w := httptest.NewRecorder()
+			b.handleDrainClusterNode(w, asGlobalAdmin(httptest.NewRequest(http.MethodPost, "/api/v1/cluster/nodes/"+b.id+"/drain", nil),
+				map[string]string{"nodeId": b.id}))
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Eventually(t, func() bool {
+				// The periodic pass of every node goes on moving the copies.
+				for _, n := range c.nodes {
+					n.deadNodeReconciler.ApplyDrains(ctx)
+				}
+				return b.clusterManager.LocalDrainDone(ctx)
+			}, 20*time.Second, 100*time.Millisecond, "b ends empty")
+
+			for _, wr := range writes {
+				var holders int
+				for i, n := range c.nodes {
+					e, err := n.metadataStore.GetObject(ctx, wr.bucket, wr.key, wr.versionID)
+					require.NoError(t, err)
+					assert.NotContains(t, e.Locations, b.id, "%s/%s on node %d", wr.bucket, wr.key, i)
+					assert.Len(t, e.Locations, factor, "%s/%s on node %d", wr.bucket, wr.key, i)
+					if n.holds(t, wr.bucket, wr.key, wr.versionID) {
+						holders++
+					}
+				}
+				assert.Equal(t, factor, holders, "%s/%s", wr.bucket, wr.key)
+				assert.False(t, b.holds(t, wr.bucket, wr.key, wr.versionID))
+				for _, n := range []*haNode{a, far} {
+					assert.Equal(t, wr.body, getBody(t, n.s3, wr.bucket, wr.key, func(in *s3.GetObjectInput) {
+						if wr.versionID != "" {
+							in.VersionId = aws.String(wr.versionID)
+						}
+					}))
+				}
+			}
+
+			_, err := b.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("moving"), Key: aws.String("k1")})
+			assert.Equal(t, http.StatusServiceUnavailable, s3Status(err), "b serves no S3 request")
+			var apiURL string
+			require.NoError(t, a.db.QueryRow(`SELECT api_url FROM cluster_nodes WHERE id = ?`, b.id).Scan(&apiURL))
+			resp, err := http.Get(apiURL + "/health")
+			require.NoError(t, err)
+			resp.Body.Close()
+			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "a load balancer takes b out")
+
+			_, err = a.clusterManager.CheckNodeHealth(ctx, b.id)
+			require.NoError(t, err)
+			a.deadNodeReconciler.ApplyDrains(ctx)
+			drained, err := a.clusterManager.GetNode(ctx, b.id)
+			require.NoError(t, err)
+			assert.True(t, drained.Drained)
+			assert.Equal(t, cluster.HealthStatusDead, drained.HealthStatus, "a takes b out of service")
+
+			_, err = a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("moving"), Key: aws.String("after"), Body: strings.NewReader("after")})
+			require.NoError(t, err)
+			assert.False(t, b.holds(t, "moving", "after", ""))
+			assert.Equal(t, "after", getBody(t, far.s3, "moving", "after"))
+		})
+	}
+}
+
+// A drained node keeps the copy no other node takes, and is not empty; the
+// copy moves once a node takes it. The node counts what it holds and what it
+// moved; the other nodes take that from its health check and show it.
+func TestADrainedNodeKeepsWhatNoNodeTakes(t *testing.T) {
+	c := newHACluster(t, 2, 1)
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "kept", routingAdminID))
+	_, err := b.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("kept"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	for _, n := range c.nodes {
+		_, err := n.db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = ?`, b.id)
+		require.NoError(t, err)
+	}
+	b.seesUnderPressure(t, a)
+
+	require.NoError(t, b.haSyncWorker.RepairPlacement(ctx))
+	assert.True(t, b.holds(t, "kept", "k", ""))
+	assert.Equal(t, []string{b.id}, b.entry(t, "kept", "k").Locations)
+	assert.False(t, b.clusterManager.LocalDrainDone(ctx))
+	progress := b.haSyncWorker.DrainProgress()
+	require.NotNil(t, progress)
+	assert.EqualValues(t, 1, progress.TotalObjects)
+	assert.EqualValues(t, 4, progress.TotalBytes)
+	assert.EqualValues(t, 1, progress.RemainingObjects)
+	assert.EqualValues(t, 4, progress.RemainingBytes)
+	assert.Zero(t, progress.EtaSeconds, "nothing moved yet")
+
+	// The other nodes take the progress from its health check, and show it.
+	_, err = a.clusterManager.CheckNodeHealth(ctx, b.id)
+	require.NoError(t, err)
+	seen := a.clusterManager.DrainProgressOf(b.id)
+	require.NotNil(t, seen)
+	assert.EqualValues(t, 1, seen.RemainingObjects)
+	w := httptest.NewRecorder()
+	a.handleGetClusterHA(w, asGlobalAdmin(httptest.NewRequest(http.MethodGet, "/api/v1/cluster/ha", nil), nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"drain_progress":{`)
+	assert.Contains(t, w.Body.String(), `"remaining_bytes":4`)
+
+	_, err = b.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, a.id)
+	require.NoError(t, err)
+	require.NoError(t, b.haSyncWorker.RepairPlacement(ctx))
+	assert.False(t, b.holds(t, "kept", "k", ""))
+	assert.True(t, a.holds(t, "kept", "k", ""))
+	assert.Equal(t, []string{a.id}, a.entry(t, "kept", "k").Locations)
+	assert.True(t, b.clusterManager.LocalDrainDone(ctx))
+	progress = b.haSyncWorker.DrainProgress()
+	require.NotNil(t, progress)
+	assert.EqualValues(t, 1, progress.TotalObjects)
+	assert.Zero(t, progress.RemainingObjects)
+	assert.Zero(t, progress.RemainingBytes)
+}
+
+// A drained node is not empty while a pass cannot tell what it holds: a write
+// that names no node, whose holders it cannot ask about, keeps it in service.
+func TestADrainedNodeIsNotEmptyWhileAPassFails(t *testing.T) {
+	c := newHACluster(t, 2, 1)
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "old", routingAdminID))
+	_, err := b.objectManager.(*cluster.HAObjectManager).Manager.PutObject(ctx, "old", "k", strings.NewReader("old"), http.Header{})
+	require.NoError(t, err)
+	for _, n := range c.nodes {
+		_, err := n.db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = ?`, b.id)
+		require.NoError(t, err)
+	}
+	a.down.Store(true)
+
+	assert.Error(t, b.haSyncWorker.RepairPlacement(ctx))
+	assert.True(t, b.holds(t, "old", "k", ""))
+	assert.False(t, b.clusterManager.LocalDrainDone(ctx))
+}
+
+// A write that names no node, held by a drained node and another, is given
+// the other node alone: no copy is made.
+func TestAWriteHeldByADrainedNodeAndAnotherKeepsTheOther(t *testing.T) {
+	c := newHACluster(t, 2, 1)
+	ctx := context.Background()
+	drained := firstOf(c.nodes...)
+	other := c.except(drained)[0]
+	require.NoError(t, other.bucketManager.CreateBucket(ctx, "", "old", routingAdminID))
+	at := time.Now().Truncate(time.Second)
+	for _, n := range c.nodes {
+		copyCtx := object.WithReplicatedWrittenAt(object.WithReplicatedLastModified(object.WithReplicaCopy(ctx), at), at.UnixNano())
+		_, err := n.objectManager.(*cluster.HAObjectManager).Manager.PutObject(copyCtx, "old", "k", strings.NewReader("old"), http.Header{})
+		require.NoError(t, err)
+		_, err = n.db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = ?`, drained.id)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, drained.haSyncWorker.RepairPlacement(ctx))
+	assert.Equal(t, []string{other.id}, other.entry(t, "old", "k").Locations)
+	assert.False(t, drained.holds(t, "old", "k", ""))
+	assert.True(t, other.holds(t, "old", "k", ""))
+	assert.Zero(t, other.copies.Load(), "the other node already holds it")
+	assert.True(t, drained.clusterManager.LocalDrainDone(ctx))
+}
+
+// A node being drained is given no new copy, and the copy of a write it takes
+// is passed on before the request returns.
+func TestANodeBeingDrainedKeepsNoNewData(t *testing.T) {
+	c := newHACluster(t, 3, 2)
+	a, b, far := c.nodes[0], c.nodes[1], c.nodes[2]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "draining", routingAdminID))
+	for _, n := range c.nodes {
+		_, err := n.db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = ?`, b.id)
+		require.NoError(t, err)
+	}
+
+	for _, via := range []*haNode{a, b} {
+		key := "via-" + via.id
+		_, err := via.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("draining"), Key: aws.String(key), Body: strings.NewReader("data")})
+		require.NoError(t, err)
+		assert.False(t, b.holds(t, "draining", key, ""), key)
+		assert.True(t, a.holds(t, "draining", key, ""), key)
+		assert.True(t, far.holds(t, "draining", key, ""), key)
+		for _, n := range c.nodes {
+			assert.ElementsMatch(t, []string{a.id, far.id}, n.entry(t, "draining", key).Locations, key)
+		}
+		assert.Equal(t, "data", getBody(t, b.s3, "draining", key), "b serves while it drains")
+	}
+}
+
 // innerBuckets is the bucket manager of n below the HA layer: its changes
 // reach no other node.
 func innerBuckets(n *haNode) bucket.Manager {

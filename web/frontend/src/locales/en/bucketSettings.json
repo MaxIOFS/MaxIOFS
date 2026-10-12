@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "Security & Access",
-      "description": "Bucket policy, ACL, and CORS configuration"
+      "description": "Block Public Access, bucket policy, ACL, and CORS configuration"
     },
     "lifecycle": {
       "label": "Lifecycle",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "Bucket Policy",
     "sectionTitle": "Access Policy",
-    "description": "Define fine-grained permissions using JSON policy documents",
+    "description": "Grants or denies actions on this bucket to users of its tenant, or to everyone with Principal \"*\". A Deny here wins over any other permission.",
     "policyActive": "✓ Policy Active",
     "statements_one": "{{count}} statement",
     "statements_other": "{{count}} statements",
@@ -134,12 +134,13 @@
         "name": "Full Public Access",
         "description": "Allow all operations to everyone"
       }
-    }
+    },
+    "blockedByPublicAccess": "\"Block public bucket policies\" is on: a policy that grants access to everyone is refused."
   },
   "acl": {
     "title": "Access Control List (ACL)",
     "sectionTitle": "Bucket Permissions",
-    "description": "Control who can access this bucket",
+    "description": "Decides what requests without credentials may do. Users with credentials are decided by their permissions and the bucket policy.",
     "currentAcl": "Current ACL: ",
     "private": "Private",
     "publicRead": "Public Read",
@@ -148,22 +149,37 @@
     "viewAcl": "View ACL",
     "manageAcl": "Manage ACL",
     "modalTitle": "Bucket Access Control List (ACL)",
-    "aclInfo": "ACL (Access Control List) defines who can access your bucket and what permissions they have. Choose a canned ACL for simple permission management.",
+    "aclInfo": "The ACL applies only to requests without credentials. Users with credentials are decided by their permissions and the bucket policy.",
     "selectLevel": "Select Permission Level",
     "privateLabel": "Private",
-    "privateDesc": "Owner gets FULL_CONTROL. No one else has access rights.",
+    "privateDesc": "Requests without credentials are denied.",
     "publicReadLabel": "Public Read",
-    "publicReadDesc": "Owner gets FULL_CONTROL. Anyone (including anonymous users) can READ objects.",
+    "publicReadDesc": "Requests without credentials can read and list the objects.",
     "publicReadWriteLabel": "Public Read/Write",
-    "publicReadWriteDesc": "Owner gets FULL_CONTROL. Anyone can READ and WRITE objects.",
+    "publicReadWriteDesc": "Requests without credentials can also write and delete objects.",
     "publicReadWriteCaution": "Use with caution!",
-    "authenticatedReadLabel": "Authenticated Read",
-    "authenticatedReadDesc": "Owner gets FULL_CONTROL. Any authenticated MaxIOFS user can READ objects.",
     "publicWarning": "This ACL grants public access. Anyone on the internet can access your bucket.",
     "cancel": "Cancel",
     "saving": "Saving...",
     "saveAcl": "Save ACL",
-    "savedSuccess": "Bucket ACL updated successfully"
+    "savedSuccess": "Bucket ACL updated successfully",
+    "ignoredByPublicAccess": "Block Public Access ignores this ACL: requests without credentials are denied.",
+    "blockedByPublicAccess": "\"Block public ACLs\" is on: turn it off in Block Public Access to choose a public ACL."
+  },
+  "publicAccess": {
+    "title": "Block Public Access",
+    "description": "Overrides the public grants of the ACL and the bucket policy below. It grants nothing itself. Share links, presigned URLs and static website hosting are not affected.",
+    "blockPublicAcls": "Block public ACLs",
+    "blockPublicAclsHelp": "Refuses new ACLs that grant access to everyone or to any authenticated user. ACLs already set are kept.",
+    "ignorePublicAcls": "Ignore existing public ACLs",
+    "ignorePublicAclsHelp": "Public ACLs, including those already set, grant nothing to requests without credentials.",
+    "blockPublicPolicy": "Block public bucket policies",
+    "blockPublicPolicyHelp": "Refuses a bucket policy that grants access to everyone. A policy already set is kept.",
+    "restrictPublicBuckets": "Restrict public buckets",
+    "restrictPublicBucketsHelp": "A bucket policy that grants access to everyone grants nothing to requests without credentials.",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedSuccess": "Block Public Access updated"
   },
   "tags": {
     "title": "Tags",

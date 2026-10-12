@@ -25,11 +25,11 @@
 
 ## Overview
 
-MaxIOFS provides complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster with intelligent request routing, automatic health monitoring, and seamless failover. In v0.9.0-beta, cluster sync was extended to 6 entity types with tombstone-based deletion sync to prevent entity resurrection.
+MaxIOFS provides complete multi-node cluster support for high availability (HA) and automatic failover. Multiple MaxIOFS instances work together as a unified storage cluster: every node holds every bucket and serves any request, with automatic health monitoring and failover. In v0.9.0-beta, cluster sync was extended to 6 entity types with tombstone-based deletion sync to prevent entity resurrection.
 
 ### Key Features
 
-- ✅ Multi-node cluster support with smart routing
+- ✅ Multi-node cluster support: any node serves any request
 - ✅ **Dedicated cluster port 8082** — inter-node traffic is fully separated from S3 (8080) and console (8081)
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
@@ -40,7 +40,6 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ Automatic synchronization for 6 entity types (users, tenants, access keys, bucket permissions, IDPs, group mappings)
 - ✅ Tombstone-based deletion sync (prevents entity resurrection)
 - ✅ Health monitoring (30-second intervals)
-- ✅ Bucket location cache (5ms vs 50ms latency)
 - ✅ Every node holds every bucket; each object's copies go to the nodes with the most free space, whatever the factor
 - ✅ **Partitions and long absences** — writes and deletions are ordered by time; a deletion is kept until every node has it
 - ✅ Web-based cluster management dashboard
@@ -184,21 +183,14 @@ and its health checks, synchronization and the requests forwarded to it fail.
 - Handles node registration/removal
 - Tracks nodes in SQLite database (`cluster_config`, `cluster_nodes`)
 
-**2. Smart Router**
-- Every node holds every bucket and serves it
-- A request about a bucket that has not reached this node yet goes to the node that holds it: after an update from a version that kept each bucket on one node, until the nodes have sent each other their buckets
-- Bucket names are unique in the cluster: creating a bucket another node holds answers `409`
-- Caches the node of such a bucket (5-minute TTL)
+**2. Request handling**
+- Every node holds every bucket and serves any request about it; an object whose data another node holds is read from that node
+- A request about a multipart upload goes to the node the upload was started on
 
 **3. Health Checker**
 - Monitors all nodes every 30 seconds
 - Measures network latency
 - Updates status: healthy (<1s), degraded (1-5s), unavailable (>5s)
-
-**4. Bucket Location Cache**
-- In-memory cache of the node of a bucket this node does not hold, 5-minute TTL
-- A bucket this node holds is served here, whatever the cache says
-- A forwarded request answered `503` with `X-MaxIOFS-Bucket-Not-Here` (the bucket is not on that node) removes the entry; the client's retry is routed again
 
 ---
 
@@ -407,11 +399,6 @@ Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
 - **Timeout**: 5 seconds
 - To modify: Edit `internal/cluster/manager.go` → `healthCheckInterval`
 
-### Cache Configuration
-
-- **TTL**: 5 minutes (hardcoded)
-- To modify: Edit `NewRouter` in `internal/cluster/router.go`
-
 ---
 
 ## Cluster Replication
@@ -498,7 +485,7 @@ a factor of 1 an object has one copy.
 - The copies follow the factor. When a node holding copies is removed or marked dead, when the factor changes, and after each full anti-entropy cycle, a write with fewer copies than the factor is copied to the healthy nodes with the most free space; one with more copies keeps the copy of the node that repairs it and those of the nodes with the most free space, and the others remove theirs. Each write is repaired by the first of its living holders by node ID. A new node gets no copies of the writes made before it joined.
 - Each change of where a write's copies are is numbered. Every node keeps the newest, whichever order the changes, entries and copies arrive in: an entry or a copy with older locations does not change them, and a copy is stored only on a node they name. The anti-entropy compares the numbers too and sends a node with older locations the newer entry.
 - Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. A higher factor adds the copies once the first syncs end; a lower one removes the copies it does not need.
-- After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, a request about a bucket it lacks goes to the node that holds it, and a bucket it has may not list every object yet.
+- After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, it answers `NoSuchBucket` for a bucket it lacks and may not list every object of one it has: update every node, and send traffic once the HA page shows the sync jobs done.
 - An object written before the cluster kept where its data is names no node. The copy repair asks every other healthy node which of these it holds; the first of the holders by node ID gives each its holders, trimmed to the factor, and makes the copies it lacks. Without the answer of every healthy node it waits for the next repair.
 - The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, as their last health checks found their disks.
 
@@ -580,7 +567,13 @@ Every node holds the list of nodes. A change to a node (name, region, priority, 
 
 - **Remove** (console, any other node): every node removes it, and no node that still lists it adds it back: a node joins under a new ID every time, so a removal is final. The removed node is answered `410 Gone` the next time it contacts the cluster, and leaves. Its data stays on its disk.
 - **Leave** (console, the node itself): the node tells every node it reaches to remove it, then leaves. The others pass the removal on. A node that leaves, or is removed, drops the entries of the objects the other nodes hold and keeps those it holds; an entry naming no node is held where its file is.
-- **Drain** (console, any other node): planned decommissioning. Every node marks the node dead and makes the copies it held again elsewhere. A drained node stays out of service even when it answers. Refused with `409` when it would leave fewer healthy nodes than the replication factor.
+- **Drain** (console of any node, the drained one included): planned decommissioning, with any factor.
+  - The node takes no new copy of data. A write it takes is passed, before the request returns, to the node with the most free space; multipart uploads started on it finish there and pass the object on.
+  - It serves reads and is sent every entry, delete and change while its objects are moved: each copy it holds is made on the nodes that take data with the most free space, then dropped from it. The copy repair does this when the drain starts and at every pass of the dead-node reconciler (`ha.redistribution_check_interval_minutes`, 5).
+  - The HA page shows the move: the objects and bytes the node held when it started, what it moved, and the expected end at the pace so far. The drained node counts them, and the other nodes take them from its health check.
+  - Once a pass finds it holding no data, it answers every S3 request with `503`, `/health` included, so load balancers stop sending it requests; the console still answers. Every node then marks it dead (drained). It can be removed from the cluster. Multipart uploads still open on it are lost when it is removed.
+  - A drained node that does not answer is marked dead at once when its copies are held elsewhere (factor 2 or 3); with a factor of 1 it is waited for, and its objects are moved when it is back.
+  - Refused with `409` when the other nodes that take data would be fewer than the replication factor. A drained node stays out of service even when it answers.
 - **Dead**: a node unreachable for longer than `ha.dead_node_threshold_hours` (24 hours) is marked dead by each node from its own health checks. When it answers again it is back in service and is compared on every write: the copies it held were made again elsewhere meanwhile, and their new locations reach it.
 - **Slow**: a node whose health check takes over a second is shown as degraded. It stays in service and takes data like a healthy one.
 - **Storage pressure**: a node whose disk reaches `ha.storage_pressure_threshold_percent` (90 %) is under storage pressure until it drops below `ha.storage_pressure_release_percent` (85 %), and the console is alerted both ways. It stays in service: its buckets are found and listed from every node, it is sent every entry, delete and change, and it counts as alive. It takes no new copy of data: writes, repairs and moves place copies on the other nodes.
@@ -643,12 +636,11 @@ POST /api/v1/cluster/replication
 ### Cluster Overview
 
 **Status Cards:**
-- Total/Healthy/Degraded/Unavailable Nodes
-- Total/Replicated/Local Buckets
+- Total/Healthy/Degraded/Unavailable Nodes, Total Buckets
 
 **Nodes Table Columns:**
 - Name, Endpoint, Health Status (🟢/🟡/🔴/⚪)
-- Latency (ms), Capacity (used/total), Buckets count
+- Latency (ms), Capacity (used/total)
 - Priority, Last Seen, Actions (Edit/Remove)
 
 ### Dialogs
@@ -899,25 +891,7 @@ ssh node2 "date -u"
 - Ensure both nodes have same cluster token
 - Use NTP to synchronize clocks (max 5 minutes skew allowed)
 
-### 4. Bucket Location Cache Issues
-
-**Symptoms:** Requests routed to wrong node, 404 errors for existing objects
-
-**Diagnosis:**
-```bash
-# Check cache stats
-curl -X GET "http://localhost:8081/api/v1/cluster/cache/stats" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Fixes:**
-```bash
-# Forget the cached location of one bucket
-curl -X POST "http://localhost:8081/api/v1/cluster/cache/invalidate" \
-  -H "Authorization: Bearer $TOKEN" -d '{"bucket":"my-bucket"}'
-```
-
-### 5. High Replication Lag
+### 4. High Replication Lag
 
 **Symptoms:** `objects_pending` count increasing, slow replication
 
@@ -935,7 +909,7 @@ scp large-file.bin node2:/tmp/
 - Upgrade network or reduce sync frequency
 - Increase `sync_interval_seconds` for large object buckets
 
-### 6. Dashboard Not Loading
+### 5. Dashboard Not Loading
 
 **Symptoms:** Loading spinner forever, console errors
 

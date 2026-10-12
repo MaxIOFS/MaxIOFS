@@ -28,7 +28,22 @@ type AccessRequest struct {
 	Action   string
 	Resource string
 	Owner    ResourceOwner
+	// BucketPolicy is the answer of the policy of the bucket the resource is
+	// in, decided by the caller: this package cannot read buckets.
+	BucketPolicy BucketPolicyDecision
 }
+
+// BucketPolicyDecision is a bucket policy's answer to a request.
+type BucketPolicyDecision int
+
+const (
+	// BucketPolicyNoMatch: no statement of the policy applies, or there is none.
+	BucketPolicyNoMatch BucketPolicyDecision = iota
+	// BucketPolicyAllow: a statement allows the request and none denies it.
+	BucketPolicyAllow
+	// BucketPolicyDeny: a statement denies the request.
+	BucketPolicyDeny
+)
 
 // ResourceOwner names the account a resource belongs to.
 //
@@ -54,6 +69,10 @@ func OwnedBy(tenantID string) ResourceOwner {
 // The account boundary is enforced here rather than by each caller. It is not
 // expressible in a policy document, so leaving it to the call sites meant every
 // new one had to remember it, and the ones that forgot read across tenants.
+//
+// As in AWS, the bucket policy and the principal's policies decide together: a
+// Deny in either refuses, an Allow in either grants. The account boundary and a
+// session policy bound both.
 func (p *PolicySet) Allows(req AccessRequest) bool {
 	if p == nil {
 		return false
@@ -65,8 +84,17 @@ func (p *PolicySet) Allows(req AccessRequest) bool {
 	if !p.mayReachAccount(req) {
 		return false
 	}
-	return EvaluateSessionPolicy(p.SessionPolicy, req.Action, req.Resource) &&
-		EvaluateIAMDocuments(p.Documents, req.Action, req.Resource)
+	if req.BucketPolicy == BucketPolicyDeny {
+		return false
+	}
+	if !EvaluateSessionPolicy(p.SessionPolicy, req.Action, req.Resource) {
+		return false
+	}
+	allowed, denied := evaluateIAMDocuments(p.Documents, req.Action, req.Resource)
+	if denied {
+		return false
+	}
+	return allowed || req.BucketPolicy == BucketPolicyAllow
 }
 
 // AllowsOwnAccount answers for a resource that belongs to no tenant — the

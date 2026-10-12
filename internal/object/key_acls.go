@@ -79,3 +79,16 @@ func resolveKeyACL(ctx context.Context, store metadata.Store, rest string) (stri
 	}
 	return "", "", false
 }
+
+// IsPublic reports whether the ACL grants anything to a public group.
+func (a *ACL) IsPublic() bool {
+	if a == nil {
+		return false
+	}
+	for _, g := range a.Grants {
+		if acl.IsPublicGroup(g.Grantee.URI) {
+			return true
+		}
+	}
+	return false
+}

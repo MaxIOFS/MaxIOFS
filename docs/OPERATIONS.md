@@ -203,12 +203,12 @@ This section covers how to add, remove, and handle nodes in a cluster.
    - Wait for a grace period (e.g., 5–10 minutes) to allow in‑flight requests to finish.
 
 2. **Drain the node** (Cluster → HA → Drain)
-   - Every node holds every bucket; the node holds a copy of some objects.
-   - With a replication factor of 2 or 3, the copies the node held are made again on the other nodes.
-   - With a replication factor of 1, the node holds the only copy of its objects: they are unreadable once it is drained.
+   - The node takes no new data and its objects are moved to the nodes with the most free space, with any replication factor. It serves reads while they move.
+   - The HA page shows it **Draining**, with the objects and bytes moved and the expected end, then **Drained** once it holds no data. A drained node answers no S3 request (`503`, `/health` included).
+   - Multipart uploads open on it are lost when it is removed: let them finish first.
 
 3. **Verify cluster state**
-   - Confirm replication queues are empty or at expected levels.
+   - Confirm the node shows **Drained** and replication queues are empty or at expected levels.
 
 4. **Remove from cluster configuration**
    - Mark the node as removed in the Cluster settings (see `CLUSTER.md` for exact steps).
@@ -387,7 +387,8 @@ maxiofs recover --data-dir /var/lib/maxiofs                 --recovery-bundle /p
 ```
 
 Every object file carries a `.metadata` sidecar with everything needed to
-rebuild its entry (size, ETag, content-type, encryption envelope). With the
+rebuild its entry (size, ETag, content-type, encryption envelope, and the
+retention and legal hold of an Object Lock version). With the
 recovery bundle, the tool verifies that every encrypted object's key material
 unwraps and restores the encryption keys into the database so the server can
 decrypt after the rebuild. `--dry-run` reports without writing anything.
@@ -401,6 +402,10 @@ decrypt after the rebuild. `--dry-run` reports without writing anything.
 - **Objects whose key material cannot be verified** (e.g. corrupt sidecar
   entry) are still indexed — hiding them would make them unrecoverable — and
   listed as failures in the report for the operator.
+- **Object Lock** state comes back with each version: its retention and legal
+  hold. A version stored by an earlier release gets them in its sidecar at the
+  encryption worker's first pass after the update. User metadata, tags and
+  ACLs live only in the metadata store and do not come back.
 - If the database still holds encryption keys, the restore never overwrites
   existing key material (same version + different material aborts with an
   error) and keeps the database's current-key marker.
@@ -414,7 +419,7 @@ Restores in a cluster are more complex. **Preferred** strategy:
 - Avoid partial restores of individual nodes unless strictly necessary.
 - Instead:
   - Bring up a **new node** from a backup and join it to the cluster.
-  - Drain the old nodes: with a factor of 2 or 3 their copies are made again on the other nodes.
+  - Drain the old nodes: their objects are moved to the other nodes.
 
 If you must restore a specific node:
 
@@ -600,7 +605,7 @@ No error messages during open means WAL replay succeeded. If you see `pebble: co
 ### Node Shows as Dead
 
 1. A node unreachable for longer than `ha.dead_node_threshold_hours` is marked dead by each node; it is back in service when it answers again.
-2. A drained node stays dead: remove it from the cluster.
+2. A drained node is dead once it holds no data, and stays so: remove it from the cluster.
 3. Ensure:
    - Node’s time is synchronized (NTP).
    - Network between nodes is stable.

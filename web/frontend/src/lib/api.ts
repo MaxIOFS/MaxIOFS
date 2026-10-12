@@ -7,6 +7,7 @@ import {
 } from '@/lib/pendingPasswordChange';
 import type {
   APIResponse,
+  PublicAccessBlockConfig,
   User,
   LoginRequest,
   LoginResponse,
@@ -59,8 +60,8 @@ import type {
   AddNodeRequest,
   UpdateNodeRequest,
   NodeHealthStatus,
-  CacheStats,
   ListNodesResponse,
+  DrainProgress,
   LatenciesResponse,
   ThroughputResponse,
   SearchObjectsRequest,
@@ -1278,6 +1279,11 @@ export class APIClient {
     await apiClient.put(url, { status });
   }
 
+  static async putPublicAccessBlock(bucketName: string, config: PublicAccessBlockConfig, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/public-access-block?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/public-access-block`;
+    await apiClient.put(url, config);
+  }
+
   // Object Legal Hold
   static async getObjectLegalHold(bucketName: string, objectKey: string, tenantId?: string): Promise<{ status: string }> {
     const params = new URLSearchParams();
@@ -2004,15 +2010,7 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async getCacheStats(): Promise<CacheStats> {
-    const response = await apiClient.get<APIResponse<CacheStats>>('/cluster/cache/stats');
-    return response.data.data!;
-  }
 
-  static async invalidateCache(bucket?: string): Promise<{ message: string }> {
-    const response = await apiClient.post<APIResponse<{ message: string }>>('/cluster/cache/invalidate', { bucket });
-    return response.data.data!;
-  }
 
   static async getBucketReplicas(bucket: string): Promise<{ bucket: string; rules: any[]; total: number }> {
     const response = await apiClient.get<APIResponse<{ bucket: string; rules: any[]; total: number }>>(`/cluster/buckets/${bucket}/replicas`);
@@ -2035,6 +2033,7 @@ export class APIClient {
       capacity_used: number;
       capacity_free: number;
       drained: boolean;
+      drain_progress?: DrainProgress;
     }>;
   }> {
     const response = await apiClient.get('/cluster/ha');

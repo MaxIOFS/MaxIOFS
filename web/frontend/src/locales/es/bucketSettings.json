@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "Seguridad y Acceso",
-      "description": "Política del bucket, ACL y configuración CORS"
+      "description": "Bloqueo de acceso público, política del bucket, ACL y configuración CORS"
     },
     "lifecycle": {
       "label": "Ciclo de Vida",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "Política del Bucket",
     "sectionTitle": "Política de Acceso",
-    "description": "Define permisos detallados mediante documentos de política JSON",
+    "description": "Concede o deniega acciones sobre este bucket a usuarios de su tenant, o a todo el mundo con Principal \"*\". Un Deny aquí gana a cualquier otro permiso.",
     "policyActive": "✓ Política Activa",
     "statements_one": "{{count}} declaración",
     "statements_other": "{{count}} declaraciones",
@@ -134,12 +134,13 @@
         "name": "Acceso Público Completo",
         "description": "Permitir todas las operaciones a cualquier usuario"
       }
-    }
+    },
+    "blockedByPublicAccess": "\"Bloquear políticas de bucket públicas\" está activo: se rechaza una política que dé acceso a todo el mundo."
   },
   "acl": {
     "title": "Lista de Control de Acceso (ACL)",
     "sectionTitle": "Permisos del Bucket",
-    "description": "Controla quién puede acceder a este bucket",
+    "description": "Decide qué pueden hacer las peticiones sin credenciales. A los usuarios con credenciales los deciden sus permisos y la política del bucket.",
     "currentAcl": "ACL actual: ",
     "private": "Privado",
     "publicRead": "Lectura Pública",
@@ -148,22 +149,37 @@
     "viewAcl": "Ver ACL",
     "manageAcl": "Gestionar ACL",
     "modalTitle": "Lista de Control de Acceso (ACL) del Bucket",
-    "aclInfo": "La ACL (Lista de Control de Acceso) define quién puede acceder a tu bucket y qué permisos tienen. Elige una ACL predefinida para una gestión de permisos sencilla.",
+    "aclInfo": "El ACL solo se aplica a peticiones sin credenciales. A los usuarios con credenciales los deciden sus permisos y la política del bucket.",
     "selectLevel": "Seleccionar Nivel de Permisos",
     "privateLabel": "Privado",
-    "privateDesc": "El propietario obtiene FULL_CONTROL. Nadie más tiene derechos de acceso.",
+    "privateDesc": "Las peticiones sin credenciales se deniegan.",
     "publicReadLabel": "Lectura Pública",
-    "publicReadDesc": "El propietario obtiene FULL_CONTROL. Cualquiera (incluidos usuarios anónimos) puede LEER objetos.",
+    "publicReadDesc": "Las peticiones sin credenciales pueden leer y listar los objetos.",
     "publicReadWriteLabel": "Lectura/Escritura Pública",
-    "publicReadWriteDesc": "El propietario obtiene FULL_CONTROL. Cualquiera puede LEER y ESCRIBIR objetos.",
+    "publicReadWriteDesc": "Las peticiones sin credenciales también pueden escribir y borrar objetos.",
     "publicReadWriteCaution": "¡Usar con precaución!",
-    "authenticatedReadLabel": "Lectura Autenticada",
-    "authenticatedReadDesc": "El propietario obtiene FULL_CONTROL. Cualquier usuario autenticado de MaxIOFS puede LEER objetos.",
     "publicWarning": "Esta ACL otorga acceso público. Cualquier persona en internet puede acceder a tu bucket.",
     "cancel": "Cancelar",
     "saving": "Guardando...",
     "saveAcl": "Guardar ACL",
-    "savedSuccess": "ACL del bucket actualizada correctamente"
+    "savedSuccess": "ACL del bucket actualizada correctamente",
+    "ignoredByPublicAccess": "El bloqueo de acceso público ignora este ACL: las peticiones sin credenciales se deniegan.",
+    "blockedByPublicAccess": "\"Bloquear ACLs públicos\" está activo: desactívalo en Bloqueo de acceso público para elegir un ACL público."
+  },
+  "publicAccess": {
+    "title": "Bloqueo de acceso público",
+    "description": "Anula las concesiones públicas del ACL y de la política del bucket de abajo. No concede nada por sí mismo. No afecta a los enlaces compartidos, las URLs prefirmadas ni el hosting de sitio web estático.",
+    "blockPublicAcls": "Bloquear ACLs públicos",
+    "blockPublicAclsHelp": "Rechaza ACLs nuevos que den acceso a todo el mundo o a cualquier usuario autenticado. Los ACLs ya puestos se conservan.",
+    "ignorePublicAcls": "Ignorar ACLs públicos existentes",
+    "ignorePublicAclsHelp": "Los ACLs públicos, incluidos los ya puestos, no conceden nada a peticiones sin credenciales.",
+    "blockPublicPolicy": "Bloquear políticas de bucket públicas",
+    "blockPublicPolicyHelp": "Rechaza una política de bucket que dé acceso a todo el mundo. La política ya puesta se conserva.",
+    "restrictPublicBuckets": "Restringir buckets públicos",
+    "restrictPublicBucketsHelp": "Una política de bucket que da acceso a todo el mundo no concede nada a peticiones sin credenciales.",
+    "save": "Guardar",
+    "saving": "Guardando...",
+    "savedSuccess": "Bloqueo de acceso público actualizado"
   },
   "tags": {
     "title": "Etiquetas",

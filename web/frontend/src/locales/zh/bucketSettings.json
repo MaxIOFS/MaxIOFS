@@ -7,7 +7,7 @@
     },
     "security": {
       "label": "安全与访问",
-      "description": "存储桶策略、ACL 和 CORS 配置"
+      "description": "阻止公共访问、存储桶策略、ACL 和 CORS 配置"
     },
     "lifecycle": {
       "label": "生命周期",
@@ -90,7 +90,7 @@
   "policy": {
     "title": "存储桶策略",
     "sectionTitle": "访问策略",
-    "description": "使用 JSON 策略文档定义细粒度权限",
+    "description": "向其租户的用户，或通过 Principal \"*\" 向所有人允许或拒绝对此存储桶的操作。此处的 Deny 优先于任何其他权限。",
     "policyActive": "✓ 策略已激活",
     "statements_one": "{{count}} 条声明",
     "statements_other": "{{count}} 条声明",
@@ -134,12 +134,13 @@
         "name": "完全公开访问",
         "description": "允许所有人执行所有操作"
       }
-    }
+    },
+    "blockedByPublicAccess": "“阻止公共存储桶策略”已开启：向所有人授予访问权限的策略将被拒绝。"
   },
   "acl": {
     "title": "访问控制列表 (ACL)",
     "sectionTitle": "存储桶权限",
-    "description": "控制谁可以访问此存储桶",
+    "description": "决定没有凭证的请求可以做什么。有凭证的用户由其权限和存储桶策略决定。",
     "currentAcl": "当前 ACL：",
     "private": "私有",
     "publicRead": "公开读取",
@@ -148,22 +149,37 @@
     "viewAcl": "查看 ACL",
     "manageAcl": "管理 ACL",
     "modalTitle": "存储桶访问控制列表 (ACL)",
-    "aclInfo": "ACL（访问控制列表）定义谁可以访问您的存储桶以及他们拥有什么权限。选择预设 ACL 以进行简单的权限管理。",
+    "aclInfo": "ACL 仅适用于没有凭证的请求。有凭证的用户由其权限和存储桶策略决定。",
     "selectLevel": "选择权限级别",
     "privateLabel": "私有",
-    "privateDesc": "所有者获得 FULL_CONTROL，其他人没有访问权限。",
+    "privateDesc": "没有凭证的请求将被拒绝。",
     "publicReadLabel": "公开读取",
-    "publicReadDesc": "所有者获得 FULL_CONTROL，任何人（包括匿名用户）都可以读取对象。",
+    "publicReadDesc": "没有凭证的请求可以读取和列出对象。",
     "publicReadWriteLabel": "公开读写",
-    "publicReadWriteDesc": "所有者获得 FULL_CONTROL，任何人都可以读取和写入对象。",
+    "publicReadWriteDesc": "没有凭证的请求还可以写入和删除对象。",
     "publicReadWriteCaution": "请谨慎使用！",
-    "authenticatedReadLabel": "已认证读取",
-    "authenticatedReadDesc": "所有者获得 FULL_CONTROL，任何已认证的 MaxIOFS 用户都可以读取对象。",
     "publicWarning": "此 ACL 授予公开访问权限，互联网上的任何人都可以访问您的存储桶。",
     "cancel": "取消",
     "saving": "保存中...",
     "saveAcl": "保存 ACL",
-    "savedSuccess": "存储桶 ACL 更新成功"
+    "savedSuccess": "存储桶 ACL 更新成功",
+    "ignoredByPublicAccess": "阻止公共访问设置会忽略此 ACL：没有凭证的请求将被拒绝。",
+    "blockedByPublicAccess": "“阻止公共 ACL”已开启：请在阻止公共访问中将其关闭，才能选择公共 ACL。"
+  },
+  "publicAccess": {
+    "title": "阻止公共访问",
+    "description": "覆盖下方 ACL 和存储桶策略中的公共授权。它本身不授予任何权限。共享链接、预签名 URL 和静态网站托管不受影响。",
+    "blockPublicAcls": "阻止公共 ACL",
+    "blockPublicAclsHelp": "拒绝向所有人或任何已认证用户授予访问权限的新 ACL。已设置的 ACL 保持不变。",
+    "ignorePublicAcls": "忽略现有公共 ACL",
+    "ignorePublicAclsHelp": "公共 ACL（包括已设置的）不会向没有凭证的请求授予任何权限。",
+    "blockPublicPolicy": "阻止公共存储桶策略",
+    "blockPublicPolicyHelp": "拒绝向所有人授予访问权限的存储桶策略。已设置的策略保持不变。",
+    "restrictPublicBuckets": "限制公共存储桶",
+    "restrictPublicBucketsHelp": "向所有人授予访问权限的存储桶策略不会向没有凭证的请求授予任何权限。",
+    "save": "保存",
+    "saving": "保存中...",
+    "savedSuccess": "已更新阻止公共访问设置"
   },
   "tags": {
     "title": "标签",

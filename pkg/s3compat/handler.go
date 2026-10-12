@@ -119,14 +119,6 @@ type Handler struct {
 		GetLocalNodeToken(ctx context.Context) (string, error)
 		GetTLSConfig() *tls.Config
 	}
-	bucketAggregator interface {
-		ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
-		ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
-	}
-	clusterRouter interface {
-		RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
-		InvalidateCache(bucket string)
-	}
 	uploadRouter interface {
 		UploadNode(ctx context.Context, uploadID string) (*cluster.Node, bool, error)
 		PeerMultipartUploads(ctx context.Context, bucket string) ([]object.MultipartUpload, error)
@@ -271,22 +263,6 @@ func (h *Handler) SetClusterManager(cm interface {
 	h.clusterManager = cm
 }
 
-// SetBucketAggregator sets the bucket aggregator for cross-node bucket listing
-func (h *Handler) SetBucketAggregator(ba interface {
-	ListAllBuckets(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
-	ListAllBucketsFromAllNodes(ctx context.Context, tenantID string) ([]cluster.BucketWithLocation, error)
-}) {
-	h.bucketAggregator = ba
-}
-
-// SetClusterRouter sets the cluster router for routing bucket operations to the correct node.
-func (h *Handler) SetClusterRouter(cr interface {
-	RouteRequest(ctx context.Context, bucket string) (*cluster.Node, bool, error)
-	InvalidateCache(bucket string)
-}) {
-	h.clusterRouter = cr
-}
-
 // SetUploadRouter makes a request about a multipart upload go to the node the
 // upload was started on, and the listing of uploads cover every node.
 func (h *Handler) SetUploadRouter(ur interface {
@@ -357,75 +333,15 @@ func (c requestValuesShutdownContext) Value(key interface{}) interface{} {
 	return c.values.Value(key)
 }
 
-// BucketRoutingMiddleware sends a request about a bucket this node does not
-// hold yet to the node that holds it, whatever the operation, and answers a
-// request another node sent here for a bucket this node does not hold.
+// BucketRoutingMiddleware sends a request about a multipart upload to the node
+// the upload was started on.
 func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if bucket := mux.Vars(r)["bucket"]; bucket != "" && h.proxyBucketRequest(w, r, bucket) {
-			return
-		}
 		if h.proxyUploadRequest(w, r) {
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// proxyBucketRequest checks if the given bucket should be routed to a remote cluster node
-// and, if so, proxies the request there, writing the response to w and returning true.
-// Returns false when the request should be handled locally.
-func (h *Handler) proxyBucketRequest(w http.ResponseWriter, r *http.Request, bucketName string) bool {
-	if h.clusterRouter == nil || h.clusterManager == nil {
-		return false
-	}
-	// Prevent infinite proxy loops
-	if r.Header.Get("X-MaxIOFS-Proxied") == "true" {
-		if h.bucketLeftThisNode(r.Context(), bucketName) {
-			w.Header().Set(cluster.BucketNotHereHeader, "true")
-			w.Header().Set("Retry-After", "1")
-			h.writeError(w, "ServiceUnavailable",
-				"The bucket is no longer on the node this request was sent to; retry it", bucketName, r)
-			return true
-		}
-		return false
-	}
-
-	node, isLocal, err := h.clusterRouter.RouteRequest(r.Context(), bucketName)
-	if err != nil || isLocal || node == nil {
-		// Error, local bucket, or no node found — handle locally
-		return false
-	}
-
-	resp, err := h.forwardToNode(r, node)
-	if errors.Is(err, errNoClusterIdentity) {
-		logrus.WithError(err).Warn("proxyBucketRequest: handling locally")
-		return false
-	}
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"node":   node.Name,
-			"error":  err.Error(),
-		}).Error("proxyBucketRequest: failed to proxy to remote node")
-
-		// This node does not own the bucket, so it cannot answer for it. Falling
-		// through would run the operation here: a mutation without a body — a
-		// delete, a versioning or object-lock change, a copy, a tagging call —
-		// would be applied to the wrong node, and a read would answer from a
-		// place that does not hold the data.
-		h.writeError(w, "ServiceUnavailable",
-			"The node that owns this bucket could not be reached", bucketName, r)
-		return true
-	}
-	defer resp.Body.Close()
-	if resp.Header.Get(cluster.BucketNotHereHeader) != "" {
-		resp.Header.Del(cluster.BucketNotHereHeader)
-		h.clusterRouter.InvalidateCache(bucketName)
-	}
-
-	cluster.NewProxyClient(nil).CopyResponseToWriter(w, resp) //nolint:errcheck
-	return true
 }
 
 // writeDataUnavailable answers a read whose data no node holding it served:
@@ -494,34 +410,14 @@ func (h *Handler) proxyUploadRequest(w http.ResponseWriter, r *http.Request) boo
 	return true
 }
 
-// tenantBucketCount is the number of buckets a tenant has, on every node of
-// the cluster.
+// tenantBucketCount is the number of buckets a tenant has. Every node of a
+// cluster holds every bucket.
 func (h *Handler) tenantBucketCount(ctx context.Context, tenantID string) (int64, error) {
-	if h.bucketAggregator != nil && h.clusterManager != nil && h.clusterManager.IsClusterEnabled() {
-		buckets, err := h.bucketAggregator.ListAllBucketsFromAllNodes(ctx, tenantID)
-		if err != nil {
-			return 0, err
-		}
-		return int64(len(buckets)), nil
-	}
 	buckets, err := h.bucketManager.ListBuckets(ctx, tenantID)
 	if err != nil {
 		return 0, err
 	}
 	return int64(len(buckets)), nil
-}
-
-// bucketLeftThisNode reports whether a request forwarded here as the node
-// holding bucket finds it gone: the sender remembered a stale location.
-func (h *Handler) bucketLeftThisNode(ctx context.Context, bucket string) bool {
-	if h.metadataStore == nil {
-		return false
-	}
-	b, err := h.metadataStore.GetBucketByName(ctx, bucket)
-	if errors.Is(err, metadata.ErrBucketNotFound) {
-		return true
-	}
-	return err == nil && b.Moving()
 }
 
 // SetMetadataStore sets the metadata store for accessing object versions
@@ -672,42 +568,11 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if cluster mode is enabled
-	isClusterEnabled := h.clusterManager != nil && h.clusterManager.IsClusterEnabled()
-
-	var buckets []bucket.Bucket
-
-	if isClusterEnabled && h.bucketAggregator != nil {
-		// Cluster mode: aggregate buckets from all healthy nodes (shows remote buckets too)
-		bucketsWithLocation, err := h.bucketAggregator.ListAllBucketsFromAllNodes(r.Context(), tenantID)
-		if err != nil {
-			h.writeError(w, "InternalError", "Failed to list buckets from cluster: "+err.Error(), "", r)
-			return
-		}
-
-		// Convert BucketWithLocation to bucket.Bucket for filtering
-		buckets = make([]bucket.Bucket, len(bucketsWithLocation))
-		for i, bwl := range bucketsWithLocation {
-			buckets[i] = bucket.Bucket{
-				Name:        bwl.Name,
-				TenantID:    bwl.TenantID,
-				OwnerID:     bwl.OwnerID,
-				OwnerType:   bwl.OwnerType,
-				CreatedAt:   bwl.CreatedAt,
-				ObjectCount: bwl.ObjectCount,
-				TotalSize:   bwl.SizeBytes,
-				Metadata:    bwl.Metadata,
-				Tags:        bwl.Tags,
-			}
-		}
-	} else {
-		// Standalone mode: list buckets from local node only
-		localBuckets, err := h.bucketManager.ListBuckets(r.Context(), tenantID)
-		if err != nil {
-			h.writeError(w, "InternalError", err.Error(), "", r)
-			return
-		}
-		buckets = localBuckets
+	// Every node of a cluster holds every bucket.
+	buckets, err := h.bucketManager.ListBuckets(r.Context(), tenantID)
+	if err != nil {
+		h.writeError(w, "InternalError", err.Error(), "", r)
+		return
 	}
 
 	if !h.userCanPerformS3ActionAnywhere(r.Context(), user, auth.ActionListAllMyBuckets) {
@@ -746,51 +611,6 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)
-}
-
-// checkBucketPolicyPermission evaluates bucket policy for a specific action.
-// r may be nil (e.g. from internal callers); when non-nil, IP and TLS context
-// are extracted so that aws:SourceIp and aws:SecureTransport conditions work.
-func (h *Handler) checkBucketPolicyPermission(r *http.Request, tenantID, bucketName, userID, action string) bool {
-	if h.bucketManager == nil {
-		return false
-	}
-
-	ctx := context.Background()
-	if r != nil {
-		ctx = r.Context()
-	}
-
-	// Get bucket policy
-	policy, err := h.bucketManager.GetBucketPolicy(ctx, tenantID, bucketName)
-	if err != nil {
-		// No policy or error retrieving it = no policy-based permission
-		return false
-	}
-
-	resource := fmt.Sprintf("arn:aws:s3:::%s", bucketName)
-	if strings.Contains(action, "Object") {
-		// Object-level actions need /* wildcard
-		resource = fmt.Sprintf("arn:aws:s3:::%s/*", bucketName)
-	}
-
-	// Build request context with IP and TLS info from the HTTP request
-	request := bucket.PolicyEvaluationRequest{
-		Principal: userID,
-		Action:    action,
-		Resource:  resource,
-		Bucket:    bucketName,
-	}
-	if r != nil {
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			request.SourceIP = host
-		} else {
-			request.SourceIP = r.RemoteAddr
-		}
-		request.SecureTransport = r.TLS != nil
-	}
-
-	return bucket.IsActionAllowed(ctx, policy, request)
 }
 
 // Bucket operations
@@ -1000,7 +820,9 @@ func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		hasPublicAccess := h.anonymousAllowed(r.Context(), tenantID, auth.ActionListBucket, bucketARN(bucketName), func() bool {
+			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		})
 
 		if !hasPublicAccess {
 			logrus.WithFields(logrus.Fields{
@@ -1045,7 +867,9 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		hasPublicAccess := h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		hasPublicAccess := h.anonymousAllowed(r.Context(), tenantID, auth.ActionListBucket, bucketARN(bucketName), func() bool {
+			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		})
 
 		if !hasPublicAccess {
 			logrus.WithFields(logrus.Fields{
@@ -1183,7 +1007,9 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if !h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+		if !h.anonymousAllowed(r.Context(), tenantID, auth.ActionListBucket, bucketARN(bucketName), func() bool {
+			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}) {
 			logrus.WithField("bucket", bucketName).Warn("Public access denied for ListObjectsV2")
 			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
 			return
@@ -1342,8 +1168,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObject")
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
-
 	// Check if user is authenticated
 	user, userExists := auth.GetUserFromContext(r.Context())
 
@@ -1396,20 +1220,18 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If NOT authenticated and NOT allowed by presigned URL, check if object has an active share (Public Link)
+	// An anonymous request without a presigned URL is allowed by an active
+	// share of the object; without one, the bucket's public access decides.
 	var shareTenantID string
 	allowedByShare := false
 	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
 		realBucket, realObject, tenantFromShare, err := h.validateShareAccess(r, bucketName, objectKey)
-		if err != nil {
-			h.writeError(w, "AccessDenied", "Access denied. Object is not shared.", objectKey, r)
-			return
+		if err == nil {
+			shareTenantID = tenantFromShare
+			allowedByShare = true // shareTenantID is "" for a global bucket
+			bucketName = realBucket
+			objectKey = realObject
 		}
-
-		shareTenantID = tenantFromShare
-		allowedByShare = true // access granted via share (shareTenantID may be "" for global bucket)
-		bucketName = realBucket
-		objectKey = realObject
 	}
 
 	bucketPath := h.resolveBucketPath(r, bucketName, shareTenantID)
@@ -1549,6 +1371,9 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	if !h.requireObjectLockHeaderActions(w, r, bucketName, objectKey) {
 		return
 	}
+	if !h.requireACLHeaderAllowed(w, r, bucketName, objectKey) {
+		return
+	}
 
 	_, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -1635,8 +1460,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey := getObjectKey(r)
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
 
 	versionID := r.URL.Query().Get("versionId")
 
@@ -1801,7 +1624,6 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) {
 		return
 	}
@@ -1817,7 +1639,6 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	// Cluster routing: proxy to the node that owns this bucket if not local
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketVersioning) {
 		return
 	}
@@ -1865,8 +1686,6 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PutBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketVersioning) {
 		return
@@ -1936,8 +1755,6 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
@@ -2037,8 +1854,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 	}).Info("S3 API: PutObjectLockConfiguration - START")
-
-	// Cluster routing: proxy to the node that owns this bucket if not local
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration) {
 		return
@@ -2516,10 +2331,10 @@ func (h *Handler) checkPublicBucketAccess(ctx context.Context, tenantID, bucketN
 		return false
 	}
 
-	// PublicAccessBlock overrides ACL — if IgnorePublicAcls or RestrictPublicBuckets is set,
-	// deny all public access regardless of ACL grants.
+	// IgnorePublicAcls voids every public ACL grant. RestrictPublicBuckets voids
+	// public bucket policies, not ACLs, as in AWS S3.
 	if pab, err := h.bucketManager.GetPublicAccessBlock(ctx, tenantID, bucketName); err == nil && pab != nil {
-		if pab.IgnorePublicAcls || pab.RestrictPublicBuckets {
+		if pab.IgnorePublicAcls {
 			return false
 		}
 	}
@@ -2844,20 +2659,18 @@ func (h *Handler) sendFullResponse(ctx context.Context, w http.ResponseWriter, r
 func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.User, userExists bool, tenantID, bucketName, bucketPath, objectKey, versionID string) bool {
 	hasPermission := false
 
+	action := auth.ActionDeleteObject
+	if versionID != "" {
+		action = auth.ActionDeleteObjectVersion
+	}
 	if userExists {
-		action := auth.ActionDeleteObject
-		if versionID != "" {
-			action = auth.ActionDeleteObjectVersion
-		}
-
 		hasPermission = h.userCanPerformS3ActionInTenant(ctx, user, tenantID, action,
 			objectARN(bucketName, objectKey))
 	} else {
-		// Unauthenticated access - check if bucket/object allows public WRITE
-		hasPermission = h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite)
-		if !hasPermission {
-			hasPermission = h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
-		}
+		hasPermission = h.anonymousAllowed(ctx, tenantID, action, objectARN(bucketName, objectKey), func() bool {
+			return h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite) ||
+				h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
+		})
 	}
 
 	return hasPermission
@@ -3091,7 +2904,9 @@ func (h *Handler) validateBucketReadPermission(
 		return false
 	}
 
-	if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+	if h.anonymousAllowed(r.Context(), tenantID, readObjectAction(r), objectARN(bucketName, objectKey), func() bool {
+		return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+	}) {
 		return true
 	}
 
@@ -3324,8 +3139,9 @@ func (h *Handler) validateBucketWritePermission(
 	objectKey string,
 ) bool {
 	if !userExists {
-		// Unauthenticated access - check if bucket allows public WRITE
-		return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		return h.anonymousAllowed(r.Context(), tenantID, auth.ActionPutObject, objectARN(bucketName, objectKey), func() bool {
+			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionWrite)
+		})
 	}
 
 	if h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionPutObject, objectARN(bucketName, objectKey)) {
@@ -3505,8 +3321,9 @@ func (h *Handler) validateHeadBucketReadPermission(
 	objectKey string,
 ) bool {
 	if !userExists {
-		// Unauthenticated access - check if BUCKET is public
-		if h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead) {
+		if h.anonymousAllowed(r.Context(), tenantID, readObjectAction(r), objectARN(bucketName, objectKey), func() bool {
+			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		}) {
 			return true
 		}
 
@@ -3742,6 +3559,15 @@ func (h *Handler) GetObjectTorrent(w http.ResponseWriter, r *http.Request) {
 }
 
 // userCanPerformS3Action asks the user's policies whether they allow a specific
+// readObjectAction is the action a read of an object asks for: of a version
+// when one is named.
+func readObjectAction(r *http.Request) string {
+	if r.URL.Query().Get("versionId") != "" {
+		return auth.ActionGetObjectVersion
+	}
+	return auth.ActionGetObject
+}
+
 func bucketARN(bucketName string) string {
 	return "arn:aws:s3:::" + bucketName
 }
@@ -3785,6 +3611,32 @@ func (h *Handler) requireObjectLockHeaderActions(w http.ResponseWriter, r *http.
 		}
 	}
 	return true
+}
+
+// requirePublicACLAllowed answers AccessDenied for a public ACL when the
+// bucket's Block Public Access blocks public ACLs.
+func (h *Handler) requirePublicACLAllowed(w http.ResponseWriter, r *http.Request, bucketName, resource string, public bool) bool {
+	if !public {
+		return true
+	}
+	err := bucket.CheckPublicACL(r.Context(), h.bucketManager, h.resolveBucketTenantID(r, bucketName), bucketName)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, bucket.ErrPublicACLBlocked):
+		h.writeError(w, "AccessDenied", "Access Denied: the bucket's Block Public Access blocks public ACLs", resource, r)
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+	default:
+		h.writeError(w, "InternalError", err.Error(), resource, r)
+	}
+	return false
+}
+
+// requireACLHeaderAllowed is requirePublicACLAllowed for the x-amz-acl of a
+// write.
+func (h *Handler) requireACLHeaderAllowed(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) bool {
+	return h.requirePublicACLAllowed(w, r, bucketName, objectKey, acl.IsPublicCannedACL(r.Header.Get("x-amz-acl")))
 }
 
 func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action string) bool {
@@ -3913,5 +3765,20 @@ func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth
 		Action:   action,
 		Resource: resource,
 		Owner:    auth.OwnedBy(bucketTenantID),
+		BucketPolicy: bucket.DecideBucketPolicy(ctx, h.bucketManager, bucketTenantID, action, resource,
+			bucket.PolicyPrincipals(user)),
 	})
+}
+
+// anonymousAllowed decides a request without credentials: a bucket policy
+// Deny refuses it, a bucket policy Allow to everyone grants it, and otherwise
+// the public ACL decides.
+func (h *Handler) anonymousAllowed(ctx context.Context, tenantID, action, resource string, aclAllows func() bool) bool {
+	switch bucket.DecideAnonymousBucketPolicy(ctx, h.bucketManager, tenantID, action, resource) {
+	case auth.BucketPolicyDeny:
+		return false
+	case auth.BucketPolicyAllow:
+		return true
+	}
+	return aclAllows()
 }

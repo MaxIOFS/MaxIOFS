@@ -220,6 +220,10 @@ apply to them — their own, their groups', their tenant's and their roles' —
 evaluated AWS-style: default deny, an explicit `Allow` is required, an explicit
 `Deny` anywhere wins, and a request that maps to no known action is denied.
 
+The bucket's policy takes part in the same decision, as in AWS: a `Deny` there
+refuses, an `Allow` there grants a user of the bucket's tenant. See
+[Bucket Policies](#bucket-policies).
+
 Nothing else is consulted. The capability and bucket-permission tables are not
 read at request time; the permissions an installation already had were converted
 into policies once, on the boot that upgraded it, and every permission written
@@ -358,7 +362,8 @@ per hop.
 survive, `maxiofs recover --data-dir <dir> --recovery-bundle <bundle>`
 rebuilds the metadata store from the filesystem and restores the keys —
 original modification times included, so lifecycle timers and cluster
-reconciliation stay correct. Two deliberate biases towards recovering data:
+reconciliation stay correct, and each version's Object Lock retention and
+legal hold, which its sidecar keeps. Two deliberate biases towards recovering data:
 versioned objects whose latest "version" was a deletion come back visible
 (delete markers exist only in the lost database — re-delete if the deletion
 should stand), and objects whose key material cannot be verified are still
@@ -493,6 +498,34 @@ aws s3api put-object-retention --bucket compliance --key doc.pdf \
 
 ---
 
+## Bucket Policies
+
+A bucket policy decides together with the caller's IAM policies, AWS-style: an
+explicit `Deny` in either refuses, an `Allow` in either grants. The tenant
+boundary and a session policy bound both: a bucket policy grants nothing to a
+user of another tenant, nor beyond what a session policy allows.
+
+- **Principals**: `"*"` (everyone, including requests without credentials), a
+  user ARN `arn:aws:iam:::user/<name>`, or a user ID, alone or in a list under
+  `"AWS"`.
+- **Requests without credentials**: only a statement naming `"*"` applies. A
+  `Deny` refuses them even when the bucket ACL is public.
+- **Conditions**: `aws:SourceIp` and `aws:SecureTransport`. The source address
+  is the client address the server logs: behind a proxy in a private range or in
+  `trusted_proxies`, the `X-Forwarded-For` address; TLS includes a trusted
+  proxy's `X-Forwarded-Proto: https`.
+- **Refused when saved** (`MalformedPolicy`): `NotPrincipal`, `NotAction`,
+  `NotResource`, other principal types or ARNs, actions outside S3, resources
+  outside the bucket, other condition keys or operators. A policy is never read
+  differently from what it says.
+- **Its own management**: `s3:GetBucketPolicy`, `s3:PutBucketPolicy` and
+  `s3:DeleteBucketPolicy` are decided by the caller's own permissions, so a
+  policy that denies everything can still be fixed.
+- A bucket granted only by its policy is reachable by name; the bucket list
+  shows what the caller's own permissions grant.
+
+---
+
 ## S3 ACLs
 
 S3-compatible Access Control Lists for bucket and object-level permissions.
@@ -509,20 +542,22 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 
 An object ACL belongs to the version it was set on. The next object written at the key, by overwrite, as a new version or after a delete, starts `private`.
 
+A request without credentials reads, heads and lists a bucket whose ACL grants READ to everyone (`public-read`), unless its PublicAccessBlock ignores public ACLs or its bucket policy denies it; it needs no share link or presigned URL. A signed request is decided by its IAM policies and the bucket policy; the ACL plays no part.
+
 ---
 
 ## PublicAccessBlock
 
-Per-bucket public access controls that override ACLs entirely. Configure via the S3 API or Web Console.
+Per-bucket public access controls that override ACLs. Configure via the S3 API or the bucket's Security & Access tab in the console. Buckets created in the console have every flag on.
 
 | Flag | Effect |
 |------|--------|
-| `BlockPublicAcls` | Rejects PUT requests that set a public canned ACL |
-| `IgnorePublicAcls` | All existing and future public ACLs are ignored — effectively denies all ACL-based public access |
-| `BlockPublicPolicy` | Rejects bucket policies that grant public access |
-| `RestrictPublicBuckets` | Restricts access to only the bucket owner and AWS services, regardless of policy |
+| `BlockPublicAcls` | Refuses a request carrying an ACL that grants anything to `AllUsers` or `AuthenticatedUsers` (`403 AccessDenied`): PutBucketAcl, PutObjectAcl, and `x-amz-acl` on PutObject, CopyObject and CreateMultipartUpload. Nothing is stored. ACLs already set are kept |
+| `IgnorePublicAcls` | Public ACLs, set before or after, grant nothing to requests without credentials |
+| `BlockPublicPolicy` | Refuses a public bucket policy (`403 AccessDenied`). A policy already set is kept |
+| `RestrictPublicBuckets` | A public bucket policy grants nothing to requests without credentials |
 
-When `IgnorePublicAcls` or `RestrictPublicBuckets` is set, every unauthenticated request to the bucket is denied with `403 AccessDenied`, regardless of any `public-read` or `public-read-write` ACL that may be set on the bucket or object.
+A bucket policy is public when an `Allow` names `"*"` and no `aws:SourceIp` condition limits it to ranges of /8 or narrower (IPv4) or /32 or narrower (IPv6), as AWS defines it. Share links, presigned URLs and static website hosting are not affected.
 
 ```bash
 # Block all public access
@@ -553,7 +588,7 @@ aws s3api get-public-access-block \
 9. **Enable audit logging** — review logs regularly
 10. **Inter-node TLS is automatic** — cluster nodes encrypt all communication using auto-generated certificates
 11. **Back up encryption keys** — data is irrecoverable without them
-12. **Enable PublicAccessBlock** — use `BlockPublicAcls` + `RestrictPublicBuckets` on any bucket that should never be public
+12. **Enable PublicAccessBlock** — turn on all four flags on any bucket that should never be public; buckets created in the console have them on
 13. **Monitor** — set up Prometheus alerts for security events
 
 ---

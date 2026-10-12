@@ -31,7 +31,6 @@
   "failedToRetrieveToken": "Failed to retrieve cluster token",
   "close": "Close",
 
-  "manageReplication": "Manage Replication",
   "manageNodes": "Manage Nodes",
 
   "totalNodes": "Total Nodes",
@@ -44,10 +43,6 @@
   "offlineOrUnreachable": "Offline or unreachable",
   "totalBuckets": "Total Buckets",
   "acrossAllNodes": "Across all nodes",
-  "replicatedBuckets": "Replicated Buckets",
-  "withReplicationConfigured": "With replication configured",
-  "localBuckets": "Local Buckets",
-  "notReplicated": "Not replicated",
 
   "thisNodeInfo": "This Node Information",
   "nodeNameLabel": "Node Name",
@@ -61,11 +56,6 @@
   "confirmRemoveNode": "Are you sure you want to remove this node from the cluster?",
   "failedToRemoveNode": "Failed to remove node",
   "failedToCheckHealth": "Failed to check node health",
-  "failedToBulkReplication": "Failed to configure bulk replication",
-  "syncIntervalMin10": "Sync interval must be at least 10 seconds",
-  "bulkReplicationSuccess": "Bulk cluster replication configured!\n\nSuccess: {{created}}\nFailed: {{failed}}",
-  "failedBuckets": "Failed buckets:",
-  "failedBucketsFirst5": "Failed buckets (first 5):",
 
   "statusHealthy": "Healthy",
   "statusDegraded": "Degraded",
@@ -74,7 +64,15 @@
   "statusDead": "Dead",
   "statusStoragePressure": "Storage pressure",
   "thisNode": "(This node)",
-  "drainedNode": "(drained)",
+  "drainedNode": "(drained — can be removed)",
+  "drainingNode": "(draining)",
+  "drainWaiting": "Waiting for the node to answer: its objects move once it is back.",
+  "drainCounting": "Counting its objects…",
+  "drainMoved": "{{moved}} of {{total}} objects moved ({{movedSize}} of {{totalSize}})",
+  "drainEta": "Expected to end {{when}}",
+  "drainEtaUnknown": "Estimating the time left…",
+  "statusDrained": "Drained",
+  "statusDraining": "Draining",
   "encryptionSecretMismatch": "Different encryption secret",
   "encryptionSecretMismatchHint": "This node cannot decrypt the credentials the others store. The coordinator sends it its secret within a minute; if this persists, check the logs of both nodes.",
 
@@ -82,11 +80,10 @@
   "clusterDegradedFallback": "The cluster cannot maintain the configured replication factor. Add capacity or lower the factor.",
 
   "drainNode": "Drain",
-  "drainLocalDisabled": "Cannot drain the local node — run drain from a different cluster node.",
-  "drainDrainedDisabled": "Node is already drained.",
+  "drainDrainedDisabled": "Node is already drained or being drained.",
   "drainNodeConfirmTitle": "Drain node",
-  "drainNodeConfirmBody": "Mark node {{node}} as dead and immediately redistribute its replicas? Use this for planned decommissioning.",
-  "drainNodeSuccess": "Node {{node}} drained — redistribution started.",
+  "drainNodeConfirmBody": "Drain node {{node}}? It takes no new data and moves its objects to the other nodes. Once it holds none it serves no request and can be removed from the cluster.",
+  "drainNodeSuccess": "Drain of {{node}} started — its objects are moved to the other nodes.",
 
   "scrubberTitle": "Anti-entropy scrubber",
   "scrubberDesc": "Scans replicas in the background to detect and repair silent divergences.",
@@ -105,7 +102,6 @@
   "clusterNodesTitle": "Cluster Nodes",
   "manageNodesDesc": "Manage nodes in your MaxIOFS cluster",
   "refresh": "Refresh",
-  "configureNodeReplication": "Configure Node Replication",
   "addNode": "Add Node",
   "clusterNodesCount": "Cluster Nodes ({{count}})",
 
@@ -113,7 +109,6 @@
   "colEndpoint": "Endpoint",
   "colStatus": "Status",
   "colLatency": "Latency",
-  "colBuckets": "Buckets",
   "colPriority": "Priority",
   "colActions": "Actions",
 
@@ -140,50 +135,12 @@
   "metadataJson": "Metadata (JSON)",
   "healthStatus": "Health Status:",
   "latency": "Latency:",
-  "bucketCount": "Bucket Count:",
   "saveChanges": "Save Changes",
 
-  "configureNodeReplicationTitle": "Configure Node-to-Node Replication",
-  "bulkReplicationDesc": "This will configure cluster replication for <strong>all local buckets</strong> to the selected target node. Nodes authenticate using cluster tokens - no credentials needed.",
-  "targetNode": "Target Node *",
-  "selectTargetNode": "Select target node...",
-  "allBucketsReplicatedHint": "All local buckets will be replicated to this node. Note: Local node is not shown (cannot replicate to itself).",
-  "syncInterval": "Sync Interval (seconds) *",
-  "syncIntervalHint": "Minimum 10 seconds. Use 60 for real-time HA, or higher values for backups.",
-  "configuring": "Configuring...",
-  "configureReplication": "Configure Replication",
 
-  "loadingBuckets": "Loading buckets...",
-  "failedToLoadBuckets": "Failed to load buckets",
-  "replicationConfiguredSuccess": "Cluster replication configured successfully!",
-  "failedToConfigureReplication": "Failed to configure replication",
-  "targetNodeNotFound": "Target node not found",
 
-  "clusterBucketReplication": "Cluster Bucket Replication",
-  "clusterBucketReplicationDesc": "Configure high-availability replication between cluster nodes",
   "allBuckets": "All Buckets ({{count}})",
-  "replicated": "Replicated ({{count}})",
-  "localOnly": "Local Only ({{count}})",
-  "objectsCount": "Objects: {{count}}",
-  "sizeLabel": "Size: {{size}}",
-  "statusReplicated": "Replicated",
-  "statusLocalOnly": "Local only",
-  "manageReplicationBtn": "Manage Replication",
-  "configureReplicationBtn": "Configure Replication",
-  "noBucketsMatchingFilter": "No buckets found matching the filter",
 
-  "configureClusterReplicationTitle": "Configure Cluster Replication",
-  "clusterReplicationInfoTitle": "Cluster Replication",
-  "clusterReplicationInfoDesc": "Nodes authenticate using cluster tokens - no credentials needed. Objects are automatically encrypted/decrypted during replication.",
-  "sourceBucket": "Source Bucket",
-  "destinationNode": "Destination Node *",
-  "selectDestinationNode": "Select destination node...",
-  "localNodeNotShownHint": "Note: Local node is not shown. Cluster replication is for HA between different MaxIOFS servers.",
-  "someNodesUnhealthy": "⚠️ Some nodes are unhealthy. Replication may be affected.",
-  "syncIntervalHintLong": "Minimum 10 seconds. Use 60 for real-time HA, or higher values (e.g., 21600 = 6 hours) for backups.",
-  "prefixFilter": "Prefix Filter (optional)",
-  "prefixFilterHint": "Only replicate objects with keys starting with this prefix",
-  "replicateDeletions": "Replicate deletions",
   "replicateMetadata": "Replicate metadata",
 
 
@@ -193,7 +150,6 @@
 
   "bucketLabel": "Bucket *",
 
-  "loadingNodes2": "Loading nodes...",
 
   "haReplication": "HA Replication",
   "haReplicationDesc": "Cluster-wide replication factor — applies to all buckets on all nodes",
@@ -245,7 +201,6 @@
   "syncFailed": "Failed",
   "syncPending": "Pending",
 
-  "nodeStorage": "Node storage",
   "nodeStorage_one": "Node storage ({{count}} node)",
   "nodeStorage_other": "Node storage ({{count}} nodes)",
   "colUsed": "Used",

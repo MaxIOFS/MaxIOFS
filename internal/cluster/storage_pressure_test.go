@@ -370,3 +370,31 @@ func TestCheckNodeHealth_SlowAndFullIsUnderPressure(t *testing.T) {
 	assert.Equal(t, HealthStatusDegraded, s.Status)
 	assert.Equal(t, []string{node.ID}, caughtUp, "a slow node back is caught up")
 }
+
+// A drained node's health check that says it holds no data is noted, and a
+// later one that does not say so clears it.
+func TestCheckNodeHealth_NotesTheEndOfADrain(t *testing.T) {
+	ctx := context.Background()
+	db := setupSPTestDB(t)
+	m := createTestHealthManager(t, db)
+	done := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "healthy", "drain_done": done})
+	}))
+	defer srv.Close()
+	node := &Node{Name: "n1", Endpoint: srv.URL, NodeToken: "t"}
+	require.NoError(t, m.AddNode(ctx, node))
+
+	_, err := m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	assert.False(t, m.drainDone(node.ID), "a node that is not drained")
+	_, err = db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = ?`, node.ID)
+	require.NoError(t, err)
+	_, err = m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	assert.True(t, m.drainDone(node.ID))
+	done = false
+	_, err = m.CheckNodeHealth(ctx, node.ID)
+	require.NoError(t, err)
+	assert.False(t, m.drainDone(node.ID))
+}

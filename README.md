@@ -98,7 +98,7 @@ Ceph cluster.
 - POST presigned URLs — HTML form upload with POST policy validation (expiration, conditions, content-length-range)
 - Bucket versioning with delete markers
 - Object Lock — COMPLIANCE and GOVERNANCE modes, legal hold, per-version enforcement; retention and legal hold sent with a PUT are stored in the same metadata write as the object
-- Bucket policies (S3 JSON policy evaluation engine with full Condition block evaluation)
+- Bucket policies — evaluated with the caller's IAM policies, AWS-style; `"*"` grants requests without credentials; conditions on `aws:SourceIp` and `aws:SecureTransport`
 - CORS — stored and enforced on actual requests, OPTIONS preflight handled before auth
 - Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker
 - Object tagging, object ACLs, bucket tagging
@@ -107,7 +107,7 @@ Ceph cluster.
 - Replication — to AWS S3, any S3-compatible endpoint, or other MaxIOFS instances (realtime, scheduled, batch)
 - Server-side encryption (SSE-S3 / AES256) — per-bucket configuration via `GetBucketEncryption`/`PutBucketEncryption`, `x-amz-server-side-encryption` response headers on GET/PUT/HEAD
 - Server access logging — async delivery to target bucket in AWS S3 access log format (`GetBucketLogging`/`PutBucketLogging`)
-- `PublicAccessBlock` — stored and enforced; `IgnorePublicAcls`/`RestrictPublicBuckets` deny all public ACL access when set
+- `PublicAccessBlock` — the four flags enforced as in AWS: public ACLs and public bucket policies refused when set or voided for requests without credentials
 - `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
 - `RestoreObject` — `POST ?restore`; accepts `<RestoreRequest>` XML; returns `x-amz-restore` header on HEAD/GET; tools with Glacier lifecycle rules (Veeam, NetBackup) work without errors
 - `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects; streams results using the Amazon Event Stream binary protocol

@@ -30,7 +30,7 @@ import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
 import type { ClusterNode, AddNodeRequest, UpdateNodeRequest } from '@/types';
 
-type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
+type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown' | 'storage_pressure' | 'dead';
 
 export default function ClusterNodes() {
   const { t } = useTranslation('cluster');
@@ -108,6 +108,8 @@ const getHealthIcon = (status: HealthStatus) => {
       case 'healthy':     return <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />;
       case 'degraded':    return <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />;
       case 'unavailable': return <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />;
+      case 'storage_pressure': return <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400" />;
+      case 'dead':        return <XCircle className="w-5 h-5 text-red-700 dark:text-red-500" />;
       default:            return <HelpCircle className="w-5 h-5 text-muted-foreground" />;
     }
   };
@@ -118,6 +120,8 @@ const getHealthIcon = (status: HealthStatus) => {
       degraded: t('statusDegraded'),
       unavailable: t('statusUnavailable'),
       unknown: t('statusUnknown'),
+      storage_pressure: t('statusStoragePressure'),
+      dead: t('statusDead'),
     };
     return map[status] ?? status;
   };
@@ -128,10 +132,26 @@ const getHealthIcon = (status: HealthStatus) => {
       degraded:    'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200',
       unavailable: 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
       unknown:     'bg-gray-100 dark:bg-gray-700 text-foreground',
+      storage_pressure: 'bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200',
+      dead:        'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
     };
     return (
       <span className={`px-2 py-1 text-xs font-medium rounded-full ${colors[status]}`}>
         {getHealthLabel(status)}
+      </span>
+    );
+  };
+
+  // A drained node shows the state of its drain: moving its objects, or
+  // empty and out of service.
+  const getNodeBadge = (node: ClusterNode) => {
+    if (!node.drained) return getHealthBadge(node.health_status);
+    const done = node.health_status === 'dead';
+    return (
+      <span className={`px-2 py-1 text-xs font-medium rounded-full ${done
+        ? 'bg-gray-100 dark:bg-gray-700 text-foreground'
+        : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'}`}>
+        {done ? t('statusDrained') : t('statusDraining')}
       </span>
     );
   };
@@ -191,7 +211,6 @@ const getHealthIcon = (status: HealthStatus) => {
                 <TableHead>{t('colEndpoint')}</TableHead>
                 <TableHead>{t('colStatus')}</TableHead>
                 <TableHead>{t('colLatency')}</TableHead>
-                <TableHead>{t('colBuckets')}</TableHead>
                 <TableHead>{t('colPriority')}</TableHead>
                 <TableHead className="text-right">{t('colActions')}</TableHead>
               </TableRow>
@@ -224,7 +243,7 @@ const getHealthIcon = (status: HealthStatus) => {
                     </TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.endpoint}</span></TableCell>
                     <TableCell className="whitespace-nowrap">
-                      {getHealthBadge(node.health_status)}
+                      {getNodeBadge(node)}
                       {node.encryption_secret_matches === false && (
                         <div className="mt-1 flex items-center gap-1 text-xs text-error-600 dark:text-error-400" title={t('encryptionSecretMismatchHint')}>
                           <AlertTriangle className="h-3.5 w-3.5" />
@@ -233,7 +252,6 @@ const getHealthIcon = (status: HealthStatus) => {
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.latency_ms}ms</span></TableCell>
-                    <TableCell className="whitespace-nowrap"><span className="text-sm">{node.bucket_count}</span></TableCell>
                     <TableCell className="whitespace-nowrap"><span className="text-sm">{node.priority}</span></TableCell>
                     <TableCell className="whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -356,10 +374,6 @@ const getHealthIcon = (status: HealthStatus) => {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">{t('latency')}</span>
                     <span className="font-medium text-foreground">{editingNode.latency_ms}ms</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{t('bucketCount')}</span>
-                    <span className="font-medium text-foreground">{editingNode.bucket_count}</span>
                   </div>
                 </div>
               </div>

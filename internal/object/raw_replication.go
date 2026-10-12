@@ -94,6 +94,8 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	for k, v := range sidecar {
 		sidecarCopy[k] = v
 	}
+	// The entry's Object Lock state is the one the copy keeps.
+	setLockFieldsOf(sidecarCopy, metaObj)
 	defer om.lockKey(bucket, key)()
 	existingObjBeforeSave, err := om.metadataStore.GetObject(ctx, bucket, key)
 	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {

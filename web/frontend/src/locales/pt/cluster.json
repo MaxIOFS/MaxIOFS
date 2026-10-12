@@ -31,7 +31,6 @@
   "failedToRetrieveToken": "Falha ao recuperar o token do cluster",
   "close": "Fechar",
 
-  "manageReplication": "Gerenciar Replicação",
   "manageNodes": "Gerenciar Nós",
 
   "totalNodes": "Total de Nós",
@@ -44,10 +43,6 @@
   "offlineOrUnreachable": "Offline ou inacessíveis",
   "totalBuckets": "Total de Buckets",
   "acrossAllNodes": "Em todos os nós",
-  "replicatedBuckets": "Buckets Replicados",
-  "withReplicationConfigured": "Com replicação configurada",
-  "localBuckets": "Buckets Locais",
-  "notReplicated": "Não replicados",
 
   "thisNodeInfo": "Informações deste Nó",
   "nodeNameLabel": "Nome do Nó",
@@ -61,11 +56,6 @@
   "confirmRemoveNode": "Tem certeza de que deseja remover este nó do cluster?",
   "failedToRemoveNode": "Falha ao remover nó",
   "failedToCheckHealth": "Falha ao verificar saúde do nó",
-  "failedToBulkReplication": "Falha ao configurar replicação em lote",
-  "syncIntervalMin10": "O intervalo de sincronização deve ser de pelo menos 10 segundos",
-  "bulkReplicationSuccess": "Replicação de cluster em lote configurada!\n\nSucesso: {{created}}\nFalhou: {{failed}}",
-  "failedBuckets": "Buckets com falha:",
-  "failedBucketsFirst5": "Buckets com falha (primeiros 5):",
 
   "statusHealthy": "Saudável",
   "statusDegraded": "Degradado",
@@ -74,7 +64,15 @@
   "statusDead": "Inativo",
   "statusStoragePressure": "Pressão de armazenamento",
   "thisNode": "(Este nó)",
-  "drainedNode": "(retirado)",
+  "drainedNode": "(drenado — pode ser removido)",
+  "drainingNode": "(drenando)",
+  "drainWaiting": "À espera de que o nó responda: os seus objetos são movidos quando voltar.",
+  "drainCounting": "A contar os seus objetos…",
+  "drainMoved": "{{moved}} de {{total}} objetos movidos ({{movedSize}} de {{totalSize}})",
+  "drainEta": "Fim previsto {{when}}",
+  "drainEtaUnknown": "A estimar o tempo restante…",
+  "statusDrained": "Drenado",
+  "statusDraining": "Drenando",
   "encryptionSecretMismatch": "Chave de criptografia diferente",
   "encryptionSecretMismatchHint": "Este nó não consegue descriptografar as credenciais armazenadas pelos outros. O coordenador envia sua chave em até um minuto; se persistir, verifique os logs de ambos os nós.",
 
@@ -82,11 +80,10 @@
   "clusterDegradedFallback": "O cluster não consegue manter o fator de replicação configurado. Adicione capacidade ou reduza o fator.",
 
   "drainNode": "Drenar",
-  "drainLocalDisabled": "Não é possível drenar o nó local — execute o drain a partir de um nó de cluster diferente.",
-  "drainDrainedDisabled": "O nó já foi retirado.",
+  "drainDrainedDisabled": "O nó já está drenado ou a ser drenado.",
   "drainNodeConfirmTitle": "Drenar nó",
-  "drainNodeConfirmBody": "Marcar o nó {{node}} como inativo e redistribuir imediatamente suas réplicas? Use para descomissionamento planejado.",
-  "drainNodeSuccess": "Nó {{node}} drenado — redistribuição iniciada.",
+  "drainNodeConfirmBody": "Drenar o nó {{node}}? Deixa de receber dados novos e move os seus objetos para os outros nós. Quando já não tiver nenhum, não atende pedidos e pode ser removido do cluster.",
+  "drainNodeSuccess": "Drenagem de {{node}} iniciada — os seus objetos são movidos para os outros nós.",
 
   "scrubberTitle": "Scrubber anti-entropia",
   "scrubberDesc": "Verifica réplicas em segundo plano para detectar e reparar divergências silenciosas.",
@@ -105,7 +102,6 @@
   "clusterNodesTitle": "Nós do Cluster",
   "manageNodesDesc": "Gerenciar nós no seu cluster MaxIOFS",
   "refresh": "Atualizar",
-  "configureNodeReplication": "Configurar Replicação de Nó",
   "addNode": "Adicionar Nó",
   "clusterNodesCount": "Nós do Cluster ({{count}})",
 
@@ -113,7 +109,6 @@
   "colEndpoint": "Endpoint",
   "colStatus": "Status",
   "colLatency": "Latência",
-  "colBuckets": "Buckets",
   "colPriority": "Prioridade",
   "colActions": "Ações",
 
@@ -140,50 +135,12 @@
   "metadataJson": "Metadados (JSON)",
   "healthStatus": "Status de Saúde:",
   "latency": "Latência:",
-  "bucketCount": "Contagem de Buckets:",
   "saveChanges": "Salvar Alterações",
 
-  "configureNodeReplicationTitle": "Configurar Replicação Nó a Nó",
-  "bulkReplicationDesc": "Isso configurará a replicação do cluster para <strong>todos os buckets locais</strong> no nó alvo selecionado. Os nós autenticam usando tokens de cluster — nenhuma credencial é necessária.",
-  "targetNode": "Nó Alvo *",
-  "selectTargetNode": "Selecionar nó alvo...",
-  "allBucketsReplicatedHint": "Todos os buckets locais serão replicados para este nó. Nota: O nó local não é exibido (não pode replicar para si mesmo).",
-  "syncInterval": "Intervalo de Sincronização (segundos) *",
-  "syncIntervalHint": "Mínimo de 10 segundos. Use 60 para HA em tempo real, ou valores maiores para backups.",
-  "configuring": "Configurando...",
-  "configureReplication": "Configurar Replicação",
 
-  "loadingBuckets": "Carregando buckets...",
-  "failedToLoadBuckets": "Falha ao carregar buckets",
-  "replicationConfiguredSuccess": "Replicação de cluster configurada com sucesso!",
-  "failedToConfigureReplication": "Falha ao configurar replicação",
-  "targetNodeNotFound": "Nó alvo não encontrado",
 
-  "clusterBucketReplication": "Replicação de Bucket no Cluster",
-  "clusterBucketReplicationDesc": "Configurar replicação de alta disponibilidade entre nós do cluster",
   "allBuckets": "Todos os Buckets ({{count}})",
-  "replicated": "Replicados ({{count}})",
-  "localOnly": "Somente Local ({{count}})",
-  "objectsCount": "Objetos: {{count}}",
-  "sizeLabel": "Tamanho: {{size}}",
-  "statusReplicated": "Replicado",
-  "statusLocalOnly": "Somente local",
-  "manageReplicationBtn": "Gerenciar Replicação",
-  "configureReplicationBtn": "Configurar Replicação",
-  "noBucketsMatchingFilter": "Nenhum bucket encontrado correspondendo ao filtro",
 
-  "configureClusterReplicationTitle": "Configurar Replicação do Cluster",
-  "clusterReplicationInfoTitle": "Replicação do Cluster",
-  "clusterReplicationInfoDesc": "Os nós autenticam usando tokens de cluster — nenhuma credencial é necessária. Os objetos são automaticamente criptografados/descriptografados durante a replicação.",
-  "sourceBucket": "Bucket de Origem",
-  "destinationNode": "Nó de Destino *",
-  "selectDestinationNode": "Selecionar nó de destino...",
-  "localNodeNotShownHint": "Nota: O nó local não é exibido. A replicação do cluster é para HA entre diferentes servidores MaxIOFS.",
-  "someNodesUnhealthy": "⚠️ Alguns nós estão com problemas de saúde. A replicação pode ser afetada.",
-  "syncIntervalHintLong": "Mínimo de 10 segundos. Use 60 para HA em tempo real, ou valores maiores (ex.: 21600 = 6 horas) para backups.",
-  "prefixFilter": "Filtro de Prefixo (opcional)",
-  "prefixFilterHint": "Replicar apenas objetos com chaves começando com este prefixo",
-  "replicateDeletions": "Replicar exclusões",
   "replicateMetadata": "Replicar metadados",
 
 
@@ -193,7 +150,6 @@
 
   "bucketLabel": "Bucket *",
 
-  "loadingNodes2": "Carregando nós...",
 
   "haReplication": "Replicação HA",
   "haReplicationDesc": "Fator de replicação do cluster — aplica-se a todos os buckets em todos os nós",
@@ -244,7 +200,6 @@
   "syncFailed": "Falhou",
   "syncPending": "Pendente",
 
-  "nodeStorage": "Armazenamento do nó",
   "nodeStorage_one": "Armazenamento do nó ({{count}} nó)",
   "nodeStorage_other": "Armazenamento do nó ({{count}} nós)",
   "colUsed": "Utilizado",

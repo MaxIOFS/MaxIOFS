@@ -163,7 +163,6 @@ func TestServerNewRegistersManagedComponents(t *testing.T) {
 		"lifecycle",
 		"inventory",
 		"replication",
-		"clusterRouter",
 		"tenantSync",
 		"userSync",
 		"accessKeySync",
@@ -3209,50 +3208,6 @@ func TestHandleGetBucketReplicas(t *testing.T) {
 	})
 }
 
-// TestHandleGetCacheStats tests getting cache stats
-func TestHandleGetCacheStats(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should get cache stats or return service unavailable", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cluster/cache/stats", nil, "", "admin-1", true)
-
-		rr := httptest.NewRecorder()
-		server.handleGetCacheStats(rr, req)
-
-		// May return OK or service unavailable if cluster router not initialized
-		assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, rr.Code)
-	})
-}
-
-// TestHandleInvalidateCache tests cache invalidation
-func TestHandleInvalidateCache(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require bucket parameter", func(t *testing.T) {
-		body := `{}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/cache/invalidate", strings.NewReader(body), "", "admin-1", true)
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleInvalidateCache(rr, req)
-
-		// May return bad request or service unavailable
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusServiceUnavailable}, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		body := `{invalid}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/cache/invalidate", strings.NewReader(body), "", "admin-1", true)
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleInvalidateCache(rr, req)
-
-		// May return bad request or service unavailable
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusServiceUnavailable}, rr.Code)
-	})
-}
-
 // TestHandlePutBucketInventory tests putting bucket inventory configuration
 func TestHandlePutBucketInventory(t *testing.T) {
 	server := getSharedServer()
@@ -4811,47 +4766,6 @@ func TestHandleNotificationStream(t *testing.T) {
 	})
 }
 
-func TestHandleGetLocalBuckets(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should require cluster auth", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/buckets", nil)
-		rr := httptest.NewRecorder()
-		server.handleGetLocalBuckets(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusOK}, rr.Code)
-	})
-
-	t.Run("should list local buckets with cluster auth", func(t *testing.T) {
-		req := createClusterAuthenticatedRequest("GET", "/api/internal/cluster/buckets", nil, "node-1")
-		rr := httptest.NewRecorder()
-		server.handleGetLocalBuckets(rr, req)
-		assert.Equal(t, http.StatusOK, rr.Code)
-	})
-}
-
-func TestHandleGetTenantStorage(t *testing.T) {
-	server := getSharedServer()
-	testUser := &auth.User{ID: "admin1", Username: "admin", Roles: []string{"admin"}, TenantID: "default"}
-
-	t.Run("should return not found for missing tenant", func(t *testing.T) {
-		// This handler is an internal cluster endpoint that gets tenant storage
-		// It looks up tenant by ID from URL vars and returns 404 if not found
-		req := httptest.NewRequest("GET", "/api/internal/cluster/tenant/nonexistent/storage", nil)
-		req = mux.SetURLVars(req, map[string]string{"tenantID": "nonexistent"})
-		rr := httptest.NewRecorder()
-		server.handleGetTenantStorage(rr, req)
-		assert.Equal(t, http.StatusNotFound, rr.Code)
-	})
-
-	t.Run("should get tenant storage for admin", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/tenants/default/storage", nil, testUser.TenantID, testUser.ID, false)
-		req = mux.SetURLVars(req, map[string]string{"tenant": "default"})
-		rr := httptest.NewRecorder()
-		server.handleGetTenantStorage(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, rr.Code)
-	})
-}
-
 func TestHandleGetPerformanceLatencies(t *testing.T) {
 	server := getSharedServer()
 
@@ -5042,17 +4956,6 @@ func TestHandleReplicationRulesEdgeCases(t *testing.T) {
 	})
 }
 
-func TestHandleClusterNodeOperations(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should handle get local buckets with tenant filter", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/internal/cluster/buckets?tenant_id=test-tenant&cluster_token=test", nil)
-		rr := httptest.NewRecorder()
-		server.handleGetLocalBuckets(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-}
-
 func TestHandleBucketOperationsEdgeCases(t *testing.T) {
 	server := getSharedServer()
 
@@ -5070,25 +4973,6 @@ func TestHandleBucketOperationsEdgeCases(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.handleGetBucketVersioning(rr, req)
 		assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusUnauthorized}, rr.Code)
-	})
-}
-
-func TestHandleCacheOperations(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should handle cache stats request", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cache/stats", nil, "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleGetCacheStats(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rr.Code)
-	})
-
-	t.Run("should handle cache invalidation with bucket", func(t *testing.T) {
-		body := `{"bucket": "test-bucket"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cache/invalidate", strings.NewReader(body), "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleInvalidateCache(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusNoContent, http.StatusUnauthorized, http.StatusBadRequest}, rr.Code)
 	})
 }
 
@@ -5714,25 +5598,6 @@ func TestHandleRemoveClusterNodeEdgeCases(t *testing.T) {
 		server.handleRemoveClusterNode(rr, req)
 		// Returns 403 when no authenticated user (handler-level admin guard)
 		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable}, rr.Code)
-	})
-}
-
-func TestHandleCacheStatsEdgeCases(t *testing.T) {
-	server := getSharedServer()
-
-	t.Run("should get cache stats as admin", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/cache/stats", nil, "", "admin-1", true)
-		rr := httptest.NewRecorder()
-		server.handleGetCacheStats(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rr.Code)
-	})
-
-	t.Run("should handle cache stats without auth", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/cache/stats", nil)
-		rr := httptest.NewRecorder()
-		server.handleGetCacheStats(rr, req)
-		// May return 200 if no auth middleware on handler level
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rr.Code)
 	})
 }
 

@@ -31,7 +31,6 @@
   "failedToRetrieveToken": "クラスタートークンの取得に失敗しました",
   "close": "閉じる",
 
-  "manageReplication": "レプリケーションを管理",
   "manageNodes": "ノードを管理",
 
   "totalNodes": "ノード総数",
@@ -44,10 +43,6 @@
   "offlineOrUnreachable": "オフラインまたは到達不可",
   "totalBuckets": "バケット総数",
   "acrossAllNodes": "全ノード合計",
-  "replicatedBuckets": "レプリケートされたバケット",
-  "withReplicationConfigured": "レプリケーションが設定済み",
-  "localBuckets": "ローカルバケット",
-  "notReplicated": "レプリケートされていない",
 
   "thisNodeInfo": "このノードの情報",
   "nodeNameLabel": "ノード名",
@@ -61,11 +56,6 @@
   "confirmRemoveNode": "このノードをクラスターから削除してもよろしいですか？",
   "failedToRemoveNode": "ノードの削除に失敗しました",
   "failedToCheckHealth": "ノードのヘルスチェックに失敗しました",
-  "failedToBulkReplication": "一括レプリケーションの設定に失敗しました",
-  "syncIntervalMin10": "同期間隔は10秒以上である必要があります",
-  "bulkReplicationSuccess": "クラスター一括レプリケーションが設定されました！\n\n成功: {{created}}\n失敗: {{failed}}",
-  "failedBuckets": "失敗したバケット:",
-  "failedBucketsFirst5": "失敗したバケット（最初の5件）:",
 
   "statusHealthy": "正常",
   "statusDegraded": "劣化",
@@ -74,7 +64,15 @@
   "statusDead": "停止",
   "statusStoragePressure": "ストレージ圧迫",
   "thisNode": "（このノード）",
-  "drainedNode": "(退役済み)",
+  "drainedNode": "(ドレイン済み — 削除可能)",
+  "drainingNode": "(ドレイン中)",
+  "drainWaiting": "ノードの応答を待っています。復帰後にオブジェクトを移動します。",
+  "drainCounting": "オブジェクトを数えています…",
+  "drainMoved": "{{total}} 個中 {{moved}} 個のオブジェクトを移動済み（{{totalSize}} 中 {{movedSize}}）",
+  "drainEta": "終了予定: {{when}}",
+  "drainEtaUnknown": "残り時間を推定しています…",
+  "statusDrained": "ドレイン済み",
+  "statusDraining": "ドレイン中",
   "encryptionSecretMismatch": "暗号化シークレットが異なります",
   "encryptionSecretMismatchHint": "このノードは他のノードが保存する認証情報を復号できません。コーディネーターが1分以内にシークレットを送信します。解消しない場合は両ノードのログを確認してください。",
 
@@ -82,11 +80,10 @@
   "clusterDegradedFallback": "クラスターが設定されたレプリケーションファクターを維持できません。ストレージを拡張するかレプリケーションファクターを下げてください。",
 
   "drainNode": "ドレイン",
-  "drainLocalDisabled": "ローカルノードはドレインできません — 別のクラスターノードからドレインを実行してください。",
-  "drainDrainedDisabled": "ノードはすでに退役済みです。",
+  "drainDrainedDisabled": "ノードはすでにドレイン済みかドレイン中です。",
   "drainNodeConfirmTitle": "ノードをドレイン",
-  "drainNodeConfirmBody": "ノード{{node}}を停止としてマークしてそのレプリカを即時に再配布しますか？計画的な廃止に使用してください。",
-  "drainNodeSuccess": "ノード{{node}}がドレインされました — 再配布を開始しました。",
+  "drainNodeConfirmBody": "ノード {{node}} をドレインしますか？新しいデータを受け取らず、オブジェクトを他のノードへ移動します。オブジェクトがなくなるとリクエストに応答せず、クラスターから削除できます。",
+  "drainNodeSuccess": "{{node}} のドレインを開始しました — オブジェクトを他のノードへ移動しています。",
 
   "scrubberTitle": "アンチエントロピースクラバー",
   "scrubberDesc": "バックグラウンドでレプリカをスキャンして静かな差異を検出・修復します。",
@@ -105,7 +102,6 @@
   "clusterNodesTitle": "クラスターノード",
   "manageNodesDesc": "MaxIOFSクラスター内のノードを管理",
   "refresh": "更新",
-  "configureNodeReplication": "ノードレプリケーションを設定",
   "addNode": "ノードを追加",
   "clusterNodesCount": "クラスターノード ({{count}})",
 
@@ -113,7 +109,6 @@
   "colEndpoint": "エンドポイント",
   "colStatus": "ステータス",
   "colLatency": "レイテンシ",
-  "colBuckets": "バケット",
   "colPriority": "優先度",
   "colActions": "操作",
 
@@ -140,50 +135,12 @@
   "metadataJson": "メタデータ（JSON）",
   "healthStatus": "ヘルスステータス:",
   "latency": "レイテンシ:",
-  "bucketCount": "バケット数:",
   "saveChanges": "変更を保存",
 
-  "configureNodeReplicationTitle": "ノード間レプリケーションを設定",
-  "bulkReplicationDesc": "これにより、<strong>すべてのローカルバケット</strong>の選択したターゲットノードへのクラスターレプリケーションが設定されます。ノードはクラスタートークンを使用して認証するため、認証情報は不要です。",
-  "targetNode": "ターゲットノード *",
-  "selectTargetNode": "ターゲットノードを選択...",
-  "allBucketsReplicatedHint": "すべてのローカルバケットがこのノードにレプリケートされます。注: ローカルノードは表示されません（自分自身にはレプリケートできません）。",
-  "syncInterval": "同期間隔（秒） *",
-  "syncIntervalHint": "最低10秒。リアルタイムHAには60を使用し、バックアップにはより高い値を使用してください。",
-  "configuring": "設定中...",
-  "configureReplication": "レプリケーションを設定",
 
-  "loadingBuckets": "バケットを読み込み中...",
-  "failedToLoadBuckets": "バケットの読み込みに失敗しました",
-  "replicationConfiguredSuccess": "クラスターレプリケーションが正常に設定されました！",
-  "failedToConfigureReplication": "レプリケーションの設定に失敗しました",
-  "targetNodeNotFound": "ターゲットノードが見つかりません",
 
-  "clusterBucketReplication": "クラスターバケットレプリケーション",
-  "clusterBucketReplicationDesc": "クラスターノード間の高可用性レプリケーションを設定",
   "allBuckets": "全バケット ({{count}})",
-  "replicated": "レプリケート済み ({{count}})",
-  "localOnly": "ローカルのみ ({{count}})",
-  "objectsCount": "オブジェクト: {{count}}",
-  "sizeLabel": "サイズ: {{size}}",
-  "statusReplicated": "レプリケート済み",
-  "statusLocalOnly": "ローカルのみ",
-  "manageReplicationBtn": "レプリケーションを管理",
-  "configureReplicationBtn": "レプリケーションを設定",
-  "noBucketsMatchingFilter": "フィルターに一致するバケットが見つかりません",
 
-  "configureClusterReplicationTitle": "クラスターレプリケーションを設定",
-  "clusterReplicationInfoTitle": "クラスターレプリケーション",
-  "clusterReplicationInfoDesc": "ノードはクラスタートークンを使用して認証するため、認証情報は不要です。オブジェクトはレプリケーション中に宛先キーごとに自動的に暗号化/復号化されます。",
-  "sourceBucket": "ソースバケット",
-  "destinationNode": "宛先ノード *",
-  "selectDestinationNode": "宛先ノードを選択...",
-  "localNodeNotShownHint": "注: ローカルノードは表示されません。クラスターレプリケーションは異なるMaxIOFSサーバー間のHA用です。",
-  "someNodesUnhealthy": "⚠️ 一部のノードが正常ではありません。レプリケーションに影響が出る可能性があります。",
-  "syncIntervalHintLong": "最低10秒。リアルタイムHAには60を使用し、バックアップには高い値（例: 21600 = 6時間）を使用してください。",
-  "prefixFilter": "プレフィックスフィルター（任意）",
-  "prefixFilterHint": "このプレフィックスで始まるキーを持つオブジェクトのみレプリケート",
-  "replicateDeletions": "削除をレプリケート",
   "replicateMetadata": "メタデータをレプリケート",
 
 
@@ -193,7 +150,6 @@
 
   "bucketLabel": "バケット *",
 
-  "loadingNodes2": "ノードを読み込み中...",
 
   "haReplication": "HAレプリケーション",
   "haReplicationDesc": "クラスター全体のレプリケーションファクター — すべてのノードのすべてのバケットに適用",
@@ -245,7 +201,6 @@
   "syncFailed": "失敗",
   "syncPending": "保留中",
 
-  "nodeStorage": "ノードストレージ",
   "nodeStorage_one": "ノードストレージ ({{count}}台のノード)",
   "nodeStorage_other": "ノードストレージ ({{count}}台のノード)",
   "colUsed": "使用済み",

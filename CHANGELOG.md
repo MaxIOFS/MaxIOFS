@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Draining a node moves its objects to the other nodes before it leaves service, with any replication factor. It takes no new data, a write it takes is passed to the node with the most free space, and it serves reads while its objects move. Once it holds none it answers no S3 request (`503`, `/health` included) and every node marks it dead; it can then be removed. A drain marked the node dead at once: with a factor of 1 its objects were unreadable. The drained node itself can now be drained from its own console.
 - A replication factor of 1 keeps one copy of each object: on the node that takes the write, or on the node with the most free space when that node is under storage pressure. Every node holds every bucket and every object's entry, and lists and reads every object. Each bucket was on one node, which took all its writes: a bucket could not hold more than that node's disk. As with RAID 0, the objects of a node that is down are unreadable until it is back; a factor of 2 or 3 keeps copies on other nodes.
 - After the update, each node of a cluster with a factor of 1 gives the objects it holds itself as their location, once, at start, then sends the other nodes its buckets and their entries, without their data.
 - The replication factor goes back to 1 with several nodes: the copies it does not need are removed.
@@ -19,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Invalid Object Lock headers on PUT are rejected with `InvalidRequest`; the object is not stored.
 - DELETE and batch delete on a missing bucket return 404 (`NoSuchBucket` in the S3 API).
 - A node that comes back after missing writes is caught up at once: the node that accepted them compares the objects modified since the first missed write and sends the deletes the peer missed.
-- A node checks its own buckets before a cached location. A request forwarded to a node that no longer holds the bucket answers `503` with `X-MaxIOFS-Bucket-Not-Here`, and the forwarding node forgets the location.
 - In a cluster, the coordinator expires objects by lifecycle rules and its deletes reach the other nodes; every node aborts the incomplete multipart uploads started on it. Expiration ran on the node the rule was set on, and its deletes did not reach the others.
 - A bucket's `UpdatedAt` dates its configuration: object writes and statistics recounts no longer change it.
 - The secret stored credentials are encrypted with (identity provider secrets, replication destination keys, share link keys) lives in the database, like the KEK. The first start stores `auth.encryption_secret`, or else an explicit `auth.jwt_secret`, or else a generated one; the configuration is not read again. The JWT secret no longer encrypts anything. Migration 21.
@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
+- An anonymous GET of an object in a bucket whose ACL grants public read returns the object without a share, unless Block Public Access ignores public ACLs or restricts public buckets. It answered `AccessDenied` (`Object is not shared`) when the object had no share link (#9).
+- Bucket policies decide again, with the caller's IAM policies as in AWS: a `Deny` in either refuses, an `Allow` in either grants a user of the bucket's tenant. A statement naming `"*"` grants or denies requests without credentials, over the bucket ACL. The console decides the same way. Since 1.6.0 they were stored and never evaluated.
+- A bucket policy cannot deny its own management: `s3:GetBucketPolicy`, `s3:PutBucketPolicy` and `s3:DeleteBucketPolicy` are decided by the caller's permissions.
+- PutBucketPolicy (S3 and console) refuses with `MalformedPolicy` what the evaluator would not enforce as written: `NotPrincipal`, `NotAction`, `NotResource`, other principal types and ARNs, actions outside S3, resources outside the bucket, condition keys other than `aws:SourceIp` and `aws:SecureTransport`. Such a policy was stored and read differently from what it said.
+- `BlockPublicPolicy` refuses a public bucket policy (`403 AccessDenied`) and `RestrictPublicBuckets` voids what a public policy grants to requests without credentials, as in AWS. `RestrictPublicBuckets` no longer voids public ACLs; `IgnorePublicAcls` does.
+- `BlockPublicAcls` refuses a request carrying an ACL that grants anything to everyone or to every authenticated user, with `403 AccessDenied`, before storing anything: PutBucketAcl, PutObjectAcl, `x-amz-acl` on PutObject, CopyObject and CreateMultipartUpload, and the console ACL endpoints. It was stored and not applied. ACLs already set are kept.
+- `maxiofs recover` and `maxiofs reconcile` restore each version's Object Lock retention and legal hold. The object's sidecar keeps them, and a metadata update cannot change them there; a version stored earlier gets them at the encryption worker's first pass. They came back unlocked.
 - A node installed after a cluster setting changed takes the change, and the defaults it sends replace no setting of the other nodes. A default no one changed was dated by the start of the node that stored it: a node that joined later kept its replication factor of 1, sent it to the other nodes, and they took it and removed copies.
 - The Docker image keeps its data in the directory `MAXIOFS_DATA_DIR` names, where it is mounted. It always used `/data`, so data written with the directory mounted elsewhere was lost when the container was recreated.
 - A success or error dialog of the console given markup shows it laid out, sanitized. The temporary credentials just issued, the policy of a temporary session and other dialogs showed their HTML as text.
@@ -73,10 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tenant's bucket limit counts the tenant's buckets on every node, each once; the stored counter was per node and drifted. In the console a limit of 0 is no limit; it refused every bucket.
 - The console shows each tenant's bucket count and storage for the whole cluster. The tenant list computed them from the first 10,000 objects of each bucket on the local node.
 - The bucket statistics pass sets each tenant's storage on the node to what its buckets hold.
-- Every S3 request about a bucket goes to the node that holds it. Only twelve operations were forwarded; the others (tagging, ACLs, policy, lifecycle, CORS, encryption, multipart uploads, CopyObject, DeleteObjects, ListObjectVersions, retention, DeleteBucket and more) ran on the receiving node and failed with `NoSuchBucket`.
-- Every console request about a bucket's settings or objects goes to the node that holds it. Setting changes went to the coordinator, which answered `404` unless it held the bucket; most other requests ran on the receiving node.
-- Creating a bucket whose name another node holds answers `409`, from the S3 API and the console. A second bucket of that name was created on the receiving node.
-- Bucket permissions are granted on the coordinator for a bucket held by any node. The coordinator looked for the bucket among its own.
 - In a cluster, buckets reach every node. Creating a bucket, changing its configuration or ACL, and deleting it are sent to the other nodes before the request returns; a node that missed them is sent every bucket before the objects when it is caught up, when it becomes a replica, at every anti-entropy cycle and when a node starts. A bucket existed only on the node that created it: the other nodes refused its objects, so each write was kept on one node, and its configuration applied on one node. A cluster in that state converges after the upgrade.
 - A tenant deletion received from another node no longer removes a tenant changed here after the deletion, with its users and access keys. The tenants table keeps change times as unix seconds and they were read as timestamps, so the deletion always won.
 - The reconciliation of a node back from a partition read the tenants' change times the same way and failed whenever a tenant existed.
@@ -103,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A node removed from the cluster is removed on every node. It was removed only on the node where it was removed, and the next node list from any other node added it back. The removal is recorded like a deletion and is final, as a node joins under a new ID every time; the removed node is answered `410 Gone` and leaves the cluster.
 - A node that leaves the cluster is removed from the others. They kept it and kept sending it changes.
 - A change to a node (name, region, priority) is no longer reverted by the next node list of another node: the newest copy wins.
-- A drain takes the node out of service on every node; it was dead only on the node where it was drained, and the others kept writing to it. A drain that would leave fewer healthy nodes than the replication factor is refused (`409`); it answered success and did nothing.
+- A drain reaches every node; it was taken only on the node where it was made, and the others kept writing to the drained node. A drain the other nodes cannot hold the copies of is refused (`409`); it answered success and did nothing.
 - A node marked dead after being unreachable is back in service when it answers again, and is caught up from its first missed write. It stayed dead for good. A drained node stays dead.
 - A cluster created or joined while the server runs replicates object writes and deletes. They were replicated only after a restart.
 - A node that boots with the cluster active encrypts its existing plaintext objects; the encryption worker did not start on it.
@@ -150,14 +153,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Console, dark theme: the light-blue metric icons (Total Objects, Admin Users) and the drop zone of the bucket page no longer show a light background; the dark shades they used were not defined. Checkboxes, date pickers, select lists and autofilled fields follow the theme.
 
 ### Removed
+- The forwarding of a request about a bucket to the node that held it, with its bucket location cache, `GET /api/v1/cluster/cache/stats` and `POST /api/v1/cluster/cache/invalidate`; the bucket and tenant-usage aggregation across nodes; the internal endpoints `/bucket-exists/{name}`, `/buckets` and `/tenant/{id}/storage`. Every node holds every bucket and every object's entry.
+- Console: the Replicated Buckets and Local Buckets cards of the cluster overview, and the Buckets column of the nodes page.
 - Bucket migration between nodes: the console Migrations page, `POST /api/v1/cluster/buckets/{bucket}/migrate`, `GET /api/v1/cluster/migrations`, `GET /api/v1/cluster/migrations/{id}`, `GET /api/v1/cluster/buckets` and the internal `/migration/*` endpoints. Every node holds every bucket, and the copies of each object go to the nodes with the most free space.
 - Console: the Node column of the bucket list and the node choice when creating a bucket.
 - Console: the Join Existing Cluster form of a standalone node. It sent the cluster token and an address to the endpoint that takes the join package of an existing node, and always failed. A node joins from the console of a node of the cluster: Manage Nodes, Add Node.
 - The stale-node reconciler and its endpoints `/api/internal/cluster/state-snapshot` and `/api/internal/cluster/ha/objects/changed-since`. It never ran: no node ever marked itself stale. A node away for long is sent what it missed by keeping deletions until every node has them.
 - The replica-first S3 read: each read was first sent to another node's cluster port, which serves no S3 request and answered 404, then served by the node that received it.
 - Internal endpoints used only by the previous bucket migration: `/api/internal/cluster/objects/{tenant}/{bucket}/{key}` (PUT, DELETE, HEAD), `/bucket-permissions`, `/bucket-acl`, `/bucket-config` and `/bucket-inventory`.
+- Console: the Make bucket public option when creating a bucket, and the bucket's `is_public` field. It was stored and never read; a bucket is made public with its ACL.
+- Console: the Authenticated Read option of the bucket ACL dialog. It granted nothing: requests with credentials are decided by permissions and the bucket policy. A bucket that has it through the S3 API still shows it.
 
 ### Added
+- Console: each card of a bucket's Security & Access tab says what it decides: Block Public Access what it voids, the bucket policy whom it grants or denies, the ACL that it applies only to requests without credentials. The policy dialog says when public policies are blocked.
+- Console: the Security & Access tab of a bucket edits its Block Public Access, with the same fields as bucket creation. The ACL card says when Block Public Access ignores the bucket's public ACL; the ACL dialog offers no public ACL while public ACLs are blocked. It could be set only when creating the bucket.
+- Tests for anonymous reads of a public-read bucket, with and without a share link and Block Public Access, and for `BlockPublicAcls` on every request that sets an ACL.
+- Bucket policy tests: the decision with IAM policies, the tenant boundary, requests without credentials, its own management, `RestrictPublicBuckets`, `BlockPublicPolicy`, conditions on source address and TLS, and what is refused when saved, through S3 and the console.
+- Object Lock recovery tests: a rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off; the sidecar keeps the state through multipart completion, a metadata update, a raw copy between nodes and the encryption worker's pass.
+- Console: the HA page shows the progress of a drain: the objects and bytes moved, and the expected end at the pace so far.
+- Drain tests between three complete nodes, factors 1 and 2: every object moved and readable, the drained node out of service for S3 and on every node, later writes on the others; a node being drained takes no copy and passes on the writes it takes.
 - Factor-1 tests between three complete nodes: one copy where the write is made, read and deleted from every node; a write moved off a node under storage pressure; an update from buckets kept on one node; the factor lowered to 1.
 - Cluster setting tests: a node installed after a change takes it; its defaults replace no change.
 - Write-path I/O accounting tests for PUT, overwrites, versioning and multipart uploads.
@@ -166,7 +180,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Object Lock tests for PUT headers, HA replica transfers and quorum rollback of protected versions.
 - Rollback tests for raw replica overwrites and failed encryption migration restores.
 - HA tests for mirror writes with a node down, the catch-up of a returning node (window, deletes, retries) and quota error codes.
-- Cluster routing tests with an AWS SDK client and the console between two complete nodes: requests about a bucket a node does not hold yet reach the node that holds it, bucket names are unique across nodes, bucket permissions find a bucket on another node.
 - Tests for suspended DELETE, bucket creation over a pending removal, object ACL ownership and migration, and tenant usage and synchronisation between nodes.
 - HA bucket tests between two complete nodes: every bucket change reaches the other node, in both directions; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data; refusals. Lifecycle expiration on the coordinator only.
 - Encryption secret tests: stored once and kept across restarts; adoption re-encrypts every stored credential in one transaction; each component's credentials re-encrypted; a real join between two nodes; the coordinator gives its secret and no other node can; the settings never show the JWT secret.

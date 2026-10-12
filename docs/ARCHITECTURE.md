@@ -62,7 +62,7 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 │  Node 1    │  │  Node 2    │  │  Node 3    │
 │ (Primary)  │  │(Secondary) │  │(Secondary) │
 ├────────────┤  ├────────────┤  ├────────────┤
-│Smart Router│  │Smart Router│  │Smart Router│
+│Any request │  │Any request │  │Any request │
 │Health Check│  │Health Check│  │Health Check│
 │Replication │  │Replication │  │Replication │
 │  Manager   │  │  Manager   │  │  Manager   │
@@ -122,9 +122,9 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 
 | Package | Purpose |
 |---------|---------|
-| `internal/cluster` | Cluster manager, smart router, health checker, bucket location cache |
+| `internal/cluster` | Cluster manager, health checker |
 | `internal/cluster` | 6 sync managers: users, tenants, access keys, bucket permissions, IDP providers, group mappings |
-| `internal/cluster` | Tombstone-based deletion sync, circuit breaker, rate limiter |
+| `internal/cluster` | Tombstone-based deletion sync, rate limiter |
 | `internal/cluster` | Membership, health, object placement and copies between nodes, replication queue/workers |
 | `internal/cluster` | HA object manager: quorum writes, local rollback on quorum failure, anti-entropy |
 | `internal/clusterauth` | Inter-node request signature definition |
@@ -340,17 +340,17 @@ MaxIOFS supports **five authentication methods**:
 14. Return success to client
 ```
 
-### Cluster Request Routing
+### Cluster Request Handling
 
 ```
 1. Client → Load Balancer → Node 2 (receives request)
 2. Node 2: Authenticate request, resolve tenant
-3. Smart Router: Check bucket location in cache (5-min TTL)
-4. Cache MISS → Query SQLite bucket_locations → Bucket on Node 1
-5. Health check: Verify Node 1 is healthy
-6. Internal proxy: Forward request to Node 1 (preserving all headers)
-7. Node 1: Process locally → Return response → Node 2 → Client
-8. Cache updated: Subsequent requests hit cache (5ms vs 50ms)
+3. Every node holds every bucket and every object's entry: Node 2 answers
+   listings, HEAD and metadata from its own entry
+4. A read whose data Node 2 does not hold is read from a node that holds it
+5. A write is held by Node 2 and the nodes with the most free space, up to
+   the replication factor; its entry reaches every node before the answer
+6. A multipart upload's requests go to the node it was started on
 ```
 
 ---

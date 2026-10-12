@@ -173,8 +173,10 @@ func TestADeadNodeIsBackWhenItAnswers(t *testing.T) {
 	assert.Equal(t, []string{"back"}, caughtUp)
 }
 
-// A node drained on another node is marked dead here; one that would leave
-// fewer healthy nodes than the replication factor is not drained at all.
+// A drain made on another node is taken here: the copies of the drained node
+// are moved, and it is out of service once it holds no data; this node does
+// not take itself out. A drain that would leave fewer nodes taking data than
+// the replication factor is refused.
 func TestADrainIsTakenByEveryNode(t *testing.T) {
 	db := setupDeadNodeReconcilerDB(t)
 	enableCluster(t, db)
@@ -196,11 +198,17 @@ func TestADrainIsTakenByEveryNode(t *testing.T) {
 	r.ApplyDrains(ctx)
 	n3, err := mgr.GetNode(ctx, "n3")
 	require.NoError(t, err)
+	assert.Equal(t, HealthStatusHealthy, n3.HealthStatus)
+	assert.Eventually(t, func() bool { return syncer.Calls() == 2 }, time.Second, 10*time.Millisecond, "the copies of both are moved")
+	mgr.noteDrainDone("n3", true)
+	mgr.noteDrainDone("local-node", true)
+	r.ApplyDrains(ctx)
+	n3, err = mgr.GetNode(ctx, "n3")
+	require.NoError(t, err)
 	assert.Equal(t, HealthStatusDead, n3.HealthStatus)
-	assert.Eventually(t, func() bool { return syncer.Calls() == 1 }, time.Second, 10*time.Millisecond, "its copies are made again elsewhere")
 	self, err := mgr.GetNode(ctx, "local-node")
 	require.NoError(t, err)
-	assert.Equal(t, HealthStatusHealthy, self.HealthStatus, "a node does not mark itself dead")
+	assert.Equal(t, HealthStatusHealthy, self.HealthStatus, "a node takes itself out only once its own repair finds it empty")
 
 	// The periodic pass takes drains too, with automatic redistribution off.
 	insertNode(t, db, "n4", "n4", HealthStatusHealthy, nil)
@@ -209,13 +217,14 @@ func TestADrainIsTakenByEveryNode(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.NoError(t, SetGlobalConfig(ctx, db, redistributionEnabledKey, "false"))
+	mgr.noteDrainDone("n4", true)
 	require.NoError(t, r.RunOnce(ctx))
 	n4, err := mgr.GetNode(ctx, "n4")
 	require.NoError(t, err)
 	assert.Equal(t, HealthStatusDead, n4.HealthStatus)
 
 	err = r.DrainNode(ctx, "n2", "")
-	assert.ErrorIs(t, err, ErrBelowReplicationFactor)
+	assert.ErrorIs(t, err, ErrDrainBelowReplicationFactor)
 	n2, err := mgr.GetNode(ctx, "n2")
 	require.NoError(t, err)
 	assert.False(t, n2.Drained)

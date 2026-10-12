@@ -275,12 +275,11 @@ export interface Bucket {
   ownerId?: string; // Alias for compatibility
   owner_type?: string; // Backend uses snake_case
   ownerType?: string; // Alias for compatibility
-  is_public?: boolean; // Backend uses snake_case
-  isPublic?: boolean; // Alias for compatibility
   versioning?: VersioningConfig;
   cors?: CORSConfig;
   lifecycle?: LifecycleConfig;
   objectLock?: ObjectLockConfig;
+  publicAccessBlock?: PublicAccessBlockConfig;
   policy?: BucketPolicy;
   encryption?: EncryptionConfig;
   metadata?: Record<string, string>;
@@ -289,6 +288,13 @@ export interface Bucket {
   objectCount?: number; // Alias for compatibility
   size?: number; // Backend uses 'size'
   totalSize?: number; // Alias for compatibility
+}
+
+export interface PublicAccessBlockConfig {
+  blockPublicAcls: boolean;
+  ignorePublicAcls: boolean;
+  blockPublicPolicy: boolean;
+  restrictPublicBuckets: boolean;
 }
 
 export interface VersioningConfig {
@@ -1089,7 +1095,7 @@ export interface ListReplicationRulesResponse {
 }
 
 // Cluster Types
-export type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown';
+export type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown' | 'storage_pressure' | 'dead';
 
 export interface ClusterNode {
   id: string;
@@ -1104,12 +1110,12 @@ export interface ClusterNode {
   latency_ms: number;
   capacity_total: number;
   capacity_used: number;
-  bucket_count: number;
   metadata?: string;
   created_at: string;
   updated_at: string;
   is_local?: boolean; // true only for the node that handled this response
   encryption_secret_matches?: boolean; // absent when the node could not be asked
+  drained?: boolean; // being drained, or drained once dead
 }
 
 export interface ClusterStatus {
@@ -1119,8 +1125,6 @@ export interface ClusterStatus {
   degraded_nodes: number;
   unavailable_nodes: number;
   total_buckets: number;
-  replicated_buckets: number;
-  local_buckets: number;
   last_updated: string;
 }
 
@@ -1169,11 +1173,15 @@ export interface NodeHealthStatus {
   error_message?: string;
 }
 
-export interface CacheStats {
-  total_entries: number;
-  expired_entries: number;
-  valid_entries: number;
-  ttl_seconds: number;
+// How far a node being drained is in moving its objects to the other nodes.
+export interface DrainProgress {
+  started_at: string;
+  total_objects: number;
+  total_bytes: number;
+  remaining_objects: number;
+  remaining_bytes: number;
+  eta_seconds: number; // 0 while nothing has moved
+  updated_at: string;
 }
 
 export interface ListNodesResponse {

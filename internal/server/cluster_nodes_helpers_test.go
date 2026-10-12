@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const routingAdminID = "routing-admin"
+
 // newClusterTestNode is a whole server on its own data directory, its routes
 // set up.
 func newClusterTestNode(t *testing.T) *Server {

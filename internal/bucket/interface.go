@@ -14,7 +14,6 @@ type Bucket struct {
 	TenantID          string             `json:"tenant_id"`  // Tenant ID for multi-tenancy isolation
 	OwnerID           string             `json:"owner_id"`   // Owner user ID
 	OwnerType         string             `json:"owner_type"` // "user" or "tenant"
-	IsPublic          bool               `json:"is_public"`  // Public access flag
 	CreatedAt         time.Time          `json:"created_at"`
 	Region            string             `json:"region"`
 	Versioning        *VersioningConfig  `json:"versioning,omitempty"`

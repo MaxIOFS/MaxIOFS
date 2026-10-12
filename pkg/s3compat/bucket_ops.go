@@ -1,9 +1,9 @@
 package s3compat
 
 import (
-	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -78,33 +78,25 @@ func (h *Handler) PutBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Strip UTF-8 BOM if present (PowerShell adds BOM by default)
-	// Handle both normal BOM (EF BB BF) and double-encoded BOM (C3 AF C2 BB C2 BF)
-	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
-	body = bytes.TrimPrefix(body, []byte{0xC3, 0xAF, 0xC2, 0xBB, 0xC2, 0xBF})
-
-	// Validate JSON format
-	var policyDoc bucket.Policy
-	if err := json.Unmarshal(body, &policyDoc); err != nil {
-		logrus.WithError(err).Error("PutBucketPolicy: Failed to parse policy JSON")
-		h.writeError(w, "MalformedPolicy", "The policy is not valid JSON", bucketName, r)
+	policyDoc, err := bucket.ValidatePolicy(body, bucketName)
+	if err != nil {
+		h.writeError(w, "MalformedPolicy", err.Error(), bucketName, r)
 		return
 	}
-
-	// Validate policy structure
-	if policyDoc.Version == "" {
-		h.writeError(w, "MalformedPolicy", "Policy must contain a Version field", bucketName, r)
-		return
-	}
-
-	if len(policyDoc.Statement) == 0 {
-		h.writeError(w, "MalformedPolicy", "Policy must contain at least one Statement", bucketName, r)
-		return
-	}
-
-	// Set the policy
 	tenantID := h.resolveBucketTenantID(r, bucketName)
-	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, &policyDoc); err != nil {
+	if err := bucket.CheckPublicPolicy(r.Context(), h.bucketManager, tenantID, bucketName, policyDoc); err != nil {
+		switch {
+		case errors.Is(err, bucket.ErrPublicPolicyBlocked):
+			h.writeError(w, "AccessDenied", "Access Denied: the bucket's Block Public Access blocks public bucket policies", bucketName, r)
+		case errors.Is(err, bucket.ErrBucketNotFound):
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+		default:
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		}
+		return
+	}
+
+	if err := h.bucketManager.SetBucketPolicy(r.Context(), tenantID, bucketName, policyDoc); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
@@ -787,6 +779,10 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 
 		// Convert from S3 format to internal format
 		aclData = acl.FromS3Format(&s3ACL)
+	}
+
+	if !h.requirePublicACLAllowed(w, r, bucketName, bucketName, aclData.IsPublic()) {
+		return
 	}
 
 	// Set ACL using bucket manager

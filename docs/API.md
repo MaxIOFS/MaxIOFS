@@ -149,7 +149,8 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 - **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`
 - **Conditional Writes** — `PutObject If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists (atomic create-if-absent)
 - **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted
-- **PublicAccessBlock enforcement** — `IgnorePublicAcls` and `RestrictPublicBuckets` flags deny all public ACL access; configure via `PUT /{bucket}?publicAccessBlock`
+- **PublicAccessBlock enforcement** — `IgnorePublicAcls` voids public ACLs and `RestrictPublicBuckets` public bucket policies for requests without credentials; `BlockPublicAcls` and `BlockPublicPolicy` refuse a request carrying a public ACL or a public policy (`403 AccessDenied`); configure via `PUT /{bucket}?publicAccessBlock`
+- **Bucket policies** — evaluated with the caller's IAM policies, AWS-style; principals `"*"`, `arn:aws:iam:::user/<name>` or a user ID; conditions on `aws:SourceIp` and `aws:SecureTransport`; a policy using anything else is refused with `MalformedPolicy` (see SECURITY.md)
 - **OwnershipControls** — default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
 - **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored
 - **SelectObjectContent** — SQL queries on object data streamed via Amazon Event Stream binary protocol (Records/Stats/End events, CRC32-framed); see section below
@@ -344,8 +345,8 @@ session token in `X-Amz-Security-Token`. The token **must be listed in
 it cannot be stripped or swapped in transit. Presigned URLs work too, with the
 token as a query parameter. SigV2 is rejected for temporary credentials, as on AWS.
 
-Permissions are evaluated per request against the base user's live state: roles,
-capabilities, bucket permissions, bucket policies and ACLs all apply unchanged.
+Permissions are evaluated per request against the base user's live state: their
+policies and the bucket policy apply unchanged.
 Suspending or deleting the user invalidates every session of theirs immediately.
 
 #### Federation — credentials for headless clients
@@ -696,9 +697,7 @@ session: it opens only the resource it was minted for.
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
 | DELETE | `/api/v1/cluster/nodes/{id}` | Remove a node from every node; the node leaves when it next contacts one |
 | GET | `/api/v1/cluster/nodes/{id}/health` | Run a health check on one node |
-| POST | `/api/v1/cluster/nodes/{id}/drain` | Take a remote node out of service on every node and make its copies again elsewhere; `409` when it would leave fewer healthy nodes than the replication factor (global admin only) |
-| GET | `/api/v1/cluster/cache/stats` | Bucket location cache statistics |
-| POST | `/api/v1/cluster/cache/invalidate` | Invalidate the bucket location cache |
+| POST | `/api/v1/cluster/nodes/{id}/drain` | Start the drain of a node, this one included: it takes no new data, its objects are moved to the other nodes, and once it holds none it serves no S3 request and is out of service on every node; `409` when the other nodes that take data would be fewer than the replication factor (global admin only) |
 | GET | `/api/v1/cluster/buckets/{bucket}/replicas` | Replication information for one bucket |
 
 ### High Availability

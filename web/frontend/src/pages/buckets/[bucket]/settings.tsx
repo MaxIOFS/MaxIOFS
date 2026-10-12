@@ -33,7 +33,8 @@ import { APIClient } from '@/lib/api';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
 import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
-import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest } from '@/types';
+import { PublicAccessBlockFields } from '@/components/PublicAccessBlockFields';
+import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest, PublicAccessBlockConfig } from '@/types';
 
 // Tab types
 type TabId = 'general' | 'security' | 'quota' | 'lifecycle' | 'notifications' | 'replication' | 'inventory' | 'website';
@@ -194,6 +195,36 @@ export default function BucketSettingsPage() {
   const { data: bucketData, isLoading } = useQuery({
     queryKey: ['bucket', bucketName, tenantId],
     queryFn: () => APIClient.getBucket(bucketName, tenantId),
+  });
+
+  // Block Public Access: local edits only; the form is derived from server data
+  const [publicAccessEdits, setPublicAccessEdits] = useState<PublicAccessBlockConfig | null>(null);
+  const savedPublicAccess: PublicAccessBlockConfig = {
+    blockPublicAcls: !!bucketData?.publicAccessBlock?.blockPublicAcls,
+    ignorePublicAcls: !!bucketData?.publicAccessBlock?.ignorePublicAcls,
+    blockPublicPolicy: !!bucketData?.publicAccessBlock?.blockPublicPolicy,
+    restrictPublicBuckets: !!bucketData?.publicAccessBlock?.restrictPublicBuckets,
+  };
+  const publicAccessForm = publicAccessEdits ?? savedPublicAccess;
+  const publicAccessDirty = (Object.keys(savedPublicAccess) as (keyof PublicAccessBlockConfig)[])
+    .some((flag) => publicAccessForm[flag] !== savedPublicAccess[flag]);
+  // A public ACL is refused while Block public ACLs is on, and grants nothing
+  // to requests without credentials while public ACLs are ignored. A policy
+  // granting everyone is refused while Block public bucket policies is on.
+  const publicACLBlocked = savedPublicAccess.blockPublicAcls;
+  const publicACLIgnored = savedPublicAccess.ignorePublicAcls;
+  const publicPolicyBlocked = savedPublicAccess.blockPublicPolicy;
+
+  const savePublicAccessMutation = useMutation({
+    mutationFn: (config: PublicAccessBlockConfig) => APIClient.putPublicAccessBlock(bucketName, config, tenantId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      setPublicAccessEdits(null);
+      ModalManager.toast('success', t('publicAccess.savedSuccess'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
   });
 
   // Versioning mutation
@@ -1517,6 +1548,33 @@ export default function BucketSettingsPage() {
             {/* SECURITY TAB */}
             {activeTab === 'security' && (
               <>
+        {/* Block Public Access */}
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Lock className="h-5 w-5 text-muted-foreground" />
+              {t('publicAccess.title')}
+            </h3>
+          </div>
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">{t('publicAccess.description')}</p>
+            <PublicAccessBlockFields
+              value={publicAccessForm}
+              onChange={setPublicAccessEdits}
+              disabled={isGlobalAdminInTenantBucket || savePublicAccessMutation.isPending}
+            />
+            <div className="flex justify-end">
+              <Button
+                onClick={() => savePublicAccessMutation.mutate(publicAccessForm)}
+                disabled={!publicAccessDirty || isGlobalAdminInTenantBucket || savePublicAccessMutation.isPending}
+                title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
+              >
+                {savePublicAccessMutation.isPending ? t('publicAccess.saving') : t('publicAccess.save')}
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Bucket Policy */}
         <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
           <div className="px-6 py-4 border-b border-border">
@@ -1610,6 +1668,12 @@ export default function BucketSettingsPage() {
                       {currentACL === 'authenticated-read' && `🔐 ${t('acl.authenticatedRead')}`}
                     </span>
                   </div>
+                  {(currentACL === 'public-read' || currentACL === 'public-read-write') && publicACLIgnored && (
+                    <p className="mt-2 text-xs text-yellow-700 dark:text-yellow-300 flex items-center gap-1">
+                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                      {t('acl.ignoredByPublicAccess')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -2703,6 +2767,12 @@ export default function BucketSettingsPage() {
         size="xl"
       >
         <div className="space-y-4">
+          {publicPolicyBlocked && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">{t('policy.blockedByPublicAccess')}</p>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="border-b border-border">
             <nav className="-mb-px flex space-x-8">
@@ -3315,6 +3385,12 @@ export default function BucketSettingsPage() {
             </p>
           </div>
 
+          {publicACLBlocked && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">{t('acl.blockedByPublicAccess')}</p>
+            </div>
+          )}
+
           {/* Canned ACL Selection */}
           <div className="space-y-3">
             <label className="block text-sm font-medium text-foreground">
@@ -3341,13 +3417,14 @@ export default function BucketSettingsPage() {
               </label>
 
               {/* Public Read */}
-              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
+              <label className={`flex items-start gap-3 p-3 border border-border rounded-lg transition-colors ${publicACLBlocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-secondary'}`}>
                 <input
                   type="radio"
                   name="acl"
                   value="public-read"
                   checked={selectedCannedACL === 'public-read'}
                   onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  disabled={publicACLBlocked}
                   className="mt-1"
                 />
                 <div className="flex-1">
@@ -3359,37 +3436,20 @@ export default function BucketSettingsPage() {
               </label>
 
               {/* Public Read Write */}
-              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
+              <label className={`flex items-start gap-3 p-3 border border-border rounded-lg transition-colors ${publicACLBlocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-secondary'}`}>
                 <input
                   type="radio"
                   name="acl"
                   value="public-read-write"
                   checked={selectedCannedACL === 'public-read-write'}
                   onChange={(e) => setSelectedCannedACL(e.target.value)}
+                  disabled={publicACLBlocked}
                   className="mt-1"
                 />
                 <div className="flex-1">
                   <div className="font-medium text-sm text-foreground">{t('acl.publicReadWriteLabel')}</div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {t('acl.publicReadWriteDesc')} <strong className="text-yellow-600">{t('acl.publicReadWriteCaution')}</strong>
-                  </div>
-                </div>
-              </label>
-
-              {/* Authenticated Read */}
-              <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:bg-secondary transition-colors">
-                <input
-                  type="radio"
-                  name="acl"
-                  value="authenticated-read"
-                  checked={selectedCannedACL === 'authenticated-read'}
-                  onChange={(e) => setSelectedCannedACL(e.target.value)}
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm text-foreground">{t('acl.authenticatedReadLabel')}</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {t('acl.authenticatedReadDesc')}
                   </div>
                 </div>
               </label>
@@ -3412,7 +3472,7 @@ export default function BucketSettingsPage() {
             </Button>
             <Button
               onClick={handleSaveACL}
-              disabled={isGlobalAdminInTenantBucket || saveACLMutation.isPending}
+              disabled={isGlobalAdminInTenantBucket || saveACLMutation.isPending || (publicACLBlocked && selectedCannedACL !== 'private')}
             >
               {saveACLMutation.isPending ? t('acl.saving') : t('acl.saveAcl')}
             </Button>

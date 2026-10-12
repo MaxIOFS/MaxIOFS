@@ -57,6 +57,8 @@ type HASyncWorker struct {
 	// placing is held while PlaceWrites runs; placed is set once it has.
 	placing sync.Mutex
 	placed  atomic.Bool
+	// drain follows the move of this node's objects while it is drained.
+	drain drainProgress
 }
 
 // Stop cancels the in-flight syncs and waits for them. Their final status write

@@ -114,6 +114,9 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 	if !h.requireObjectLockHeaderActions(w, r, bucketName, objectKey) {
 		return
 	}
+	if !h.requireACLHeaderAllowed(w, r, bucketName, objectKey) {
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload

@@ -98,13 +98,13 @@ func TestALeavingNodeIsRemovedFromTheOthers(t *testing.T) {
 	assert.True(t, p.a.clusterManager.RemovedFromCluster(context.Background(), p.bID))
 }
 
-// A drain on one node takes the node out of service on every node, and a
-// drained node that answers stays out of service.
+// A drain on one node reaches every node; once the drained node says it holds
+// no data it is out of service there, and it stays out when it answers.
 func TestADrainedNodeIsOutOfServiceEverywhere(t *testing.T) {
 	p := newHAPair(t)
 	addNodeEverywhere(t, p, "retiring")
 	answers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"status":"healthy","drain_done":true}`))
 	}))
 	t.Cleanup(answers.Close)
 	_, err := p.b.db.Exec(`UPDATE cluster_nodes SET endpoint = ? WHERE id = 'retiring'`, answers.URL)
@@ -115,8 +115,14 @@ func TestADrainedNodeIsOutOfServiceEverywhere(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Eventually(t, func() bool {
 		n, err := p.b.clusterManager.GetNode(context.Background(), "retiring")
-		return err == nil && n.Drained && n.HealthStatus == cluster.HealthStatusDead
-	}, 10*time.Second, 20*time.Millisecond, "the other node takes it out of service")
+		return err == nil && n.Drained
+	}, 10*time.Second, 20*time.Millisecond, "the other node takes the drain")
+	_, err = p.b.clusterManager.CheckNodeHealth(context.Background(), "retiring")
+	require.NoError(t, err)
+	p.b.deadNodeReconciler.ApplyDrains(context.Background())
+	n, err := p.b.clusterManager.GetNode(context.Background(), "retiring")
+	require.NoError(t, err)
+	assert.Equal(t, cluster.HealthStatusDead, n.HealthStatus, "the other node takes it out of service")
 
 	st, err := p.b.clusterManager.CheckNodeHealth(context.Background(), "retiring")
 	require.NoError(t, err)
@@ -130,7 +136,7 @@ func TestADrainedNodeIsOutOfServiceEverywhere(t *testing.T) {
 	w = httptest.NewRecorder()
 	p.a.handleDrainClusterNode(w, asGlobalAdmin(httptest.NewRequest(http.MethodPost, "/api/v1/cluster/nodes/"+p.bID+"/drain", nil), map[string]string{"nodeId": p.bID}))
 	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
-	n, err := p.a.clusterManager.GetNode(context.Background(), p.bID)
+	n, err = p.a.clusterManager.GetNode(context.Background(), p.bID)
 	require.NoError(t, err)
 	assert.False(t, n.Drained)
 }

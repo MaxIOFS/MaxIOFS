@@ -16,7 +16,6 @@ func toMetadataBucket(b *Bucket) *metadata.BucketMetadata {
 		OwnerID:   b.OwnerID,
 		OwnerType: b.OwnerType,
 		Region:    b.Region,
-		IsPublic:  b.IsPublic,
 		CreatedAt: b.CreatedAt,
 		UpdatedAt: b.CreatedAt, // Will be updated by metadata store
 
@@ -58,7 +57,6 @@ func fromMetadataBucket(mb *metadata.BucketMetadata) *Bucket {
 		OwnerID:   mb.OwnerID,
 		OwnerType: mb.OwnerType,
 		Region:    mb.Region,
-		IsPublic:  mb.IsPublic,
 		CreatedAt: mb.CreatedAt,
 
 		// Configuration

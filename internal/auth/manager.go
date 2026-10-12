@@ -254,14 +254,8 @@ type authManager struct {
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
 	bgwork.Worker
-	closeOnce      sync.Once
-	closeErr       error
-	clusterManager interface {
-		IsClusterEnabled() bool
-	}
-	quotaAggregator interface {
-		GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
-	}
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // SettingsManager interface for retrieving system settings
@@ -1382,20 +1376,6 @@ func (am *authManager) Close() error {
 	return am.closeErr
 }
 
-// SetClusterManager sets the cluster manager for cluster-aware quota checking
-func (am *authManager) SetClusterManager(cm interface {
-	IsClusterEnabled() bool
-}) {
-	am.clusterManager = cm
-}
-
-// SetQuotaAggregator sets the quota aggregator for cross-node quota checking
-func (am *authManager) SetQuotaAggregator(qa interface {
-	GetTenantTotalStorage(ctx context.Context, tenantID string) (int64, error)
-}) {
-	am.quotaAggregator = qa
-}
-
 // GetDB returns the underlying SQLite database connection
 // This allows other managers (like settings) to share the same database
 func (am *authManager) GetDB() interface{} {
@@ -1477,28 +1457,9 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 		return nil
 	}
 
-	// Check if cluster mode is enabled
-	isClusterEnabled := am.clusterManager != nil && am.clusterManager.IsClusterEnabled()
-
-	var currentStorage int64
-	if isClusterEnabled && am.quotaAggregator != nil {
-		// Cluster mode: aggregate storage from all healthy nodes
-		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: using cluster-wide quota aggregation")
-
-		totalStorage, err := am.quotaAggregator.GetTenantTotalStorage(ctx, tenantID)
-		if err != nil {
-			logrus.WithError(err).WithField("tenantID", tenantID).Error("CheckTenantStorageQuota: failed to get cluster-wide storage")
-			// Fallback to local storage check on error
-			currentStorage = tenant.CurrentStorageBytes
-			logrus.WithField("tenantID", tenantID).Warn("CheckTenantStorageQuota: falling back to local storage check")
-		} else {
-			currentStorage = totalStorage
-		}
-	} else {
-		// Standalone mode: use local storage only
-		currentStorage = tenant.CurrentStorageBytes
-		logrus.WithField("tenantID", tenantID).Debug("CheckTenantStorageQuota: using local storage check")
-	}
+	// Every node of a cluster holds the entry of every object: the usage here
+	// is the tenant's usage in the cluster.
+	currentStorage := tenant.CurrentStorageBytes
 
 	logrus.WithFields(logrus.Fields{
 		"tenantID":        tenantID,
@@ -1507,7 +1468,6 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 		"additionalBytes": additionalBytes,
 		"projectedTotal":  currentStorage + additionalBytes,
 		"wouldExceed":     currentStorage+additionalBytes > tenant.MaxStorageBytes,
-		"clusterMode":     isClusterEnabled,
 	}).Info("CheckTenantStorageQuota: validating quota")
 
 	// Check if adding these bytes would exceed quota
@@ -1518,7 +1478,6 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 			"maxStorage":      tenant.MaxStorageBytes,
 			"additionalBytes": additionalBytes,
 			"newTotal":        newTotal,
-			"clusterMode":     isClusterEnabled,
 		}).Warn("CheckTenantStorageQuota: QUOTA EXCEEDED")
 		return fmt.Errorf("%w: %d/%d bytes (attempting to add %d bytes)",
 			ErrStorageQuotaExceeded, currentStorage, tenant.MaxStorageBytes, additionalBytes)

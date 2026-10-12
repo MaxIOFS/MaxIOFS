@@ -58,7 +58,6 @@ func NewHandler(
 	consoleListen string,
 	dataDir string,
 	clusterManager *cluster.Manager,
-	bucketAggregator *cluster.BucketAggregator,
 ) *Handler {
 	s3Handler := s3compat.NewHandler(bucketManager, objectManager)
 
@@ -86,11 +85,6 @@ func NewHandler(
 	// Configure cluster manager for cluster mode detection
 	if clusterManager != nil {
 		s3Handler.SetClusterManager(clusterManager)
-	}
-
-	// Configure bucket aggregator for cross-node bucket listing
-	if bucketAggregator != nil {
-		s3Handler.SetBucketAggregator(bucketAggregator)
 	}
 
 	return &Handler{
@@ -292,8 +286,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", noop).Methods("OPTIONS")
 }
 
-// BucketRoutingMiddleware sends a request about a bucket this node does not
-// hold yet to the node that holds it.
+// BucketRoutingMiddleware sends a request about a multipart upload to the node
+// the upload was started on.
 func (h *Handler) BucketRoutingMiddleware(next http.Handler) http.Handler {
 	return h.s3Handler.BucketRoutingMiddleware(next)
 }
@@ -577,11 +571,6 @@ func (h *Handler) SetReplicationManager(rm interface {
 	QueueRealtimeObject(ctx context.Context, tenantID, bucket, objectKey, action string) error
 }) {
 	h.s3Handler.SetReplicationManager(rm)
-}
-
-// SetClusterRouter sets the cluster router for routing S3 bucket operations to the correct node.
-func (h *Handler) SetClusterRouter(cr *cluster.Router) {
-	h.s3Handler.SetClusterRouter(cr)
 }
 
 // SetUploadRouter sends a request about a multipart upload to the node it was

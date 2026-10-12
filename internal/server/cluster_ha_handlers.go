@@ -63,11 +63,19 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		CapacityUsed  int64  `json:"capacity_used"`
 		CapacityFree  int64  `json:"capacity_free"`
 		Drained       bool   `json:"drained"`
+		// DrainProgress is how far a node being drained is in moving its
+		// objects.
+		DrainProgress *cluster.DrainProgress `json:"drain_progress,omitempty"`
+	}
+
+	var localNodeID string
+	if cfg, cfgErr := s.clusterManager.GetConfig(r.Context()); cfgErr == nil {
+		localNodeID = cfg.NodeID
 	}
 
 	nodeStatuses := make([]nodeStatus, 0, len(nodes))
 	for _, n := range nodes {
-		nodeStatuses = append(nodeStatuses, nodeStatus{
+		st := nodeStatus{
 			ID:            n.ID,
 			Name:          n.Name,
 			HealthStatus:  n.HealthStatus,
@@ -75,14 +83,15 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 			CapacityUsed:  n.CapacityUsed,
 			CapacityFree:  n.CapacityTotal - n.CapacityUsed,
 			Drained:       n.Drained,
-		})
-	}
-
-	// Surface the local node ID so the frontend can hide self-mutating
-	// controls (e.g. Drain) on the row representing this very server.
-	var localNodeID string
-	if cfg, cfgErr := s.clusterManager.GetConfig(r.Context()); cfgErr == nil {
-		localNodeID = cfg.NodeID
+		}
+		if n.Drained && n.HealthStatus != cluster.HealthStatusDead {
+			if n.ID == localNodeID && s.haSyncWorker != nil {
+				st.DrainProgress = s.haSyncWorker.DrainProgress()
+			} else {
+				st.DrainProgress = s.clusterManager.DrainProgressOf(n.ID)
+			}
+		}
+		nodeStatuses = append(nodeStatuses, st)
 	}
 
 	s.writeJSON(w, map[string]interface{}{
@@ -147,7 +156,8 @@ func (s *Server) handleGetHAScrubStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleDrainClusterNode immediately marks a node dead and triggers
+// handleDrainClusterNode starts the drain of a node, this one included (see
+// DeadNodeReconciler.DrainNode).
 func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
@@ -170,14 +180,6 @@ func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Reject draining the local node — running drain on the very server
-	// processing the request would flip the responder to dead mid-call.
-	config, err := s.clusterManager.GetConfig(r.Context())
-	if err == nil && config.NodeID == nodeID {
-		s.writeError(w, "Cannot drain the local node. Run drain from a different cluster node.", http.StatusBadRequest)
-		return
-	}
-
 	var body struct {
 		Reason string `json:"reason"`
 	}
@@ -190,7 +192,7 @@ func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) 
 	if err := s.deadNodeReconciler.DrainNode(r.Context(), nodeID, body.Reason); err != nil {
 		logrus.WithError(err).WithField("node_id", nodeID).Error("Drain failed")
 		status := http.StatusInternalServerError
-		if errors.Is(err, cluster.ErrBelowReplicationFactor) {
+		if errors.Is(err, cluster.ErrBelowReplicationFactor) || errors.Is(err, cluster.ErrDrainBelowReplicationFactor) {
 			status = http.StatusConflict
 		}
 		s.writeError(w, "Drain failed: "+err.Error(), status)
@@ -199,7 +201,7 @@ func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) 
 	s.syncMembershipNow()
 
 	s.writeJSON(w, map[string]interface{}{
-		"message": "Node drained and redistribution triggered",
+		"message": "Drain started: the node takes no new data and its objects are moved to the other nodes",
 		"node_id": nodeID,
 		"reason":  body.Reason,
 	})
