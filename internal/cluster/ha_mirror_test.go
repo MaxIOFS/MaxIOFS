@@ -453,7 +453,7 @@ func TestInitialSyncCarriesObjectLock(t *testing.T) {
 		Retention: &object.RetentionConfig{Mode: object.RetentionModeGovernance, RetainUntilDate: until},
 		LegalHold: &object.LegalHoldConfig{Status: object.LegalHoldStatusOn},
 	}}, nil, mgr, nil)
-	require.NoError(t, w.syncKey(context.Background(), NewProxyClient(nil), nodes[0], "local", "bucket", "k"))
+	require.NoError(t, w.syncKey(context.Background(), NewProxyClient(nil), nodes[0], "local", "bucket", "k", nil))
 	got := <-received
 	assert.Equal(t, "true", got.Get(HAObjectLockHeader))
 	assert.Equal(t, object.RetentionModeGovernance, got.Get("x-amz-object-lock-mode"))
@@ -663,6 +663,11 @@ func TestInitialSyncCopiesTheObjectWrittenWhileSuspended(t *testing.T) {
 	var attributes string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
+		// The sync asks which writes the replica holds; it holds none.
+		if strings.HasSuffix(r.URL.Path, "/ha/checksum-batch") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		mu.Lock()
 		got = append(got, syncRequest{method: r.Method, version: r.Header.Get(HAObjectVersionHeader)})
 		if r.Header.Get(HAObjectVersionHeader) == "" {

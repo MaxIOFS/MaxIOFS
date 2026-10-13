@@ -300,26 +300,47 @@ func (r *DeadNodeReconciler) markDead(ctx context.Context, node *Node, reason st
 		factor = 1
 	}
 
-	tx, err := r.mgr.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck // rollback on failure is intentional
-
 	// Count the nodes that take data, healthy or slow and not drained,
 	// excluding the candidate. Unavailable, drained and storage-pressure nodes
 	// do not contribute to write capacity and are not counted, so an
 	// unavailable node reaching the dead threshold never inflates the safety
 	// count.
-	var healthyExcludingCandidate int
-	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0 AND id != ?`,
-		HealthStatusHealthy, HealthStatusDegraded, node.ID,
-	).Scan(&healthyExcludingCandidate); err != nil {
-		return fmt.Errorf("count healthy nodes: %w", err)
+	const others = `SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0 AND id != ?`
+	required := 0
+	if safe {
+		required = factor
 	}
 
-	if safe && healthyExcludingCandidate < factor {
+	// The count and the change are one statement: SQLite takes the write lock
+	// for it, waiting for another writer, where a transaction that had read
+	// before that writer committed failed with SQLITE_BUSY.
+	// Writes are not noted for a dead node, and the copies it held are made
+	// again elsewhere: should it answer again, it is compared on every write.
+	now := time.Now()
+	result, err := r.mgr.db.ExecContext(ctx, `
+		UPDATE cluster_nodes
+		SET health_status = ?, updated_at = ?, replica_missed_since = ?
+		WHERE id = ? AND health_status != ? AND (`+others+`) >= ?
+	`, HealthStatusDead, now, wholeCatchUp, node.ID, HealthStatusDead,
+		HealthStatusHealthy, HealthStatusDegraded, node.ID, required)
+	if err != nil {
+		return fmt.Errorf("mark dead: %w", err)
+	}
+
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
+		if !safe {
+			// Already dead.
+			return nil
+		}
+		var healthyExcludingCandidate int
+		if err := r.mgr.db.QueryRowContext(ctx, others, HealthStatusHealthy, HealthStatusDegraded, node.ID).
+			Scan(&healthyExcludingCandidate); err != nil {
+			return fmt.Errorf("count healthy nodes: %w", err)
+		}
+		if healthyExcludingCandidate >= factor {
+			// Already dead.
+			return nil
+		}
 		r.log.WithFields(logrus.Fields{
 			"node_id":            node.ID,
 			"node_name":          node.Name,
@@ -342,28 +363,6 @@ func (r *DeadNodeReconciler) markDead(ctx context.Context, node *Node, reason st
 			NonDeadNodes: healthyExcludingCandidate,
 		})
 		return ErrBelowReplicationFactor
-	}
-
-	// Writes are not noted for a dead node, and the copies it held are made
-	// again elsewhere: should it answer again, it is compared on every write.
-	now := time.Now()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE cluster_nodes
-		SET health_status = ?, updated_at = ?, replica_missed_since = ?
-		WHERE id = ? AND health_status != ?
-	`, HealthStatusDead, now, wholeCatchUp, node.ID, HealthStatusDead)
-	if err != nil {
-		return fmt.Errorf("mark dead: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit mark-dead transaction: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		// Node was already dead (concurrent call won the race); skip the SSE event.
-		return nil
 	}
 
 	r.log.WithFields(logrus.Fields{

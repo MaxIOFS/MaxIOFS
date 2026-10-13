@@ -317,6 +317,8 @@ func TestBucketPolicy_PutRefusesWhatIsNotEnforced(t *testing.T) {
 	for name, policy := range map[string]string{
 		"NotPrincipal": `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","NotPrincipal":{"AWS":"x"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::policy-validate/*"}]}`,
 		"NotAction":    `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","NotAction":"s3:GetObject","Resource":"arn:aws:s3:::policy-validate/*"}]}`,
+		"NotResource beside Resource": `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject",
+			"Resource":"arn:aws:s3:::policy-validate/*","NotResource":"arn:aws:s3:::policy-validate/public/*"}]}`,
 		"condition key": `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:ListBucket","Resource":"arn:aws:s3:::policy-validate",
 			"Condition":{"StringNotLike":{"s3:prefix":"home/*"}}}]}`,
 		"other bucket":   `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::someone-else/*"}]}`,

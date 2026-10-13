@@ -34,6 +34,8 @@ import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
 import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
 import { PublicAccessBlockFields } from '@/components/PublicAccessBlockFields';
+import { BucketPolicyEditor } from '@/components/BucketPolicyEditor';
+import type { BucketPolicyDocument } from '@/lib/bucketPolicyRules';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest, PublicAccessBlockConfig } from '@/types';
 
 // Tab types
@@ -119,12 +121,11 @@ export default function BucketSettingsPage() {
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isCORSModalOpen, setIsCORSModalOpen] = useState(false);
   const [isLifecycleModalOpen, setIsLifecycleModalOpen] = useState(false);
-  const [policyText, setPolicyText] = useState('');
+  const [editingPolicy, setEditingPolicy] = useState<BucketPolicyDocument | null>(null);
   const [corsText, setCorsText] = useState('');
   const [_lifecycleText, setLifecycleText] = useState('');
   const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
   const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
-  const [policyTab, setPolicyTab] = useState<'editor' | 'templates'>('editor');
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const [tags, setTags] = useState<Record<string, string>>({});
   const [newTagKey, setNewTagKey] = useState('');
@@ -789,13 +790,11 @@ export default function BucketSettingsPage() {
       } else {
         policyJson = response;
       }
-      setPolicyText(JSON.stringify(policyJson, null, 2));
-      setPolicyTab('editor');
+      setEditingPolicy(policyJson);
       setIsPolicyModalOpen(true);
     } catch {
-      // No policy set, start with empty
-      setPolicyText('');
-      setPolicyTab('templates');
+      // No policy set: start without rules
+      setEditingPolicy(null);
       setIsPolicyModalOpen(true);
     }
   };
@@ -1300,89 +1299,6 @@ export default function BucketSettingsPage() {
       t('replication.confirmTriggerMsg'),
       () => triggerReplicationSyncMutation.mutate(ruleId)
     );
-  };
-
-  // Policy Templates
-  const policyTemplates = {
-    publicRead: {
-      name: t('policy.templates.publicRead.name'),
-      description: t('policy.templates.publicRead.description'),
-      policy: {
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: '*',
-            Action: 's3:GetObject',
-            Resource: `arn:aws:s3:::${bucketName}/*`,
-          },
-        ],
-      },
-    },
-    publicReadWrite: {
-      name: t('policy.templates.publicReadWrite.name'),
-      description: t('policy.templates.publicReadWrite.description'),
-      policy: {
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: '*',
-            Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
-            Resource: `arn:aws:s3:::${bucketName}/*`,
-          },
-        ],
-      },
-    },
-    listOnly: {
-      name: t('policy.templates.listOnly.name'),
-      description: t('policy.templates.listOnly.description'),
-      policy: {
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: '*',
-            Action: 's3:ListBucket',
-            Resource: `arn:aws:s3:::${bucketName}`,
-          },
-        ],
-      },
-    },
-    fullPublic: {
-      name: t('policy.templates.fullPublic.name'),
-      description: t('policy.templates.fullPublic.description'),
-      policy: {
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: '*',
-            Action: 's3:*',
-            Resource: [
-              `arn:aws:s3:::${bucketName}`,
-              `arn:aws:s3:::${bucketName}/*`,
-            ],
-          },
-        ],
-      },
-    },
-  };
-
-  const handleUseTemplate = (templateKey: keyof typeof policyTemplates) => {
-    const template = policyTemplates[templateKey];
-    setPolicyText(JSON.stringify(template.policy, null, 2));
-    setPolicyTab('editor');
-  };
-
-  const handleSavePolicy = () => {
-    try {
-      // Validate JSON
-      JSON.parse(policyText);
-      savePolicyMutation.mutate(policyText);
-    } catch {
-      ModalManager.error(t('policy.invalidJson'), t('policy.invalidJsonMsg'));
-    }
   };
 
   if (isLoading) {
@@ -2772,108 +2688,18 @@ export default function BucketSettingsPage() {
               <p className="text-sm text-yellow-800 dark:text-yellow-200">{t('policy.blockedByPublicAccess')}</p>
             </div>
           )}
-
-          {/* Tabs */}
-          <div className="border-b border-border">
-            <nav className="-mb-px flex space-x-8">
-              <button
-                onClick={() => setPolicyTab('editor')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  policyTab === 'editor'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-foreground hover:border-border'
-                }`}
-              >
-                {t('policy.editorTab')}
-              </button>
-              <button
-                onClick={() => setPolicyTab('templates')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  policyTab === 'templates'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-foreground hover:border-border'
-                }`}
-              >
-                {t('policy.templatesTab')}
-              </button>
-            </nav>
-          </div>
-
-          {/* Editor Tab */}
-          {policyTab === 'editor' && (
-            <div className="space-y-4">
-              <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
-                  <strong>Tip:</strong> {t('policy.editorTip')}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  {t('policy.policyJsonLabel')}
-                </label>
-                <textarea
-                  value={policyText}
-                  onChange={(e) => setPolicyText(e.target.value)}
-                  rows={18}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md font-mono text-sm"
-                  placeholder={t('policy.policyJsonPlaceholder')}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('policy.policyJsonHint')}
-                </p>
-              </div>
-            </div>
+          {isPolicyModalOpen && (
+            <BucketPolicyEditor
+              bucketName={bucketName}
+              bucketTenantId={bucketData?.tenant_id || ''}
+              policy={editingPolicy}
+              readOnly={!!isGlobalAdminInTenantBucket}
+              publicPolicyBlocked={publicPolicyBlocked}
+              saving={savePolicyMutation.isPending}
+              onSave={(policy) => savePolicyMutation.mutate(policy)}
+              onCancel={() => setIsPolicyModalOpen(false)}
+            />
           )}
-
-          {/* Templates Tab */}
-          {policyTab === 'templates' && (
-            <div className="space-y-4">
-              <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  <strong>Warning:</strong> {t('policy.templatesWarning')}
-                </p>
-              </div>
-              <div className="space-y-3">
-                {Object.entries(policyTemplates).map(([key, template]) => (
-                  <div
-                    key={key}
-                    className="border border-border rounded-lg p-4 hover:bg-secondary transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="text-sm font-semibold text-foreground">
-                          {template.name}
-                        </h4>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {template.description}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleUseTemplate(key as keyof typeof policyTemplates)}
-                      >
-                        {t('policy.useTemplate')}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t border-border">
-            <Button variant="outline" onClick={() => setIsPolicyModalOpen(false)}>
-              {t('policy.cancel')}
-            </Button>
-            <Button
-              onClick={handleSavePolicy}
-              disabled={isGlobalAdminInTenantBucket || savePolicyMutation.isPending || !policyText.trim()}
-            >
-              {savePolicyMutation.isPending ? t('policy.saving') : t('policy.savePolicy')}
-            </Button>
-          </div>
         </div>
       </Modal>
 

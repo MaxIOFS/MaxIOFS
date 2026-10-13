@@ -34,8 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
+- The initial sync to a node asks which writes it holds and sends it only the entry of those it has. A sync running while the copies of a raised factor were made sent each copy back to the node it came from.
+- A node is marked dead while another component writes to the database: the change waits for it. It failed with `SQLITE_BUSY` and the node stayed unavailable until the next check.
+- A repair of the copies asked for while one runs runs once that one ends. A factor changed during a repair waited for the next anti-entropy cycle, hours later.
 - An anonymous GET of an object in a bucket whose ACL grants public read returns the object without a share, unless Block Public Access ignores public ACLs or restricts public buckets. It answered `AccessDenied` (`Object is not shared`) when the object had no share link (#9).
 - Bucket policies decide again, with the caller's IAM policies as in AWS: a `Deny` in either refuses, an `Allow` in either grants a user of the bucket's tenant. A statement naming `"*"` grants or denies requests without credentials, over the bucket ACL. The console decides the same way. Since 1.6.0 they were stored and never evaluated.
+- Console: editing an existing bucket policy loaded the API response envelope instead of the policy; saving it again failed.
 - A bucket policy cannot deny its own management: `s3:GetBucketPolicy`, `s3:PutBucketPolicy` and `s3:DeleteBucketPolicy` are decided by the caller's permissions.
 - PutBucketPolicy (S3 and console) refuses with `MalformedPolicy` what the evaluator would not enforce as written: `NotPrincipal`, `NotAction`, `NotResource`, other principal types and ARNs, actions outside S3, resources outside the bucket, condition keys other than `aws:SourceIp` and `aws:SecureTransport`. Such a policy was stored and read differently from what it said.
 - `BlockPublicPolicy` refuses a public bucket policy (`403 AccessDenied`) and `RestrictPublicBuckets` voids what a public policy grants to requests without credentials, as in AWS. `RestrictPublicBuckets` no longer voids public ACLs; `IgnorePublicAcls` does.
@@ -165,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Console: the Authenticated Read option of the bucket ACL dialog. It granted nothing: requests with credentials are decided by permissions and the bucket policy. A bucket that has it through the S3 API still shows it.
 
 ### Added
+- Console: a bucket policy is edited as rules instead of JSON: allow or deny; everyone or users of the bucket's tenant; actions from the permission catalogue; the whole bucket or objects under a prefix; source addresses and TLS. Common rules are added in one click. A policy set through the S3 API that rules cannot show is shown read-only and can be replaced.
 - Console: each card of a bucket's Security & Access tab says what it decides: Block Public Access what it voids, the bucket policy whom it grants or denies, the ACL that it applies only to requests without credentials. The policy dialog says when public policies are blocked.
 - Console: the Security & Access tab of a bucket edits its Block Public Access, with the same fields as bucket creation. The ACL card says when Block Public Access ignores the bucket's public ACL; the ACL dialog offers no public ACL while public ACLs are blocked. It could be set only when creating the bucket.
 - Tests for anonymous reads of a public-read bucket, with and without a share link and Block Public Access, and for `BlockPublicAcls` on every request that sets an ACL.

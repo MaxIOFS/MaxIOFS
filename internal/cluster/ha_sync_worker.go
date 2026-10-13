@@ -52,8 +52,10 @@ type HASyncWorker struct {
 	bgwork.Worker
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // nodeID → cancel func
-	// repairing is set while a repair of the copies runs.
-	repairing atomic.Bool
+	// repairing is set while a repair of the copies runs; repairAgain, when
+	// one more is asked for.
+	repairing   atomic.Bool
+	repairAgain atomic.Bool
 	// placing is held while PlaceWrites runs; placed is set once it has.
 	placing sync.Mutex
 	placed  atomic.Bool
@@ -487,11 +489,20 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 				break
 			}
 
+			keys := make([]string, len(entries))
+			for i, obj := range entries {
+				keys[i] = obj.Key
+			}
+			held := heldBy(ctx, client, node, localID, bp, keys)
 			for _, obj := range entries {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if putErr := w.syncKey(ctx, client, node, localID, bp, obj.Key); putErr != nil {
+				var holds *ChecksumEntry
+				if e, ok := held[obj.Key]; ok {
+					holds = &e
+				}
+				if putErr := w.syncKey(ctx, client, node, localID, bp, obj.Key, holds); putErr != nil {
 					logrus.WithError(putErr).WithFields(logrus.Fields{
 						"bucket": bp, "key": obj.Key, "node_id": node.ID,
 					}).Warn("HASyncWorker: object sync failed, skipping")
@@ -530,24 +541,42 @@ func (w *HASyncWorker) runSync(ctx context.Context, jobID int64, node *Node, sta
 	return nil
 }
 
-// syncKey copies every version of key to node.
-func (w *HASyncWorker) syncKey(ctx context.Context, client *ProxyClient, node *Node, localID, bucket, key string) error {
-	_, err := sendKeyVersions(ctx, client, w.objMgr, node, localID, bucket, key)
+// syncKey copies every version of key to node; held is what node holds of
+// key, nil when unknown.
+func (w *HASyncWorker) syncKey(ctx context.Context, client *ProxyClient, node *Node, localID, bucket, key string, held *ChecksumEntry) error {
+	_, err := sendKeyVersions(ctx, client, w.objMgr, node, localID, bucket, key, held)
 	return err
+}
+
+// heldBy asks node which writes of keys it holds, so that it is not sent data
+// it holds. Without its answer, nil: the data it is to hold is sent.
+func heldBy(ctx context.Context, client *ProxyClient, node *Node, localID, bucket string, keys []string) map[string]ChecksumEntry {
+	if len(keys) == 0 {
+		return nil
+	}
+	entries, _, err := fetchPeerChecksums(ctx, client, node, localID, bucket, keys, true)
+	if err != nil {
+		return nil
+	}
+	held := make(map[string]ChecksumEntry, len(entries))
+	for _, e := range entries {
+		held[e.Key] = e
+	}
+	return held
 }
 
 // sendKeyVersions copies every version of key to node, oldest first, so that
 // the latest stays the latest there: stored versions with their IDs, lock
 // state and attributes, delete markers as delete markers with their IDs and
 // times, then the current object when it has no version ID — a bucket never
-// versioned, or a write while versioning was suspended. It returns the bytes
-// of data sent.
-func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string) (int64, error) {
+// versioned, or a write while versioning was suspended. held is what node
+// holds of key, nil when unknown. It returns the bytes of data sent.
+func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, held *ChecksumEntry) (int64, error) {
 	versions, err := keyVersions(ctx, objects, bucket, key)
 	if err != nil {
 		return 0, err
 	}
-	sent, err := sendVersions(ctx, client, objects, node, localID, bucket, key, versions)
+	sent, err := sendVersions(ctx, client, objects, node, localID, bucket, key, versions, held)
 	if err != nil {
 		return sent, err
 	}
@@ -558,7 +587,7 @@ func sendKeyVersions(ctx context.Context, client *ProxyClient, objects object.Ma
 	case err != nil:
 		return sent, err
 	case current.VersionID == "":
-		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, object.ObjectVersion{Object: *current})
+		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, object.ObjectVersion{Object: *current}, held)
 		if err != nil {
 			return sent, err
 		}
@@ -599,11 +628,12 @@ func KeyVersionIDs(ctx context.Context, objects object.Manager, bucket, key stri
 }
 
 // sendVersions copies versions and delete markers of key to node, in order,
-// and returns the bytes sent.
-func sendVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, versions []object.ObjectVersion) (int64, error) {
+// and returns the bytes sent. held is what node holds of key, nil when
+// unknown.
+func sendVersions(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, versions []object.ObjectVersion, held *ChecksumEntry) (int64, error) {
 	var sent int64
 	for _, v := range versions {
-		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, v)
+		data, err := sendCopy(ctx, client, objects, node, localID, bucket, key, v, held)
 		if err != nil {
 			return sent, fmt.Errorf("version %s: %w", v.VersionID, err)
 		}
@@ -616,12 +646,14 @@ func sendVersions(ctx context.Context, client *ProxyClient, objects object.Manag
 
 // sendCopy sends node its copy of one version of key: a delete marker as a
 // delete; the data when this node and node both hold it, or when the version
-// names no node; the entry otherwise, and a node that is to hold the data is
-// sent it by one that holds it. It reports whether the data was sent.
-func sendCopy(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, v object.ObjectVersion) (bool, error) {
+// names no node, unless held, what node holds of key, says it has the data;
+// the entry otherwise, and a node that is to hold the data is sent it by one
+// that holds it. It reports whether the data was sent.
+func sendCopy(ctx context.Context, client *ProxyClient, objects object.Manager, node *Node, localID, bucket, key string, v object.ObjectVersion, held *ChecksumEntry) (bool, error) {
 	switch {
 	case v.IsDeleteMarker:
 		return false, sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
+	case held != nil && holdsWrite(*held, v):
 	case len(v.Locations) == 0 || (slices.Contains(v.Locations, node.ID) && slices.Contains(v.Locations, localID)):
 		return true, sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
 	}

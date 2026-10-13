@@ -68,11 +68,22 @@ func TestConsoleBucketPolicy(t *testing.T) {
 	t.Run("a Deny of every action covers the bucket quota", func(t *testing.T) {
 		setPolicy(tenantID, "console-deny-quota", `{"Version":"2012-10-17","Statement":[
 			{"Effect":"Deny","Principal":"*","Action":"*","Resource":"arn:aws:s3:::console-deny-quota"}]}`)
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/console-deny-quota/quota", nil, tenantID, "user-1", false)
-		req = mux.SetURLVars(req, map[string]string{"bucket": "console-deny-quota"})
-		rr := httptest.NewRecorder()
-		server.handleGetBucketQuota(rr, req)
-		assert.Equal(t, http.StatusForbidden, rr.Code)
+		setPolicy(tenantID, "console-quota", `{"Version":"2012-10-17","Statement":[
+			{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::console-quota/*"}]}`)
+		readQuota := func(name string) int {
+			quotaReader := &auth.User{ID: "quota-reader", Username: "quota-reader", TenantID: tenantID}
+			req := httptest.NewRequest("GET", "/api/v1/buckets/"+name+"/quota", nil)
+			rctx := context.WithValue(req.Context(), "user", quotaReader)
+			rctx = auth.WithPolicySet(rctx, &auth.PolicySet{UserID: quotaReader.ID, TenantID: tenantID, Documents: []string{
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"maxiofs:GetBucketQuota","Resource":"*"}]}`,
+			}})
+			req = mux.SetURLVars(req.WithContext(rctx), map[string]string{"bucket": name})
+			rr := httptest.NewRecorder()
+			server.handleGetBucketQuota(rr, req)
+			return rr.Code
+		}
+		assert.Equal(t, http.StatusOK, readQuota("console-quota"), "the user may read a quota")
+		assert.Equal(t, http.StatusForbidden, readQuota("console-deny-quota"))
 	})
 
 	t.Run("saving validates the policy and applies BlockPublicPolicy", func(t *testing.T) {

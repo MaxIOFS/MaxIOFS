@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **322 Go test files**, **10 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **325 Go test files**, **11 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -166,7 +166,7 @@ npx vitest run --coverage
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 | `policy_public_test.go` | A bucket policy is public as AWS defines it: an Allow naming everyone not limited to source ranges of /8 (IPv4) or /32 (IPv6) or narrower |
 
-### `internal/cluster/` — 37 test files
+### `internal/cluster/` — 39 test files
 
 | File | Description |
 |------|-------------|
@@ -202,6 +202,8 @@ npx vitest run --coverage
 | `proxy_sts_test.go` | An STS session is preserved across a cluster proxy hop |
 | `proxy_test.go` | Request proxying to remote nodes |
 | `shared_state_test.go` | TLS state is race-free; the leader manager's `Stop` is idempotent; start doesn't replace the proxy client |
+| `mark_dead_busy_test.go` | A node is marked dead while another writer holds the database; marking a node already dead changes nothing and tells no one |
+| `sync_held_data_test.go` | A node sent a write it already holds gets its entry, not its data again; without knowing, or holding another write, it gets the data |
 | `sync_schema_test.go` | A default no one changed is dated at the epoch, a default seeded with the time of its seeding too; a changed setting keeps the time of its change |
 | `storage_pressure_test.go` | Storage-pressure health state; a node under storage pressure stays in service, takes no new data and misses no write, and is caught up when it answers again under pressure; a slow node is in service and takes data, counts for writes, dead marking and the degraded state, a slow and full one is under pressure; a drained node's health check notes the end of its drain, and a later one clears it |
 | `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
@@ -436,7 +438,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 51 test files
+### `internal/server/` — 52 test files
 
 | File | Description |
 |------|-------------|
@@ -483,6 +485,7 @@ npx vitest run --coverage
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |
 | `replication_adapter_test.go` | Replication reads and lists a tenant's bucket under its tenant, page after page |
+| `repair_rerun_test.go` | A factor changed while a repair runs is acted on once that repair ends |
 | `request_facts_test.go` | Bucket policy conditions see the client address and TLS; a trusted proxy's `X-Forwarded-For` and `X-Forwarded-Proto` count, a client's do not |
 | `route_ordering_test.go` | Route priority and matching order |
 | `search_api_test.go` | Object search API endpoints |
@@ -603,6 +606,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | File | Description |
 |------|-------------|
 | `api-token.test.ts` | JWT payload decoding for refresh scheduling |
+| `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
@@ -845,5 +849,5 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
 | **Total Go** | **290** | |
-| Frontend | 10 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer |
+| Frontend | 11 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules |
 | Performance | 4 | Upload, download, mixed, common |

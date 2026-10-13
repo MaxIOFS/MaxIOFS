@@ -1305,7 +1305,8 @@ export class APIClient {
   static async getBucketPolicy(bucketName: string, tenantId?: string): Promise<any> {
     const url = tenantId ? `/buckets/${bucketName}/policy?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/policy`;
     const response = await apiClient.get(url);
-    return response.data;
+    // The console answers { success, data: <policy> }.
+    return response.data?.data ?? response.data;
   }
 
   static async putBucketPolicy(bucketName: string, policy: string, tenantId?: string): Promise<void> {

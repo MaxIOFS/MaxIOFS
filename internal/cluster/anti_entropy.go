@@ -728,7 +728,7 @@ func (s *AntiEntropyScrubber) processBatch(
 					fixed = s.applyAction(ctx, client, peer, localID, bucketPath, key, local, peerEntry, action) && fixed
 				}
 				if len(missing) > 0 {
-					if _, err := sendVersions(ctx, client, s.objMgr, peer, localID, bucketPath, key, missing); err != nil {
+					if _, err := sendVersions(ctx, client, s.objMgr, peer, localID, bucketPath, key, missing, peerEntry); err != nil {
 						logrus.WithError(err).WithFields(logrus.Fields{
 							"peer": peer.ID, "bucket": bucketPath, "key": key,
 						}).Warn("AntiEntropyScrubber: versions not sent")
@@ -896,7 +896,7 @@ func (s *AntiEntropyScrubber) applyAction(
 ) bool {
 	switch action {
 	case actPushToPeer:
-		if _, err := sendCopy(ctx, client, s.objMgr, peer, localID, bucketPath, key, object.ObjectVersion{Object: *local}); err != nil {
+		if _, err := sendCopy(ctx, client, s.objMgr, peer, localID, bucketPath, key, object.ObjectVersion{Object: *local}, peerEntry); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"peer": peer.ID, "bucket": bucketPath, "key": key,
 			}).Warn("AntiEntropyScrubber: push failed")

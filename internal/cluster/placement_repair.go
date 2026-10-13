@@ -33,17 +33,33 @@ func (h *HAObjectManager) SetLocations(ctx context.Context, bucket, key string, 
 	return nil
 }
 
-// StartRepair runs one repair of the copies unless one is running. It outlives
-// the request that asks for it and stops with the worker.
+// StartRepair runs a repair of the copies. Asked while one runs, it runs
+// another once that one ends: the running one may have started with a factor
+// or nodes that changed since. It outlives the request that asks for it and
+// stops with the worker.
 func (w *HASyncWorker) StartRepair(ctx context.Context) {
+	w.repairAgain.Store(true)
 	if !w.repairing.CompareAndSwap(false, true) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
 	started := w.Spawn(func() {
-		defer w.repairing.Store(false)
-		if err := w.RepairPlacement(ctx); err != nil {
-			logrus.WithError(err).Warn("HASyncWorker: the copies were not all repaired")
+		for {
+			select {
+			case <-w.Stopped():
+				w.repairing.Store(false)
+				return
+			default:
+			}
+			w.repairAgain.Store(false)
+			if err := w.RepairPlacement(ctx); err != nil {
+				logrus.WithError(err).Warn("HASyncWorker: the copies were not all repaired")
+			}
+			w.repairing.Store(false)
+			// A repair asked during this one runs now, unless another took it.
+			if !w.repairAgain.Load() || !w.repairing.CompareAndSwap(false, true) {
+				return
+			}
 		}
 	})
 	if !started {
