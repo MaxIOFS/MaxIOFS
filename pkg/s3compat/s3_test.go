@@ -161,6 +161,8 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}", handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "")
 
 	router.HandleFunc("/{bucket}", handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketReplication).Methods("GET").Queries("replication", "")
+	router.HandleFunc("/{bucket}", handler.PutBucketReplication).Methods("PUT").Queries("replication", "")
 	router.HandleFunc("/{bucket}", handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
 	router.HandleFunc("/{bucket}", handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
 

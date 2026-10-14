@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.7.0 | **Last Updated**: September 18, 2026
+**Version**: 1.8.0 | **Last Updated**: October 13, 2026
 
 > Suitable for production use — always backup your data and change default credentials before deploying.
 
@@ -157,11 +157,11 @@ Pre-built packages are available for Debian/Ubuntu and RHEL/Rocky:
 
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i maxiofs_1.7.0_amd64.deb
+sudo dpkg -i maxiofs_1.8.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-1.7.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.8.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -274,7 +274,7 @@ See [CLUSTER.md](CLUSTER.md) for complete documentation. Quick overview:
 
 ### Prometheus + Grafana
 
-MaxIOFS exposes metrics at `/metrics` on both ports (8080 and 8081):
+MaxIOFS exposes Prometheus metrics at `/metrics` on the S3 port (8080):
 
 ```yaml
 # prometheus.yml
@@ -290,7 +290,7 @@ Pre-built Grafana dashboards are included in `docker/grafana/dashboards/`.
 
 ```bash
 curl http://localhost:8080/health    # S3 API health
-curl http://localhost:8081/health    # Console health
+curl http://localhost:8081/api/v1/health    # Console health
 ```
 
 ---
@@ -343,7 +343,7 @@ unresolved copy and, for one review cannot decide on its own, leaves it on disk 
 ### Can't Access Web Console
 
 ```bash
-curl http://localhost:8081/health        # Test endpoint
+curl http://localhost:8081/api/v1/health   # Test endpoint
 sudo ufw allow 8080/tcp; sudo ufw allow 8081/tcp  # Firewall
 # Cluster deployments: open 8082 to cluster node IPs ONLY (inter-node TLS traffic)
 # sudo ufw allow from <node-ip> to any port 8082 proto tcp

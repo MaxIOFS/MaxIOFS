@@ -1918,72 +1918,27 @@ func TestHandleEnable2FA(t *testing.T) {
 func TestHandleVerify2FA(t *testing.T) {
 	server := getSharedServer()
 
-	t.Run("should reject empty user_id", func(t *testing.T) {
-		body := `{"user_id": "", "code": "123456"}`
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+	for name, tc := range map[string]struct {
+		body   string
+		status int
+	}{
+		"should reject a missing two-factor token":   {`{"code": "123456"}`, http.StatusBadRequest},
+		"should reject a user ID instead of a token": {`{"user_id": "some-user", "code": "123456"}`, http.StatusBadRequest},
+		"should reject empty code":                   {`{"two_factor_token": "some-token", "code": ""}`, http.StatusBadRequest},
+		"should reject invalid JSON":                 {"not json", http.StatusBadRequest},
+		"should reject an invalid two-factor token":  {`{"two_factor_token": "invalid-token-xyz", "code": "123456"}`, http.StatusUnauthorized},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/api/v1/auth/2fa/verify", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.RemoteAddr = "198.51.100.200:1234"
 
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
+			rr := httptest.NewRecorder()
+			server.handleVerify2FA(rr, req)
 
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should reject empty code", func(t *testing.T) {
-		body := `{"user_id": "some-user", "code": ""}`
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should reject invalid JSON", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader("not json"))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
-
-	t.Run("should reject with invalid temp_token", func(t *testing.T) {
-		body := `{"temp_token": "invalid-token-xyz", "code": "123456"}`
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
-
-		// Returns 400 (user_id required), 401 or 500 depending on internal error handling
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-
-	t.Run("should reject with wrong code format", func(t *testing.T) {
-		body := `{"user_id": "some-user", "code": "abc"}`
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
-
-		// Returns 400, 401, or 500 depending on internal error handling
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
-	})
-
-	t.Run("should reject with missing both user_id and temp_token", func(t *testing.T) {
-		body := `{"code": "123456"}`
-		req := httptest.NewRequest("POST", "/api/v1/2fa/verify", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleVerify2FA(rr, req)
-
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
-	})
+			assert.Equal(t, tc.status, rr.Code, rr.Body.String())
+		})
+	}
 }
 
 // TestHandleRegenerateBackupCodes tests the backup codes regeneration handler

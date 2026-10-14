@@ -29,7 +29,7 @@ export default function LoginPage() {
   });
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [show2FA, setShow2FA] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
 
   // Get version from public endpoint (no auth required)
   const { data: versionData } = useQuery({
@@ -59,8 +59,8 @@ export default function LoginPage() {
       });
 
       // Check if 2FA is required
-      if (response.requires_2fa && response.user_id) {
-        setUserId(response.user_id);
+      if (response.requires_2fa && response.two_factor_token) {
+        setTwoFactorToken(response.two_factor_token);
         setShow2FA(true);
         setLoading(false);
         return;
@@ -90,7 +90,7 @@ export default function LoginPage() {
   };
 
   const handleVerify2FA = async (code: string) => {
-    if (!userId) return;
+    if (!twoFactorToken) return;
 
     setLoading(true);
     setError(null);
@@ -98,7 +98,7 @@ export default function LoginPage() {
     try {
       ModalManager.loading(t('verifying'), t('checking2FA'));
 
-      const response = await APIClient.verify2FA(userId, code);
+      const response = await APIClient.verify2FA(twoFactorToken, code);
 
       ModalManager.close();
 
@@ -118,7 +118,7 @@ export default function LoginPage() {
 
   const handleCancel2FA = () => {
     setShow2FA(false);
-    setUserId(null);
+    setTwoFactorToken(null);
     setError(null);
   };
 

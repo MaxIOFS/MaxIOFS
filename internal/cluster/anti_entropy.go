@@ -244,6 +244,9 @@ func (s *AntiEntropyScrubber) ListRecentRuns(ctx context.Context, limit int) ([]
 // Scheduler
 // ---------------------------------------------------------------------------
 
+// errCycleIncomplete: a cycle ended with objects not compared or not repaired.
+var errCycleIncomplete = errors.New("anti-entropy cycle incomplete")
+
 func (s *AntiEntropyScrubber) run(ctx context.Context) {
 	// The buckets first, whether or not the periodic scrub is enabled: a peer
 	// that lacks one refuses every object written into it.
@@ -277,7 +280,12 @@ func (s *AntiEntropyScrubber) run(ctx context.Context) {
 			if !s.scrubEnabled(ctx) {
 				logrus.Debug("AntiEntropyScrubber: disabled by config, skipping cycle")
 			} else {
-				s.runCycle(ctx, nil, 0)
+				_ = s.mgr.observeTask("anti_entropy", func() error {
+					if !s.runCycle(ctx, nil, 0) {
+						return errCycleIncomplete
+					}
+					return nil
+				})
 			}
 			timer.Reset(s.cycleInterval(ctx))
 		case <-s.caughtUp:

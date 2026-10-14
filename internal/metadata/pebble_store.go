@@ -683,6 +683,21 @@ func (s *PebbleStore) GetBucketStats(ctx context.Context, tenantID, bucketName s
 
 // RecalculateBucketStats scans all objects to recompute bucket statistics.
 func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, bucketName string) error {
+	_, err := s.RecalculateBucketStatsCounting(ctx, tenantID, bucketName)
+	return err
+}
+
+// RetentionCounts is how many objects of a bucket each retention mode holds,
+// by their current version.
+type RetentionCounts struct {
+	Governance int64
+	Compliance int64
+}
+
+// RecalculateBucketStatsCounting is RecalculateBucketStats, and counts in the
+// same scan the objects whose current version a retention mode holds.
+func (s *PebbleStore) RecalculateBucketStatsCounting(ctx context.Context, tenantID, bucketName string) (RetentionCounts, error) {
+	var retained RetentionCounts
 	fullBucketPath := bucketName
 	if tenantID != "" {
 		fullBucketPath = tenantID + "/" + bucketName
@@ -691,9 +706,10 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 	lower := objectListPrefix(fullBucketPath)
 	iter, err := s.pebbleIter(lower)
 	if err != nil {
-		return err
+		return retained, err
 	}
 
+	now := time.Now()
 	var objectCount, totalSize int64
 	// Size and count answer different questions. Every version occupies disk, so
 	// size sums them all; a bucket "holds" the keys you can currently see, so
@@ -709,6 +725,14 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 
 		if countsTowardBucketStorage(obj.Key, obj.ETag, obj.Size) {
 			objectCount++
+		}
+		if obj.Retention != nil && obj.Retention.RetainUntilDate.After(now) {
+			switch obj.Retention.Mode {
+			case "GOVERNANCE":
+				retained.Governance++
+			case "COMPLIANCE":
+				retained.Compliance++
+			}
 		}
 
 		versions, vErr := s.GetObjectVersions(ctx, fullBucketPath, obj.Key)
@@ -731,7 +755,7 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 	iterErr := iter.Error()
 	_ = iter.Close()
 	if iterErr != nil {
-		return fmt.Errorf("failed during bucket scan: %w", iterErr)
+		return retained, fmt.Errorf("failed during bucket scan: %w", iterErr)
 	}
 
 	key := bucketKey(tenantID, bucketName)
@@ -741,12 +765,12 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 
 	data, err := s.pebbleGet(key)
 	if err != nil {
-		return err
+		return retained, err
 	}
 
 	var bucket BucketMetadata
 	if err := json.Unmarshal(data, &bucket); err != nil {
-		return err
+		return retained, err
 	}
 
 	bucket.ObjectCount = objectCount
@@ -754,9 +778,19 @@ func (s *PebbleStore) RecalculateBucketStats(ctx context.Context, tenantID, buck
 
 	newData, err := json.Marshal(&bucket)
 	if err != nil {
-		return err
+		return retained, err
 	}
-	return s.setNoSync(key, newData)
+	return retained, s.setNoSync(key, newData)
+}
+
+// CacheStats reports the block cache's hits and misses since the store was
+// opened, and its size in bytes. A closed store reports nothing.
+func (s *PebbleStore) CacheStats() (hits, misses, sizeBytes int64) {
+	if !s.ready.Load() {
+		return 0, 0, 0
+	}
+	m := s.db.Metrics()
+	return m.BlockCache.Hits, m.BlockCache.Misses, m.BlockCache.Size
 }
 
 // ==================== Lifecycle ====================

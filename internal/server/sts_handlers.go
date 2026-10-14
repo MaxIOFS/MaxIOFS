@@ -31,14 +31,17 @@ func (s *Server) startSTSSessionSweep(ctx context.Context, interval time.Duratio
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			removed, err := s.authManager.SweepExpiredSTSSessions(ctx)
-			if err != nil {
-				logrus.WithError(err).Warn("Failed to sweep expired STS sessions")
-				continue
-			}
-			if removed > 0 {
-				logrus.WithField("count", removed).Debug("Swept expired STS sessions")
-			}
+			s.runTask(ctx, "sts_session_sweep", func() error {
+				removed, err := s.authManager.SweepExpiredSTSSessions(ctx)
+				if err != nil {
+					logrus.WithError(err).Warn("Failed to sweep expired STS sessions")
+					return err
+				}
+				if removed > 0 {
+					logrus.WithField("count", removed).Debug("Swept expired STS sessions")
+				}
+				return nil
+			})
 		}
 	}
 }

@@ -19,7 +19,7 @@
   "featureMultiTenant": "Multi-Mandant",
   "featureMultiTenantDesc": "Vollständige Mandantenisolation mit konfigurierbaren Kontingenten, kaskadierenden Löschvorgängen, Löschvalidierung und globaler Administratorsichtbarkeit über Mandanten hinweg",
   "featureSecurity": "Sicherheit & Verschlüsselung",
-  "featureSecurityDesc": "AES-256-GCM-authentifizierte Verschlüsselung im Ruhezustand (64-KB-Blöcke, manipulationssicher), JWT + 2FA-Authentifizierung, AWS Signature v2/v4, umfassende Audit-Protokollierung (20+ Ereignistypen), Compliance-bereit (GDPR, SOC 2, HIPAA, ISO 27001)",
+  "featureSecurityDesc": "AES-256-GCM-authentifizierte Verschlüsselung im Ruhezustand (64-KB-Blöcke, manipulationssicher), JWT + 2FA-Authentifizierung, AWS Signature v2/v4, umfassende Audit-Protokollierung (20+ Ereignistypen)",
   "featurePerformance": "Hohe Leistung",
   "featurePerformanceDesc": "Pebble (CockroachDBs LSM-Tree-Engine) Metadatenspeicher mit absturzsicherem WAL, metadatengesteuerter Löschpipeline und Stresstests mit 7000+ Objekten mit MinIO Warp",
   "featureSingleBinary": "Einzelne Binärdatei",

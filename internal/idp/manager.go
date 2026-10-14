@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -14,9 +15,27 @@ import (
 // Manager orchestrates identity provider operations
 type Manager struct {
 	store     *Store
-	secret    func() string       // returns the key bind passwords and client secrets are encrypted with
-	providers map[string]Provider // Cached active provider instances
+	secret    func() string             // returns the key bind passwords and client secrets are encrypted with
+	providers map[string]cachedProvider // Provider instances, with the stored row each was built from
 	mu        sync.RWMutex
+}
+
+// cachedProvider is a provider instance and the stored row it was built from.
+type cachedProvider struct {
+	provider Provider
+	version  string
+}
+
+// providerVersion is what a provider instance depends on in its stored row.
+// The secrets are compared as stored, encrypted.
+func providerVersion(idp *IdentityProvider) string {
+	data, _ := json.Marshal(struct {
+		Type      string
+		Status    string
+		Config    ProviderConfig
+		UpdatedAt int64
+	}{idp.Type, idp.Status, idp.Config, idp.UpdatedAt})
+	return string(data)
 }
 
 // cryptoSecret is the current key; none leaves secrets unencrypted.
@@ -32,7 +51,7 @@ func NewManager(store *Store, secret func() string) *Manager {
 	return &Manager{
 		store:     store,
 		secret:    secret,
-		providers: make(map[string]Provider),
+		providers: make(map[string]cachedProvider),
 	}
 }
 
@@ -323,19 +342,24 @@ func (m *Manager) Store() *Store {
 	return m.store
 }
 
-// getOrCreateProvider gets a cached provider or creates a new one
+// getOrCreateProvider returns the provider instance built from the stored row.
+// The row is read every time: a change made on another node of a cluster
+// reaches this one through the database, not through this cache.
 func (m *Manager) getOrCreateProvider(providerID string) (Provider, error) {
-	m.mu.RLock()
-	if p, ok := m.providers[providerID]; ok {
-		m.mu.RUnlock()
-		return p, nil
-	}
-	m.mu.RUnlock()
-
-	// Load from store
 	idp, err := m.store.GetProvider(providerID)
 	if err != nil {
+		m.mu.Lock()
+		delete(m.providers, providerID)
+		m.mu.Unlock()
 		return nil, err
+	}
+	version := providerVersion(idp)
+
+	m.mu.RLock()
+	cached, ok := m.providers[providerID]
+	m.mu.RUnlock()
+	if ok && cached.version == version {
+		return cached.provider, nil
 	}
 
 	// Decrypt config
@@ -348,7 +372,7 @@ func (m *Manager) getOrCreateProvider(providerID string) (Provider, error) {
 	}
 
 	m.mu.Lock()
-	m.providers[providerID] = provider
+	m.providers[providerID] = cachedProvider{provider: provider, version: version}
 	m.mu.Unlock()
 
 	return provider, nil

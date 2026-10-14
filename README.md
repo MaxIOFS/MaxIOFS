@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.7.0)
+[![Version](https://img.shields.io/badge/version-1.8.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.8.0)
 [![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
@@ -210,7 +210,7 @@ Ceph cluster.
 <summary><strong>Operations</strong></summary>
 
 - Prometheus metrics endpoint (`/metrics`)
-- Pre-built Grafana dashboard (14 panels — latency p50/p95/p99, throughput, storage)
+- Pre-built Grafana dashboard: S3 operations and errors, storage, objects, sign-ins, Object Lock, background tasks, latency and throughput, per node and bucket
 - Background object integrity scrubber — MD5 recomputed from disk vs stored ETag, 24h cycle
 - Maintenance mode — toggle read-only via web console, no restart required
 - Disk space and tenant quota alerts — SSE notifications + SMTP email on threshold escalation
@@ -291,13 +291,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.7.0_amd64.deb
+sudo dpkg -i maxiofs_1.8.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.7.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.8.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -350,8 +350,8 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (323 files)
-cd web/frontend && npm run test        # 112 frontend tests
+go test ./...                          # 4,400+ backend tests (339 files)
+cd web/frontend && npm run test        # 121 frontend tests
 ```
 
 ---
@@ -373,7 +373,8 @@ cd web/frontend && npm run test        # 112 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.7.0** *(stable)* | **New on-disk storage layout**: an object is one file named by a digest of its key, so two keys differing only in case, a key and its own name plus a slash, and a key ending in `.metadata` are all distinct — an existing installation migrates on first start. **Interrupted writes are undone or confirmed at the next start**, before the server serves traffic — a killed overwrite, multipart completion or part replacement no longer leaves an object whose size and ETag disagree with what a GET delivers. **Security**: a session policy is now consulted for every resource an operation touches, not only the one in the URL; 21 console mutation routes and 5 IAM routes resolved the wrong tenant; `/debug/pprof/*` answered any authenticated request instead of a global administrator only. The S3 rate limit answers `SlowDown` in an XML document instead of a bare `429`. |
+| **v1.8.0** *(stable)* | **Cluster data placement**: every node holds every bucket and reads every object; a replication factor of 1 keeps one copy of each object, so a bucket is no longer limited to one node's disk; draining a node moves its objects before it leaves service. **Bucket policies and Block Public Access as in AWS**: policies are evaluated again with the caller's IAM policies, public ACLs and policies are refused or voided as AWS does, and the console edits a policy as rules instead of JSON. **Security**: a two-factor sign-in needs the password step; any node serves a sign-in; an OAuth sign-in asks for the two-factor code, and its code, identity provider changes and an administrator's unlock work on every node; the secret for stored credentials lives in the database and is shared by the cluster. **Monitoring**: every metric reaches Prometheus, labelled by S3 operation instead of path; the Grafana dashboard shows S3 operations and errors, storage, sign-ins, Object Lock and background tasks per node and bucket; new alert rules. Copies between nodes keep versions, Object Lock and metadata changes; quotas refuse growth but never deletes. |
+| **v1.7.0** | **New on-disk storage layout**: an object is one file named by a digest of its key, so two keys differing only in case, a key and its own name plus a slash, and a key ending in `.metadata` are all distinct — an existing installation migrates on first start. **Interrupted writes are undone or confirmed at the next start**, before the server serves traffic — a killed overwrite, multipart completion or part replacement no longer leaves an object whose size and ETag disagree with what a GET delivers. **Security**: a session policy is now consulted for every resource an operation touches, not only the one in the URL; 21 console mutation routes and 5 IAM routes resolved the wrong tenant; `/debug/pprof/*` answered any authenticated request instead of a global administrator only. The S3 rate limit answers `SlowDown` in an XML document instead of a bare `429`. |
 | **v1.6.0** | **IAM is the authorization model** — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins); existing permissions are converted once on upgrade. **AWS STS and IAM protocols** on `POST /` of the S3 endpoint, so `aws sts` and `aws iam --endpoint-url` work unmodified; short-lived `ASIA` credentials with optional session policies and federation for headless clients. **Large security pass**: inter-node request forgery and replay, five endpoints that authorized nothing, tenant-boundary escapes, ACLs overruling policies. Shutdown no longer risks a Pebble panic. |
 | **v1.5.2** | **Urgent fix: listing pagination lost one object per page of 1,000** (present since the Pebble migration; made backup verify/repair tools see existing files as missing — critical for Veeam/Duplicati targets); **Pebble hard-kill durability** (per-second WAL fsync, synchronous deletes, non-destructive metadata re-indexing after unclean shutdown); `maxiofs repair-pointers` recovery tool; dead-code sweep across backend and frontend. *(v1.5.1 was withdrawn shortly after publication and is not available.)* |
 | **v1.5.0** | **Always-on envelope encryption** (per-object DEK + database KEK, AWS SSE-S3 model, multi-format reader for full backward compatibility); encryption **recovery bundle** + `maxiofs recover` offline disaster-recovery CLI (rebuilds metadata from the object files alone); **KEK rotation** without re-encrypting data (background re-wrap worker); **ciphertext HA replication** with a cluster-shared KEK (no decrypt/re-encrypt per hop); **per-tenant bandwidth throttling**; **per-bucket storage quotas** with Veeam SOSAPI capacity exposure; major data-safety fixes (quota-rejected overwrites destroyed the original object, crash window in overwrites, HA replication silently 404ing, falsified replica timestamps causing perpetual anti-entropy churn, silent 200 on failed metadata saves, Windows AV-lock delete orphans); console SSE auto-reconnect |

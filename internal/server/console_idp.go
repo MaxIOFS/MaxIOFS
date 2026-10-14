@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,8 +26,11 @@ import (
 // oauthCodeEntry holds a one-time token pair issued by handleOAuthCallback.
 // Keeping tokens out of the redirect URL prevents exposure via Referer/History (RFC 6819 §4.2.2).
 type oauthCodeEntry struct {
-	pair      auth.TokenPair
-	expiresAt time.Time
+	pair auth.TokenPair
+	// twoFactorToken, when set, stands in for the session: the user still
+	// gives its second factor.
+	twoFactorToken string
+	expiresAt      time.Time
 }
 
 // generateOAuthCode returns a cryptographically random 64-char hex string.
@@ -1009,6 +1013,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		s.authManager.UpdateUser(r.Context(), user)
 	}
 
+	s.finishOAuthSignIn(w, r, user, providerID)
+}
+
+// finishOAuthSignIn signs in the user an identity provider vouched for: the
+// browser is sent to the console with a single-use code it exchanges for the
+// session or, when the user has two-factor authentication, for the second
+// step's token.
+func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user *auth.User, providerID string) {
 	if user.Status != auth.UserStatusActive {
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=account_inactive"), http.StatusFound)
 		return
@@ -1022,7 +1034,13 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	twoFactorEnabled, _, _ := s.authManager.Get2FAStatus(r.Context(), user.ID)
 	if twoFactorEnabled {
-		http.Redirect(w, r, s.consoleRelativePath(fmt.Sprintf("/login?pending_2fa=true&user_id=%s", url.QueryEscape(user.ID))), http.StatusFound)
+		twoFactorToken, err := s.authManager.GenerateTwoFactorToken(r.Context(), user)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to issue the two-factor token after OAuth login")
+			http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
+			return
+		}
+		s.redirectWithOAuthCode(w, r, oauthCodeEntry{twoFactorToken: twoFactorToken})
 		return
 	}
 
@@ -1059,25 +1077,101 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"provider": providerID,
 	}).Info("Successful OAuth login")
 
+	s.redirectWithOAuthCode(w, r, oauthCodeEntry{pair: *pair})
+}
+
+// redirectWithOAuthCode stores entry under a single-use code valid for a
+// minute and sends the browser to the console page that exchanges it. In a
+// cluster the code names this node: the exchange may reach another one.
+func (s *Server) redirectWithOAuthCode(w http.ResponseWriter, r *http.Request, entry oauthCodeEntry) {
 	exchangeCode, err := generateOAuthCode()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate OAuth exchange code")
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
 		return
 	}
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		if nodeID, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != "" {
+			exchangeCode = nodeID + "." + exchangeCode
+		}
+	}
 	now := time.Now()
 	s.pruneExpiredOAuthCodes(now)
-	s.oauthCodeStore.Store(exchangeCode, oauthCodeEntry{pair: *pair, expiresAt: now.Add(60 * time.Second)})
+	entry.expiresAt = now.Add(60 * time.Second)
+	s.oauthCodeStore.Store(exchangeCode, entry)
 	http.Redirect(w, r, s.consoleRelativePath("/auth/oauth/complete?code="+url.QueryEscape(exchangeCode)), http.StatusFound)
 }
 
 // handleOAuthExchangeCode exchanges a one-time code (issued by handleOAuthCallback) for JWT tokens.
 // The code is consumed atomically on first use and expires after 60 seconds.
 func (s *Server) handleOAuthExchangeCode(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		s.writeError(w, "missing code parameter", http.StatusBadRequest)
+		return
+	}
+	if nodeID, _, named := strings.Cut(code, "."); named && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		if local, err := s.clusterManager.GetLocalNodeID(r.Context()); err == nil && nodeID != local {
+			s.forwardOAuthExchange(w, r, nodeID, code)
+			return
+		}
+	}
+	s.exchangeOAuthCode(w, code)
+}
+
+// handleClusterOAuthExchange exchanges, for another node of the cluster, a
+// code this node issued.
+func (s *Server) handleClusterOAuthExchange(w http.ResponseWriter, r *http.Request) {
+	s.exchangeOAuthCode(w, r.URL.Query().Get("code"))
+}
+
+// forwardOAuthExchange asks the node that issued code to exchange it.
+func (s *Server) forwardOAuthExchange(w http.ResponseWriter, r *http.Request, nodeID, code string) {
+	ctx := r.Context()
+	node, err := s.clusterManager.GetNode(ctx, nodeID)
+	if err != nil {
+		s.writeError(w, "invalid or expired code", http.StatusUnauthorized)
+		return
+	}
+	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
+	if err != nil {
+		s.writeError(w, "Could not identify this node", http.StatusInternalServerError)
+		return
+	}
+	nodeToken, err := s.clusterManager.GetLocalNodeToken(ctx)
+	if err != nil {
+		s.writeError(w, "Could not authenticate to the node that completed the sign-in", http.StatusInternalServerError)
+		return
+	}
+	forwardCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	proxy := s.clusterManager.ProxyClient()
+	target := node.Endpoint + "/api/internal/cluster/oauth-exchange?code=" + url.QueryEscape(code)
+	req, err := proxy.CreateAuthenticatedRequest(forwardCtx, http.MethodGet, target, nil, localNodeID, nodeToken)
+	if err != nil {
+		s.writeError(w, "Could not build the exchange request", http.StatusInternalServerError)
+		return
+	}
+	resp, err := proxy.DoAuthenticatedRequest(req)
+	if err != nil {
+		logrus.WithError(err).WithField("node_id", nodeID).Warn("OAuth code exchange: the issuing node did not answer")
+		s.writeError(w, "The node that completed the sign-in did not answer. Sign in again.", http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// exchangeOAuthCode answers the session or second-step token stored under
+// code, once.
+func (s *Server) exchangeOAuthCode(w http.ResponseWriter, code string) {
 	now := time.Now()
 	s.pruneExpiredOAuthCodes(now)
 
-	code := r.URL.Query().Get("code")
 	if code == "" {
 		s.writeError(w, "missing code parameter", http.StatusBadRequest)
 		return
@@ -1098,6 +1192,13 @@ func (s *Server) handleOAuthExchangeCode(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Content-Type", "application/json")
+	if entry.twoFactorToken != "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"requires_2fa":     true,
+			"two_factor_token": entry.twoFactorToken,
+		})
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
 		"access_token":  entry.pair.AccessToken,
 		"refresh_token": entry.pair.RefreshToken,

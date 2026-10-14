@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.7.0}
+%{!?version: %define version 1.8.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -192,6 +192,24 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Tue Oct 13 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.8.0-1
+- Release v1.8.0 — cluster data placement, bucket policies and Block Public Access
+  as in AWS, sign-in security, monitoring
+- Every node holds every bucket; a replication factor of 1 keeps one copy of each
+  object; draining a node moves its objects before it leaves service
+- Bucket policies are evaluated again with the caller's IAM policies; Block Public
+  Access applies as in AWS; the console edits policies as rules
+- A two-factor sign-in needs the password step; any node serves a sign-in
+- An OAuth sign-in asks for the two-factor code; its code, identity provider
+  changes and an administrator's unlock work on every node of a cluster
+- Every metric reaches Prometheus, by S3 operation instead of path; the Grafana
+  dashboard shows S3, storage, sign-ins, Object Lock and background tasks per
+  node and bucket; new alert rules
+- The secret for stored credentials lives in the database, shared by the cluster
+- Copies between nodes keep every version, Object Lock and metadata changes
+- Quotas refuse growth but never deletes; tenant storage follows smaller
+  overwrites; the bandwidth cap paces form uploads
+
 * Fri Sep 18 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.7.0-1
 - Release v1.7.0 — new on-disk storage layout, interrupted-write recovery, security pass
 - Storage layout v2: an object is one file named by a digest of its key, with no

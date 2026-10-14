@@ -63,8 +63,8 @@ func (om *objectManager) reserveWriteQuota(ctx context.Context, bucket string, s
 		return func() {}, nil
 	}
 	delta := size
-	if !versioned && previous != nil {
-		delta -= previous.Size
+	if !versioned {
+		delta -= overwrittenInPlace(previous)
 	}
 	h := &quotaHold{bytes: max(delta, 0), checked: make(chan struct{})}
 	if previous == nil || isMetadataDeleteMarker(previous) {

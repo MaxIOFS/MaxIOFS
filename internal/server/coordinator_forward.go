@@ -3,12 +3,15 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,16 +83,7 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		return true
 	}
 
-	if authorization := r.Header.Get("Authorization"); authorization != "" {
-		req.Header.Set("X-MaxIOFS-Forwarded-Authorization", authorization)
-	}
-	if contentType := r.Header.Get("Content-Type"); contentType != "" {
-		req.Header.Set("X-MaxIOFS-Forwarded-Content-Type", contentType)
-	}
-	if tenant := r.Header.Get("X-Tenant-ID"); tenant != "" {
-		req.Header.Set("X-MaxIOFS-Forwarded-Tenant", tenant)
-	}
-	req.Header.Set(forwardedHeader, "true")
+	carryUser(req, r)
 
 	resp, err := proxy.DoAuthenticatedRequest(req)
 	if err != nil {
@@ -147,20 +141,7 @@ func (s *Server) handleCoordinatorWrite(w http.ResponseWriter, r *http.Request) 
 		target += "?" + r.URL.RawQuery
 	}
 
-	replay := httptest.NewRequest(r.Method, target, bytes.NewReader(body))
-	// Restore what the user sent, so the console router authenticates and
-	// authorizes the request as if they had reached this node themselves.
-	if authorization := r.Header.Get("X-MaxIOFS-Forwarded-Authorization"); authorization != "" {
-		replay.Header.Set("Authorization", authorization)
-	}
-	if contentType := r.Header.Get("X-MaxIOFS-Forwarded-Content-Type"); contentType != "" {
-		replay.Header.Set("Content-Type", contentType)
-	}
-	if tenant := r.Header.Get("X-MaxIOFS-Forwarded-Tenant"); tenant != "" {
-		replay.Header.Set("X-Tenant-ID", tenant)
-	}
-	replay.Header.Set(forwardedHeader, "true")
-	replay = replay.WithContext(ctx)
+	replay := replayOf(r, target, body)
 
 	if s.consoleRouter == nil {
 		http.Error(w, "Console routes are not available on this node", http.StatusServiceUnavailable)
@@ -177,4 +158,50 @@ func (s *Server) handleCoordinatorWrite(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(recorder.Code)
 	_, _ = w.Write(recorder.Body.Bytes())
+}
+
+// carryUser puts on the request forwarded to the coordinator what the user sent
+// with r, their address and whether they connected over TLS.
+func carryUser(forwarded, r *http.Request) {
+	if authorization := r.Header.Get("Authorization"); authorization != "" {
+		forwarded.Header.Set("X-MaxIOFS-Forwarded-Authorization", authorization)
+	}
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		forwarded.Header.Set("X-MaxIOFS-Forwarded-Content-Type", contentType)
+	}
+	if tenant := r.Header.Get("X-Tenant-ID"); tenant != "" {
+		forwarded.Header.Set("X-MaxIOFS-Forwarded-Tenant", tenant)
+	}
+	facts := bucket.RequestFactsFrom(r.Context())
+	if facts.SourceIP != "" {
+		forwarded.Header.Set("X-MaxIOFS-Forwarded-Client-IP", facts.SourceIP)
+	}
+	if facts.SecureTransport {
+		forwarded.Header.Set("X-MaxIOFS-Forwarded-Secure", "true")
+	}
+	forwarded.Header.Set(forwardedHeader, "true")
+}
+
+// replayOf rebuilds the user's request from r, forwarded to this node, so the
+// console router authenticates and authorizes it as if they had reached this
+// node themselves.
+func replayOf(r *http.Request, target string, body []byte) *http.Request {
+	replay := httptest.NewRequest(r.Method, target, bytes.NewReader(body))
+	if authorization := r.Header.Get("X-MaxIOFS-Forwarded-Authorization"); authorization != "" {
+		replay.Header.Set("Authorization", authorization)
+	}
+	if contentType := r.Header.Get("X-MaxIOFS-Forwarded-Content-Type"); contentType != "" {
+		replay.Header.Set("Content-Type", contentType)
+	}
+	if tenant := r.Header.Get("X-MaxIOFS-Forwarded-Tenant"); tenant != "" {
+		replay.Header.Set("X-Tenant-ID", tenant)
+	}
+	if ip := net.ParseIP(r.Header.Get("X-MaxIOFS-Forwarded-Client-IP")); ip != nil {
+		replay.RemoteAddr = net.JoinHostPort(ip.String(), "0")
+	}
+	if r.Header.Get("X-MaxIOFS-Forwarded-Secure") == "true" {
+		replay.TLS = &tls.ConnectionState{}
+	}
+	replay.Header.Set(forwardedHeader, "true")
+	return replay.WithContext(r.Context())
 }

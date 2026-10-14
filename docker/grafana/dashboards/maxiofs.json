@@ -12,6 +12,7 @@
       }
     ]
   },
+  "description": "MaxIOFS: S3 API, storage, security, background tasks and system, per node.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -19,789 +20,2844 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
       "collapsed": false,
-      "datasource": null,
+      "id": 1,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 0
       },
-      "id": 100,
-      "panels": [],
-      "title": "📊 SYSTEM & RESOURCES",
-      "type": "row"
+      "panels": []
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 70},
-              {"color": "red", "value": 90}
-            ]
-          },
-          "unit": "percent"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 1},
-      "id": 1,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "11.5.0",
-      "targets": [
-        {
-          "expr": "maxiofs_system_cpu_usage_percent",
-          "refId": "A"
-        }
-      ],
-      "title": "CPU Usage",
-      "type": "stat"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 80},
-              {"color": "red", "value": 90}
-            ]
-          },
-          "unit": "percent"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 4, "y": 1},
+      "type": "stat",
+      "title": "Buckets",
+      "description": "",
       "id": 2,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
         "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_system_memory_usage_percent",
-          "refId": "A"
+          "expr": "count(count by (bucket) (maxiofs_bucket_bytes_total{instance=~\"$instance\"}))",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Memory Usage",
-      "type": "stat"
+      ]
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 70},
-              {"color": "red", "value": 85}
-            ]
-          },
-          "unit": "percent"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 1},
+      "type": "stat",
+      "title": "Objects held",
+      "description": "Objects the selected nodes hold. With a replication factor above 1 each copy counts.",
       "id": 3,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
         "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_system_disk_usage_percent",
-          "refId": "A"
+          "expr": "sum(maxiofs_bucket_objects_total{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Disk Usage",
-      "type": "stat"
+      ]
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "blue", "value": null}
-            ]
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 1},
+      "type": "stat",
+      "title": "Bytes held",
+      "description": "Bytes the selected nodes hold, versions included. With a replication factor above 1 each copy counts.",
       "id": 4,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
         "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_buckets_total",
-          "refId": "A"
+          "expr": "sum(maxiofs_bucket_bytes_total{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Total Buckets",
-      "type": "stat"
+      ]
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null}
-            ]
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 16, "y": 1},
+      "type": "stat",
+      "title": "S3 requests/s",
+      "description": "",
       "id": 5,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
         "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_objects_total",
-          "refId": "A"
+          "expr": "sum(rate(maxiofs_http_requests_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Total Objects",
-      "type": "stat"
+      ]
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "purple", "value": null}
-            ]
-          },
-          "unit": "bytes"
-        }
-      },
-      "gridPos": {"h": 6, "w": 4, "x": 20, "y": 1},
+      "type": "stat",
+      "title": "S3 error ratio",
+      "description": "Share of S3 requests answered with HTTP 400 or above. Missing keys count.",
       "id": 6,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
         "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_storage_used_bytes",
-          "refId": "A"
+          "expr": "sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\", status=\"failure\"}[$__rate_interval])) / sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Storage Used",
-      "type": "stat"
+      ]
     },
     {
+      "type": "stat",
+      "title": "Disk usage (highest node)",
+      "description": "",
+      "id": 7,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {"mode": "off"}
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null}
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
             ]
           },
-          "unit": "percent"
-        }
+          "mappings": []
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 7},
-      "id": 7,
       "options": {
-        "legend": {
-          "calcs": ["mean", "last"],
-          "displayMode": "table",
-          "placement": "bottom"
-        },
-        "tooltip": {"mode": "multi", "sort": "none"}
-      },
-      "pluginVersion": "11.5.0",
-      "targets": [
-        {
-          "expr": "maxiofs_system_cpu_usage_percent",
-          "legendFormat": "CPU %",
-          "refId": "A"
-        },
-        {
-          "expr": "maxiofs_system_memory_usage_percent",
-          "legendFormat": "Memory %",
-          "refId": "B"
-        },
-        {
-          "expr": "maxiofs_system_disk_usage_percent",
-          "legendFormat": "Disk %",
-          "refId": "C"
-        }
-      ],
-      "title": "System Resources Over Time",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [],
-          "unit": "bytes"
-        }
-      },
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 7},
-      "id": 8,
-      "options": {
-        "displayLabels": ["name", "percent"],
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "values": ["value"]
-        },
-        "pieType": "pie",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
-        "tooltip": {"mode": "single", "sort": "none"}
+        "textMode": "auto"
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_bucket_bytes_total",
-          "legendFormat": "{{bucket}}",
-          "refId": "A"
+          "expr": "max(maxiofs_system_disk_usage_percent{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
         }
-      ],
-      "title": "Storage by Bucket",
-      "type": "piechart"
+      ]
     },
     {
+      "type": "row",
+      "title": "S3 API",
       "collapsed": false,
-      "datasource": null,
+      "id": 8,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 5
       },
-      "id": 101,
-      "panels": [],
-      "title": "⚡ PERFORMANCE & LATENCYS",
-      "type": "row"
+      "panels": []
     },
     {
+      "type": "timeseries",
+      "title": "Requests by operation",
+      "description": "",
+      "id": 9,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
+            "fillOpacity": 10,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
             },
-            "thresholdsStyle": {"mode": "off"}
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 50},
-              {"color": "red", "value": 100}
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          },
-          "unit": "ms"
-        }
+          }
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-      "id": 9,
       "options": {
         "legend": {
-          "calcs": ["last", "mean", "max"],
+          "calcs": [
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
-          "expr": "maxiofs_operation_latency_p50_milliseconds{operation=~\"PutObject|GetObject|DeleteObject|ListObjects\"}",
-          "legendFormat": "p50 - {{operation}}",
-          "refId": "A"
-        },
-        {
-          "expr": "maxiofs_operation_latency_p95_milliseconds{operation=~\"PutObject|GetObject|DeleteObject|ListObjects\"}",
-          "legendFormat": "p95 - {{operation}}",
-          "refId": "B"
-        },
-        {
-          "expr": "maxiofs_operation_latency_p99_milliseconds{operation=~\"PutObject|GetObject|DeleteObject|ListObjects\"}",
-          "legendFormat": "p99 - {{operation}}",
-          "refId": "C"
+          "expr": "sum by (operation) (rate(maxiofs_http_requests_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
         }
-      ],
-      "title": "Operation Latencies (p50/p95/p99)",
-      "type": "timeseries"
+      ]
     },
     {
+      "type": "timeseries",
+      "title": "Responses by HTTP status",
+      "description": "",
+      "id": 10,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
           "mappings": [],
-          "max": 100,
-          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "red", "value": null},
-              {"color": "yellow", "value": 95},
-              {"color": "green", "value": 99}
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          },
-          "unit": "percent"
-        }
+          }
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
-      "id": 10,
       "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "11.5.0",
-      "targets": [
-        {
-          "expr": "maxiofs_operation_success_rate_percent{operation=\"PutObject\"}",
-          "legendFormat": "PutObject",
-          "refId": "A"
-        },
-        {
-          "expr": "maxiofs_operation_success_rate_percent{operation=\"GetObject\"}",
-          "legendFormat": "GetObject",
-          "refId": "B"
-        },
-        {
-          "expr": "maxiofs_operation_success_rate_percent{operation=\"DeleteObject\"}",
-          "legendFormat": "DeleteObject",
-          "refId": "C"
-        },
-        {
-          "expr": "maxiofs_operation_success_rate_percent{operation=\"ListObjects\"}",
-          "legendFormat": "ListObjects",
-          "refId": "D"
-        }
-      ],
-      "title": "Success Rate by Operation",
-      "type": "gauge"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [],
-          "unit": "short"
-        }
-      },
-      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 16},
-      "id": 11,
-      "options": {
-        "displayLabels": ["name", "percent"],
         "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
-          "values": ["value"]
+          "showLegend": true
         },
-        "pieType": "pie",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {"mode": "single", "sort": "none"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
-      "pluginVersion": "11.5.0",
       "targets": [
         {
-          "expr": "maxiofs_operation_count_total",
-          "legendFormat": "{{operation}}",
-          "refId": "A"
+          "expr": "sum by (status) (rate(maxiofs_http_requests_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{status}}"
         }
-      ],
-      "title": "Operation Distribution",
-      "type": "piechart"
+      ]
     },
     {
+      "type": "timeseries",
+      "title": "Errors by S3 code",
+      "description": "A HEAD error has no body and is shown by its HTTP status.",
+      "id": 11,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (error_type) (rate(maxiofs_s3_errors_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{error_type}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p95 by operation",
+      "description": "",
+      "id": 12,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_s3_operation_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p99 by method",
+      "description": "",
+      "id": 13,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, method) (rate(maxiofs_http_request_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{method}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request and response sizes (p95)",
+      "description": "",
+      "id": 14,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_http_request_size_bytes_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "in {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_http_response_size_bytes_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "B",
+          "datasource": "Prometheus",
+          "legendFormat": "out {{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Traffic",
+      "description": "",
+      "id": 15,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(maxiofs_http_request_size_bytes_sum{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "received"
+        },
+        {
+          "expr": "sum(rate(maxiofs_http_response_size_bytes_sum{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "B",
+          "datasource": "Prometheus",
+          "legendFormat": "sent"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Busiest buckets (requests/s)",
+      "description": "",
+      "id": 16,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (bucket) (rate(maxiofs_s3_operations_total{instance=~\"$instance\", bucket!=\"\", bucket=~\"$bucket\"}[5m])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{bucket}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Storage & Objects",
       "collapsed": false,
-      "datasource": null,
+      "id": 17,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 38
       },
-      "id": 102,
-      "panels": [],
-      "title": "📈 THROUGHPUT & REQUESTS",
-      "type": "row"
+      "panels": []
     },
     {
+      "type": "timeseries",
+      "title": "Storage operations",
+      "description": "Operations on the storage backend. not_found is an object that is not there, not a failure.",
+      "id": 18,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "unit": "ops",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
+            "lineWidth": 2,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
             },
-            "thresholdsStyle": {"mode": "off"}
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null}
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          },
-          "unit": "reqps"
-        }
+          }
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 25},
-      "id": 12,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "list",
-          "placement": "bottom"
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "tooltip": {"mode": "single", "sort": "none"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
-          "expr": "maxiofs_throughput_requests_per_second",
-          "legendFormat": "Requests/sec",
-          "refId": "A"
+          "expr": "sum by (operation, status) (rate(maxiofs_storage_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}} {{status}}"
         }
-      ],
-      "title": "Throughput - Requests/sec",
-      "type": "timeseries"
+      ]
     },
     {
+      "type": "timeseries",
+      "title": "Storage latency p95",
+      "description": "A read's time is the time to open the object, not to read it.",
+      "id": 19,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
+            "lineWidth": 2,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
             },
-            "thresholdsStyle": {"mode": "off"}
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null}
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          },
-          "unit": "Bps"
-        }
+          }
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 25},
-      "id": 13,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "list",
-          "placement": "bottom"
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "tooltip": {"mode": "single", "sort": "none"}
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
-          "expr": "maxiofs_throughput_bytes_per_second",
-          "legendFormat": "Bytes/sec",
-          "refId": "A"
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_storage_operation_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
         }
-      ],
-      "title": "Throughput - Bytes/sec",
-      "type": "timeseries"
+      ]
     },
     {
+      "type": "timeseries",
+      "title": "Object operations",
+      "description": "Object operations completed, from the S3 API, the console and background tasks.",
+      "id": 20,
       "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "unit": "ops",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
+            "lineWidth": 2,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
             },
-            "thresholdsStyle": {"mode": "off"}
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(maxiofs_object_operations_total{instance=~\"$instance\", bucket=~\"$bucket\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Object size (p50, p95)",
+      "description": "",
+      "id": 21,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le, operation) (rate(maxiofs_object_size_bytes_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_object_size_bytes_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "B",
+          "datasource": "Prometheus",
+          "legendFormat": "p95 {{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Object operation latency p95",
+      "description": "A read's time is the time to open the object, not to send it.",
+      "id": 22,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(maxiofs_object_operation_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Bytes by bucket",
+      "description": "",
+      "id": 23,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 63
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "continuous-BlYlRd"
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null}
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          },
-          "unit": "ops"
-        }
-      },
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 25},
-      "id": 14,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "list",
-          "placement": "bottom"
+          }
         },
-        "tooltip": {"mode": "single", "sort": "none"}
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "expr": "maxiofs_throughput_objects_per_second",
-          "legendFormat": "Objects/sec",
-          "refId": "A"
+          "expr": "topk(15, sum by (bucket) (maxiofs_bucket_bytes_total{instance=~\"$instance\", bucket=~\"$bucket\"}))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{bucket}}",
+          "instant": true,
+          "format": "time_series"
         }
-      ],
-      "title": "Throughput - Objects/sec",
-      "type": "timeseries"
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Objects by bucket",
+      "description": "",
+      "id": 24,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 63
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(15, sum by (bucket) (maxiofs_bucket_objects_total{instance=~\"$instance\", bucket=~\"$bucket\"}))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{bucket}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Security",
+      "collapsed": false,
+      "id": 25,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 71
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Sign-ins",
+      "description": "S3 signatures, presigned URLs, browser form uploads and console sign-ins.",
+      "id": 26,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (method, status) (rate(maxiofs_auth_attempts_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{method}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sign-in failures by reason",
+      "description": "",
+      "id": 27,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (method, reason) (increase(maxiofs_auth_failures_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{method}}: {{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bucket changes",
+      "description": "Bucket creations, deletions and configuration changes, from the S3 API and the console.",
+      "id": 28,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation, status) (increase(maxiofs_bucket_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Object Lock changes",
+      "description": "",
+      "id": 29,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation, status) (increase(maxiofs_object_lock_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Retained objects",
+      "description": "Objects whose current version a retention mode holds, counted every 15 minutes.",
+      "id": 30,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (bucket, mode) (maxiofs_object_lock_retention_objects_total{instance=~\"$instance\", bucket=~\"$bucket\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{bucket}} {{mode}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Background Tasks & Events",
+      "collapsed": false,
+      "id": 31,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 88
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Task runs since start",
+      "description": "Runs of lifecycle, inventory, replication, stats, integrity, encryption, audit retention, STS sweep and cluster tasks since each node started.",
+      "id": 32,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 89
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (task_type, status) (maxiofs_background_tasks_total{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{task_type}} {{status}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Average task duration since start",
+      "description": "",
+      "id": 33,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 89
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (task_type) (maxiofs_background_task_duration_seconds_sum{instance=~\"$instance\"}) / sum by (task_type) (maxiofs_background_task_duration_seconds_count{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{task_type}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Events since start",
+      "description": "Disk, quota, node, integrity and account alerts, and configuration changes sent to the console since each node started.",
+      "id": 34,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 89
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (event_type) (maxiofs_system_events_total{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{event_type}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "System",
+      "collapsed": false,
+      "id": 35,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 97
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "description": "",
+      "id": 36,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maxiofs_system_cpu_usage_percent{instance=~\"$instance\"}",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory",
+      "description": "",
+      "id": 37,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maxiofs_system_memory_usage_percent{instance=~\"$instance\"}",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk",
+      "description": "",
+      "id": 38,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maxiofs_system_disk_usage_percent{instance=~\"$instance\"}",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Metadata cache hit rate",
+      "description": "Pebble block cache, since each node started.",
+      "id": 39,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 106
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "avg(maxiofs_cache_hit_rate{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Metadata cache size",
+      "description": "",
+      "id": 40,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 106
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_cache_size_bytes{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Disk used",
+      "description": "",
+      "id": 41,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 106
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_system_disk_used_bytes{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Disk total",
+      "description": "",
+      "id": 42,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 106
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_system_disk_total_bytes{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Performance (last hour, per node)",
+      "collapsed": false,
+      "id": 43,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 110
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Operation latencies (p50/p95/p99)",
+      "description": "",
+      "id": 44,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 111
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maxiofs_operation_latency_p50_milliseconds{instance=~\"$instance\"}",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "expr": "maxiofs_operation_latency_p95_milliseconds{instance=~\"$instance\"}",
+          "refId": "B",
+          "datasource": "Prometheus",
+          "legendFormat": "p95 {{operation}}"
+        },
+        {
+          "expr": "maxiofs_operation_latency_p99_milliseconds{instance=~\"$instance\"}",
+          "refId": "C",
+          "datasource": "Prometheus",
+          "legendFormat": "p99 {{operation}}"
+        },
+        {
+          "expr": "maxiofs_operation_latency_mean_milliseconds{instance=~\"$instance\"}",
+          "refId": "D",
+          "datasource": "Prometheus",
+          "legendFormat": "mean {{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Success rate by operation",
+      "description": "",
+      "id": 45,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 111
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "maxiofs_operation_success_rate_percent{instance=~\"$instance\"}",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Operations in the last hour",
+      "description": "",
+      "id": 46,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 111
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation) (maxiofs_operation_count_total{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{operation}}",
+          "instant": true,
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests/s",
+      "description": "",
+      "id": 47,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 119
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_throughput_requests_per_second{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "requests"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes/s",
+      "description": "",
+      "id": 48,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 119
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_throughput_bytes_per_second{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "bytes"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Objects/s",
+      "description": "",
+      "id": 49,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 119
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(maxiofs_throughput_objects_per_second{instance=~\"$instance\"})",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "objects"
+        }
+      ]
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["maxiofs", "s3", "storage"],
+  "tags": [
+    "maxiofs",
+    "s3",
+    "storage"
+  ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "instance",
+        "label": "Node",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": {
+          "query": "label_values(maxiofs_system_cpu_usage_percent, instance)",
+          "refId": "instance"
+        },
+        "definition": "label_values(maxiofs_system_cpu_usage_percent, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      },
+      {
+        "name": "bucket",
+        "label": "Bucket",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": {
+          "query": "label_values(maxiofs_bucket_bytes_total{instance=~\"$instance\"}, bucket)",
+          "refId": "bucket"
+        },
+        "definition": "label_values(maxiofs_bucket_bytes_total{instance=~\"$instance\"}, bucket)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "MaxIOFS - Dashboard Completo",
+  "title": "MaxIOFS",
   "uid": "maxiofs-main",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

@@ -122,6 +122,7 @@ type completionFuture struct {
 }
 
 type objectManager struct {
+	recorder      MetricsRecorder
 	storage       storage.Backend
 	config        config.StorageConfig
 	metadataStore metadata.Store
@@ -387,8 +388,98 @@ func replicatedLastModifiedFromContext(ctx context.Context) (time.Time, bool) {
 	return t, true
 }
 
-// GetObject retrieves an object (optionally a specific version)
+// MetricsRecorder counts the object operations the manager completes and the
+// retention and legal hold changes it makes.
+type MetricsRecorder interface {
+	RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration)
+	RecordObjectLockOperation(operation, bucket string, success bool)
+}
+
+// SetMetricsRecorder sets where object operations are counted. Set before use.
+func (om *objectManager) SetMetricsRecorder(r MetricsRecorder) {
+	om.recorder = r
+}
+
+// metricsBucket is the bucket a bucket path names, without its tenant: bucket
+// names are unique across tenants.
+func metricsBucket(bucketPath string) string {
+	if i := strings.LastIndex(bucketPath, "/"); i >= 0 {
+		return bucketPath[i+1:]
+	}
+	return bucketPath
+}
+
+// recordObject counts a completed object operation; size is -1 when the
+// operation has none.
+func (om *objectManager) recordObject(operation, bucketPath string, size int64, start time.Time) {
+	if om.recorder != nil {
+		om.recorder.RecordObjectOperation(operation, metricsBucket(bucketPath), size, time.Since(start))
+	}
+}
+
 func (om *objectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
+	start := time.Now()
+	obj, body, err := om.getObject(ctx, bucket, key, versionID...)
+	if err == nil && obj != nil {
+		om.recordObject("GetObject", bucket, obj.Size, start)
+	}
+	return obj, body, err
+}
+
+func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error) {
+	start := time.Now()
+	obj, err := om.putObject(ctx, bucket, key, data, headers)
+	if err == nil && obj != nil {
+		om.recordObject("PutObject", bucket, obj.Size, start)
+	}
+	return obj, err
+}
+
+func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
+	start := time.Now()
+	marker, err := om.deleteObject(ctx, bucket, key, bypassGovernance, versionID...)
+	if err == nil {
+		om.recordObject("DeleteObject", bucket, -1, start)
+	}
+	return marker, err
+}
+
+func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
+	start := time.Now()
+	obj, err := om.completeMultipartUpload(ctx, uploadID, parts)
+	if err == nil && obj != nil {
+		om.recordObject("CompleteMultipartUpload", obj.Bucket, obj.Size, start)
+	}
+	return obj, err
+}
+
+func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
+	err := om.setObjectRetention(ctx, bucket, key, config, versionID...)
+	om.recordLock("PutObjectRetention", bucket, err)
+	return err
+}
+
+func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
+	err := om.setObjectLegalHold(ctx, bucket, key, config, versionID...)
+	om.recordLock("PutObjectLegalHold", bucket, err)
+	return err
+}
+
+// recordLock counts a retention or legal hold change. A failed one names no
+// bucket: it may name one that does not exist.
+func (om *objectManager) recordLock(operation, bucketPath string, err error) {
+	if om.recorder == nil {
+		return
+	}
+	bucket := metricsBucket(bucketPath)
+	if err != nil {
+		bucket = ""
+	}
+	om.recorder.RecordObjectLockOperation(operation, bucket, err == nil)
+}
+
+// getObject retrieves an object (optionally a specific version)
+func (om *objectManager) getObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, nil, err
 	}
@@ -570,8 +661,8 @@ func (om *objectManager) GetObject(ctx context.Context, bucket, key string, vers
 	}
 }
 
-// PutObject stores an object
-func (om *objectManager) PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (result *Object, resultErr error) {
+// putObject stores an object
+func (om *objectManager) putObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (result *Object, resultErr error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, err
 	}
@@ -855,7 +946,7 @@ func (om *objectManager) ResolveDeleteKey(ctx context.Context, bucket, key strin
 	return key
 }
 
-func (om *objectManager) DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
+func (om *objectManager) deleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return "", err
 	}
@@ -1694,7 +1785,7 @@ func (om *objectManager) GetObjectRetention(ctx context.Context, bucket, key str
 	return obj.Retention, nil
 }
 
-func (om *objectManager) SetObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
+func (om *objectManager) setObjectRetention(ctx context.Context, bucket, key string, config *RetentionConfig, versionID ...string) error {
 	defer om.lockKey(bucket, key)()
 	var obj *Object
 
@@ -1755,7 +1846,7 @@ func (om *objectManager) GetObjectLegalHold(ctx context.Context, bucket, key str
 	return obj.LegalHold, nil
 }
 
-func (om *objectManager) SetObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
+func (om *objectManager) setObjectLegalHold(ctx context.Context, bucket, key string, config *LegalHoldConfig, versionID ...string) error {
 	defer om.lockKey(bucket, key)()
 	var obj *Object
 
@@ -2137,10 +2228,10 @@ func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part
 	return parts, nil
 }
 
-// CompleteMultipartUpload deduplicates concurrent requests for the same uploadID.
+// completeMultipartUpload deduplicates concurrent requests for the same uploadID.
 // If a completion for this uploadID is already in progress, the caller waits and
 // receives the same result — preventing race conditions on the filesystem.
-func (om *objectManager) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
+func (om *objectManager) completeMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
 	om.completionMu.Lock()
 	if f, ok := om.completions[uploadID]; ok {
 		om.completionMu.Unlock()
@@ -2939,20 +3030,19 @@ func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID
 		"isNewObject": existingObjBeforeSave == nil,
 	}).Info("Updating tenant storage quota after PutObject")
 
-	if sizeToAdd != 0 {
-		if err := om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd); err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"tenant_id": tenantID,
-				"size":      sizeToAdd,
-			}).Warn("Failed to increment tenant storage quota")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"tenantID":  tenantID,
-				"sizeAdded": sizeToAdd,
-			}).Info("Successfully incremented tenant storage")
-		}
-	} else {
-		logrus.WithField("tenantID", tenantID).Debug("No storage change needed (sizeToAdd = 0)")
+	var err error
+	switch {
+	case sizeToAdd > 0:
+		err = om.authManager.IncrementTenantStorage(ctx, tenantID, sizeToAdd)
+	case sizeToAdd < 0:
+		// A smaller object over a larger one gives the difference back.
+		err = om.authManager.DecrementTenantStorage(ctx, tenantID, -sizeToAdd)
+	}
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"tenant_id": tenantID,
+			"size":      sizeToAdd,
+		}).Warn("Failed to update tenant storage")
 	}
 }
 

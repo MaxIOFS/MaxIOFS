@@ -9,7 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { isHttpStatus } from '@/lib/utils';
 
 // 15 minutes of inactivity → logout
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+export const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 // Auth Context Type
 interface AuthContextType {

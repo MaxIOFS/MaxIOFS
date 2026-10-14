@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
@@ -22,6 +23,21 @@ type Worker struct {
 	wg            sync.WaitGroup
 	log           *logrus.Entry
 	gate          func() bool
+	observe       bgwork.TaskObserver
+}
+
+// SetTaskObserver sets what is told of each inventory pass the gate lets
+// run. Set before Start.
+func (w *Worker) SetTaskObserver(observe bgwork.TaskObserver) {
+	w.observe = observe
+}
+
+// runPass runs one pass of the configurations ready to run.
+func (w *Worker) runPass(ctx context.Context) {
+	if w.gate != nil && !w.gate() {
+		return
+	}
+	_ = w.observe.Observe("inventory", func() error { return w.processInventories(ctx) })
 }
 
 // SetObjectManager replaces what the worker stores reports through, before
@@ -63,7 +79,7 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		w.processInventories(ctx)
+		w.runPass(ctx)
 	}()
 
 	w.wg.Add(1)
@@ -72,7 +88,7 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 		for {
 			select {
 			case <-w.ticker.C:
-				w.processInventories(ctx)
+				w.runPass(ctx)
 			case <-w.stopChan:
 				w.ticker.Stop()
 				w.log.Info("Inventory worker stopped")
@@ -95,9 +111,9 @@ func (w *Worker) Stop() {
 }
 
 // processInventories processes all ready inventory configurations
-func (w *Worker) processInventories(ctx context.Context) {
+func (w *Worker) processInventories(ctx context.Context) error {
 	if w.gate != nil && !w.gate() {
-		return
+		return nil
 	}
 	w.log.Debug("Processing inventory configurations...")
 
@@ -105,26 +121,29 @@ func (w *Worker) processInventories(ctx context.Context) {
 	configs, err := w.manager.ListReadyConfigs(ctx)
 	if err != nil {
 		w.log.WithError(err).Error("Failed to list ready inventory configurations")
-		return
+		return err
 	}
 
 	if len(configs) == 0 {
 		w.log.Debug("No inventory configurations ready to run")
-		return
+		return nil
 	}
 
 	w.log.WithField("count", len(configs)).Info("Found inventory configurations ready to run")
 
 	// Process each configuration
+	var failed error
 	for _, config := range configs {
 		if err := w.processInventoryConfig(ctx, config); err != nil {
 			w.log.WithError(err).WithFields(logrus.Fields{
 				"bucket":    config.BucketName,
 				"config_id": config.ID,
 			}).Error("Failed to process inventory configuration")
+			failed = err
 			continue
 		}
 	}
+	return failed
 }
 
 // processInventoryConfig processes a single inventory configuration

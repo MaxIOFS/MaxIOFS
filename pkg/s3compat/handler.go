@@ -135,6 +135,7 @@ type Handler struct {
 	clusterSpace      func(ctx context.Context) (capacity, available int64, ok bool)
 	dataDir           string             // For calculating disk capacity in SOSAPI
 	notifHTTPClient   *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
+	authRecorder      authRecorder
 	bandwidthManager  *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
 }
 
@@ -150,6 +151,32 @@ func NewHandler(bucketManager bucket.Manager, objectManager object.Manager) *Han
 // SetAuthManager sets the auth manager for permission checking
 func (h *Handler) SetAuthManager(am auth.Manager) {
 	h.authManager = am
+}
+
+// authRecorder counts the sign-ins the handler checks itself: presigned URLs
+// and browser form uploads.
+type authRecorder interface {
+	RecordAuthAttempt(method string, success bool, reason string)
+}
+
+// SetAuthRecorder sets where presigned URL and form upload sign-ins are counted.
+func (h *Handler) SetAuthRecorder(r authRecorder) {
+	h.authRecorder = r
+}
+
+// recordAuth counts one sign-in; reason is empty on success.
+func (h *Handler) recordAuth(method, reason string) {
+	if h.authRecorder != nil {
+		h.authRecorder.RecordAuthAttempt(method, reason == "", reason)
+	}
+}
+
+// presignedFailure is the S3 error code a presigned URL was refused with.
+func presignedFailure(err error) string {
+	if pe, ok := err.(*presignedValidationError); ok {
+		return pe.code
+	}
+	return "InvalidRequest"
 }
 
 // SetBandwidthManager sets the per-tenant bandwidth throttling manager.
@@ -1206,9 +1233,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	if !userExists && presigned.IsPresignedURL(r) {
 		accessKeyID, valid, err := h.validatePresignedURLAccess(r, objectKey)
 		if err != nil {
+			h.recordAuth("s3_presigned", "SignatureDoesNotMatch")
 			h.handlePresignedURLError(w, err, objectKey, r)
 			return
 		}
+		h.recordAuth("s3_presigned", "")
 
 		if valid {
 			allowedByPresignedURL = true

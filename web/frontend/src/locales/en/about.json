@@ -19,7 +19,7 @@
   "featureMultiTenant": "Multi-Tenant",
   "featureMultiTenantDesc": "Complete tenant isolation with configurable quotas, cascading deletes, deletion validation, and global admin cross-tenant visibility",
   "featureSecurity": "Security & Encryption",
-  "featureSecurityDesc": "AES-256-GCM authenticated encryption at rest (64 KB chunks, tamper-proof), JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types), compliance-ready (GDPR, SOC 2, HIPAA, ISO 27001)",
+  "featureSecurityDesc": "AES-256-GCM authenticated encryption at rest (64 KB chunks, tamper-proof), JWT + 2FA authentication, AWS Signature v2/v4, comprehensive audit logging (20+ event types)",
   "featurePerformance": "High Performance",
   "featurePerformanceDesc": "Pebble (CockroachDB's LSM-tree engine) metadata store with crash-safe WAL, metadata-first deletion pipeline, and stress-tested with 7000+ objects using MinIO Warp",
   "featureSingleBinary": "Single Binary",

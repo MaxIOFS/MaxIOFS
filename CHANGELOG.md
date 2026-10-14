@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-10-13
 
 ### Changed
 - Draining a node moves its objects to the other nodes before it leaves service, with any replication factor. It takes no new data, a write it takes is passed to the node with the most free space, and it serves reads while its objects move. Once it holds none it answers no S3 request (`503`, `/health` included) and every node marks it dead; it can then be removed. A drain marked the node dead at once: with a factor of 1 its objects were unreadable. The drained node itself can now be drained from its own console.
@@ -34,6 +34,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debian and RPM upgrades no longer change the owner of every file under /var/lib/maxiofs and /var/log/maxiofs, which took long with many objects. A new installation gives the two directories to the maxiofs user; the service writes as that user.
 
 ### Fixed
+- Prometheus gets every metric MaxIOFS declares. S3 operations and errors by S3 error code, storage backend operations, object operations and sizes, sign-ins (S3 signatures, presigned URLs, form uploads, console password, 2FA and OAuth), bucket and Object Lock changes, objects under retention, each bucket's usage, events sent to the console, background task runs and the metadata cache were declared and never fed.
+- Prometheus: S3 request metrics are labelled by S3 operation instead of path. Each object key was a new series, and Prometheus memory grew with the number of objects. A refused request does not name its bucket.
+- Prometheus: refused S3 requests are counted. The metrics middleware ran after authentication.
+- Grafana: the dashboard shows every exported metric, by node and bucket. Its Buckets, Objects and Storage panels read metrics that did not exist.
+- Prometheus alert SuspiciousHighOperationRate applied `rate()` to a gauge; it reads the request counter.
+- In a cluster, the code of an OAuth sign-in is exchanged on any node: it names the node the provider's redirect reached, which the other nodes ask for it. Behind a load balancer the exchange could reach another node and fail with "invalid or expired code".
+- In a cluster, a change to an identity provider takes effect on every node at the next sign-in: each node rebuilds the provider when its stored row changed. A node kept the provider it first loaded until restart, so a new client secret or LDAP server, or a disabled or deleted provider, took effect only on the node where the change was made.
+- OAuth sign-in of a user with two-factor authentication asks for the code: the console exchanges the single-use code for the second step's token. The browser was sent to the login page with the user ID, where nothing asked for the code, and the user could not sign in.
+- Docs: `docker/README.md` listed dashboards and alert rules that do not exist.
+- Docs: CLUSTER.md's firewall example opened ports 8080 and 8081 only to the node subnet and left out 8082, which every node needs from the others; its unavailable-node checks tested port 8080 where health checks use 8082. Removed the cluster replication API, rules, queue and Prometheus metrics it described, which no longer exist. Prometheus metrics are on the S3 port only, not on both. The console health check is `/api/v1/health`; `/health` on the console port answers the console page.
+- A tenant's bandwidth cap paces browser form uploads (S3 POST) as it paces a PUT. They were read at full speed.
+- Console: the Security page says what is in place. It said the nodes use mutual TLS (each request is signed with HMAC-SHA256 over TLS), that cluster copies are encrypted again per destination (an object encrypted with the cluster key is copied as stored), that idle sessions end after the session timeout (the console signs out after 15 minutes idle; the timeout is the refresh-token lifetime), and listed a self-replication check that no longer exists. Durations show in the console's language.
+- S3: PutBucketReplication answers that replication rules are set in the console or with `/api/v1/buckets/{bucket}/replication/rules`. It named a cluster replication API that no longer exists.
+- Console and packages: the Security page, the About page and the Debian package description no longer claim GDPR, SOC 2, HIPAA, ISO 27001 or PCI DSS support. Nothing in MaxIOFS backs those claims.
+- Console: the tenant bandwidth hint says what the cap covers: S3 uploads and downloads to the tenant's buckets, on each node; console transfers are not capped. It said every upload and download of the tenant.
+- A tenant's storage goes down when an object is overwritten by a smaller one, on the node that writes it and on the nodes that receive the copy. It went down only at the next statistics pass, up to 15 minutes later; until then the tenant was charged the old size and writes that fit were refused.
+- With versioning suspended, a write without a version ID over a version kept from before is charged its whole size against the bucket and tenant quotas, as usage counts it. It was charged the difference and admitted past the limit.
+- In a cluster any node serves a sign-in: login, refresh, logout, two-factor verification and the start of an OAuth sign-in. They went to the coordinator: no one signed in during an election or on a node cut off from it. Each node counts the failed sign-ins it serves and locks the account on that node; an administrator's unlock reaches every node.
+- A change forwarded to the coordinator keeps the user's address and whether they connected over TLS. The coordinator saw every forwarded change come from `192.0.2.1`: the audit log recorded that address, and the sign-in limit per address applied to all STS federation sign-ins through the console together.
+- A sign-in with two-factor authentication is recorded in the audit log.
 - The initial sync to a node asks which writes it holds and sends it only the entry of those it has. A sync running while the copies of a raised factor were made sent each copy back to the node it came from.
 - A node is marked dead while another component writes to the database: the change waits for it. It failed with `SQLITE_BUSY` and the node stayed unavailable until the next check.
 - A repair of the copies asked for while one runs runs once that one ends. A factor changed during a repair waited for the next anti-entropy cycle, hours later.
@@ -157,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Console, dark theme: the light-blue metric icons (Total Objects, Admin Users) and the drop zone of the bucket page no longer show a light background; the dark shades they used were not defined. Checkboxes, date pickers, select lists and autofilled fields follow the theme.
 
 ### Removed
+- `internal/metrics` collector: nothing used it, and it reported invented events. The gauges `maxiofs_storage_bytes_total` and `maxiofs_storage_objects_total`, never fed: `maxiofs_bucket_bytes_total` and `maxiofs_bucket_objects_total` carry each bucket's usage.
 - The forwarding of a request about a bucket to the node that held it, with its bucket location cache, `GET /api/v1/cluster/cache/stats` and `POST /api/v1/cluster/cache/invalidate`; the bucket and tenant-usage aggregation across nodes; the internal endpoints `/bucket-exists/{name}`, `/buckets` and `/tenant/{id}/storage`. Every node holds every bucket and every object's entry.
 - Console: the Replicated Buckets and Local Buckets cards of the cluster overview, and the Buckets column of the nodes page.
 - Bucket migration between nodes: the console Migrations page, `POST /api/v1/cluster/buckets/{bucket}/migrate`, `GET /api/v1/cluster/migrations`, `GET /api/v1/cluster/migrations/{id}`, `GET /api/v1/cluster/buckets` and the internal `/migration/*` endpoints. Every node holds every bucket, and the copies of each object go to the nodes with the most free space.
@@ -169,6 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Console: the Authenticated Read option of the bucket ACL dialog. It granted nothing: requests with credentials are decided by permissions and the bucket policy. A bucket that has it through the S3 API still shows it.
 
 ### Added
+- Prometheus alerts: MaxIOFSDown, S3ServerErrors, StorageFailures, DiskAlmostFull, SignInFailureBurst, BackgroundTaskFailing.
+- Prometheus tests: every metric family is exported once the server does what it counts; no label carries an object key; a refused request names no bucket; every background task is observed; every S3 route has an operation name. OAuth sign-in tests with and without two-factor authentication, server and console page; a code exchanged on another node; an identity provider changed through the database is rebuilt.
 - Console: a bucket policy is edited as rules instead of JSON: allow or deny; everyone or users of the bucket's tenant; actions from the permission catalogue; the whole bucket or objects under a prefix; source addresses and TLS. Common rules are added in one click. A policy set through the S3 API that rules cannot show is shown read-only and can be replaced.
 - Console: each card of a bucket's Security & Access tab says what it decides: Block Public Access what it voids, the bucket policy whom it grants or denies, the ACL that it applies only to requests without credentials. The policy dialog says when public policies are blocked.
 - Console: the Security & Access tab of a bucket edits its Block Public Access, with the same fields as bucket creation. The ACL card says when Block Public Access ignores the bucket's public ACL; the ACL dialog offers no public ACL while public ACLs are blocked. It could be set only when creating the bucket.
@@ -188,6 +211,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for suspended DELETE, bucket creation over a pending removal, object ACL ownership and migration, and tenant usage and synchronisation between nodes.
 - HA bucket tests between two complete nodes: every bucket change reaches the other node, in both directions; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data; refusals. Lifecycle expiration on the coordinator only.
 - Encryption secret tests: stored once and kept across restarts; adoption re-encrypts every stored credential in one transaction; each component's credentials re-encrypted; a real join between two nodes; the coordinator gives its secret and no other node can; the settings never show the JWT secret.
+- Test for PutBucketReplication and GetBucketReplication through the S3 API.
+- Bandwidth tests through the S3 API: a tenant's cap paces a PUT, a multipart part, a GET, a range GET and a form upload.
+- Quota tests through the S3 API: a bucket or tenant over its quota refuses writes that grow usage and allows deletes, batch deletes and overwrites that shrink an object, then admits a write that fits once usage is under the limit. Tests for the tenant's storage after overwrites and for a suspended write over a kept version.
+- Two-factor sign-in tests: a code alone, the token of the first step used as a session, a session token used for the first step, a user disabled between the steps, lockout after the configured number of wrong codes and the limit per address. An unlock reaches the node where the account locked. Tests for the sign-in paths any node serves and for the user's address and TLS on a forwarded change.
+
+### Security
+- A two-factor sign-in needs the password step: login returns a `two_factor_token` valid for five minutes, and `/api/v1/auth/2fa/verify` takes it with the code. It took a user ID and a code: an account with two-factor authentication was reached without its password, with unlimited attempts, locked or not. A wrong code counts as a failed sign-in, the limit per address applies, and a locked account is refused. The login response no longer carries `user_id`.
+- Only an access token is a console credential; a token of any other type is refused. The check refused the refresh and download types only.
 
 ## [1.7.0] - 2026-09-18
 

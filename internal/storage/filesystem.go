@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -30,6 +32,35 @@ type FilesystemBackend struct {
 	rootPath  string
 	config    Config
 	pathLocks [pathLockShards]sync.Mutex
+	observer  atomic.Pointer[OperationObserver]
+}
+
+// OperationObserver is told how each storage operation ended: "success",
+// "not_found" or "failure", and how long it took. A read's time is the time to
+// open the object, not to read it.
+type OperationObserver func(operation, status string, elapsed time.Duration)
+
+// SetOperationObserver sets what is told of each storage operation.
+func (fs *FilesystemBackend) SetOperationObserver(observe OperationObserver) {
+	fs.observer.Store(&observe)
+}
+
+// observe tells the operation observer how an operation that started at
+// start ended with *err.
+func (fs *FilesystemBackend) observe(operation string, start time.Time, err *error) {
+	o := fs.observer.Load()
+	if o == nil || *o == nil {
+		return
+	}
+	status := "success"
+	switch {
+	case *err == nil:
+	case errors.Is(*err, ErrObjectNotFound) || errors.Is(*err, os.ErrNotExist):
+		status = "not_found"
+	default:
+		status = "failure"
+	}
+	(*o)(operation, status, time.Since(start))
 }
 
 // NewFilesystemBackend creates a new filesystem storage backend
@@ -268,7 +299,8 @@ func isTransientArtifact(name string) bool {
 // List returns every object under one bucket, versions included. The identity
 // comes from each sidecar; a data file whose sidecar is missing cannot be named
 // and is left out.
-func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectInfo, error) {
+func (fs *FilesystemBackend) List(ctx context.Context, bucket string) (_ []ObjectInfo, err error) {
+	defer fs.observe("List", time.Now(), &err)
 	if err := validateBucket(bucket); err != nil {
 		return nil, err
 	}
@@ -281,7 +313,7 @@ func (fs *FilesystemBackend) List(ctx context.Context, bucket string) ([]ObjectI
 	var objects []ObjectInfo
 	var walkErr error
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			if !os.IsNotExist(err) {
 				walkErr = err

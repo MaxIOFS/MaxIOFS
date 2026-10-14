@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.7.0 | **Last Updated**: September 27, 2026
+**Version**: 1.8.0 | **Last Updated**: October 13, 2026
 
 ## Security Overview
 
@@ -33,10 +33,12 @@
 ### Console Authentication (JWT)
 
 1. User submits username + password
-2. If 2FA enabled: TOTP code required
+2. If 2FA enabled: the server answers with a `two_factor_token` valid for 5 minutes instead of a session; the console sends it with the TOTP or backup code to `/api/v1/auth/2fa/verify`. The token is not a credential.
 3. Server validates credentials → issues JWT token
 4. Token stored in browser localStorage
 5. Included in all API requests via `Authorization: Bearer <token>`
+
+In a cluster any node serves a sign-in, with or without a coordinator.
 
 **Session settings** (configurable at runtime):
 - `security.session_timeout` — Refresh-token lifetime / inactivity timeout (default: 24h)
@@ -72,7 +74,7 @@ Inter-node communication is both **encrypted** (TLS) and **authenticated** (HMAC
 **TLS Encryption (automatic):**
 - On cluster initialization, an internal CA (ECDSA P-256, 10-year validity) is generated
 - Each node gets a certificate signed by the CA (1-year validity, auto-renewed)
-- All inter-node HTTP communication uses mutual TLS with the internal CA
+- All inter-node HTTP communication uses TLS; the calling node verifies the other node's certificate against the internal CA. The caller is authenticated by the HMAC signature below, not by a client certificate
 - No configuration required — fully automatic and transparent
 - Certificate auto-renewal runs monthly; hot-swapped without restart
 
@@ -322,6 +324,8 @@ Protects individual accounts after repeated failed logins:
 - Admin notification: Real-time SSE push when account is locked
 - Manual unlock: Admin can unlock via Web Console (Users → Unlock)
 - Counter reset: Successful login resets the failed attempts counter
+- A wrong two-factor code counts as a failed attempt
+- In a cluster each node counts the failed attempts it serves and locks the account on that node: behind a load balancer, an account takes up to `max_failed_attempts` failures per node before every node has locked it. The limit per IP is per node too. An administrator's unlock reaches every node.
 
 ---
 

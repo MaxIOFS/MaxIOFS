@@ -55,6 +55,12 @@ func (m *mockAuthManager) GenerateTokenPair(ctx context.Context, user *auth.User
 func (m *mockAuthManager) ValidateRefreshToken(ctx context.Context, token string) (*auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) GenerateTwoFactorToken(ctx context.Context, user *auth.User) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+func (m *mockAuthManager) ValidateTwoFactorToken(ctx context.Context, token string) (*auth.User, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 func (m *mockAuthManager) ValidateS3Signature(ctx context.Context, r *http.Request) (*auth.User, error) {
 	return nil, fmt.Errorf("not implemented")
 }

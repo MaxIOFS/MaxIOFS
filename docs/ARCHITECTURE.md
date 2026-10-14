@@ -1,6 +1,6 @@
 # MaxIOFS Architecture
 
-**Version**: 1.7.0 | **Last Updated**: September 27, 2026
+**Version**: 1.8.0 | **Last Updated**: October 13, 2026
 
 ## Overview
 
@@ -287,8 +287,10 @@ A write holds its room from before it stores anything until its usage is
 committed, and the check counts every earlier write still in flight, so
 concurrent writes on a node cannot pass against the same free space. Only
 growth is checked: deletes, delete markers and overwrites that do not grow an
-object are allowed over the quota. Reservations are per node; writes in flight
-on different cluster nodes do not see each other.
+object are allowed over the quota. A write that keeps the version it lands over
+(versioning on, or suspended over a version from before) grows usage by its
+whole size. Reservations are per node; writes in flight on different cluster
+nodes do not see each other.
 
 ### Resource Isolation
 

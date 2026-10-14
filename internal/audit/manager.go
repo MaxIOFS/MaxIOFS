@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,6 +19,13 @@ type Manager struct {
 	store           Store
 	logger          *logrus.Logger
 	settingsManager SettingsManager
+	observe         bgwork.TaskObserver
+}
+
+// SetTaskObserver sets what is told of each retention cleanup. Set before
+// StartRetentionJob.
+func (m *Manager) SetTaskObserver(observe bgwork.TaskObserver) {
+	m.observe = observe
 }
 
 // NewManager creates a new audit manager
@@ -267,17 +275,17 @@ func (m *Manager) retentionCleanupWithSettings(ctx context.Context, fallbackDays
 			days = v
 		}
 	}
-	m.runRetentionCleanup(ctx, days)
+	_ = m.observe.Observe("audit_retention", func() error { return m.runRetentionCleanup(ctx, days) })
 }
 
 // runRetentionCleanup performs the actual cleanup operation
-func (m *Manager) runRetentionCleanup(ctx context.Context, retentionDays int) {
+func (m *Manager) runRetentionCleanup(ctx context.Context, retentionDays int) error {
 	m.logger.WithField("retention_days", retentionDays).Debug("Running audit log retention cleanup")
 
 	count, err := m.PurgeLogs(ctx, retentionDays)
 	if err != nil {
 		m.logger.WithError(err).Error("Audit log retention cleanup failed")
-		return
+		return err
 	}
 
 	if count > 0 {
@@ -286,6 +294,7 @@ func (m *Manager) runRetentionCleanup(ctx context.Context, retentionDays int) {
 			"retention_days": retentionDays,
 		}).Info("Audit log retention cleanup completed")
 	}
+	return nil
 }
 
 // Flush blocks until all queued audit events have been committed to the store.

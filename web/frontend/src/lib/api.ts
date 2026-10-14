@@ -564,7 +564,7 @@ export class APIClient {
         user: response.data.user,
         error: response.data.error,
         requires_2fa: response.data.requires_2fa,
-        user_id: response.data.user_id,
+        two_factor_token: response.data.two_factor_token,
         message: response.data.message,
         default_password: response.data.default_password,
         must_change_password: response.data.must_change_password,
@@ -1742,8 +1742,8 @@ export class APIClient {
     return response.data.data;
   }
 
-  static async verify2FA(userId: string, code: string): Promise<LoginResponse> {
-    const response = await apiClient.post<any>('/auth/2fa/verify', { user_id: userId, code });
+  static async verify2FA(twoFactorToken: string, code: string): Promise<LoginResponse> {
+    const response = await apiClient.post<any>('/auth/2fa/verify', { two_factor_token: twoFactorToken, code });
 
     const result: LoginResponse = {
       success: response.data.success,

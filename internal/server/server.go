@@ -25,6 +25,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/api"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
@@ -50,19 +51,21 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config              *config.Config
-	httpServer          *http.Server
-	consoleServer       *http.Server
-	clusterServer       *http.Server // dedicated inter-node communication port
-	clusterServerMu     sync.Mutex
-	storageBackend      storage.Backend
-	metadataStore       metadata.Store
-	bucketManager       bucket.Manager
-	objectManager       object.Manager
-	authManager         auth.Manager
-	db                  *sql.DB
-	auditManager        *audit.Manager
-	metricsManager      metrics.Manager
+	config          *config.Config
+	httpServer      *http.Server
+	consoleServer   *http.Server
+	clusterServer   *http.Server // dedicated inter-node communication port
+	clusterServerMu sync.Mutex
+	storageBackend  storage.Backend
+	metadataStore   metadata.Store
+	bucketManager   bucket.Manager
+	objectManager   object.Manager
+	authManager     auth.Manager
+	db              *sql.DB
+	auditManager    *audit.Manager
+	metricsManager  metrics.Manager
+	// taskObserver is told of each run of a background task.
+	taskObserver        bgwork.TaskObserver
 	settingsManager     *settings.Manager
 	kekStore            *kek.Store // DB-backed encryption KEK (envelope encryption)
 	encSecret           *encsecret.Store
@@ -378,25 +381,50 @@ func New(cfg *config.Config) (*Server, error) {
 	// Keep last 10,000 samples per operation, 1 hour retention
 	metrics.InitGlobalPerformanceCollector(10000, 1*time.Hour)
 
-	// Connect storage metrics provider to metrics manager
+	// What this node holds of every bucket, read at every scrape.
 	if mm, ok := metricsManager.(interface {
-		SetStorageMetricsProvider(metrics.StorageMetricsProvider)
+		SetBucketUsageProvider(metrics.BucketUsageProvider)
 	}); ok {
-		mm.SetStorageMetricsProvider(func() (totalBuckets, totalObjects, totalSize int64) {
-			// Get storage metrics by listing all buckets
+		mm.SetBucketUsageProvider(func() ([]metrics.BucketUsage, error) {
 			buckets, err := bucketManager.ListBuckets(context.Background(), "")
 			if err != nil {
-				return 0, 0, 0
+				return nil, err
 			}
-
-			totalBuckets = int64(len(buckets))
+			usage := make([]metrics.BucketUsage, 0, len(buckets))
 			for _, b := range buckets {
-				totalObjects += b.ObjectCount
-				totalSize += b.TotalSize
+				usage = append(usage, metrics.BucketUsage{Name: b.Name, Objects: b.ObjectCount, Bytes: b.TotalSize})
 			}
-			return
+			return usage, nil
 		})
 	}
+	if mm, ok := metricsManager.(interface {
+		SetCacheStatsProvider(metrics.CacheStatsProvider)
+	}); ok {
+		mm.SetCacheStatsProvider(metadataStore.CacheStats)
+	}
+	if fs, ok := storageBackend.(interface {
+		SetOperationObserver(storage.OperationObserver)
+	}); ok {
+		fs.SetOperationObserver(metricsManager.RecordStorageOperation)
+	}
+	if om, ok := objectManager.(interface {
+		SetMetricsRecorder(object.MetricsRecorder)
+	}); ok {
+		om.SetMetricsRecorder(metricsManager)
+	}
+	if bm, ok := bucketManager.(interface {
+		SetMetricsRecorder(bucket.BucketMetricsRecorder)
+	}); ok {
+		bm.SetMetricsRecorder(metricsManager)
+	}
+	if am, ok := authManager.(interface {
+		SetAuthObserver(func(method string, success bool, reason string))
+	}); ok {
+		am.SetAuthObserver(metricsManager.RecordAuthAttempt)
+	}
+	taskObserver := bgwork.TaskObserver(func(task string, elapsed time.Duration, failed bool) {
+		metricsManager.RecordBackgroundTask(task, elapsed, !failed)
+	})
 
 	// Initialize share manager with same database as auth
 	shareManager, err := share.NewManagerWithDB(cfg.DataDir, encSecret.Current)
@@ -409,6 +437,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize SSE notification hub
 	notificationHub := NewNotificationHub()
+	notificationHub.SetEventObserver(metricsManager.RecordSystemEvent)
 
 	// Initialize quota alert trackers
 	quotaAlerts := newQuotaAlertTracker()
@@ -487,6 +516,14 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(db, cfg.PublicAPIURL, clusterURL)
+
+	lifecycleWorker.SetTaskObserver(taskObserver)
+	inventoryWorker.SetTaskObserver(taskObserver)
+	replicationManager.SetTaskObserver(taskObserver)
+	clusterManager.SetTaskObserver(taskObserver)
+	if auditManager != nil {
+		auditManager.SetTaskObserver(taskObserver)
+	}
 
 	// Get local node ID from cluster config (if cluster is initialized)
 	supervise(reg, "replication", replicationManager)
@@ -627,6 +664,7 @@ func New(cfg *config.Config) (*Server, error) {
 		db:                      db,
 		auditManager:            auditManager,
 		metricsManager:          metricsManager,
+		taskObserver:            taskObserver,
 		settingsManager:         settingsManager,
 		kekStore:                kekStore,
 		encSecret:               encSecret,
@@ -881,7 +919,7 @@ func (s *Server) startStatsReconciler(ctx context.Context, interval time.Duratio
 	defer ticker.Stop()
 
 	for {
-		s.reconcileBucketStats(ctx)
+		s.runTask(ctx, "stats_reconciler", func() error { return s.reconcileBucketStats(ctx) })
 
 		select {
 		case <-ticker.C:
@@ -891,28 +929,60 @@ func (s *Server) startStatsReconciler(ctx context.Context, interval time.Duratio
 	}
 }
 
-// reconcileBucketStats iterates all buckets and recalculates their stats.
-func (s *Server) reconcileBucketStats(ctx context.Context) {
+// reconcileBucketStats iterates all buckets and recalculates their stats, and
+// counts in the same scan the objects each retention mode holds. It returns
+// the last bucket it could not recalculate.
+func (s *Server) reconcileBucketStats(ctx context.Context) error {
 	buckets, err := s.metadataStore.ListBuckets(ctx, "")
 	if err != nil {
 		logrus.WithError(err).Warn("Stats reconciler: failed to list buckets")
-		return
+		return err
 	}
 
+	counting, _ := s.metadataStore.(interface {
+		RecalculateBucketStatsCounting(ctx context.Context, tenantID, bucketName string) (metadata.RetentionCounts, error)
+	})
+	retained := make(map[string]metrics.RetentionCount)
+	var failed error
 	for _, b := range buckets {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
-		if err := s.metadataStore.RecalculateBucketStats(ctx, b.TenantID, b.Name); err != nil {
+		var counts metadata.RetentionCounts
+		if counting != nil {
+			counts, err = counting.RecalculateBucketStatsCounting(ctx, b.TenantID, b.Name)
+		} else {
+			err = s.metadataStore.RecalculateBucketStats(ctx, b.TenantID, b.Name)
+		}
+		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"bucket": b.Name,
 				"tenant": b.TenantID,
 			}).WithError(err).Warn("Stats reconciler: failed to recalculate bucket stats")
+			failed = err
+			continue
 		}
+		if counts.Governance > 0 || counts.Compliance > 0 {
+			retained[b.Name] = metrics.RetentionCount{Governance: counts.Governance, Compliance: counts.Compliance}
+		}
+	}
+	if counting != nil && s.metricsManager != nil {
+		s.metricsManager.UpdateRetentionMetrics(retained)
 	}
 
 	s.refreshTenantStorage(ctx)
 	logrus.WithField("buckets", len(buckets)).Info("Stats reconciler: completed pass")
+	return failed
+}
+
+// runTask runs fn as one run of task, told to the task observer unless the
+// server is stopping: a run cut short by shutdown is not counted.
+func (s *Server) runTask(ctx context.Context, task string, fn func() error) {
+	start := time.Now()
+	err := fn()
+	if ctx.Err() == nil && s.taskObserver != nil {
+		s.taskObserver(task, time.Since(start), err != nil)
+	}
 }
 
 func (s *Server) startAPIServer() error {
@@ -1275,6 +1345,11 @@ func (s *Server) setupRoutes() error {
 	s3Router.Use(middleware.S3RequestLog)
 	// S3 HEADERS MUST BE SECOND - ensures headers are present on ALL responses including auth errors
 	s3Router.Use(middleware.S3Headers())
+	// Every request the S3 API answers is counted, refused ones included: this
+	// goes before authentication and the drain gate.
+	if s.config.Metrics.Enable {
+		s3Router.Use(s.metricsManager.Middleware())
+	}
 	// A drained node that holds no data serves no S3 request.
 	s3Router.Use(s.drainedNodeGate)
 	// What bucket policy conditions test: client address and TLS.
@@ -1348,10 +1423,6 @@ func (s *Server) setupRoutes() error {
 	if s.config.Auth.EnableAuth {
 		s3Router.Use(s.authManager.Middleware())
 	}
-	if s.config.Metrics.Enable {
-		s3Router.Use(s.metricsManager.Middleware())
-	}
-
 	// Per-user S3 API rate limiting (security.ratelimit_api_per_second)
 	if s.config.Auth.EnableAuth {
 		s3Router.Use(auth.APIRateLimitMiddleware(s.settingsManager, s.apiRateLimiter))
@@ -1446,6 +1517,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
 	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
 	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+	hmac.HandleFunc("/oauth-exchange", s.handleClusterOAuthExchange).Methods("GET")
 	hmac.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
 	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")

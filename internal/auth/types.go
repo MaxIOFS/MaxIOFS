@@ -90,8 +90,19 @@ type JWTClaims struct {
 	Resource string `json:"resource,omitempty"`
 }
 
-// TokenTypeDownload marks a token that may only fetch one named object.
-const TokenTypeDownload = "download"
+// Token types: an access token is the only API credential.
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+	// TokenTypeDownload marks a token that may only fetch one named object.
+	TokenTypeDownload = "download"
+	// TokenTypeTwoFactor marks a sign-in that passed the password and waits
+	// for the second factor.
+	TokenTypeTwoFactor = "2fa"
+)
+
+// TwoFactorTokenTTL is how long a sign-in waits for the second factor.
+const TwoFactorTokenTTL = 300
 
 // DownloadTokenTTL is deliberately short. The token is redeemed immediately by
 // the navigation that follows minting it; it does not need to outlive that, and

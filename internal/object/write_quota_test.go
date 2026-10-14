@@ -172,6 +172,32 @@ func TestWriteQuotaVersionedOverwriteIsChargedInFull(t *testing.T) {
 	require.ErrorIs(t, err, ErrBucketQuotaExceeded, "a second version would take the bucket to 12 bytes")
 }
 
+// With versioning suspended, a write without a version ID keeps the version it
+// lands over and adds its whole size, so it is charged in full: it was charged
+// the difference and admitted past the limit.
+func TestWriteQuotaSuspendedWriteOverAKeptVersionIsChargedInFull(t *testing.T) {
+	m, s := setupAccountingManager(t)
+	require.NoError(t, s.CreateBucket(t.Context(), &metadata.BucketMetadata{
+		Name: "sq", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+		Quota: &metadata.BucketQuota{MaxSizeBytes: 10},
+	}))
+	_, err := m.PutObject(t.Context(), "sq", "k", strings.NewReader("123456"), http.Header{})
+	require.NoError(t, err)
+	b, err := s.GetBucket(t.Context(), "", "sq")
+	require.NoError(t, err)
+	b.Versioning = &metadata.VersioningMetadata{Status: "Suspended"}
+	require.NoError(t, s.UpdateBucket(t.Context(), b))
+
+	_, err = m.PutObject(t.Context(), "sq", "k", strings.NewReader("abcdef"), http.Header{})
+	require.ErrorIs(t, err, ErrBucketQuotaExceeded, "the version kept and the new object would take the bucket to 12 bytes")
+
+	_, err = m.PutObject(t.Context(), "sq", "k", strings.NewReader("abcd"), http.Header{})
+	require.NoError(t, err, "4 more bytes fit")
+	_, err = m.PutObject(t.Context(), "sq", "k", strings.NewReader("abc"), http.Header{})
+	require.NoError(t, err, "a write over the object without a version ID frees its size")
+	assertAccountingAgrees(t, m, s, "sq")
+}
+
 // fullTenant refuses any growth: the tenant is already past its quota.
 type fullTenant struct{}
 

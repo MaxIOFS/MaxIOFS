@@ -1,6 +1,6 @@
 # MaxIOFS Performance & SLOs
 
-**Version**: 1.7.0 | **Last Updated**: September 21, 2026
+**Version**: 1.8.0 | **Last Updated**: October 13, 2026
 
 ## Performance Summary
 
@@ -57,8 +57,8 @@ Disk:      NTFS filesystem
 | **99.9%** | Rolling 30-day window | 43 minutes/month |
 
 ```promql
-(sum(maxiofs_s3_operations_total) - sum(maxiofs_s3_errors_total))
-  / sum(maxiofs_s3_operations_total) * 100
+sum(increase(maxiofs_http_requests_total{status!~"5.."}[30d]))
+  / sum(increase(maxiofs_http_requests_total[30d])) * 100
 ```
 
 ### 2. Latency (P95)
@@ -111,14 +111,12 @@ Disk:      NTFS filesystem
 
 ### Prometheus Metrics
 
-Exposed at `/metrics` on both ports:
+Exposed at `/metrics` on the S3 port. The full list is in [API.md](API.md#prometheus-metrics). For performance:
 
-- `maxiofs_operation_latency_p50_milliseconds{operation}`
-- `maxiofs_operation_latency_p95_milliseconds{operation}`
-- `maxiofs_operation_latency_p99_milliseconds{operation}`
-- `maxiofs_operation_success_rate_percent{operation}`
-- `maxiofs_throughput_requests_per_second`
-- `maxiofs_throughput_bytes_per_second`
+- `maxiofs_s3_operation_duration_seconds{operation}` and `maxiofs_http_request_duration_seconds{method, operation}`: histograms, for `histogram_quantile` over any window
+- `maxiofs_storage_operation_duration_seconds{operation}`: the storage backend's share of a request
+- `maxiofs_operation_latency_{p50,p95,p99,mean}_milliseconds{operation}`, `maxiofs_operation_success_rate_percent{operation}`: each node's last hour
+- `maxiofs_throughput_requests_per_second`, `maxiofs_throughput_bytes_per_second`
 
 ### Alert Rules
 
@@ -131,15 +129,12 @@ Defined in `docker/prometheus/alerts.yml`:
 | LowSuccessRate | success < 95% for 3m | critical |
 | SLOViolationAvailability | hourly avg < 99.9% | critical |
 | SLOViolationLatencyP95 | hourly avg p95 > 50ms | warning |
+| S3ServerErrors | more than 5% of S3 requests answered 5xx for 5m | warning |
+| StorageFailures | a storage operation failing for 5m | critical |
 
 ### Grafana Dashboard
 
-Pre-built dashboard in `docker/grafana/dashboards/`:
-- Latency percentiles (p50/p95/p99) over time
-- Success rate gauges with color thresholds
-- Throughput metrics (req/s, bytes/s)
-- Operation distribution
-- Mean latency trends
+`docker/grafana/dashboards/maxiofs.json`, filtered by node and bucket: S3 requests, errors and latency by operation, storage and object operations, sign-ins, bucket and Object Lock changes, background tasks, events, system resources and the per-node latency percentiles and throughput. See [docker/README.md](../docker/README.md#grafana-dashboard).
 
 ---
 

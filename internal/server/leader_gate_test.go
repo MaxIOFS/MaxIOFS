@@ -28,16 +28,28 @@ func TestGate_ReadsAreNeverBlocked(t *testing.T) {
 
 // TestGate_SigningInIsNeverBlocked is the one that would hurt most: an election
 // takes seconds, and an operator locked out of the console during it cannot fix
-// whatever caused the election.
+// whatever caused the election. The paths are those the console router sees.
 func TestGate_SigningInIsNeverBlocked(t *testing.T) {
 	for _, path := range []string{
-		"/auth/login",
-		"/auth/logout",
-		"/auth/refresh",
-		"/auth/2fa/verify",
+		"/api/v1/auth/login",
+		"/api/v1/auth/logout",
+		"/api/v1/auth/refresh",
+		"/api/v1/auth/2fa/verify",
+		"/api/v1/auth/oauth/start",
+		"/ui/api/v1/auth/login",
 	} {
 		assert.True(t, coordinatorExemptPath(path),
 			"%s must work on any node, coordinator or not", path)
+	}
+	// Two-factor settings are a change to the user.
+	for _, path := range []string{
+		"/api/v1/auth/2fa/setup",
+		"/api/v1/auth/2fa/enable",
+		"/api/v1/auth/2fa/disable",
+		"/api/v1/auth/2fa/backup-codes",
+		"/api/v1/users/auth/login",
+	} {
+		assert.False(t, coordinatorExemptPath(path), path)
 	}
 }
 

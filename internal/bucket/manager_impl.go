@@ -16,6 +16,7 @@ import (
 
 // bucketManager implements the Manager interface.
 type badgerBucketManager struct {
+	recorder      BucketMetricsRecorder
 	storage       storage.Backend
 	metadataStore metadata.Store
 	aclManager    acl.Manager
@@ -93,8 +94,153 @@ func (bm *badgerBucketManager) logAuditEvent(ctx context.Context, event *audit.A
 	}
 }
 
-// CreateBucket creates a new bucket
+// BucketMetricsRecorder counts bucket creations, deletions and configuration
+// changes, and Object Lock configuration changes.
+type BucketMetricsRecorder interface {
+	RecordBucketOperation(operation, bucket string, success bool)
+	RecordObjectLockOperation(operation, bucket string, success bool)
+}
+
+// SetMetricsRecorder sets where bucket operations are counted. Set before use.
+func (bm *badgerBucketManager) SetMetricsRecorder(r BucketMetricsRecorder) {
+	bm.recorder = r
+}
+
+// record counts operation on bucket and returns err. A failed operation names
+// no bucket: it may name one that does not exist, and each name would be a new
+// series.
+func (bm *badgerBucketManager) record(operation, bucket string, err error) error {
+	if bm.recorder != nil {
+		if err != nil {
+			bucket = ""
+		}
+		bm.recorder.RecordBucketOperation(operation, bucket, err == nil)
+	}
+	return err
+}
+
 func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name string, ownerID string) error {
+	return bm.record("CreateBucket", name, bm.createBucket(ctx, tenantID, name, ownerID))
+}
+
+func (bm *badgerBucketManager) UpdateBucket(ctx context.Context, tenantID, name string, bucket *Bucket) error {
+	return bm.record("UpdateBucket", name, bm.updateBucket(ctx, tenantID, name, bucket))
+}
+
+func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucket", name, bm.deleteBucket(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, name string) error {
+	return bm.record("ForceDeleteBucket", name, bm.forceDeleteBucket(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetBucketPolicy(ctx context.Context, tenantID, name string, policy *Policy) error {
+	return bm.record("PutBucketPolicy", name, bm.setBucketPolicy(ctx, tenantID, name, policy))
+}
+
+func (bm *badgerBucketManager) DeleteBucketPolicy(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketPolicy", name, bm.deleteBucketPolicy(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetVersioning(ctx context.Context, tenantID, name string, config *VersioningConfig) error {
+	return bm.record("PutBucketVersioning", name, bm.setVersioning(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) SetLifecycle(ctx context.Context, tenantID, name string, config *LifecycleConfig) error {
+	return bm.record("PutBucketLifecycleConfiguration", name, bm.setLifecycle(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteLifecycle(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketLifecycle", name, bm.deleteLifecycle(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetCORS(ctx context.Context, tenantID, name string, config *CORSConfig) error {
+	return bm.record("PutBucketCors", name, bm.setCORS(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteCORS(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketCors", name, bm.deleteCORS(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error {
+	return bm.record("PutBucketWebsite", name, bm.setWebsite(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketWebsite", name, bm.deleteWebsite(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
+	return bm.record("PutBucketQuota", name, bm.setQuota(ctx, tenantID, name, quota))
+}
+
+func (bm *badgerBucketManager) DeleteQuota(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketQuota", name, bm.deleteQuota(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error {
+	return bm.record("PutPublicAccessBlock", name, bm.setPublicAccessBlock(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeletePublicAccessBlock", name, bm.deletePublicAccessBlock(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetOwnershipControls(ctx context.Context, tenantID, name string, config *OwnershipControlsConfig) error {
+	return bm.record("PutBucketOwnershipControls", name, bm.setOwnershipControls(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteOwnershipControls(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketOwnershipControls", name, bm.deleteOwnershipControls(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error {
+	return bm.record("PutBucketLogging", name, bm.setLogging(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteLogging(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketLogging", name, bm.deleteLogging(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetEncryption(ctx context.Context, tenantID, name string, config *EncryptionConfig) error {
+	return bm.record("PutBucketEncryption", name, bm.setEncryption(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteEncryption(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketEncryption", name, bm.deleteEncryption(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error {
+	return bm.record("PutBucketNotificationConfiguration", name, bm.setNotification(ctx, tenantID, name, config))
+}
+
+func (bm *badgerBucketManager) DeleteNotification(ctx context.Context, tenantID, name string) error {
+	return bm.record("DeleteBucketNotification", name, bm.deleteNotification(ctx, tenantID, name))
+}
+
+func (bm *badgerBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
+	return bm.record("PutBucketTagging", name, bm.setBucketTags(ctx, tenantID, name, tags))
+}
+
+func (bm *badgerBucketManager) SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error {
+	err := bm.setObjectLockConfig(ctx, tenantID, name, config)
+	if bm.recorder != nil {
+		bucket := name
+		if err != nil {
+			bucket = ""
+		}
+		bm.recorder.RecordObjectLockOperation("PutObjectLockConfiguration", bucket, err == nil)
+	}
+	return bm.record("PutObjectLockConfiguration", name, err)
+}
+
+func (bm *badgerBucketManager) SetBucketACL(ctx context.Context, tenantID, name string, aclInterface interface{}) error {
+	return bm.record("PutBucketAcl", name, bm.setBucketACL(ctx, tenantID, name, aclInterface))
+}
+
+// CreateBucket creates a new bucket
+func (bm *badgerBucketManager) createBucket(ctx context.Context, tenantID, name string, ownerID string) error {
 	// Validate bucket name
 	if err := ValidateBucketName(name); err != nil {
 		return err
@@ -193,7 +339,7 @@ func (bm *badgerBucketManager) CreateBucket(ctx context.Context, tenantID, name 
 }
 
 // UpdateBucket updates an existing bucket's metadata
-func (bm *badgerBucketManager) UpdateBucket(ctx context.Context, tenantID, name string, bucket *Bucket) error {
+func (bm *badgerBucketManager) updateBucket(ctx context.Context, tenantID, name string, bucket *Bucket) error {
 	// Validate
 	if bucket.Name != name {
 		return fmt.Errorf("bucket name mismatch")
@@ -215,7 +361,7 @@ func (bm *badgerBucketManager) UpdateBucket(ctx context.Context, tenantID, name 
 }
 
 // DeleteBucket deletes a bucket
-func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deleteBucket(ctx context.Context, tenantID, name string) error {
 	// Atomically check for objects and delete the metadata entry in a single store call,
 	// eliminating the TOCTOU gap between the old isBucketEmpty + DeleteBucket pair.
 	if err := bm.metadataStore.DeleteBucketIfEmpty(ctx, tenantID, name); err != nil {
@@ -261,7 +407,7 @@ func (bm *badgerBucketManager) DeleteBucket(ctx context.Context, tenantID, name 
 }
 
 // ForceDeleteBucket deletes a bucket and all its objects (admin only, for cleanup)
-func (bm *badgerBucketManager) ForceDeleteBucket(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) forceDeleteBucket(ctx context.Context, tenantID, name string) error {
 	// Check if bucket exists
 	bucketPath := bm.getTenantBucketPath(tenantID, name)
 	_, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
@@ -418,7 +564,7 @@ func (bm *badgerBucketManager) GetBucketPolicy(ctx context.Context, tenantID, na
 }
 
 // SetBucketPolicy sets the bucket policy
-func (bm *badgerBucketManager) SetBucketPolicy(ctx context.Context, tenantID, name string, policy *Policy) error {
+func (bm *badgerBucketManager) setBucketPolicy(ctx context.Context, tenantID, name string, policy *Policy) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -434,8 +580,8 @@ func (bm *badgerBucketManager) SetBucketPolicy(ctx context.Context, tenantID, na
 }
 
 // DeleteBucketPolicy deletes the bucket policy
-func (bm *badgerBucketManager) DeleteBucketPolicy(ctx context.Context, tenantID, name string) error {
-	return bm.SetBucketPolicy(ctx, tenantID, name, nil)
+func (bm *badgerBucketManager) deleteBucketPolicy(ctx context.Context, tenantID, name string) error {
+	return bm.setBucketPolicy(ctx, tenantID, name, nil)
 }
 
 // GetVersioning retrieves the bucket versioning configuration
@@ -456,7 +602,7 @@ func (bm *badgerBucketManager) GetVersioning(ctx context.Context, tenantID, name
 }
 
 // SetVersioning sets the bucket versioning configuration
-func (bm *badgerBucketManager) SetVersioning(ctx context.Context, tenantID, name string, config *VersioningConfig) error {
+func (bm *badgerBucketManager) setVersioning(ctx context.Context, tenantID, name string, config *VersioningConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -488,7 +634,7 @@ func (bm *badgerBucketManager) GetLifecycle(ctx context.Context, tenantID, name 
 }
 
 // SetLifecycle sets the bucket lifecycle configuration
-func (bm *badgerBucketManager) SetLifecycle(ctx context.Context, tenantID, name string, config *LifecycleConfig) error {
+func (bm *badgerBucketManager) setLifecycle(ctx context.Context, tenantID, name string, config *LifecycleConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -503,8 +649,8 @@ func (bm *badgerBucketManager) SetLifecycle(ctx context.Context, tenantID, name 
 }
 
 // DeleteLifecycle deletes the bucket lifecycle configuration
-func (bm *badgerBucketManager) DeleteLifecycle(ctx context.Context, tenantID, name string) error {
-	return bm.SetLifecycle(ctx, tenantID, name, nil)
+func (bm *badgerBucketManager) deleteLifecycle(ctx context.Context, tenantID, name string) error {
+	return bm.setLifecycle(ctx, tenantID, name, nil)
 }
 
 // GetCORS retrieves the bucket CORS configuration
@@ -525,7 +671,7 @@ func (bm *badgerBucketManager) GetCORS(ctx context.Context, tenantID, name strin
 }
 
 // SetCORS sets the bucket CORS configuration
-func (bm *badgerBucketManager) SetCORS(ctx context.Context, tenantID, name string, config *CORSConfig) error {
+func (bm *badgerBucketManager) setCORS(ctx context.Context, tenantID, name string, config *CORSConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -540,8 +686,8 @@ func (bm *badgerBucketManager) SetCORS(ctx context.Context, tenantID, name strin
 }
 
 // DeleteCORS deletes the bucket CORS configuration
-func (bm *badgerBucketManager) DeleteCORS(ctx context.Context, tenantID, name string) error {
-	return bm.SetCORS(ctx, tenantID, name, nil)
+func (bm *badgerBucketManager) deleteCORS(ctx context.Context, tenantID, name string) error {
+	return bm.setCORS(ctx, tenantID, name, nil)
 }
 
 // GetWebsite retrieves the static website hosting configuration for a bucket.
@@ -560,7 +706,7 @@ func (bm *badgerBucketManager) GetWebsite(ctx context.Context, tenantID, name st
 }
 
 // SetWebsite stores static website hosting configuration for a bucket.
-func (bm *badgerBucketManager) SetWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error {
+func (bm *badgerBucketManager) setWebsite(ctx context.Context, tenantID, name string, config *WebsiteConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -573,7 +719,7 @@ func (bm *badgerBucketManager) SetWebsite(ctx context.Context, tenantID, name st
 }
 
 // DeleteWebsite removes the static website hosting configuration from a bucket.
-func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deleteWebsite(ctx context.Context, tenantID, name string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -586,7 +732,7 @@ func (bm *badgerBucketManager) DeleteWebsite(ctx context.Context, tenantID, name
 }
 
 // SetQuota sets (or clears, when quota is nil) the per-bucket storage quota.
-func (bm *badgerBucketManager) SetQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
+func (bm *badgerBucketManager) setQuota(ctx context.Context, tenantID, name string, quota *metadata.BucketQuota) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -599,8 +745,8 @@ func (bm *badgerBucketManager) SetQuota(ctx context.Context, tenantID, name stri
 }
 
 // DeleteQuota removes the per-bucket storage quota (equivalent to SetQuota nil).
-func (bm *badgerBucketManager) DeleteQuota(ctx context.Context, tenantID, name string) error {
-	return bm.SetQuota(ctx, tenantID, name, nil)
+func (bm *badgerBucketManager) deleteQuota(ctx context.Context, tenantID, name string) error {
+	return bm.setQuota(ctx, tenantID, name, nil)
 }
 
 // GetPublicAccessBlock retrieves the public access block configuration for a bucket.
@@ -620,7 +766,7 @@ func (bm *badgerBucketManager) GetPublicAccessBlock(ctx context.Context, tenantI
 }
 
 // SetPublicAccessBlock stores the public access block configuration for a bucket.
-func (bm *badgerBucketManager) SetPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error {
+func (bm *badgerBucketManager) setPublicAccessBlock(ctx context.Context, tenantID, name string, config *PublicAccessBlock) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -633,7 +779,7 @@ func (bm *badgerBucketManager) SetPublicAccessBlock(ctx context.Context, tenantI
 }
 
 // DeletePublicAccessBlock removes the public access block configuration from a bucket.
-func (bm *badgerBucketManager) DeletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deletePublicAccessBlock(ctx context.Context, tenantID, name string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -661,7 +807,7 @@ func (bm *badgerBucketManager) GetOwnershipControls(ctx context.Context, tenantI
 }
 
 // SetOwnershipControls stores the ownership controls configuration for a bucket.
-func (bm *badgerBucketManager) SetOwnershipControls(ctx context.Context, tenantID, name string, config *OwnershipControlsConfig) error {
+func (bm *badgerBucketManager) setOwnershipControls(ctx context.Context, tenantID, name string, config *OwnershipControlsConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -674,7 +820,7 @@ func (bm *badgerBucketManager) SetOwnershipControls(ctx context.Context, tenantI
 }
 
 // DeleteOwnershipControls removes the ownership controls configuration from a bucket.
-func (bm *badgerBucketManager) DeleteOwnershipControls(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deleteOwnershipControls(ctx context.Context, tenantID, name string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -703,7 +849,7 @@ func (bm *badgerBucketManager) GetLogging(ctx context.Context, tenantID, name st
 }
 
 // SetLogging stores the server access logging configuration for a bucket.
-func (bm *badgerBucketManager) SetLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error {
+func (bm *badgerBucketManager) setLogging(ctx context.Context, tenantID, name string, config *LoggingConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -716,7 +862,7 @@ func (bm *badgerBucketManager) SetLogging(ctx context.Context, tenantID, name st
 }
 
 // DeleteLogging removes the server access logging configuration from a bucket.
-func (bm *badgerBucketManager) DeleteLogging(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deleteLogging(ctx context.Context, tenantID, name string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -745,7 +891,7 @@ func (bm *badgerBucketManager) GetEncryption(ctx context.Context, tenantID, name
 }
 
 // SetEncryption stores server-side encryption configuration for a bucket.
-func (bm *badgerBucketManager) SetEncryption(ctx context.Context, tenantID, name string, config *EncryptionConfig) error {
+func (bm *badgerBucketManager) setEncryption(ctx context.Context, tenantID, name string, config *EncryptionConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -758,7 +904,7 @@ func (bm *badgerBucketManager) SetEncryption(ctx context.Context, tenantID, name
 }
 
 // DeleteEncryption removes the server-side encryption configuration from a bucket.
-func (bm *badgerBucketManager) DeleteEncryption(ctx context.Context, tenantID, name string) error {
+func (bm *badgerBucketManager) deleteEncryption(ctx context.Context, tenantID, name string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -783,12 +929,12 @@ func (bm *badgerBucketManager) GetNotification(ctx context.Context, tenantID, na
 }
 
 // DeleteNotification clears the bucket notification configuration.
-func (bm *badgerBucketManager) DeleteNotification(ctx context.Context, tenantID, name string) error {
-	return bm.SetNotification(ctx, tenantID, name, &NotificationConfig{})
+func (bm *badgerBucketManager) deleteNotification(ctx context.Context, tenantID, name string) error {
+	return bm.setNotification(ctx, tenantID, name, &NotificationConfig{})
 }
 
 // SetNotification stores the bucket notification configuration.
-func (bm *badgerBucketManager) SetNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error {
+func (bm *badgerBucketManager) setNotification(ctx context.Context, tenantID, name string, config *NotificationConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -801,7 +947,7 @@ func (bm *badgerBucketManager) SetNotification(ctx context.Context, tenantID, na
 }
 
 // SetBucketTags sets the bucket tags
-func (bm *badgerBucketManager) SetBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
+func (bm *badgerBucketManager) setBucketTags(ctx context.Context, tenantID, name string, tags map[string]string) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -835,7 +981,7 @@ func (bm *badgerBucketManager) GetObjectLockConfig(ctx context.Context, tenantID
 // SetObjectLockConfig sets the bucket object lock configuration.
 // AWS S3 requires versioning to be permanently Enabled on any bucket with Object Lock;
 // enabling Object Lock automatically enables versioning (it can never be suspended after).
-func (bm *badgerBucketManager) SetObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error {
+func (bm *badgerBucketManager) setObjectLockConfig(ctx context.Context, tenantID, name string, config *ObjectLockConfig) error {
 	metaBucket, err := bm.metadataStore.GetBucket(ctx, tenantID, name)
 	if err != nil {
 		if err == metadata.ErrBucketNotFound {
@@ -966,7 +1112,7 @@ func (bm *badgerBucketManager) GetBucketACL(ctx context.Context, tenantID, name 
 }
 
 // SetBucketACL sets the bucket ACL
-func (bm *badgerBucketManager) SetBucketACL(ctx context.Context, tenantID, name string, aclInterface interface{}) error {
+func (bm *badgerBucketManager) setBucketACL(ctx context.Context, tenantID, name string, aclInterface interface{}) error {
 	// Check if bucket exists
 	exists, err := bm.BucketExists(ctx, tenantID, name)
 	if err != nil {

@@ -1,7 +1,10 @@
 // Package bgwork owns background goroutines for a component.
 package bgwork
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // Usable at its zero value. Spawn refuses once Stop has begun.
 type Worker struct {
@@ -52,4 +55,18 @@ func (w *Worker) Stop() {
 	w.mu.Unlock()
 
 	w.wg.Wait()
+}
+
+// TaskObserver is told of each run of a periodic task. A nil one is not told.
+type TaskObserver func(task string, elapsed time.Duration, failed bool)
+
+// Observe runs fn as one run of task and tells o how long it took and whether
+// it failed.
+func (o TaskObserver) Observe(task string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	if o != nil {
+		o(task, time.Since(start), err != nil)
+	}
+	return err
 }

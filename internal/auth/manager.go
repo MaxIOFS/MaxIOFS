@@ -40,6 +40,8 @@ type Manager interface {
 	GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error)
 	ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error)
 	ValidateRefreshToken(ctx context.Context, token string) (*User, error)
+	GenerateTwoFactorToken(ctx context.Context, user *User) (string, error)
+	ValidateTwoFactorToken(ctx context.Context, token string) (*User, error)
 
 	// S3 Signature validation
 	ValidateS3Signature(ctx context.Context, r *http.Request) (*User, error)
@@ -251,6 +253,7 @@ type authManager struct {
 	rateLimiter               *LoginRateLimiter
 	auditManager              *audit.Manager
 	userLockedCallback        func(*User)
+	authObserver              func(method string, success bool, reason string)
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
 	bgwork.Worker
@@ -498,10 +501,8 @@ func hashPasswordSHA256(password string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ValidateJWT validates a JWT access token.
-// Refresh tokens (token_type == "refresh") are rejected with ErrInvalidToken
-// to prevent them from being used as API credentials.
-func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, error) {
+// parseToken checks a token's signature and expiry and returns its claims.
+func (am *authManager) parseToken(token string) (*JWTClaims, error) {
 	if token == "" {
 		return nil, ErrInvalidToken
 	}
@@ -511,20 +512,29 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 	am.jwtSecretMu.RUnlock()
 
 	claims := &JWTClaims{}
-	_, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+	if _, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return []byte(secret), nil
-	})
-	if err != nil {
+	}); err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrTokenExpired
 		}
 		return nil, ErrInvalidToken
 	}
+	return claims, nil
+}
 
-	if claims.TokenType == "refresh" || claims.TokenType == TokenTypeDownload {
+// ValidateJWT validates a JWT access token. Tokens of any other type are
+// rejected with ErrInvalidToken: they are not API credentials.
+func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, error) {
+	claims, err := am.parseToken(token)
+	if err != nil {
+		return nil, err
+	}
+
+	if claims.TokenType != TokenTypeAccess {
 		return nil, ErrInvalidToken
 	}
 
@@ -541,9 +551,8 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 	return user, nil
 }
 
-// generateToken is the shared JWT-signing helper used by GenerateJWT and
-// GenerateTokenPair. tokenType must be "access" or "refresh"; ttlSeconds is
-// the token lifetime.
+// generateToken is the shared JWT-signing helper. ttlSeconds is the token
+// lifetime.
 func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds int) (string, error) {
 	accessKey := user.Username
 	if accessKey == "" {
@@ -617,25 +626,13 @@ func (am *authManager) GenerateDownloadToken(ctx context.Context, user *User, re
 
 // ValidateDownloadToken resolves the user a download token was minted for,
 func (am *authManager) ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error) {
-	if token == "" || resource == "" {
+	if resource == "" {
 		return nil, ErrInvalidToken
 	}
 
-	am.jwtSecretMu.RLock()
-	secret := am.config.JWTSecret
-	am.jwtSecretMu.RUnlock()
-
-	claims := &JWTClaims{}
-	if _, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(secret), nil
-	}); err != nil {
-		if errors.Is(err, jwt.ErrTokenExpired) {
-			return nil, ErrTokenExpired
-		}
-		return nil, ErrInvalidToken
+	claims, err := am.parseToken(token)
+	if err != nil {
+		return nil, err
 	}
 
 	if claims.TokenType != TokenTypeDownload {
@@ -666,7 +663,7 @@ func (am *authManager) GenerateJWT(ctx context.Context, user *User) (string, err
 			sessionTimeout = v
 		}
 	}
-	return am.generateToken(user, "access", sessionTimeout)
+	return am.generateToken(user, TokenTypeAccess, sessionTimeout)
 }
 
 // GenerateTokenPair issues a short-lived access token and a sliding-window
@@ -685,12 +682,12 @@ func (am *authManager) GenerateTokenPair(ctx context.Context, user *User) (*Toke
 		}
 	}
 
-	accessToken, err := am.generateToken(user, "access", accessTTL)
+	accessToken, err := am.generateToken(user, TokenTypeAccess, accessTTL)
 	if err != nil {
 		return nil, err
 	}
 
-	refreshToken, err := am.generateToken(user, "refresh", refreshTTL)
+	refreshToken, err := am.generateToken(user, TokenTypeRefresh, refreshTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -707,30 +704,13 @@ func (am *authManager) GenerateTokenPair(ctx context.Context, user *User) (*Toke
 // Returns ErrInvalidToken if the token is an access token or malformed,
 // and ErrTokenExpired if it has passed its expiry.
 func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (*User, error) {
-	if token == "" {
-		return nil, ErrInvalidToken
-	}
-
-	am.jwtSecretMu.RLock()
-	secret := am.config.JWTSecret
-	am.jwtSecretMu.RUnlock()
-
-	claims := &JWTClaims{}
-	_, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
+	claims, err := am.parseToken(token)
 	if err != nil {
-		if errors.Is(err, jwt.ErrTokenExpired) {
-			return nil, ErrTokenExpired
-		}
-		return nil, ErrInvalidToken
+		return nil, err
 	}
 
 	// Must be a refresh token — reject access tokens.
-	if claims.TokenType != "refresh" {
+	if claims.TokenType != TokenTypeRefresh {
 		return nil, ErrInvalidToken
 	}
 
@@ -745,6 +725,36 @@ func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (
 		return nil, ErrInvalidToken
 	}
 
+	return user, nil
+}
+
+// GenerateTwoFactorToken mints the token a sign-in with the right password gets
+// when two-factor authentication is on: it stands for the password, not for a
+// session.
+func (am *authManager) GenerateTwoFactorToken(ctx context.Context, user *User) (string, error) {
+	if user == nil {
+		return "", ErrUserNotFound
+	}
+	return am.generateToken(user, TokenTypeTwoFactor, TwoFactorTokenTTL)
+}
+
+// ValidateTwoFactorToken resolves the user a two-factor token was minted for.
+func (am *authManager) ValidateTwoFactorToken(ctx context.Context, token string) (*User, error) {
+	claims, err := am.parseToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeTwoFactor {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if user.Status != UserStatusActive {
+		return nil, ErrUserInactive
+	}
 	return user, nil
 }
 
@@ -1275,16 +1285,20 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 
 					switch {
 					case errors.Is(err, ErrTimestampSkew):
+						am.observeAuth(r, "RequestTimeTooSkewed")
 						writeS3Error(w, r, "RequestTimeTooSkewed", "The difference between the request time and the server's time is too large.", http.StatusForbidden)
 					case errors.Is(err, ErrSTSSessionExpired):
+						am.observeAuth(r, "ExpiredToken")
 						writeS3Error(w, r, "ExpiredToken", "The provided token has expired.", http.StatusForbidden)
 					case errors.Is(err, ErrAccessDenied):
+						am.observeAuth(r, "AccessDenied")
 						writeS3Error(w, r, "AccessDenied", "Access Denied.", http.StatusForbidden)
 					default:
 						// 403, as AWS answers for a credential it does not
 						// know. 401 makes SDKs treat it as a challenge and
 						// retry, and disagreed with the handler's own error
 						// path, which already answered 403 for this code.
+						am.observeAuth(r, "InvalidAccessKeyId")
 						writeS3Error(w, r, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.", http.StatusForbidden)
 					}
 					return
@@ -1299,6 +1313,7 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
+			am.observeAuth(r, "")
 			ctx := context.WithValue(r.Context(), "user", user)
 			if set, ok := PolicySetFromContext(ctx); !ok || set.UserID != user.ID {
 				if set, err := am.ResolvePolicySet(ctx, user); err == nil {
@@ -1329,6 +1344,30 @@ func (am *authManager) SetAuditManager(auditMgr *audit.Manager) {
 // SetUserLockedCallback sets the callback to be called when a user is locked
 func (am *authManager) SetUserLockedCallback(callback func(*User)) {
 	am.userLockedCallback = callback
+}
+
+// SetAuthObserver sets where the S3 middleware counts signed requests: their
+// signature method, and the S3 error code of a refused one.
+func (am *authManager) SetAuthObserver(observe func(method string, success bool, reason string)) {
+	am.authObserver = observe
+}
+
+// s3SignatureMethod names how a request with an Authorization header is signed.
+func s3SignatureMethod(r *http.Request) string {
+	authz := r.Header.Get("Authorization")
+	switch {
+	case strings.HasPrefix(authz, "AWS4-HMAC-SHA256"):
+		return "s3_sigv4"
+	case strings.HasPrefix(authz, "AWS "):
+		return "s3_sigv2"
+	}
+	return "s3_other"
+}
+
+func (am *authManager) observeAuth(r *http.Request, reason string) {
+	if am.authObserver != nil {
+		am.authObserver(s3SignatureMethod(r), reason == "", reason)
+	}
 }
 
 // SetStorageQuotaAlertCallback sets a callback invoked after every storage increment.
@@ -2269,8 +2308,8 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 		return fmt.Errorf("insufficient permissions to unlock account")
 	}
 
-	// Unlock account
-	err = am.store.UnlockAccount(targetUserID)
+	// Each node counts its own failed sign-ins: the unlock must reach them all.
+	err = am.store.ClearAccountLock(targetUserID)
 	if err != nil {
 		return err
 	}

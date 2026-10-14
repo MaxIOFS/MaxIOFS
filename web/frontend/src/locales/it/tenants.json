@@ -56,5 +56,5 @@
   "forceDeletingTenant": "Eliminazione forzata del tenant...",
   "forceDeletingTenantMsg": "Eliminazione del tenant e di tutte le risorse associate",
   "maxBandwidthMbps": "Banda massima (MB/s)",
-  "maxBandwidthHint": "Limite combinato upload + download per questo tenant. 0 = illimitato."
+  "maxBandwidthHint": "Limite condiviso di upload e download S3 verso i bucket di questo tenant, su ogni nodo. I trasferimenti dalla console non sono limitati. 0 = illimitato."
 }

@@ -99,7 +99,7 @@ groups:
 
       # High Operation Count (Potential Attack)
       - alert: SuspiciousHighOperationRate
-        expr: rate(maxiofs_operation_count_total[1m]) > 1000
+        expr: sum by (instance, operation) (rate(maxiofs_http_requests_total[1m])) > 1000
         for: 2m
         labels:
           severity: warning
@@ -157,3 +157,64 @@ groups:
         annotations:
           summary: "SLO violation: P99 latency above 100ms"
           description: "Average P99 latency for {{ $labels.operation }} over last hour is {{ $value }}ms (SLO target: <100ms)"
+
+  - name: maxiofs_health
+    interval: 30s
+    rules:
+      - alert: MaxIOFSDown
+        expr: up{job="maxiofs"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "{{ $labels.instance }} does not answer Prometheus"
+          description: "The /metrics endpoint of {{ $labels.instance }} has not answered for 2 minutes."
+
+      - alert: S3ServerErrors
+        expr: sum by (instance) (rate(maxiofs_http_requests_total{status=~"5.."}[5m])) / sum by (instance) (rate(maxiofs_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: reliability
+        annotations:
+          summary: "{{ $labels.instance }} answers more than 5% of S3 requests with a server error"
+          description: "{{ $value | humanizePercentage }} of the S3 requests of the last 5 minutes were answered 5xx."
+
+      - alert: StorageFailures
+        expr: sum by (instance, operation) (rate(maxiofs_storage_operations_total{status="failure"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Storage {{ $labels.operation }} failing on {{ $labels.instance }}"
+          description: "The storage backend failed {{ $labels.operation }} operations for 5 minutes. Check the disk."
+
+      - alert: DiskAlmostFull
+        expr: maxiofs_system_disk_usage_percent > 90
+        for: 10m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Disk of {{ $labels.instance }} above 90%"
+          description: "The data disk of {{ $labels.instance }} is {{ $value }}% full."
+
+      - alert: SignInFailureBurst
+        expr: sum by (instance, method) (increase(maxiofs_auth_failures_total[5m])) > 50
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Many failed sign-ins ({{ $labels.method }}) on {{ $labels.instance }}"
+          description: "{{ $value }} failed {{ $labels.method }} sign-ins in 5 minutes."
+
+      - alert: BackgroundTaskFailing
+        expr: sum by (instance, task_type) (increase(maxiofs_background_tasks_total{status="failure"}[1h])) > 0
+        labels:
+          severity: warning
+          component: maintenance
+        annotations:
+          summary: "Background task {{ $labels.task_type }} failed on {{ $labels.instance }}"
+          description: "{{ $labels.task_type }} failed {{ $value }} times in the last hour. See the server log."

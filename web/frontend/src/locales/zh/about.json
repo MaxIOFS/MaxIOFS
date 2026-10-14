@@ -19,7 +19,7 @@
   "featureMultiTenant": "多租户",
   "featureMultiTenantDesc": "完整的租户隔离，具有可配置配额、级联删除、删除验证和全局管理员跨租户可见性",
   "featureSecurity": "安全与加密",
-  "featureSecurityDesc": "静态 AES-256-GCM 认证加密（64 KB 块，防篡改）、JWT + 2FA 身份验证、AWS 签名 v2/v4、全面的审计日志（20 多种事件类型）、合规就绪（GDPR、SOC 2、HIPAA、ISO 27001）",
+  "featureSecurityDesc": "静态 AES-256-GCM 认证加密（64 KB 块，防篡改）、JWT + 2FA 身份验证、AWS 签名 v2/v4、全面的审计日志（20 多种事件类型）",
   "featurePerformance": "高性能",
   "featurePerformanceDesc": "使用 Pebble（CockroachDB 的 LSM 树引擎）元数据存储，具有崩溃安全 WAL、元数据优先删除管道，并使用 MinIO Warp 对 7000 多个对象进行了压力测试",
   "featureSingleBinary": "单一二进制",

@@ -8,7 +8,7 @@ This directory contains all Docker-related configuration files for MaxIOFS.
 docker/
 ├── prometheus/
 │   ├── prometheus.yml     # Prometheus scrape configuration
-│   └── alerts.yml         # Prometheus alert rules (14 rules)
+│   └── alerts.yml         # Prometheus alert rules (20 rules)
 ├── grafana/
 │   ├── provisioning/
 │   │   ├── datasources/
@@ -16,8 +16,7 @@ docker/
 │   │   └── dashboards/
 │   │       └── dashboard.yml      # Dashboard provisioning config
 │   └── dashboards/
-│       ├── maxiofs-overview.json     # System & storage overview (8 panels)
-│       └── maxiofs-performance.json  # Performance metrics (7 panels)
+│       └── maxiofs.json           # The MaxIOFS dashboard (Grafana home)
 └── README.md              # This file
 ```
 
@@ -57,34 +56,19 @@ follow [docs/CLUSTER.md](../docs/CLUSTER.md).
 
 ## Grafana Dashboard
 
-### maxiofs.json - Dashboard Unificado (HOME)
+`maxiofs.json` is Grafana's home dashboard. Two variables filter it: **Node** (`instance`) and **Bucket**. Sections:
 
-**UN SOLO dashboard** con todas las métricas organizadas en 3 secciones:
+- **Overview**: buckets, objects and bytes held, S3 requests per second, S3 error ratio, the fullest disk.
+- **S3 API**: requests by operation, responses by HTTP status, errors by S3 code, latency p95 by operation and p99 by method, request and response sizes, traffic, busiest buckets.
+- **Storage & Objects**: storage backend operations and latency, object operations, latency and sizes, bytes and objects by bucket.
+- **Security**: sign-ins by method and outcome (S3 signatures, presigned URLs, form uploads, console password, 2FA and OAuth), failures by reason, bucket changes, Object Lock changes, retained objects by bucket and mode.
+- **Background Tasks & Events**: runs and average duration of lifecycle, inventory, replication, stats, integrity, encryption, audit retention, STS sweep and cluster tasks; events sent to the console.
+- **System**: CPU, memory and disk per node, metadata cache hit rate and size.
+- **Performance**: the per-node latency percentiles, success rates and throughput of the last hour.
 
-#### 📊 SISTEMA & RECURSOS (8 paneles)
-1. **CPU Usage** - Utilización de CPU en tiempo real
-2. **Memory Usage** - Uso de memoria
-3. **Disk Usage** - Espacio en disco
-4. **Total Buckets** - Número de buckets
-5. **Total Objects** - Cantidad total de objetos
-6. **Storage Used** - Bytes almacenados
-7. **System Resources Over Time** - Tendencias CPU/Memory/Disk
-8. **Storage by Bucket** - Distribución por bucket (pie chart)
+Every node of a cluster exports its own metrics: add each node's S3 port to the scrape targets. Counts of objects and bytes are what each node holds; with a replication factor above 1 each copy counts.
 
-#### ⚡ PERFORMANCE & LATENCIAS (3 paneles)
-9. **Operation Latencies (p50/p95/p99)** - Latencias por operación
-10. **Success Rate by Operation** - Tasa de éxito (gauges con colores)
-11. **Operation Distribution** - Distribución de operaciones (pie chart)
-
-#### 📈 THROUGHPUT & REQUESTS (3 paneles)
-12. **Throughput - Requests/sec** - Throughput de requests
-13. **Throughput - Bytes/sec** - Tasa de transferencia
-14. **Throughput - Objects/sec** - Operaciones por segundo
-
-**Total**: 14 paneles en un solo dashboard
-**Auto-refresh**: 5 segundos
-**Time range**: Últimos 15 minutos
-**HOME por defecto**: ✅ Se abre automáticamente al entrar a Grafana
+Refresh: 30 seconds. Time range: last hour.
 
 ## Prometheus Configuration
 
@@ -93,25 +77,19 @@ follow [docs/CLUSTER.md](../docs/CLUSTER.md).
 - **maxiofs** - Scrapes `maxiofs:8080/metrics` every 30 seconds
 - **prometheus** - Self-monitoring at `localhost:9090`
 
-### Alert Rules (14 rules)
+### Alert Rules (20 rules)
 
-**Performance Alerts** (11 rules):
-- HighP95Latency (>100ms for 5 min)
-- CriticalP95Latency (>500ms for 2 min)
-- HighP99Latency (>200ms for 5 min)
-- CriticalP99Latency (>1000ms for 2 min)
-- LowSuccessRate (<95% for 3 min)
-- CriticalSuccessRate (<90% for 1 min)
-- LowThroughput (<1 req/s for 5 min)
-- ZeroThroughput (=0 for 10 min)
-- MeanLatencySpike (2x increase in 5 min)
-- HighErrorCount (>100 errors in 5 min)
-- OperationFailureSpike (5x increase in 1 min)
+**Performance** (`maxiofs_performance`, 11 rules): high and critical p95 and p99 latency, low and critical success rate, low and zero throughput, mean latency spike, suspicious request rate, high latency variance.
 
-**SLO Violation Alerts** (3 rules):
-- SLOLatencyViolation (p95 >50ms for 10 min)
-- SLOAvailabilityViolation (success rate <99.9% for 5 min)
-- SLOThroughputViolation (<1000 req/s for 10 min)
+**SLO** (`maxiofs_slo_violations`, 3 rules): availability below 99.9%, p95 above 50 ms, p99 above 100 ms.
+
+**Health** (`maxiofs_health`, 6 rules):
+- MaxIOFSDown: `/metrics` not answering for 2 minutes
+- S3ServerErrors: more than 5% of S3 requests answered 5xx for 5 minutes
+- StorageFailures: the storage backend failing an operation for 5 minutes
+- DiskAlmostFull: data disk above 90% for 10 minutes
+- SignInFailureBurst: more than 50 failed sign-ins of one method in 5 minutes
+- BackgroundTaskFailing: a background task failed in the last hour
 
 ## Customization
 
@@ -204,7 +182,7 @@ Common issues:
 
 ## Version Information
 
-- **MaxIOFS**: 1.7.0
+- **MaxIOFS**: 1.8.0
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

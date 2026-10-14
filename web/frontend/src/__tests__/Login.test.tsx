@@ -229,7 +229,7 @@ describe('Login Page', () => {
       vi.mocked(APIClient.login).mockResolvedValue({
         success: false,
         requires_2fa: true,
-        user_id: 'user-123',
+        two_factor_token: 'two-factor-token',
       });
 
       render(<LoginPage />);
@@ -258,7 +258,7 @@ describe('Login Page', () => {
       vi.mocked(APIClient.login).mockResolvedValue({
         success: false,
         requires_2fa: true,
-        user_id: 'user-123',
+        two_factor_token: 'two-factor-token',
       });
 
       // Mock successful 2FA verification
@@ -285,8 +285,14 @@ describe('Login Page', () => {
         });
       });
 
-      // Test validates that 2FA flow is set up correctly
-      expect(vi.mocked(APIClient.verify2FA)).toBeDefined();
+      // The code goes with the token of the password step.
+      await waitFor(() => {
+        expect(screen.getAllByRole('textbox')).toHaveLength(6);
+      });
+      await user.keyboard('123456');
+      await waitFor(() => {
+        expect(APIClient.verify2FA).toHaveBeenCalledWith('two-factor-token', '123456');
+      });
     });
   });
 

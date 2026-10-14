@@ -56,5 +56,5 @@
   "forceDeletingTenant": "Force deleting tenant...",
   "forceDeletingTenantMsg": "Deleting tenant and all associated resources",
   "maxBandwidthMbps": "Max Bandwidth (MB/s)",
-  "maxBandwidthHint": "Aggregate upload + download cap for this tenant. 0 = unlimited."
+  "maxBandwidthHint": "Shared cap on S3 uploads and downloads to this tenant's buckets, on each node. Console transfers are not capped. 0 = unlimited."
 }

@@ -138,7 +138,7 @@ export interface LoginResponse {
   user?: User;
   error?: string;
   requires_2fa?: boolean;
-  user_id?: string;
+  two_factor_token?: string;
   message?: string;
   default_password?: boolean;
   must_change_password?: boolean;

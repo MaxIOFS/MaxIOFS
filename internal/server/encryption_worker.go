@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -96,7 +97,7 @@ func (s *Server) startEncryptionPass(ctx context.Context) bool {
 	}
 	if !s.goEncryptionWorker("encryption pass", func() {
 		defer s.encWorkerRunning.Store(false)
-		s.runEncryptionPassLocked(ctx)
+		s.runTask(ctx, "encryption", func() error { return s.encryptionPass(ctx) })
 	}) {
 		s.encWorkerRunning.Store(false)
 		return false
@@ -112,7 +113,16 @@ func (s *Server) runEncryptionPass(ctx context.Context) {
 	}
 	defer s.encWorkerRunning.Store(false)
 
+	s.runTask(ctx, "encryption", func() error { return s.encryptionPass(ctx) })
+}
+
+// encryptionPass runs a pass and returns the last error it recorded.
+func (s *Server) encryptionPass(ctx context.Context) error {
 	s.runEncryptionPassLocked(ctx)
+	if state := s.loadEncryptionWorkerState(ctx); state.LastError != "" {
+		return errors.New(state.LastError)
+	}
+	return nil
 }
 
 func (s *Server) runEncryptionPassLocked(ctx context.Context) {

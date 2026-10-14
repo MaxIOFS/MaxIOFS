@@ -89,24 +89,27 @@ func (s *Server) coordinatorMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// signInPaths are the console paths of a sign-in. Any node serves them: an
+// election takes seconds, and an operator locked out of the console during it
+// cannot see what caused it. Each node counts its own failed sign-ins.
+var signInPaths = map[string]bool{
+	"/auth/login":       true,
+	"/auth/logout":      true,
+	"/auth/refresh":     true,
+	"/auth/2fa/verify":  true,
+	"/auth/oauth/start": true,
+}
+
 // coordinatorExemptPath reports whether a mutating request is not a
 // configuration change, and so may be served by any node.
 func coordinatorExemptPath(path string) bool {
-	exempt := []string{
-		"/auth/login",
-		"/auth/logout",
-		"/auth/refresh",
-		"/auth/2fa",
-
-		// Node-to-node traffic carries its own coordination, and gating it
-		// would stop the cluster from healing itself.
-		"/api/internal/",
+	// Node-to-node traffic carries its own coordination, and gating it would
+	// stop the cluster from healing itself.
+	if strings.HasPrefix(path, "/api/internal/") {
+		return true
 	}
-
-	for _, prefix := range exempt {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
+	if signInPaths[consoleRelPath(path)] {
+		return true
 	}
 
 	// A bucket's own state is on every node, which sends its changes to the

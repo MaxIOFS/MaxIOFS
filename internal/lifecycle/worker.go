@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -23,6 +24,17 @@ type Worker struct {
 	stopChan         chan struct{}
 	stopOnce         sync.Once
 	wg               sync.WaitGroup
+	observe          bgwork.TaskObserver
+}
+
+// SetTaskObserver sets what is told of each lifecycle pass. Set before Start.
+func (w *Worker) SetTaskObserver(observe bgwork.TaskObserver) {
+	w.observe = observe
+}
+
+// runPass runs one pass of every bucket's lifecycle rules.
+func (w *Worker) runPass(ctx context.Context) {
+	_ = w.observe.Observe("lifecycle", func() error { return w.processLifecyclePolicies(ctx) })
 }
 
 // NewWorker creates a new lifecycle worker
@@ -101,7 +113,7 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 		for {
 			select {
 			case <-w.ticker.C:
-				w.processLifecyclePolicies(ctx)
+				w.runPass(ctx)
 			case <-w.stopChan:
 				w.ticker.Stop()
 				logrus.Info("Lifecycle worker stopped")
@@ -125,14 +137,14 @@ func (w *Worker) Stop() {
 }
 
 // processLifecyclePolicies processes all lifecycle policies for all buckets
-func (w *Worker) processLifecyclePolicies(ctx context.Context) {
+func (w *Worker) processLifecyclePolicies(ctx context.Context) error {
 	logrus.Debug("Processing lifecycle policies...")
 
 	// Get all buckets
 	buckets, err := w.bucketManager.ListBuckets(ctx, "") // Empty tenantID lists all buckets
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list buckets for lifecycle processing")
-		return
+		return err
 	}
 
 	for _, bkt := range buckets {
@@ -140,6 +152,7 @@ func (w *Worker) processLifecyclePolicies(ctx context.Context) {
 	}
 
 	logrus.Debug("Lifecycle policy processing completed")
+	return nil
 }
 
 // processBucket applies the lifecycle rules of one bucket.

@@ -56,5 +56,5 @@
   "forceDeletingTenant": "Suppression forcée du tenant...",
   "forceDeletingTenantMsg": "Suppression du tenant et de toutes les ressources associées",
   "maxBandwidthMbps": "Bande passante max (MB/s)",
-  "maxBandwidthHint": "Limite combinée envoi + téléchargement pour ce tenant. 0 = illimité."
+  "maxBandwidthHint": "Limite partagée des envois et téléchargements S3 vers les buckets de ce tenant, sur chaque nœud. Les transferts depuis la console ne sont pas limités. 0 = illimité."
 }

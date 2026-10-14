@@ -48,6 +48,24 @@ type Manager struct {
 	// are in moving their objects.
 	drainsDone    sync.Map
 	drainProgress sync.Map
+	// taskObserver is told of each anti-entropy cycle, dead-node check and
+	// initial sync.
+	taskObserver atomic.Pointer[bgwork.TaskObserver]
+}
+
+// SetTaskObserver sets what is told of each run of the cluster's background
+// tasks.
+func (m *Manager) SetTaskObserver(observe bgwork.TaskObserver) {
+	m.taskObserver.Store(&observe)
+}
+
+// observeTask runs fn as one run of task, told to the task observer.
+func (m *Manager) observeTask(task string, fn func() error) error {
+	var observe bgwork.TaskObserver
+	if o := m.taskObserver.Load(); o != nil {
+		observe = *o
+	}
+	return observe.Observe(task, fn)
 }
 
 // OnNodeRemoved sets what runs when a member of the cluster is removed here.

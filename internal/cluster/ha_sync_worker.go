@@ -393,8 +393,15 @@ func (w *HASyncWorker) startJob(ctx context.Context, jobID int64, node *Node, st
 			close(done)
 		}()
 
+		syncStart := time.Now()
 		syncErr := w.runSync(jobCtx, jobID, node, startBucket, startKey)
 		now := time.Now()
+		// A sync that shutdown or a cancelled job stopped is not a run.
+		if jobCtx.Err() == nil {
+			if o := w.mgr.taskObserver.Load(); o != nil && *o != nil {
+				(*o)("ha_sync", now.Sub(syncStart), syncErr != nil)
+			}
+		}
 
 		if syncErr != nil && jobCtx.Err() == nil {
 			// Real failure (not context cancellation).

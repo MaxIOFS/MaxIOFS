@@ -1,8 +1,8 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.7.0
+**Version**: 1.8.0
 **Status**: Production-Ready
-**Last Updated**: September 27, 2026
+**Last Updated**: October 13, 2026
 
 ---
 
@@ -596,34 +596,6 @@ A deletion is recorded in `cluster_deletion_log` so a node that still holds the 
 
 A bucket deleted by a client takes with it its shares, replication rules, inventory configurations, permissions and the policies naming it; a bucket created by a client starts without what a former bucket of the name left. Every node that removes a bucket, for any reason, drops its notification configuration and integrity scans.
 
-### Configuring Replication
-
-**Via Web Console:**
-1. Navigate to Cluster → Bucket Replication
-2. Select bucket
-3. Click "Configure Replication"
-4. Choose destination node
-5. Set sync interval: 10-60s (real-time HA), 300s (near-real-time), 3600s (hourly)
-6. Enable "Replicate deletes" and "Replicate metadata"
-
-**Via API:**
-```bash
-POST /api/v1/cluster/replication
-{
-  "source_bucket": "my-bucket",
-  "destination_node_id": "uuid-5678",
-  "sync_interval_seconds": 60,
-  "enabled": true,
-  "replicate_deletes": true,
-  "replicate_metadata": true
-}
-```
-
-### Self-Replication Prevention
-
-- Frontend: Local node filtered from destination dropdown
-- Backend: Returns HTTP 400 if `destination_node_id == local_node_id`
-
 ---
 
 ## Dashboard UI
@@ -669,8 +641,8 @@ This document explains cluster behavior and operations. The canonical endpoint l
 
 Primary endpoint groups:
 
-- Cluster management: initialize, join, status, nodes, health, cache.
-- Cluster replication: rules, bulk replication, status.
+- Cluster management: initialize, join, leave, status, nodes, health, drain.
+- Replication: factor, sync jobs, anti-entropy runs, degraded state, a bucket's replicas.
 
 ---
 
@@ -706,14 +678,17 @@ Primary endpoint groups:
 
 ### Firewall Configuration
 
-```bash
-# Allow cluster communication from node subnet only
-iptables -A INPUT -s 10.0.1.0/24 -p tcp --dport 8080 -j ACCEPT
-iptables -A INPUT -s 10.0.1.0/24 -p tcp --dport 8081 -j ACCEPT
+Nodes reach each other on port 8082 for everything between nodes, health checks included; on port 8080 to send a multipart upload request to the node the upload was started on; and on port 8081 when Add Node signs in to the new node's console. Clients need ports 8080 and 8081 only.
 
-# Block external access
-iptables -A INPUT -p tcp --dport 8080 -j DROP
-iptables -A INPUT -p tcp --dport 8081 -j DROP
+```bash
+# S3 and console: clients, the load balancer and the other nodes
+iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8081 -j ACCEPT
+
+# Cluster port: the cluster's nodes only
+iptables -A INPUT -s 10.0.1.10 -p tcp --dport 8082 -j ACCEPT  # From Node 1
+iptables -A INPUT -s 10.0.1.20 -p tcp --dport 8082 -j ACCEPT  # From Node 2
+iptables -A INPUT -p tcp --dport 8082 -j DROP                   # Block all others
 ```
 
 ---
@@ -731,58 +706,6 @@ iptables -A INPUT -p tcp --dport 8081 -j DROP
 ```bash
 curl http://localhost:8080/health
 # Returns: status, timestamp, version, uptime, cluster_enabled, node_id, node_name
-```
-
-### Prometheus Metrics
-
-**Cluster-Specific Metrics:**
-```
-cluster_nodes_total
-cluster_nodes_healthy
-cluster_nodes_degraded
-cluster_nodes_unavailable
-cluster_replication_rules_total
-cluster_replication_rules_active
-cluster_replication_objects_pending
-cluster_replication_objects_replicated_total
-cluster_replication_bytes_replicated_total
-cluster_replication_errors_total
-cluster_cache_entries
-cluster_cache_hits_total
-cluster_cache_misses_total
-cluster_cache_hit_ratio
-```
-
-### Recommended Alerts
-
-```yaml
-# alerts.yml
-groups:
-  - name: maxiofs_cluster
-    rules:
-      - alert: ClusterNodeDown
-        expr: cluster_nodes_unavailable > 0
-        for: 5m
-        severity: critical
-
-      - alert: ClusterNodeDegraded
-        expr: cluster_nodes_degraded > 0
-        for: 10m
-        severity: warning
-
-      - alert: ClusterReplicationLag
-        expr: cluster_replication_objects_pending > 1000
-        for: 15m
-        severity: warning
-
-      - alert: ClusterReplicationErrors
-        expr: increase(cluster_replication_errors_total[5m]) > 10
-        severity: warning
-
-      - alert: ClusterCacheLowHitRatio
-        expr: cluster_cache_hit_ratio < 0.7
-        for: 30m
-        severity: info
 ```
 
 ---
@@ -830,10 +753,9 @@ ever, whether or not both nodes were up. Upgrade rather than chasing it.
 
 **Diagnosis:**
 ```bash
-# Test connectivity
+# Test connectivity: health checks go to the cluster port, over TLS with the cluster's own CA
 ping -c 4 10.0.1.20
-telnet 10.0.1.20 8080
-curl http://10.0.1.20:8080/health
+curl -k https://10.0.1.20:8082/health
 
 # Check if MaxIOFS is running
 ssh node2 "systemctl status maxiofs"
@@ -843,36 +765,11 @@ sqlite3 /data/node1/db/maxiofs.db "SELECT id, name, endpoint FROM cluster_nodes;
 ```
 
 **Fixes:**
-- Check firewall rules (ports 8080/8081 open)
+- Check firewall rules (port 8082 open between the nodes)
 - Start MaxIOFS service if down
 - Update endpoint URL if incorrect
 
-### 2. Replication Not Working
-
-**Symptoms:** Objects uploaded to Node 1 don't appear on Node 2
-
-**Diagnosis:**
-```bash
-# Check replication rule status
-curl -X GET "http://localhost:8081/api/v1/cluster/replication?bucket=my-bucket" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Verify: enabled=true, last_error=null, reasonable sync_interval
-
-# Check replication queue
-sqlite3 /data/node1/db/maxiofs.db "SELECT COUNT(*) FROM cluster_replication_queue WHERE status='pending';"
-
-# Check tenant sync
-curl -X GET "http://node2:8081/api/v1/tenants" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Fixes:**
-- Ensure replication rule is enabled
-- Verify tenant exists on destination (automatic sync every 30s)
-- Check worker logs: `journalctl -u maxiofs -n 100 | grep "replication worker"`
-
-### 3. HMAC Authentication Errors
+### 2. HMAC Authentication Errors
 
 **Symptoms:** "Invalid HMAC signature" errors, 401 Unauthorized
 
@@ -891,25 +788,7 @@ ssh node2 "date -u"
 - Ensure both nodes have same cluster token
 - Use NTP to synchronize clocks (max 5 minutes skew allowed)
 
-### 4. High Replication Lag
-
-**Symptoms:** `objects_pending` count increasing, slow replication
-
-**Diagnosis:**
-```bash
-# Test network bandwidth between nodes
-scp large-file.bin node2:/tmp/
-
-# Check worker count (default: 5 workers)
-# internal/cluster/replication_manager.go
-```
-
-**Fixes:**
-- Increase worker count (code change required)
-- Upgrade network or reduce sync frequency
-- Increase `sync_interval_seconds` for large object buckets
-
-### 5. Dashboard Not Loading
+### 3. Dashboard Not Loading
 
 **Symptoms:** Loading spinner forever, console errors
 
@@ -935,7 +814,6 @@ curl -X GET "http://localhost:8081/api/v1/cluster/health" \
 # Cluster-specific debug output:
 # [DEBUG] Cluster Manager: Initialized with node_id=...
 # [DEBUG] Health Checker: Node uuid-5678 is healthy (latency=15ms)
-# [DEBUG] Replication Worker: Replicating object bucket/file.txt to node uuid-5678
 # [DEBUG] HMAC Auth: Signature valid for node uuid-5678
 ```
 
@@ -958,8 +836,8 @@ For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalclus
 
 ---
 
-**Version**: 1.7.0
-**Last Updated**: September 27, 2026
+**Version**: 1.8.0
+**Last Updated**: October 13, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

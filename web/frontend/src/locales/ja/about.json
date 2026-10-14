@@ -19,7 +19,7 @@
   "featureMultiTenant": "マルチテナント",
   "featureMultiTenantDesc": "設定可能なクォータ、カスケード削除、削除検証、グローバル管理者のクロステナント可視性を持つ完全なテナント分離",
   "featureSecurity": "セキュリティと暗号化",
-  "featureSecurityDesc": "保存時のAES-256-GCM認証暗号化（64 KBチャンク、改ざん防止）、JWT + 2FA認証、AWS署名 v2/v4、包括的な監査ログ（20種以上のイベントタイプ）、コンプライアンス対応（GDPR、SOC 2、HIPAA、ISO 27001）",
+  "featureSecurityDesc": "保存時のAES-256-GCM認証暗号化（64 KBチャンク、改ざん防止）、JWT + 2FA認証、AWS署名 v2/v4、包括的な監査ログ（20種以上のイベントタイプ）",
   "featurePerformance": "高性能",
   "featurePerformanceDesc": "クラッシュセーフWALを備えたPebble（CockroachDBのLSMツリーエンジン）メタデータストア、メタデータファースト削除パイプライン、MinIO Warpで7000以上のオブジェクトによるストレステスト済み",
   "featureSingleBinary": "シングルバイナリ",

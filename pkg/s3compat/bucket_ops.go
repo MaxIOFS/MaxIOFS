@@ -1332,8 +1332,8 @@ func (h *Handler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GetBucketReplication returns ReplicationConfigurationNotFoundError
-// (cross-region replication via S3 API not supported; MaxIOFS uses its own cluster replication).
+// GetBucketReplication returns ReplicationConfigurationNotFoundError: replication
+// rules are set in the console, not through the S3 API.
 func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
@@ -1345,7 +1345,8 @@ func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
 		"The replication configuration was not found", bucketName, r)
 }
 
-// PutBucketReplication returns NotImplemented — use the MaxIOFS replication API instead.
+// PutBucketReplication returns NotImplemented: replication rules are set in the
+// console, not through the S3 API.
 func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
@@ -1354,7 +1355,7 @@ func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeError(w, "NotImplemented",
-		"S3 bucket replication is not supported. Use the MaxIOFS cluster replication API.", bucketName, r)
+		"Replication through the S3 API is not supported. Set replication rules in the console, in the bucket's Replication settings, or with /api/v1/buckets/{bucket}/replication/rules on the console port.", bucketName, r)
 }
 
 // DeleteBucketReplication removes a replication configuration (no-op).

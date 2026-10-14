@@ -56,5 +56,5 @@
   "forceDeletingTenant": "テナントを強制削除中...",
   "forceDeletingTenantMsg": "テナントと関連するすべてのリソースを削除中",
   "maxBandwidthMbps": "最大帯域幅 (MB/s)",
-  "maxBandwidthHint": "このテナントのアップロード+ダウンロードの合計上限。0 = 無制限。"
+  "maxBandwidthHint": "このテナントのバケットへの S3 アップロードとダウンロードの共有上限(ノードごと)。コンソールからの転送は制限されません。0 = 無制限。"
 }

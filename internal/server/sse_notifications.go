@@ -20,6 +20,8 @@ type NotificationHub struct {
 	broadcast  chan *Notification
 	register   chan *sseClient
 	unregister chan *sseClient
+	// onSend is told of each notification sent, by type.
+	onSend func(eventType string)
 }
 
 // sseClient represents a connected SSE client
@@ -125,8 +127,17 @@ func (h *NotificationHub) shouldReceiveNotification(user *auth.User, notif *Noti
 	return false
 }
 
+// SetEventObserver sets what is told of each notification sent, by type.
+// Set before the hub is used.
+func (h *NotificationHub) SetEventObserver(observe func(eventType string)) {
+	h.onSend = observe
+}
+
 // SendNotification broadcasts a notification to all eligible clients
 func (h *NotificationHub) SendNotification(notif *Notification) {
+	if h.onSend != nil {
+		h.onSend(notif.Type)
+	}
 	select {
 	case h.broadcast <- notif:
 	default:

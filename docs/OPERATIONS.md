@@ -1,7 +1,7 @@
 # MaxIOFS Operations Guide
 
-**Version**: 1.7.0  
-**Last Updated**: September 27, 2026  
+**Version**: 1.8.0  
+**Last Updated**: October 13, 2026  
 **Audience**: SRE / Ops / On-call engineers
 
 This document describes day‑to‑day operations, runbooks, and best practices for running MaxIOFS in production (single node and clusters).
@@ -324,6 +324,7 @@ Each node stores:
 - When quotas are close to being reached:
   - Console shows visual indicators.
   - Alerts are sent to tenant and global admins.
+- A tenant's bandwidth cap (Tenants → Max Bandwidth, MB/s) paces the S3 uploads and downloads to its buckets together: PUT, multipart parts, GET, range GET and browser form uploads, anonymous reads of a public bucket included. A form upload is paced before its signature is checked, since the signature is inside the form. Console transfers are not capped. Each node applies the cap on its own: behind a load balancer a tenant can reach it on every node.
 
 **Operator actions**:
 

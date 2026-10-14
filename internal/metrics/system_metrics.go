@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -170,15 +171,15 @@ type PerformanceStats struct {
 
 // GetPerformanceStats returns performance statistics
 func (sm *SystemMetricsTracker) GetPerformanceStats() *PerformanceStats {
-	collector := NewCollector(sm.dataDir)
-	runtimeMetrics, _ := collector.CollectRuntimeMetrics()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
 
 	return &PerformanceStats{
 		Uptime:       sm.GetUptime(),
-		GoRoutines:   runtimeMetrics.GoRoutines,
-		HeapAllocMB:  float64(runtimeMetrics.HeapAlloc) / 1024 / 1024,
-		TotalAllocMB: float64(runtimeMetrics.HeapSys) / 1024 / 1024,
-		GCRuns:       uint32(runtimeMetrics.NumGC),
+		GoRoutines:   runtime.NumGoroutine(),
+		HeapAllocMB:  float64(ms.HeapAlloc) / 1024 / 1024,
+		TotalAllocMB: float64(ms.HeapSys) / 1024 / 1024,
+		GCRuns:       ms.NumGC,
 	}
 }
 

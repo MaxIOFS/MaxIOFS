@@ -533,6 +533,14 @@ func (m *MockAuthManager) ValidateRefreshToken(ctx context.Context, token string
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *MockAuthManager) GenerateTwoFactorToken(ctx context.Context, user *auth.User) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+
+func (m *MockAuthManager) ValidateTwoFactorToken(ctx context.Context, token string) (*auth.User, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *MockAuthManager) ValidateS3Signature(ctx context.Context, r *http.Request) (*auth.User, error) {
 	args := m.Called(ctx, r)
 	if args.Get(0) == nil {
@@ -932,56 +940,20 @@ type MockMetricsManager struct {
 	mock.Mock
 }
 
-func (m *MockMetricsManager) RecordHTTPRequest(method, path, status string, duration time.Duration) {
-	m.Called(method, path, status, duration)
-}
-
-func (m *MockMetricsManager) RecordHTTPRequestSize(method, path string, size int64) {
-	m.Called(method, path, size)
-}
-
-func (m *MockMetricsManager) RecordHTTPResponseSize(method, path string, size int64) {
-	m.Called(method, path, size)
-}
-
-func (m *MockMetricsManager) RecordS3Operation(operation, bucket string, success bool, duration time.Duration) {
-	m.Called(operation, bucket, success, duration)
-}
-
-func (m *MockMetricsManager) RecordS3Error(operation, bucket, errorType string) {
-	m.Called(operation, bucket, errorType)
-}
-
-func (m *MockMetricsManager) RecordStorageOperation(operation string, success bool, duration time.Duration) {
-	m.Called(operation, success, duration)
-}
-
-func (m *MockMetricsManager) UpdateStorageUsage(bucket string, objects, bytes int64) {
-	m.Called(bucket, objects, bytes)
+func (m *MockMetricsManager) RecordStorageOperation(operation, status string, duration time.Duration) {
+	m.Called(operation, status, duration)
 }
 
 func (m *MockMetricsManager) RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration) {
 	m.Called(operation, bucket, objectSize, duration)
 }
 
-func (m *MockMetricsManager) RecordAuthAttempt(method string, success bool) {
-	m.Called(method, success)
+func (m *MockMetricsManager) RecordAuthAttempt(method string, success bool, reason string) {
+	m.Called(method, success, reason)
 }
 
-func (m *MockMetricsManager) RecordAuthFailure(method, reason string) {
-	m.Called(method, reason)
-}
-
-func (m *MockMetricsManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64) {
-	m.Called(cpuUsage, memoryUsage, diskUsage)
-}
-
-func (m *MockMetricsManager) RecordSystemEvent(eventType string, details map[string]string) {
-	m.Called(eventType, details)
-}
-
-func (m *MockMetricsManager) UpdateBucketMetrics(bucket string, objects, bytes int64) {
-	m.Called(bucket, objects, bytes)
+func (m *MockMetricsManager) RecordSystemEvent(eventType string) {
+	m.Called(eventType)
 }
 
 func (m *MockMetricsManager) RecordBucketOperation(operation, bucket string, success bool) {
@@ -992,16 +964,12 @@ func (m *MockMetricsManager) RecordObjectLockOperation(operation, bucket string,
 	m.Called(operation, bucket, success)
 }
 
-func (m *MockMetricsManager) UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64) {
-	m.Called(bucket, governanceObjects, complianceObjects)
+func (m *MockMetricsManager) UpdateRetentionMetrics(counts map[string]metrics.RetentionCount) {
+	m.Called(counts)
 }
 
 func (m *MockMetricsManager) RecordBackgroundTask(taskType string, duration time.Duration, success bool) {
 	m.Called(taskType, duration, success)
-}
-
-func (m *MockMetricsManager) UpdateCacheMetrics(hitRate float64, size int64) {
-	m.Called(hitRate, size)
 }
 
 func (m *MockMetricsManager) GetMetricsHandler() http.Handler {
@@ -1071,6 +1039,7 @@ func setupTestHandler() (*Handler, *MockBucketManager, *MockObjectManager, *Mock
 	mockObject := new(MockObjectManager)
 	mockAuth := new(MockAuthManager)
 	mockMetrics := new(MockMetricsManager)
+	mockMetrics.On("RecordAuthAttempt", mock.Anything, mock.Anything, mock.Anything).Maybe()
 	// No bucket has a policy: requests without credentials ask for it first.
 	mockBucket.On("GetBucketPolicy", mock.Anything, mock.Anything, mock.Anything).Return(nil, bucket.ErrPolicyNotFound).Maybe()
 

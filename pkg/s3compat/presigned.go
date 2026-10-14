@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bandwidth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -502,6 +504,7 @@ func (h *Handler) validatePresignedURLV2(r *http.Request) error {
 // HandlePresignedRequest handles presigned URL requests
 func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request) {
 	if err := h.ValidatePresignedURL(w, r); err != nil {
+		h.recordAuth("s3_presigned", presignedFailure(err))
 		if pe, ok := err.(*presignedValidationError); ok {
 			h.writeError(w, pe.code, pe.message, r.URL.Path, r)
 		} else {
@@ -528,9 +531,11 @@ func (h *Handler) HandlePresignedRequest(w http.ResponseWriter, r *http.Request)
 	// access. Failing to resolve the signer is a denial, not a downgrade.
 	signer, err := h.presignedSigner(r, accessKeyID, query.Get("X-Amz-Security-Token"))
 	if err != nil {
+		h.recordAuth("s3_presigned", "AccessDenied")
 		h.writeError(w, "AccessDenied", "Access Denied.", r.URL.Path, r)
 		return
 	}
+	h.recordAuth("s3_presigned", "")
 	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
 
 	// Extract bucket and object from URL
@@ -674,6 +679,13 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
+	// The form carries the file and is read whole before it is checked: the
+	// tenant's bandwidth cap paces the body, as it paces a PUT's.
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{bandwidth.ThrottleReader(r.Context(), r.Body, h.tenantBandwidthLimiter(r.Context(), r, bucketName)), r.Body}
+
 	// Parse multipart form — 32 MB in memory, rest on disk.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		h.writeError(w, "MalformedPOSTRequest", "Unable to parse multipart form: "+err.Error(), bucketName, r)
@@ -744,12 +756,14 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 
 		secretKey, err = h.getSecretKeyForCredential(r.Context(), accessKey, field("x-amz-security-token"))
 		if err != nil {
+			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
 			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
 			return
 		}
 
 		expectedSig := h.calculateSignatureV4(policyB64, secretKey, dateStamp, region, service)
 		if !hmac.Equal([]byte(expectedSig), []byte(field("x-amz-signature"))) {
+			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
 			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
 			return
 		}
@@ -758,11 +772,13 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		accessKey = field("AWSAccessKeyId")
 		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
 		if err != nil {
+			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
 			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
 			return
 		}
 		expectedSig := h.calculateSignatureV2(policyB64, secretKey)
 		if !hmac.Equal([]byte(expectedSig), []byte(field("signature"))) {
+			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
 			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
 			return
 		}
@@ -772,9 +788,11 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	// Failing to resolve must deny instead of falling through as anonymous.
 	signer, err := h.presignedSigner(r, accessKey, field("x-amz-security-token"))
 	if err != nil {
+		h.recordAuth("s3_post_policy", "AccessDenied")
 		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
 		return
 	}
+	h.recordAuth("s3_post_policy", "")
 	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
 
 	// Validate policy conditions against the form fields.

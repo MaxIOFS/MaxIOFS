@@ -118,6 +118,41 @@ func TestStatsPassCorrectsTheTenantStorage(t *testing.T) {
 	assert.Equal(t, int64(64), tenant.CurrentStorageBytes)
 }
 
+// A write over an object gives the tenant the difference at once, smaller or
+// larger, as it gives the bucket: the counters agree without the stats pass.
+func TestOverwriteKeepsTheTenantStorage(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	const tenantID = "t-overwrite-usage"
+	require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{ID: tenantID, Name: tenantID, Status: "active"}))
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, "overwrite", "u"))
+	put := func(key string, size int) {
+		t.Helper()
+		_, err := server.objectManager.PutObject(ctx, tenantID+"/overwrite", key, strings.NewReader(strings.Repeat("x", size)), http.Header{})
+		require.NoError(t, err)
+	}
+	usage := func() (tenantBytes, bucketBytes int64) {
+		t.Helper()
+		tenant, err := server.authManager.GetTenant(ctx, tenantID)
+		require.NoError(t, err)
+		info, err := server.bucketManager.GetBucketInfo(ctx, tenantID, "overwrite")
+		require.NoError(t, err)
+		return tenant.CurrentStorageBytes, info.TotalSize
+	}
+
+	put("k", 64)
+	put("k", 16)
+	tenantBytes, bucketBytes := usage()
+	assert.Equal(t, int64(16), bucketBytes)
+	assert.Equal(t, int64(16), tenantBytes, "a smaller object gives the difference back")
+
+	put("k", 40)
+	put("other", 8)
+	tenantBytes, bucketBytes = usage()
+	assert.Equal(t, int64(48), bucketBytes)
+	assert.Equal(t, bucketBytes, tenantBytes)
+}
+
 // In a cluster a tenant's buckets are counted once each, wherever they were
 // created: every node holds them.
 func TestTenantBucketCountCoversTheCluster(t *testing.T) {

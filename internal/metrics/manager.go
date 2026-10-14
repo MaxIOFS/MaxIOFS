@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,39 +22,25 @@ import (
 
 // Manager defines the interface for metrics management
 type Manager interface {
-	// HTTP Metrics
-	RecordHTTPRequest(method, path, status string, duration time.Duration)
-	RecordHTTPRequestSize(method, path string, size int64)
-	RecordHTTPResponseSize(method, path string, size int64)
-
-	// S3 API Metrics
-	RecordS3Operation(operation, bucket string, success bool, duration time.Duration)
-	RecordS3Error(operation, bucket, errorType string)
-
 	// Storage Metrics
-	RecordStorageOperation(operation string, success bool, duration time.Duration)
-	UpdateStorageUsage(bucket string, objects, bytes int64)
+	RecordStorageOperation(operation, status string, duration time.Duration)
 	RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration)
 
-	// Authentication Metrics
-	RecordAuthAttempt(method string, success bool)
-	RecordAuthFailure(method, reason string)
+	// Authentication Metrics. reason is empty on success.
+	RecordAuthAttempt(method string, success bool, reason string)
 
 	// System Metrics
-	UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64)
-	RecordSystemEvent(eventType string, details map[string]string)
+	RecordSystemEvent(eventType string)
 
 	// Bucket Metrics
-	UpdateBucketMetrics(bucket string, objects, bytes int64)
 	RecordBucketOperation(operation, bucket string, success bool)
 
 	// Object Lock Metrics
 	RecordObjectLockOperation(operation, bucket string, success bool)
-	UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64)
+	UpdateRetentionMetrics(counts map[string]RetentionCount)
 
 	// Performance Metrics
 	RecordBackgroundTask(taskType string, duration time.Duration, success bool)
-	UpdateCacheMetrics(hitRate float64, size int64)
 
 	// Export and Health
 	GetMetricsHandler() http.Handler
@@ -71,8 +61,32 @@ type Manager interface {
 	Stop()
 }
 
-// StorageMetricsProvider is a function that returns current storage metrics
-type StorageMetricsProvider func() (totalBuckets, totalObjects, totalSize int64)
+// Storage operation outcomes.
+const (
+	StorageSuccess  = "success"
+	StorageNotFound = "not_found"
+	StorageFailure  = "failure"
+)
+
+// BucketUsage is what this node holds of one bucket.
+type BucketUsage struct {
+	Name    string
+	Objects int64
+	Bytes   int64
+}
+
+// BucketUsageProvider returns this node's usage of every bucket.
+type BucketUsageProvider func() ([]BucketUsage, error)
+
+// CacheStatsProvider returns the metadata block cache's hits and misses since
+// start, and its size in bytes.
+type CacheStatsProvider func() (hits, misses, sizeBytes int64)
+
+// RetentionCount is how many objects of a bucket each retention mode holds.
+type RetentionCount struct {
+	Governance int64
+	Compliance int64
+}
 
 // metricsManager implements the Manager interface using Prometheus
 type metricsManager struct {
@@ -99,8 +113,6 @@ type metricsManager struct {
 	// Storage Metrics
 	storageOperationsTotal   *prometheus.CounterVec
 	storageOperationDuration *prometheus.HistogramVec
-	storageBytesTotal        *prometheus.GaugeVec
-	storageObjectsTotal      *prometheus.GaugeVec
 
 	// Object Metrics
 	objectOperationsTotal   *prometheus.CounterVec
@@ -162,8 +174,11 @@ type metricsManager struct {
 	// System metrics tracker
 	systemMetrics *SystemMetricsTracker
 
-	// Storage metrics provider
-	storageMetricsProvider StorageMetricsProvider
+	// Read at every scrape; scrapeMu keeps two scrapes from interleaving the
+	// reset and refill of the per-bucket gauges.
+	bucketUsageProvider BucketUsageProvider
+	cacheStatsProvider  CacheStatsProvider
+	scrapeMu            sync.Mutex
 
 	// Dynamic settings
 	settingsManager interface {
@@ -269,9 +284,9 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "http",
 			Name:      "requests_total",
-			Help:      "Total number of HTTP requests",
+			Help:      "S3 API requests, by S3 operation and HTTP status",
 		},
-		[]string{"method", "path", "status"},
+		[]string{"method", "operation", "status"},
 	)
 
 	m.httpRequestDuration = prometheus.NewHistogramVec(
@@ -279,10 +294,10 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:      "HTTP request duration in seconds",
+			Help:      "S3 API request duration in seconds",
 			Buckets:   prometheus.DefBuckets,
 		},
-		[]string{"method", "path"},
+		[]string{"method", "operation"},
 	)
 
 	m.httpRequestSize = prometheus.NewHistogramVec(
@@ -290,10 +305,10 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "http",
 			Name:      "request_size_bytes",
-			Help:      "HTTP request size in bytes",
+			Help:      "S3 API request body size in bytes",
 			Buckets:   prometheus.ExponentialBuckets(1024, 2, 10), // 1KB to 512MB
 		},
-		[]string{"method", "path"},
+		[]string{"method", "operation"},
 	)
 
 	m.httpResponseSize = prometheus.NewHistogramVec(
@@ -301,10 +316,10 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "http",
 			Name:      "response_size_bytes",
-			Help:      "HTTP response size in bytes",
+			Help:      "S3 API response body size in bytes",
 			Buckets:   prometheus.ExponentialBuckets(1024, 2, 10), // 1KB to 512MB
 		},
-		[]string{"method", "path"},
+		[]string{"method", "operation"},
 	)
 
 	// S3 API Metrics
@@ -313,7 +328,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "operations_total",
-			Help:      "Total number of S3 operations",
+			Help:      "S3 operations, by bucket and outcome (success below HTTP 400)",
 		},
 		[]string{"operation", "bucket", "status"},
 	)
@@ -326,7 +341,7 @@ func (m *metricsManager) initializeMetrics() {
 			Help:      "S3 operation duration in seconds",
 			Buckets:   prometheus.DefBuckets,
 		},
-		[]string{"operation", "bucket"},
+		[]string{"operation"},
 	)
 
 	m.s3ErrorsTotal = prometheus.NewCounterVec(
@@ -334,7 +349,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "errors_total",
-			Help:      "Total number of S3 errors",
+			Help:      "S3 errors, by S3 error code",
 		},
 		[]string{"operation", "bucket", "error_type"},
 	)
@@ -345,7 +360,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "storage",
 			Name:      "operations_total",
-			Help:      "Total number of storage operations",
+			Help:      "Storage backend operations, by outcome (success, not_found, failure)",
 		},
 		[]string{"operation", "status"},
 	)
@@ -361,33 +376,13 @@ func (m *metricsManager) initializeMetrics() {
 		[]string{"operation"},
 	)
 
-	m.storageBytesTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: "storage",
-			Name:      "bytes_total",
-			Help:      "Total storage bytes used",
-		},
-		[]string{"bucket"},
-	)
-
-	m.storageObjectsTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: "storage",
-			Name:      "objects_total",
-			Help:      "Total number of objects in storage",
-		},
-		[]string{"bucket"},
-	)
-
 	// Object Metrics
 	m.objectOperationsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: "object",
 			Name:      "operations_total",
-			Help:      "Total number of object operations",
+			Help:      "Object operations completed, from any entry point",
 		},
 		[]string{"operation", "bucket"},
 	)
@@ -400,7 +395,7 @@ func (m *metricsManager) initializeMetrics() {
 			Help:      "Object operation duration in seconds",
 			Buckets:   prometheus.DefBuckets,
 		},
-		[]string{"operation", "bucket"},
+		[]string{"operation"},
 	)
 
 	m.objectSizeBytes = prometheus.NewHistogramVec(
@@ -408,10 +403,10 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "object",
 			Name:      "size_bytes",
-			Help:      "Object size in bytes",
+			Help:      "Size in bytes of the objects written and read",
 			Buckets:   prometheus.ExponentialBuckets(1024, 2, 20), // 1KB to 512GB
 		},
-		[]string{"bucket"},
+		[]string{"operation"},
 	)
 
 	// Authentication Metrics
@@ -420,7 +415,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "auth",
 			Name:      "attempts_total",
-			Help:      "Total number of authentication attempts",
+			Help:      "Authentication attempts, by method and outcome",
 		},
 		[]string{"method", "status"},
 	)
@@ -430,7 +425,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "auth",
 			Name:      "failures_total",
-			Help:      "Total number of authentication failures",
+			Help:      "Authentication failures, by method and reason",
 		},
 		[]string{"method", "reason"},
 	)
@@ -486,7 +481,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "system",
 			Name:      "events_total",
-			Help:      "Total number of system events",
+			Help:      "System events sent to the console, by type",
 		},
 		[]string{"event_type"},
 	)
@@ -497,7 +492,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "bucket",
 			Name:      "objects_total",
-			Help:      "Total number of objects per bucket",
+			Help:      "Objects of each bucket this node holds",
 		},
 		[]string{"bucket"},
 	)
@@ -507,7 +502,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "bucket",
 			Name:      "bytes_total",
-			Help:      "Total bytes per bucket",
+			Help:      "Bytes of each bucket this node holds, versions included",
 		},
 		[]string{"bucket"},
 	)
@@ -517,7 +512,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "bucket",
 			Name:      "operations_total",
-			Help:      "Total bucket operations",
+			Help:      "Bucket creations, deletions and configuration changes",
 		},
 		[]string{"operation", "bucket", "status"},
 	)
@@ -528,7 +523,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "object_lock",
 			Name:      "operations_total",
-			Help:      "Total object lock operations",
+			Help:      "Retention, legal hold and Object Lock configuration changes",
 		},
 		[]string{"operation", "bucket", "status"},
 	)
@@ -538,7 +533,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "object_lock",
 			Name:      "retention_objects_total",
-			Help:      "Total objects under retention",
+			Help:      "Objects whose current version a retention mode holds",
 		},
 		[]string{"bucket", "mode"},
 	)
@@ -549,7 +544,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "background",
 			Name:      "tasks_total",
-			Help:      "Total background tasks executed",
+			Help:      "Runs of background tasks, by outcome",
 		},
 		[]string{"task_type", "status"},
 	)
@@ -570,7 +565,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "cache",
 			Name:      "hit_rate",
-			Help:      "Cache hit rate",
+			Help:      "Metadata block cache hit rate since start (0-1)",
 		},
 	)
 
@@ -579,7 +574,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "cache",
 			Name:      "size_bytes",
-			Help:      "Cache size in bytes",
+			Help:      "Metadata block cache size in bytes",
 		},
 	)
 
@@ -693,8 +688,6 @@ func (m *metricsManager) registerMetrics() {
 		// Storage
 		m.storageOperationsTotal,
 		m.storageOperationDuration,
-		m.storageBytesTotal,
-		m.storageObjectsTotal,
 
 		// Object
 		m.objectOperationsTotal,
@@ -747,138 +740,142 @@ func (m *metricsManager) registerMetrics() {
 	}
 }
 
-// HTTP Metrics Implementation
+// recordS3Request records one request the S3 API answered.
+func (m *metricsManager) recordS3Request(r *http.Request, rec *responseRecorder, duration time.Duration) {
+	operation := OperationName(r)
+	status := rec.status
+	statusLabel := strconv.Itoa(status)
+	m.httpRequestsTotal.WithLabelValues(r.Method, operation, statusLabel).Inc()
+	m.httpRequestDuration.WithLabelValues(r.Method, operation).Observe(duration.Seconds())
+	if r.ContentLength > 0 {
+		m.httpRequestSize.WithLabelValues(r.Method, operation).Observe(float64(r.ContentLength))
+	}
+	m.httpResponseSize.WithLabelValues(r.Method, operation).Observe(float64(rec.bytes))
 
-func (m *metricsManager) RecordHTTPRequest(method, path, status string, duration time.Duration) {
-	m.httpRequestsTotal.WithLabelValues(method, path, status).Inc()
-	m.httpRequestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
+	code := ""
+	if status >= 400 {
+		code = rec.errorCode()
+	}
+	bucket := bucketLabel(r, status, code)
+	outcome := "success"
+	if status >= 400 {
+		outcome = "failure"
+		m.s3ErrorsTotal.WithLabelValues(operation, bucket, code).Inc()
+		atomic.AddUint64(&m.totalErrors, 1)
+	}
+	m.s3OperationsTotal.WithLabelValues(operation, bucket, outcome).Inc()
+	m.s3OperationDuration.WithLabelValues(operation).Observe(duration.Seconds())
 
-	// Track aggregates
 	atomic.AddUint64(&m.totalRequests, 1)
 	atomic.AddUint64(&m.totalLatencyMs, uint64(duration.Milliseconds()))
 	atomic.AddUint64(&m.latencyCount, 1)
-
-	// Track errors (4xx and 5xx status codes)
-	if len(status) > 0 && (status[0] == '4' || status[0] == '5') {
-		atomic.AddUint64(&m.totalErrors, 1)
-	}
-}
-
-func (m *metricsManager) RecordHTTPRequestSize(method, path string, size int64) {
-	m.httpRequestSize.WithLabelValues(method, path).Observe(float64(size))
-}
-
-func (m *metricsManager) RecordHTTPResponseSize(method, path string, size int64) {
-	m.httpResponseSize.WithLabelValues(method, path).Observe(float64(size))
-}
-
-// S3 API Metrics Implementation
-
-func (m *metricsManager) RecordS3Operation(operation, bucket string, success bool, duration time.Duration) {
-	status := "success"
-	if !success {
-		status = "failure"
-	}
-	m.s3OperationsTotal.WithLabelValues(operation, bucket, status).Inc()
-	m.s3OperationDuration.WithLabelValues(operation, bucket).Observe(duration.Seconds())
-}
-
-func (m *metricsManager) RecordS3Error(operation, bucket, errorType string) {
-	m.s3ErrorsTotal.WithLabelValues(operation, bucket, errorType).Inc()
 }
 
 // Storage Metrics Implementation
 
-func (m *metricsManager) RecordStorageOperation(operation string, success bool, duration time.Duration) {
-	status := "success"
-	if !success {
-		status = "failure"
-	}
+func (m *metricsManager) RecordStorageOperation(operation, status string, duration time.Duration) {
 	m.storageOperationsTotal.WithLabelValues(operation, status).Inc()
 	m.storageOperationDuration.WithLabelValues(operation).Observe(duration.Seconds())
 }
 
-func (m *metricsManager) UpdateStorageUsage(bucket string, objects, bytes int64) {
-	m.storageObjectsTotal.WithLabelValues(bucket).Set(float64(objects))
-	m.storageBytesTotal.WithLabelValues(bucket).Set(float64(bytes))
-}
-
 func (m *metricsManager) RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration) {
 	m.objectOperationsTotal.WithLabelValues(operation, bucket).Inc()
-	m.objectOperationDuration.WithLabelValues(operation, bucket).Observe(duration.Seconds())
-	m.objectSizeBytes.WithLabelValues(bucket).Observe(float64(objectSize))
+	m.objectOperationDuration.WithLabelValues(operation).Observe(duration.Seconds())
+	if objectSize >= 0 {
+		m.objectSizeBytes.WithLabelValues(operation).Observe(float64(objectSize))
+	}
 }
 
 // Authentication Metrics Implementation
 
-func (m *metricsManager) RecordAuthAttempt(method string, success bool) {
-	status := "success"
-	if !success {
-		status = "failure"
+func (m *metricsManager) RecordAuthAttempt(method string, success bool, reason string) {
+	if success {
+		m.authAttemptsTotal.WithLabelValues(method, "success").Inc()
+		return
 	}
-	m.authAttemptsTotal.WithLabelValues(method, status).Inc()
-}
-
-func (m *metricsManager) RecordAuthFailure(method, reason string) {
+	m.authAttemptsTotal.WithLabelValues(method, "failure").Inc()
 	m.authFailuresTotal.WithLabelValues(method, reason).Inc()
 }
 
 // System Metrics Implementation
 
-func (m *metricsManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64) {
-	m.systemCPUUsage.Set(cpuUsage)
-	m.systemMemoryUsage.Set(memoryUsage)
-	m.systemDiskUsagePercent.Set(diskUsage)
-}
-
-func (m *metricsManager) RecordSystemEvent(eventType string, details map[string]string) {
+func (m *metricsManager) RecordSystemEvent(eventType string) {
 	m.systemEventsTotal.WithLabelValues(eventType).Inc()
 }
 
 // Bucket Metrics Implementation
 
-func (m *metricsManager) UpdateBucketMetrics(bucket string, objects, bytes int64) {
-	m.bucketObjectsTotal.WithLabelValues(bucket).Set(float64(objects))
-	m.bucketBytesTotal.WithLabelValues(bucket).Set(float64(bytes))
+func (m *metricsManager) RecordBucketOperation(operation, bucket string, success bool) {
+	m.bucketOpsTotal.WithLabelValues(operation, bucket, outcomeLabel(success)).Inc()
 }
 
-func (m *metricsManager) RecordBucketOperation(operation, bucket string, success bool) {
-	status := "success"
-	if !success {
-		status = "failure"
+// refreshBucketUsage replaces the per-bucket gauges with the provider's
+// answer, so a deleted bucket leaves them. Requires scrapeMu.
+func (m *metricsManager) refreshBucketUsage() {
+	m.mu.RLock()
+	provider := m.bucketUsageProvider
+	m.mu.RUnlock()
+	if provider == nil {
+		return
 	}
-	m.bucketOpsTotal.WithLabelValues(operation, bucket, status).Inc()
+	usage, err := provider()
+	if err != nil {
+		logrus.WithError(err).Debug("Metrics: bucket usage not read; the gauges keep their last values")
+		return
+	}
+	m.bucketObjectsTotal.Reset()
+	m.bucketBytesTotal.Reset()
+	for _, b := range usage {
+		m.bucketObjectsTotal.WithLabelValues(b.Name).Set(float64(b.Objects))
+		m.bucketBytesTotal.WithLabelValues(b.Name).Set(float64(b.Bytes))
+	}
 }
 
 // Object Lock Metrics Implementation
 
 func (m *metricsManager) RecordObjectLockOperation(operation, bucket string, success bool) {
-	status := "success"
-	if !success {
-		status = "failure"
-	}
-	m.objectLockOpsTotal.WithLabelValues(operation, bucket, status).Inc()
+	m.objectLockOpsTotal.WithLabelValues(operation, bucket, outcomeLabel(success)).Inc()
 }
 
-func (m *metricsManager) UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64) {
-	m.retentionObjectsTotal.WithLabelValues(bucket, "governance").Set(float64(governanceObjects))
-	m.retentionObjectsTotal.WithLabelValues(bucket, "compliance").Set(float64(complianceObjects))
+// UpdateRetentionMetrics replaces the retention gauges with counts, which
+// name every bucket that holds retained objects.
+func (m *metricsManager) UpdateRetentionMetrics(counts map[string]RetentionCount) {
+	m.scrapeMu.Lock()
+	defer m.scrapeMu.Unlock()
+	m.retentionObjectsTotal.Reset()
+	for bucket, c := range counts {
+		m.retentionObjectsTotal.WithLabelValues(bucket, "governance").Set(float64(c.Governance))
+		m.retentionObjectsTotal.WithLabelValues(bucket, "compliance").Set(float64(c.Compliance))
+	}
 }
 
 // Performance Metrics Implementation
 
 func (m *metricsManager) RecordBackgroundTask(taskType string, duration time.Duration, success bool) {
-	status := "success"
-	if !success {
-		status = "failure"
-	}
-	m.backgroundTasksTotal.WithLabelValues(taskType, status).Inc()
+	m.backgroundTasksTotal.WithLabelValues(taskType, outcomeLabel(success)).Inc()
 	m.backgroundTaskDuration.WithLabelValues(taskType).Observe(duration.Seconds())
 }
 
-func (m *metricsManager) UpdateCacheMetrics(hitRate float64, size int64) {
-	m.cacheHitRate.Set(hitRate)
+// refreshCache sets the cache gauges from the provider. Requires scrapeMu.
+func (m *metricsManager) refreshCache() {
+	m.mu.RLock()
+	provider := m.cacheStatsProvider
+	m.mu.RUnlock()
+	if provider == nil {
+		return
+	}
+	hits, misses, size := provider()
+	if hits+misses > 0 {
+		m.cacheHitRate.Set(float64(hits) / float64(hits+misses))
+	}
 	m.cacheSizeBytes.Set(float64(size))
+}
+
+func outcomeLabel(success bool) string {
+	if success {
+		return "success"
+	}
+	return "failure"
 }
 
 // UpdatePerformanceMetrics syncs PerformanceCollector data to Prometheus metrics
@@ -913,9 +910,11 @@ func (m *metricsManager) GetMetricsHandler() http.Handler {
 	// Wrap the Prometheus handler to update performance metrics before each scrape
 	handler := promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Update performance metrics from PerformanceCollector before scraping
+		m.scrapeMu.Lock()
+		defer m.scrapeMu.Unlock()
 		m.UpdatePerformanceMetrics()
-		// Serve the metrics
+		m.refreshBucketUsage()
+		m.refreshCache()
 		handler.ServeHTTP(w, r)
 	})
 }
@@ -1026,28 +1025,15 @@ func (m *metricsManager) Reset() error {
 
 // HTTP Middleware Implementation
 
+// Middleware records every S3 API request. It goes before authentication, so
+// refused requests are counted too.
 func (m *metricsManager) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-
-			// Create response writer wrapper to capture status code
-			wrapped := &responseWriterWrapper{
-				ResponseWriter: w,
-				statusCode:     200,
-			}
-
-			// Process request
-			next.ServeHTTP(wrapped, r)
-
-			// Record metrics
-			duration := time.Since(start)
-			m.RecordHTTPRequest(r.Method, r.URL.Path, fmt.Sprintf("%d", wrapped.statusCode), duration)
-
-			// Record request/response sizes if available
-			if r.ContentLength > 0 {
-				m.RecordHTTPRequestSize(r.Method, r.URL.Path, r.ContentLength)
-			}
+			rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			m.recordS3Request(r, rec, time.Since(start))
 		})
 	}
 }
@@ -1307,10 +1293,19 @@ func (m *metricsManager) collectAndStoreMetrics() {
 	}
 
 	// Collect storage metrics
-	if m.storageMetricsProvider != nil {
-		totalBuckets, totalObjects, totalSize := m.storageMetricsProvider()
-		if storageSnapshot, err := m.GetStorageMetricsSnapshot(totalBuckets, totalObjects, totalSize); err == nil {
-			m.historyStore.SaveSnapshot("storage", storageSnapshot)
+	m.mu.RLock()
+	provider := m.bucketUsageProvider
+	m.mu.RUnlock()
+	if provider != nil {
+		if usage, err := provider(); err == nil {
+			var totalObjects, totalSize int64
+			for _, b := range usage {
+				totalObjects += b.Objects
+				totalSize += b.Bytes
+			}
+			if storageSnapshot, err := m.GetStorageMetricsSnapshot(int64(len(usage)), totalObjects, totalSize); err == nil {
+				m.historyStore.SaveSnapshot("storage", storageSnapshot)
+			}
 		}
 	}
 }
@@ -1340,58 +1335,134 @@ func (m *metricsManager) SetSystemMetrics(tracker *SystemMetricsTracker) {
 	m.systemMetrics = tracker
 }
 
-// SetStorageMetricsProvider sets a function that provides storage metrics
-func (m *metricsManager) SetStorageMetricsProvider(provider StorageMetricsProvider) {
+// SetBucketUsageProvider sets where the per-bucket gauges and the storage
+// history read this node's usage.
+func (m *metricsManager) SetBucketUsageProvider(provider BucketUsageProvider) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.storageMetricsProvider = provider
+	m.bucketUsageProvider = provider
 }
 
-// responseWriterWrapper wraps http.ResponseWriter to capture status code
-type responseWriterWrapper struct {
+// SetCacheStatsProvider sets where the cache gauges are read.
+func (m *metricsManager) SetCacheStatsProvider(provider CacheStatsProvider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cacheStatsProvider = provider
+}
+
+// errorBodyLimit is how much of an error response is kept to read its S3
+// error code. S3 error bodies are small.
+const errorBodyLimit = 2048
+
+// responseRecorder keeps a response's status, its size, and the start of an
+// error body.
+type responseRecorder struct {
 	http.ResponseWriter
-	statusCode int
+	status      int
+	wroteHeader bool
+	bytes       int64
+	errorBody   []byte
 }
 
-func (w *responseWriterWrapper) WriteHeader(statusCode int) {
-	w.statusCode = statusCode
+func (w *responseRecorder) WriteHeader(statusCode int) {
+	if !w.wroteHeader {
+		w.status = statusCode
+		w.wroteHeader = true
+	}
 	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *responseRecorder) Write(b []byte) (int, error) {
+	w.wroteHeader = true
+	if w.status >= 400 && len(w.errorBody) < errorBodyLimit {
+		keep := errorBodyLimit - len(w.errorBody)
+		if keep > len(b) {
+			keep = len(b)
+		}
+		w.errorBody = append(w.errorBody, b[:keep]...)
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += int64(n)
+	return n, err
 }
 
 // Flush implements http.Flusher so that streaming responses (e.g. CompleteMultipartUpload
 // keepalive whitespace) reach the client through this wrapper.
-func (w *responseWriterWrapper) Flush() {
+func (w *responseRecorder) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
+var s3ErrorCode = regexp.MustCompile(`<Code>([A-Za-z0-9.]{1,64})</Code>`)
+
+// errorCode is the S3 error code of the response, or its HTTP status when the
+// body names none (a HEAD answer has no body).
+func (w *responseRecorder) errorCode() string {
+	if match := s3ErrorCode.FindSubmatch(w.errorBody); match != nil {
+		return string(match[1])
+	}
+	return strconv.Itoa(w.status)
+}
+
+// OperationName is the name of the S3 route a request matched, or "Unknown".
+func OperationName(r *http.Request) string {
+	if route := mux.CurrentRoute(r); route != nil {
+		if name := route.GetName(); name != "" {
+			return name
+		}
+	}
+	return "Unknown"
+}
+
+// unprovenBucket are the error codes of a request whose caller does not show
+// the bucket it names exists.
+var unprovenBucket = map[string]bool{
+	"NoSuchBucket":          true,
+	"InvalidBucketName":     true,
+	"AccessDenied":          true,
+	"AllAccessDisabled":     true,
+	"InvalidAccessKeyId":    true,
+	"SignatureDoesNotMatch": true,
+	"RequestTimeTooSkewed":  true,
+	"ExpiredToken":          true,
+	"InvalidToken":          true,
+}
+
+// bucketLabel is the bucket a request names, or "" when a refused request
+// names it: anyone can name any bucket, and each name would be a new series.
+func bucketLabel(r *http.Request, status int, code string) string {
+	bucket := mux.Vars(r)["bucket"]
+	if bucket == "" || !utf8.ValidString(bucket) {
+		return ""
+	}
+	if status < 400 {
+		return bucket
+	}
+	if unprovenBucket[code] {
+		return ""
+	}
+	query := r.URL.Query()
+	if r.Header.Get("Authorization") == "" && query.Get("X-Amz-Algorithm") == "" && query.Get("AWSAccessKeyId") == "" {
+		return ""
+	}
+	return bucket
+}
+
 // noopManager is a no-op implementation when metrics are disabled
 type noopManager struct{}
 
-func (n *noopManager) RecordHTTPRequest(method, path, status string, duration time.Duration) {}
-func (n *noopManager) RecordHTTPRequestSize(method, path string, size int64)                 {}
-func (n *noopManager) RecordHTTPResponseSize(method, path string, size int64)                {}
-func (n *noopManager) RecordS3Operation(operation, bucket string, success bool, duration time.Duration) {
-}
-func (n *noopManager) RecordS3Error(operation, bucket, errorType string) {}
-func (n *noopManager) RecordStorageOperation(operation string, success bool, duration time.Duration) {
-}
-func (n *noopManager) UpdateStorageUsage(bucket string, objects, bytes int64) {}
+func (n *noopManager) RecordStorageOperation(operation, status string, duration time.Duration) {}
 func (n *noopManager) RecordObjectOperation(operation, bucket string, objectSize int64, duration time.Duration) {
 }
-func (n *noopManager) RecordAuthAttempt(method string, success bool)                    {}
-func (n *noopManager) RecordAuthFailure(method, reason string)                          {}
-func (n *noopManager) UpdateSystemMetrics(cpuUsage, memoryUsage, diskUsage float64)     {}
-func (n *noopManager) RecordSystemEvent(eventType string, details map[string]string)    {}
-func (n *noopManager) UpdateBucketMetrics(bucket string, objects, bytes int64)          {}
+func (n *noopManager) RecordAuthAttempt(method string, success bool, reason string)     {}
+func (n *noopManager) RecordSystemEvent(eventType string)                               {}
 func (n *noopManager) RecordBucketOperation(operation, bucket string, success bool)     {}
 func (n *noopManager) RecordObjectLockOperation(operation, bucket string, success bool) {}
-func (n *noopManager) UpdateRetentionMetrics(bucket string, governanceObjects, complianceObjects int64) {
+func (n *noopManager) UpdateRetentionMetrics(counts map[string]RetentionCount)          {}
+func (n *noopManager) RecordBackgroundTask(taskType string, duration time.Duration, success bool) {
 }
-func (n *noopManager) RecordBackgroundTask(taskType string, duration time.Duration, success bool) {}
-func (n *noopManager) UpdateCacheMetrics(hitRate float64, size int64)                             {}
-func (n *noopManager) GetMetricsHandler() http.Handler                                            { return http.NotFoundHandler() }
+func (n *noopManager) GetMetricsHandler() http.Handler { return http.NotFoundHandler() }
 func (n *noopManager) GetMetricsSnapshot() (map[string]interface{}, error) {
 	return nil, fmt.Errorf("metrics disabled")
 }

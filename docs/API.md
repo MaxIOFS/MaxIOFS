@@ -1,6 +1,6 @@
 # MaxIOFS API Reference
 
-**Version**: 1.7.0 | **Last Updated**: September 27, 2026
+**Version**: 1.8.0 | **Last Updated**: October 13, 2026
 
 ## Overview
 
@@ -208,7 +208,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| POST | `/api/v1/auth/login` | Login (username + password + optional TOTP) | None |
+| POST | `/api/v1/auth/login` | Login (username + password). With 2FA, answers `requires_2fa` and a `two_factor_token` valid for 5 minutes instead of a session | None |
 | POST | `/api/v1/auth/refresh` | Exchange a refresh token for a new token pair | Refresh token |
 | POST | `/api/v1/auth/logout` | Logout | JWT |
 | GET | `/api/v1/auth/me` | Get current user info | JWT |
@@ -219,7 +219,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 |--------|------|-------------|
 | POST | `/api/v1/auth/2fa/setup` | Generate a TOTP secret and QR code |
 | POST | `/api/v1/auth/2fa/enable` | Verify a TOTP code and enable 2FA |
-| POST | `/api/v1/auth/2fa/verify` | Verify a 2FA code during login (no JWT) |
+| POST | `/api/v1/auth/2fa/verify` | Complete a 2FA login: `{"two_factor_token", "code"}` (no JWT). A wrong code counts as a failed login |
 | POST | `/api/v1/auth/2fa/disable` | Disable 2FA |
 | POST | `/api/v1/auth/2fa/backup-codes` | Regenerate backup codes |
 | GET | `/api/v1/auth/2fa/status` | 2FA status for a user |
@@ -232,7 +232,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | GET | `/api/v1/auth/oauth/{id}/login` | Start the OAuth flow with a provider | None |
 | POST | `/api/v1/auth/oauth/start` | Resolve the provider from a preset and an email, then start the flow | None |
 | GET | `/api/v1/auth/oauth/callback` | Callback from the provider; issues a one-time code | None |
-| GET | `/api/v1/auth/oauth/exchange-code` | Exchange the one-time code for JWT tokens (single use) | None |
+| GET | `/api/v1/auth/oauth/exchange-code` | Exchange the one-time code for JWT tokens (single use); for a user with two-factor authentication, `{"requires_2fa": true, "two_factor_token"}` for `/api/v1/auth/2fa/verify`. In a cluster any node exchanges it: the code names the node that issued it | None |
 
 ### Users
 
@@ -771,20 +771,35 @@ HTTP status codes: 200 (success), 202 (accepted, runs in the background), 400 (b
 
 ## Prometheus Metrics
 
-Available at `/metrics` on both ports. Key metrics:
+Prometheus format at `/metrics` on the S3 port, without authentication, while `metrics.enable` (configuration) and the `metrics.enabled` setting are on. `/api/v1/metrics` on the console port is the console's JSON and needs a session. Each node of a cluster exports its own. `docker/grafana/dashboards/maxiofs.json` shows every family below.
 
-```
-maxiofs_s3_operations_total{operation, status}
-maxiofs_s3_operation_duration_seconds{operation}
-maxiofs_storage_used_bytes{tenant}
-maxiofs_objects_total{tenant}
-maxiofs_buckets_total{tenant}
-maxiofs_api_requests_total{method, endpoint}
-cluster_nodes_total
-cluster_nodes_healthy
-cluster_replication_objects_pending
-cluster_cache_hit_ratio
-```
+| Metric | Labels | Counts |
+|--------|--------|--------|
+| `maxiofs_http_requests_total` | `method`, `operation`, `status` | S3 API requests, by S3 operation and HTTP status |
+| `maxiofs_http_request_duration_seconds` | `method`, `operation` | S3 API request duration (histogram) |
+| `maxiofs_http_request_size_bytes`, `maxiofs_http_response_size_bytes` | `method`, `operation` | Request and response body sizes (histograms) |
+| `maxiofs_s3_operations_total` | `operation`, `bucket`, `status` | S3 operations by outcome: `success` below HTTP 400, `failure` otherwise |
+| `maxiofs_s3_operation_duration_seconds` | `operation` | S3 operation duration (histogram) |
+| `maxiofs_s3_errors_total` | `operation`, `bucket`, `error_type` | S3 errors by S3 error code; a HEAD error, which has no body, by HTTP status |
+| `maxiofs_storage_operations_total` | `operation`, `status` | Storage backend operations: `success`, `not_found` or `failure` |
+| `maxiofs_storage_operation_duration_seconds` | `operation` | Storage backend operation duration; a read's time is the time to open the object (histogram) |
+| `maxiofs_object_operations_total` | `operation`, `bucket` | Object operations completed from any entry point: S3 API, console, background tasks |
+| `maxiofs_object_operation_duration_seconds`, `maxiofs_object_size_bytes` | `operation` | Object operation duration and object size (histograms) |
+| `maxiofs_auth_attempts_total` | `method`, `status` | Sign-ins: `s3_sigv4`, `s3_sigv2`, `s3_presigned`, `s3_post_policy`, `console_password`, `console_2fa`, `console_oauth` |
+| `maxiofs_auth_failures_total` | `method`, `reason` | Failed sign-ins by reason: an S3 error code, or `invalid_credentials`, `account_locked`, `rate_limited`, `sso_required`, an OAuth error |
+| `maxiofs_bucket_objects_total`, `maxiofs_bucket_bytes_total` | `bucket` | What this node holds of each bucket, read at each scrape; bytes include versions |
+| `maxiofs_bucket_operations_total` | `operation`, `bucket`, `status` | Bucket creations, deletions and configuration changes |
+| `maxiofs_object_lock_operations_total` | `operation`, `bucket`, `status` | Retention, legal hold and Object Lock configuration changes |
+| `maxiofs_object_lock_retention_objects_total` | `bucket`, `mode` | Objects whose current version a retention mode holds, counted every 15 minutes |
+| `maxiofs_background_tasks_total` | `task_type`, `status` | Runs of `lifecycle`, `inventory`, `replication`, `stats_reconciler`, `integrity_scrub`, `encryption`, `audit_retention`, `sts_session_sweep`, `anti_entropy`, `dead_node_check`, `ha_sync` |
+| `maxiofs_background_task_duration_seconds` | `task_type` | Background task run duration (histogram) |
+| `maxiofs_system_events_total` | `event_type` | Events sent to the console: disk, quota, node, integrity and account alerts, configuration changes |
+| `maxiofs_system_cpu_usage_percent`, `maxiofs_system_memory_usage_percent`, `maxiofs_system_disk_usage_percent`, `maxiofs_system_disk_used_bytes`, `maxiofs_system_disk_total_bytes` | | Node resources |
+| `maxiofs_cache_hit_rate`, `maxiofs_cache_size_bytes` | | Metadata (Pebble) block cache hit rate since start, and size |
+| `maxiofs_operation_latency_{p50,p95,p99,mean}_milliseconds`, `maxiofs_operation_success_rate_percent`, `maxiofs_operation_count_total` | `operation` | Per-node latency, success rate and count over the last hour |
+| `maxiofs_throughput_{requests,bytes,objects}_per_second` | | Current throughput |
+
+A refused request does not name its bucket (`bucket=""`): anyone can name any bucket. No label carries an object key.
 
 ---
 

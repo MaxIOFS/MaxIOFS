@@ -19,7 +19,7 @@
   "featureMultiTenant": "Multi-tenant",
   "featureMultiTenantDesc": "Isolation complète des tenants avec des quotas configurables, des suppressions en cascade, une validation des suppressions et une visibilité inter-tenant pour les administrateurs globaux",
   "featureSecurity": "Sécurité et chiffrement",
-  "featureSecurityDesc": "Chiffrement authentifié AES-256-GCM au repos (blocs de 64 Ko, protégé contre la falsification), authentification JWT + 2FA, AWS Signature v2/v4, journalisation d'audit complète (plus de 20 types d'événements), conformité (RGPD, SOC 2, HIPAA, ISO 27001)",
+  "featureSecurityDesc": "Chiffrement authentifié AES-256-GCM au repos (blocs de 64 Ko, protégé contre la falsification), authentification JWT + 2FA, AWS Signature v2/v4, journalisation d'audit complète (plus de 20 types d'événements)",
   "featurePerformance": "Haute performance",
   "featurePerformanceDesc": "Stockage de métadonnées Pebble (moteur LSM-tree de CockroachDB) avec WAL sécurisé contre les pannes, pipeline de suppression axé sur les métadonnées, testé en charge avec plus de 7000 objets via MinIO Warp",
   "featureSingleBinary": "Binaire unique",

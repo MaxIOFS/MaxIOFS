@@ -110,7 +110,7 @@ func (r *DeadNodeReconciler) run(ctx context.Context) {
 			r.log.Info("Dead-node reconciler stopped")
 			return
 		case <-ticker.C:
-			if err := r.RunOnce(ctx); err != nil {
+			if err := r.mgr.observeTask("dead_node_check", func() error { return r.RunOnce(ctx) }); err != nil {
 				r.log.WithError(err).Warn("Reconciliation pass failed")
 			}
 			// Pick up any live config change to the interval.

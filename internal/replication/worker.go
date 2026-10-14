@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bgwork"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,6 +22,7 @@ type Worker struct {
 	objectManager           ObjectManager
 	s3ClientFactory         S3ClientFactory
 	credentialEncryptionKey func() string // returns the AES-256-GCM key destination_secret_key is decrypted with
+	observe                 bgwork.TaskObserver
 }
 
 // NewWorker creates a new replication worker
@@ -72,13 +74,13 @@ func (w *Worker) Start(ctx context.Context, stopChan <-chan struct{}) {
 			if !ok {
 				return
 			}
-			w.processItem(ctx, item)
+			_ = w.observe.Observe("replication", func() error { return w.processItem(ctx, item) })
 		}
 	}
 }
 
-// processItem processes a single queue item
-func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
+// processItem processes a single queue item. It returns why the item failed.
+func (w *Worker) processItem(ctx context.Context, item *QueueItem) error {
 	logrus.WithFields(logrus.Fields{
 		"worker_id": w.id,
 		"item_id":   item.ID,
@@ -93,19 +95,21 @@ func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
 		logrus.WithFields(logrus.Fields{
 			"item_id": item.ID,
 		}).WithError(err).Error("Failed to update item status")
-		return
+		return err
 	}
 
 	// Get rule
 	rule, err := w.getRule(ctx, item.RuleID)
 	if err != nil {
-		w.handleError(ctx, item, fmt.Errorf("failed to get rule: %w", err))
-		return
+		err = fmt.Errorf("failed to get rule: %w", err)
+		w.handleError(ctx, item, err)
+		return err
 	}
 
 	if rule == nil || !rule.Enabled {
-		w.handleError(ctx, item, fmt.Errorf("rule not found or disabled"))
-		return
+		err = fmt.Errorf("rule not found or disabled")
+		w.handleError(ctx, item, err)
+		return err
 	}
 
 	// Process based on action
@@ -119,7 +123,7 @@ func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
 		} else {
 			// Skip delete replication if not enabled
 			w.completeItem(ctx, item, 0)
-			return
+			return nil
 		}
 	default:
 		err = fmt.Errorf("unknown action: %s", item.Action)
@@ -127,7 +131,7 @@ func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
 
 	if err != nil {
 		w.handleError(ctx, item, err)
-		return
+		return err
 	}
 
 	// Mark as completed
@@ -135,6 +139,7 @@ func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
 
 	// Update replication status
 	w.updateReplicationStatus(ctx, rule, item, StatusCompleted, "")
+	return nil
 }
 
 // replicateObject replicates an object

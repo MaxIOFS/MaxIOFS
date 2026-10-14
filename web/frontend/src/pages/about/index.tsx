@@ -328,92 +328,91 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                New Storage Layout
+                One Copy per Object, Every Bucket on Every Node
               </h3>
               <p className="text-sm text-muted-foreground">
-                An object is now one file named by a digest of its key, and buckets sit at the
-                storage root. No directory is built out of the parts of a key, so a key can be
-                anything S3 allows: <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">2026</code>{' '}
-                and <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">2026/</code>{' '}
-                are two objects, as are two keys that differ only in case. An existing
-                installation is migrated on the first start of this release.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Two Ways Objects Could Be Destroyed
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Creating a folder whose name matched an existing object replaced that object, and
-                listings kept reporting its original size while a download returned nothing. On
-                Windows and macOS two keys differing only in case shared one file, so the second
-                upload overwrote the first and a download returned the other key's bytes. The
-                layout makes both impossible.
+                Every node of a cluster holds every bucket and lists and reads every object. A
+                replication factor of 1 keeps one copy of each object, on the node that takes the
+                write or on the one with the most free space, so a bucket is no longer limited to one
+                node's disk. Draining a node moves its objects to the others before it leaves
+                service; the HA page shows the progress and the expected end.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Folders Are Not Invented
+                Bucket Policies and Block Public Access, as in AWS
               </h3>
               <p className="text-sm text-muted-foreground">
-                Uploading{' '}
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">logs/2026/app.log</code>{' '}
-                used to write an object for every level above it. Those folders showed up in a
-                version listing as objects nobody created. Only the key you upload is stored, and
-                the hierarchy is derived from the keys, the way S3 does it.
+                Bucket policies are evaluated again, with the caller's IAM policies: a
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Deny</code> in either refuses, an
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Allow</code> in either grants. Block Public Access
+                refuses and voids public ACLs and policies as AWS does. The console edits a policy as
+                rules — who, what, where and when — instead of JSON. An anonymous read of a
+                public-read bucket no longer needs a share link.
               </p>
             </div>
 
-            <div className="border-l-4 border-amber-500 pl-4">
+            <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Deletions Finish
+                Two-Factor Sign-In Needs the Password
               </h3>
               <p className="text-sm text-muted-foreground">
-                Deleting a bucket or cleaning up a multipart upload used to drop the record even
-                when the files could not be removed, leaving objects on disk that nothing could
-                reach. The record now outlives the files, and a removal that could not finish is
-                completed at the next start.
+                The second step of a sign-in accepted a user ID and a code, without the password.
+                It now takes only the token the password step returns. A wrong code counts as a
+                failed sign-in, as a wrong password does: the account locks after the configured
+                number of failures, 5 by default. Any node of a cluster serves a sign-in, with or
+                without a coordinator. An OAuth sign-in asks for the code too.
               </p>
             </div>
 
             <div className="border-l-4 border-emerald-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Interrupted Writes Are Undone or Confirmed, Not Left in Between
+                Copies Between Nodes Keep Everything
               </h3>
               <p className="text-sm text-muted-foreground">
-                Killing the process between storing an object's bytes and committing its index
-                entry — an overwrite, a multipart completion, a part replacement — used to leave
-                a GET announcing one size and delivering another. At the next start, before the
-                server serves anything, each interrupted write is either undone or confirmed
-                against the index. Object, version and part commits now wait for that index entry
-                to be durable before the previous copy is discarded.
+                Tags, ACLs, retention and legal hold reach the other nodes before the request
+                returns, in order, and a node that was down gets them when it is back. A new replica
+                is sent every version with its version ID; a returning node is caught up at once;
+                a delete is never undone by an older copy. Only a node without data joins a
+                cluster.
               </p>
             </div>
 
-            <div className="border-l-4 border-red-600 pl-4">
+            <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                A Failed Multipart Completion No Longer Keeps the New Bytes
+                Stored Credentials Keep Their Key
               </h3>
               <p className="text-sm text-muted-foreground">
-                If combining the parts of a multipart upload succeeded but a later step failed —
-                out of disk space, a device error — the object that was being replaced is
-                restored instead of being left overwritten with no matching metadata. Replacing
-                an already-uploaded part is protected the same way: a failed part upload can no
-                longer destroy the part it was replacing.
+                The secret that encrypts identity provider secrets, replication destination keys
+                and share link keys lives in the database, as the KEK does, and every node of a
+                cluster holds the same one. Without a configured secret, a restart made share links,
+                replication destination keys and identity provider secrets unreadable.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-blue-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Quotas Refuse Growth, Never Deletes
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Concurrent writes reserve their room before they store anything. A delete, or an
+                overwrite that shrinks an object, is always allowed, even over the quota, and a
+                tenant's storage goes down at once when an object is overwritten by a smaller one.
+                The tenant bandwidth cap paces browser form uploads too.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs reconcile</code>{' '}
-                Repairs, Not Just Restores
+                Prometheus and Grafana See Everything
               </h3>
               <p className="text-sm text-muted-foreground">
-                Beyond rebuilding index entries that are missing entirely, reconcile now corrects
-                an entry left describing bytes an interrupted overwrite already replaced, reading
-                the object's true size and ETag from its own sidecar.
+                Every metric MaxIOFS declares reaches Prometheus: S3 operations and errors by S3
+                code, storage and object operations, sign-ins, bucket and Object Lock changes,
+                retained objects, background tasks and the metadata cache. Requests are counted by
+                S3 operation instead of path, so the number of objects no longer multiplies the
+                series. The Grafana dashboard shows all of it, per node and bucket.
               </p>
             </div>
 

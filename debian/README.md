@@ -73,7 +73,7 @@ make deb-clean
 
 ### Install the package
 ```bash
-sudo dpkg -i build/maxiofs_1.7.0_amd64.deb
+sudo dpkg -i build/maxiofs_1.8.0_amd64.deb
 ```
 
 ### Configure MaxIOFS
@@ -407,7 +407,7 @@ Metrics include:
 curl http://localhost:8080/health
 
 # Console health
-curl http://localhost:8081/health
+curl http://localhost:8081/api/v1/health
 ```
 
 ## Troubleshooting
@@ -540,10 +540,10 @@ MaxIOFS upgrades are safe and preserve all your data and configuration:
 sudo cp /etc/maxiofs/config.yaml ~/config-backup.yaml
 
 # Download new package
-wget https://example.com/maxiofs_1.7.0_amd64.deb
+wget https://example.com/maxiofs_1.8.0_amd64.deb
 
 # Install upgrade
-sudo dpkg -i maxiofs_1.7.0_amd64.deb
+sudo dpkg -i maxiofs_1.8.0_amd64.deb
 
 # The service is automatically restarted with your existing configuration
 ```
@@ -593,7 +593,7 @@ If you need to downgrade:
 sudo systemctl stop maxiofs
 
 # Install previous version
-sudo dpkg -i maxiofs_1.7.0_amd64.deb
+sudo dpkg -i maxiofs_1.8.0_amd64.deb
 
 # Your config.yaml is still preserved
 # Restart service

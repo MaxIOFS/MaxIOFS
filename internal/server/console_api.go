@@ -152,6 +152,21 @@ func shouldLimitConsoleBody(r *http.Request) bool {
 	return !isConsoleObjectUploadPath(r.Method, consoleAPIRelativePath(r.URL.Path))
 }
 
+// consoleRelPath is a console path relative to the API: what follows
+// "/api/v1", wherever the console is mounted ("/ui/api/v1/..."), or the path
+// itself when it has none.
+func consoleRelPath(path string) string {
+	const apiV1Segment = "/api/v1"
+	idx := strings.Index(path, apiV1Segment)
+	if idx < 0 {
+		return path
+	}
+	if rel := path[idx+len(apiV1Segment):]; rel != "" {
+		return rel
+	}
+	return "/"
+}
+
 // setupConsoleAPIRoutes registers all console API routes
 func (s *Server) consoleAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,18 +178,7 @@ func (s *Server) consoleAuthMiddleware(next http.Handler) http.Handler {
 
 		publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
 			"/sts/ldap-identity", "/sts/web-identity"}
-		const apiV1Segment = "/api/v1"
-		urlPath := r.URL.Path
-		// Find the "/api/v1" token in the full request path (handles basePath
-		// prefixes such as "/ui/api/v1/...").
-		apiIdx := strings.Index(urlPath, apiV1Segment)
-		relPath := urlPath // fallback: compare against the full path
-		if apiIdx >= 0 {
-			relPath = urlPath[apiIdx+len(apiV1Segment):]
-			if relPath == "" {
-				relPath = "/"
-			}
-		}
+		relPath := consoleRelPath(r.URL.Path)
 		for _, pub := range publicPaths {
 			var matched bool
 			if strings.HasSuffix(pub, "/") {
@@ -294,21 +298,12 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 				return
 			}
 			{
-				const v1seg = "/api/v1"
-				mmURLPath := r.URL.Path
-				mmAPIIdx := strings.Index(mmURLPath, v1seg)
-				mmRel := mmURLPath
-				if mmAPIIdx >= 0 {
-					mmRel = mmURLPath[mmAPIIdx+len(v1seg):]
-					if mmRel == "" {
-						mmRel = "/"
-					}
-				}
+				mmRel := consoleRelPath(r.URL.Path)
 				exempt := strings.HasPrefix(mmRel, "/auth/") ||
 					mmRel == "/health" ||
 					strings.HasPrefix(mmRel, "/settings") ||
 					strings.HasPrefix(mmRel, "/notifications") ||
-					strings.HasPrefix(mmURLPath, "/api/internal/")
+					strings.HasPrefix(r.URL.Path, "/api/internal/")
 				if exempt {
 					next.ServeHTTP(w, r)
 					return
@@ -334,7 +329,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/version", s.handleGetVersion).Methods("GET", "OPTIONS")
 
 	// Auth endpoints
-	router.HandleFunc("/auth/login", s.handleLogin).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/login", s.countSignIns("console_password", s.handleLogin)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/logout", s.handleLogout).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/me", s.handleGetCurrentUser).Methods("GET", "OPTIONS")
@@ -343,7 +338,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/auth/2fa/setup", s.handleSetup2FA).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/2fa/enable", s.handleEnable2FA).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/2fa/disable", s.handleDisable2FA).Methods("POST", "OPTIONS")
-	router.HandleFunc("/auth/2fa/verify", s.handleVerify2FA).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth/2fa/verify", s.countSignIns("console_2fa", s.handleVerify2FA)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/2fa/backup-codes", s.handleRegenerateBackupCodes).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/2fa/status", s.handleGet2FAStatus).Methods("GET", "OPTIONS")
 
@@ -638,7 +633,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// OAuth flow endpoints (public — no JWT required)
 	router.HandleFunc("/auth/oauth/{id}/login", s.handleOAuthLogin).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/start", s.handleOAuthStart).Methods("POST", "OPTIONS")
-	router.HandleFunc("/auth/oauth/callback", s.handleOAuthCallback).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/callback", s.countSignIns("console_oauth", s.handleOAuthCallback)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/exchange-code", s.handleOAuthExchangeCode).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/providers", s.handleListOAuthProviders).Methods("GET", "OPTIONS")
 
@@ -745,13 +740,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			"remaining_time": remainingTime.String(),
 		}).Warn("Login attempt on locked account")
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":        "Account is locked due to multiple failed login attempts",
-			"locked_until": lockedUntil,
-			"locked":       true,
-		})
+		writeAccountLocked(w, lockedUntil)
 		return
 	}
 
@@ -835,9 +824,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If 2FA is enabled, don't record successful login yet
-	// Instead, return a response indicating 2FA is required
+	// With 2FA the sign-in is not done yet: the token stands for the password
+	// until the code is checked.
 	if twoFactorEnabled {
+		twoFactorToken, err := s.authManager.GenerateTwoFactorToken(r.Context(), user)
+		if err != nil {
+			s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+
 		logrus.WithFields(logrus.Fields{
 			"user_id":  user.ID,
 			"username": user.Username,
@@ -847,34 +842,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":      true,
-			"requires_2fa": true,
-			"user_id":      user.ID,
-			"message":      "Two-factor authentication required",
+			"success":          true,
+			"requires_2fa":     true,
+			"two_factor_token": twoFactorToken,
+			"message":          "Two-factor authentication required",
 		})
 		return
 	}
 
 	// Step 6: Record successful login and reset failed attempts
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
-
-	// Log audit event for successful login with IP and User Agent
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		TenantID:     user.TenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
-		EventType:    audit.EventTypeLoginSuccess,
-		ResourceType: audit.ResourceTypeUser,
-		ResourceID:   user.ID,
-		ResourceName: user.Username,
-		Action:       audit.ActionLogin,
-		Status:       audit.StatusSuccess,
-		IPAddress:    clientIP,
-		UserAgent:    r.Header.Get("User-Agent"),
-		Details: map[string]interface{}{
-			"method": "password",
-		},
-	})
+	s.auditLoginSuccess(r, user, "password")
 
 	// Step 7: Generate short-lived access token + sliding-window refresh token
 	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
@@ -920,6 +898,38 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			AuthProvider:        user.AuthProvider,
 			MustChangePassword:  user.MustChangePassword,
 			CreatedAt:           user.CreatedAt,
+		},
+	})
+}
+
+// writeAccountLocked answers a sign-in to an account locked after failed
+// attempts.
+func writeAccountLocked(w http.ResponseWriter, lockedUntil int64) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":        "Account is locked due to multiple failed login attempts",
+		"locked_until": lockedUntil,
+		"locked":       true,
+	})
+}
+
+// auditLoginSuccess records a sign-in in the audit log.
+func (s *Server) auditLoginSuccess(r *http.Request, user *auth.User, method string) {
+	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		TenantID:     user.TenantID,
+		UserID:       user.ID,
+		Username:     user.Username,
+		EventType:    audit.EventTypeLoginSuccess,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   user.ID,
+		ResourceName: user.Username,
+		Action:       audit.ActionLogin,
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"method": method,
 		},
 	})
 }
@@ -2856,6 +2866,11 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// The account may be locked on another node.
+	if s.userSyncMgr != nil {
+		s.userSyncMgr.TriggerSync(r.Context())
 	}
 
 	s.writeJSON(w, map[string]interface{}{
@@ -6625,10 +6640,12 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleVerify2FA verifies a 2FA code (used during login flow)
+// handleVerify2FA completes a sign-in with the token the password step gave and
+// a code. A wrong code counts as a failed sign-in.
 func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID string `json:"user_id"`
-		Code   string `json:"code"`
+		TwoFactorToken string `json:"two_factor_token"`
+		Code           string `json:"code"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -6636,12 +6653,39 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserID == "" || req.Code == "" {
-		s.writeError(w, "User ID and code are required", http.StatusBadRequest)
+	if req.TwoFactorToken == "" || req.Code == "" {
+		s.writeError(w, "The two-factor token and the code are required", http.StatusBadRequest)
 		return
 	}
 
-	valid, err := s.authManager.Verify2FACode(r.Context(), req.UserID, req.Code)
+	clientIP := getClientIP(r, s.config.TrustedProxies)
+	if !s.authManager.CheckRateLimit(clientIP) {
+		s.writeError(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+		return
+	}
+
+	user, err := s.authManager.ValidateTwoFactorToken(r.Context(), req.TwoFactorToken)
+	if err != nil {
+		if errors.Is(err, auth.ErrTokenExpired) {
+			s.writeError(w, "The sign-in expired. Sign in again.", http.StatusUnauthorized)
+			return
+		}
+		s.writeError(w, "Invalid two-factor token", http.StatusUnauthorized)
+		return
+	}
+
+	isLocked, lockedUntil, err := s.authManager.IsAccountLocked(r.Context(), user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to check account lock status")
+		s.writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if isLocked {
+		writeAccountLocked(w, lockedUntil)
+		return
+	}
+
+	valid, err := s.authManager.Verify2FACode(r.Context(), user.ID, req.Code)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to verify 2FA code")
 		s.writeError(w, "Failed to verify 2FA code", http.StatusInternalServerError)
@@ -6649,20 +6693,14 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
+		s.authManager.RecordFailedLogin(r.Context(), user.ID, clientIP)
 		s.writeError(w, "Invalid 2FA code", http.StatusUnauthorized)
-		return
-	}
-
-	// Get user to generate final JWT token
-	user, err := s.authManager.GetUser(r.Context(), req.UserID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to get user after 2FA verification")
-		s.writeError(w, "Failed to complete authentication", http.StatusInternalServerError)
 		return
 	}
 
 	// Record successful login now that 2FA is verified
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
+	s.auditLoginSuccess(r, user, "2fa")
 
 	// Generate token pair
 	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)

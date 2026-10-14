@@ -5,6 +5,7 @@ import { Loading } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { IDLE_TIMEOUT_MS } from '@/hooks/useAuth';
 import {
   Shield,
   Lock,
@@ -21,6 +22,17 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
+import { activeLocale } from '@/lib/utils';
+
+// formatDuration says a number of seconds in the console's language, in the
+// largest unit that fits.
+function formatDuration(seconds: number): string {
+  const [unit, size]: [string, number] =
+    seconds >= 86400 ? ['day', 86400] :
+    seconds >= 3600 ? ['hour', 3600] :
+    seconds >= 60 ? ['minute', 60] : ['second', 1];
+  return new Intl.NumberFormat(activeLocale(), { style: 'unit', unit, unitDisplay: 'long' }).format(Math.floor(seconds / size));
+}
 
 export default function SecurityPage() {
   const { t } = useTranslation('security');
@@ -54,43 +66,6 @@ export default function SecurityPage() {
   const getSetting = (key: string, defaultValue: string = 'N/A'): string => {
     const setting = settings.find((s: any) => s.key === key);
     return setting?.value || defaultValue;
-  };
-
-  // Parse duration settings (e.g., "24h" -> "24 hours", "15m" -> "15 minutes", "900" -> "15 minutes")
-  const formatDuration = (value: string): string => {
-    // Handle suffixed values (e.g., "24h", "15m", "90d")
-    if (value.endsWith('h')) {
-      const hours = parseInt(value);
-      return hours === 1 ? '1 hour' : `${hours} hours`;
-    }
-    if (value.endsWith('m')) {
-      const minutes = parseInt(value);
-      return minutes === 1 ? '1 minute' : `${minutes} minutes`;
-    }
-    if (value.endsWith('d')) {
-      const days = parseInt(value);
-      return days === 1 ? '1 day' : `${days} days`;
-    }
-
-    // Handle raw seconds (e.g., "900" -> "15 minutes")
-    const seconds = parseInt(value);
-    if (!isNaN(seconds)) {
-      if (seconds < 60) {
-        return seconds === 1 ? '1 second' : `${seconds} seconds`;
-      }
-      if (seconds < 3600) {
-        const minutes = Math.floor(seconds / 60);
-        return minutes === 1 ? '1 minute' : `${minutes} minutes`;
-      }
-      if (seconds < 86400) {
-        const hours = Math.floor(seconds / 3600);
-        return hours === 1 ? '1 hour' : `${hours} hours`;
-      }
-      const days = Math.floor(seconds / 86400);
-      return days === 1 ? '1 day' : `${days} days`;
-    }
-
-    return value;
   };
 
   if (currentUserLoading || isLoading) {
@@ -167,9 +142,9 @@ export default function SecurityPage() {
 
           <MetricCard compact
             title={t('sessionTimeout')}
-            value={formatDuration(getSetting('security.session_timeout', '86400'))}
+            value={formatDuration(Number(getSetting('security.session_timeout', '86400')))}
             icon={Clock}
-            description={t('autoLogoutIdleSessions')}
+            description={t('refreshTokenLifetime')}
             color="warning"
           />
         </div>
@@ -234,7 +209,7 @@ export default function SecurityPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">{t('lockoutDuration')}</span>
-                <span className="text-sm text-muted-foreground">{formatDuration(getSetting('security.lockout_duration', '900'))}</span>
+                <span className="text-sm text-muted-foreground">{formatDuration(Number(getSetting('security.lockout_duration', '900')))}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">{t('maxFailedAttempts')}</span>
@@ -336,14 +311,14 @@ export default function SecurityPage() {
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('accountLockout')}</p>
-                  <p className="text-sm text-muted-foreground">{t('accountLockoutDesc', { duration: formatDuration(getSetting('security.lockout_duration', '900')), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
+                  <p className="text-sm text-muted-foreground">{t('accountLockoutDesc', { duration: formatDuration(Number(getSetting('security.lockout_duration', '900'))), attempts: getSetting('security.max_failed_attempts', '5') })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium text-foreground">{t('sessionManagement')}</p>
-                  <p className="text-sm text-muted-foreground">{t('sessionManagementDesc', { duration: formatDuration(getSetting('security.session_timeout', '86400')) })}</p>
+                  <p className="text-sm text-muted-foreground">{t('sessionManagementDesc', { idle: formatDuration(IDLE_TIMEOUT_MS / 1000), duration: formatDuration(Number(getSetting('security.session_timeout', '86400'))) })}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -415,6 +390,20 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
+                  <p className="font-medium text-foreground">{t('replicationEndpointProtection')}</p>
+                  <p className="text-sm text-muted-foreground">{t('replicationEndpointProtectionDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">{t('storedCredentialEncryption')}</p>
+                  <p className="text-sm text-muted-foreground">{t('storedCredentialEncryptionDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
                   <p className="font-medium text-foreground">{t('objectLockVersioning')}</p>
                   <p className="text-sm text-muted-foreground">{t('objectLockVersioningDesc')}</p>
                 </div>
@@ -441,13 +430,6 @@ export default function SecurityPage() {
                 <div>
                   <p className="font-medium text-foreground">{t('resourceQuotas')}</p>
                   <p className="text-sm text-muted-foreground">{t('resourceQuotasDesc')}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">{t('selfReplicationPrevention')}</p>
-                  <p className="text-sm text-muted-foreground">{t('selfReplicationPreventionDesc')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -520,13 +502,6 @@ export default function SecurityPage() {
               {t('complianceStandards')}
             </h3>
             <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">{t('complianceReady')}</p>
-                  <p className="text-sm text-muted-foreground">{t('complianceReadyDesc')}</p>
-                </div>
-              </div>
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>

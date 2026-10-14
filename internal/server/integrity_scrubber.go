@@ -22,7 +22,7 @@ func (s *Server) startIntegrityScrubber(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.runIntegrityScrub(ctx)
+				s.runTask(ctx, "integrity_scrub", func() error { return s.runIntegrityScrub(ctx) })
 			}
 		}
 	})
@@ -31,7 +31,7 @@ func (s *Server) startIntegrityScrubber(ctx context.Context) {
 // runIntegrityScrub iterates over every bucket → object page and calls
 // VerifyBucketIntegrity.  Corrupted / missing objects trigger an audit event,
 // an SSE notification and an email to all global admins.
-func (s *Server) runIntegrityScrub(ctx context.Context) {
+func (s *Server) runIntegrityScrub(ctx context.Context) error {
 	logrus.Info("Integrity scrubber: starting full scan")
 	started := time.Now()
 
@@ -40,7 +40,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) {
 	allBuckets, err := s.metadataStore.ListBuckets(ctx, "")
 	if err != nil {
 		logrus.WithError(err).Error("Integrity scrubber: failed to list buckets")
-		return
+		return err
 	}
 
 	totalCorrupted := 0
@@ -171,6 +171,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) {
 		"checked":   totalChecked,
 		"corrupted": totalCorrupted,
 	}).Info("Integrity scrubber: scan complete")
+	return nil
 }
 
 // sendCorruptionAlertEmail sends an email to all active global admins

@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import APIClient from '@/lib/api';
 import { getBasePath } from '@/lib/basePath';
+import { getErrorMessage } from '@/lib/utils';
+import { TwoFactorInput } from '@/components/TwoFactorInput';
+
+// What the exchange of the single-use code answers: the session, or the token
+// of the second step for a user with two-factor authentication.
+interface ExchangeAnswer {
+  access_token?: string;
+  refresh_token?: string;
+  requires_2fa?: boolean;
+  two_factor_token?: string;
+}
 
 export default function OAuthCompletePage() {
   const { t } = useTranslation('auth');
   const [error, setError] = useState<string | null>(null);
+  const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -24,9 +39,16 @@ export default function OAuthCompletePage() {
     fetch(`${getBasePath()}/api/v1/auth/oauth/exchange-code?code=${encodeURIComponent(code)}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Exchange failed: ${res.status}`);
-        return res.json() as Promise<{ access_token: string; refresh_token: string }>;
+        return res.json() as Promise<ExchangeAnswer>;
       })
-      .then(({ access_token, refresh_token }) => {
+      .then(({ access_token, refresh_token, requires_2fa, two_factor_token }) => {
+        if (requires_2fa && two_factor_token) {
+          setTwoFactorToken(two_factor_token);
+          return;
+        }
+        if (!access_token || !refresh_token) {
+          throw new Error('Authentication failed');
+        }
         const secureFlag = window.location.protocol === 'https:' ? '; Secure' : '';
         localStorage.setItem('auth_token', access_token);
         localStorage.setItem('refresh_token', refresh_token);
@@ -39,6 +61,41 @@ export default function OAuthCompletePage() {
         setError(msg);
       });
   }, []);
+
+  const handleVerify2FA = async (code: string) => {
+    if (!twoFactorToken) return;
+    setVerifying(true);
+    setCodeError(null);
+    try {
+      const response = await APIClient.verify2FA(twoFactorToken, code);
+      if (response.success && response.token) {
+        window.location.href = getBasePath() || '/';
+        return;
+      }
+      setCodeError(response.error || t('invalid2FACode'));
+    } catch (err: unknown) {
+      setCodeError(getErrorMessage(err, t('invalid2FACodeMessage')));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  if (twoFactorToken && !error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+        <div className="w-full max-w-md bg-card rounded-2xl shadow-xl border border-border p-8">
+          <TwoFactorInput
+            onSubmit={handleVerify2FA}
+            onCancel={() => {
+              window.location.href = `${getBasePath()}/login`;
+            }}
+            loading={verifying}
+            error={codeError}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     const basePath = getBasePath() || '/';

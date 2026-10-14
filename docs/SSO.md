@@ -1,7 +1,7 @@
 # MaxIOFS SSO / OAuth Authentication Guide
 
-**Version**: 1.7.0
-**Last Updated**: May 18, 2026
+**Version**: 1.8.0
+**Last Updated**: October 13, 2026
 
 ---
 
@@ -225,5 +225,5 @@ This means the email domain naturally routes users to the correct tenant — `al
 - **One account per email** — if the same email exists across two OAuth providers, only the first account is used
 - **LDAP users are unaffected** — LDAP authentication continues to work with username/password
 - **Local users are unaffected** — standard username/password login works as before
-- **2FA is supported** — SSO users can enable two-factor authentication after their first login
+- **2FA is supported** — SSO users can enable two-factor authentication after their first login. With it enabled, the console asks for the code after the provider's sign-in: the exchanged code gives the second step's token, sent with the code to `/api/v1/auth/2fa/verify`
 - **Existing imported users continue to work** — if users were imported before auto-provisioning was available, they still log in normally

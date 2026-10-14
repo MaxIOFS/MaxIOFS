@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -70,42 +71,48 @@ func partPath(uploadID string, partNumber int) string {
 	return fmt.Sprintf("%s/%s/%05d", multipartPartsPrefix, uploadID, partNumber)
 }
 
-func (fs *FilesystemBackend) Put(ctx context.Context, ref ObjectRef, data io.Reader, metadata map[string]string) error {
+func (fs *FilesystemBackend) Put(ctx context.Context, ref ObjectRef, data io.Reader, metadata map[string]string) (err error) {
+	defer fs.observe("Put", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return err
 	}
 	return fs.putAt(ctx, RefPath(ref), data, withIdentity(metadata, ref))
 }
 
-func (fs *FilesystemBackend) Get(ctx context.Context, ref ObjectRef) (io.ReadCloser, map[string]string, error) {
+func (fs *FilesystemBackend) Get(ctx context.Context, ref ObjectRef) (_ io.ReadCloser, _ map[string]string, err error) {
+	defer fs.observe("Get", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return nil, nil, err
 	}
 	return fs.getAt(ctx, RefPath(ref))
 }
 
-func (fs *FilesystemBackend) Delete(ctx context.Context, ref ObjectRef) error {
+func (fs *FilesystemBackend) Delete(ctx context.Context, ref ObjectRef) (err error) {
+	defer fs.observe("Delete", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return err
 	}
 	return fs.deleteAt(ctx, RefPath(ref))
 }
 
-func (fs *FilesystemBackend) Exists(ctx context.Context, ref ObjectRef) (bool, error) {
+func (fs *FilesystemBackend) Exists(ctx context.Context, ref ObjectRef) (_ bool, err error) {
+	defer fs.observe("Exists", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return false, err
 	}
 	return fs.existsAt(ctx, RefPath(ref))
 }
 
-func (fs *FilesystemBackend) GetMetadata(ctx context.Context, ref ObjectRef) (map[string]string, error) {
+func (fs *FilesystemBackend) GetMetadata(ctx context.Context, ref ObjectRef) (_ map[string]string, err error) {
+	defer fs.observe("GetMetadata", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return nil, err
 	}
 	return fs.metadataAt(ctx, RefPath(ref))
 }
 
-func (fs *FilesystemBackend) SetMetadata(ctx context.Context, ref ObjectRef, metadata map[string]string) error {
+func (fs *FilesystemBackend) SetMetadata(ctx context.Context, ref ObjectRef, metadata map[string]string) (err error) {
+	defer fs.observe("SetMetadata", time.Now(), &err)
 	if err := validateRef(ref); err != nil {
 		return err
 	}
@@ -141,23 +148,28 @@ func withIdentity(metadata map[string]string, ref ObjectRef) map[string]string {
 	return metadata
 }
 
-func (fs *FilesystemBackend) PutPart(ctx context.Context, uploadID string, partNumber int, data io.Reader, metadata map[string]string) error {
+func (fs *FilesystemBackend) PutPart(ctx context.Context, uploadID string, partNumber int, data io.Reader, metadata map[string]string) (err error) {
+	defer fs.observe("PutPart", time.Now(), &err)
 	return fs.putAt(ctx, partPath(uploadID, partNumber), data, metadata)
 }
 
-func (fs *FilesystemBackend) GetPart(ctx context.Context, uploadID string, partNumber int) (io.ReadCloser, map[string]string, error) {
+func (fs *FilesystemBackend) GetPart(ctx context.Context, uploadID string, partNumber int) (_ io.ReadCloser, _ map[string]string, err error) {
+	defer fs.observe("GetPart", time.Now(), &err)
 	return fs.getAt(ctx, partPath(uploadID, partNumber))
 }
 
-func (fs *FilesystemBackend) PartMetadata(ctx context.Context, uploadID string, partNumber int) (map[string]string, error) {
+func (fs *FilesystemBackend) PartMetadata(ctx context.Context, uploadID string, partNumber int) (_ map[string]string, err error) {
+	defer fs.observe("PartMetadata", time.Now(), &err)
 	return fs.metadataAt(ctx, partPath(uploadID, partNumber))
 }
 
-func (fs *FilesystemBackend) PartExists(ctx context.Context, uploadID string, partNumber int) (bool, error) {
+func (fs *FilesystemBackend) PartExists(ctx context.Context, uploadID string, partNumber int) (_ bool, err error) {
+	defer fs.observe("PartExists", time.Now(), &err)
 	return fs.existsAt(ctx, partPath(uploadID, partNumber))
 }
 
-func (fs *FilesystemBackend) DeletePart(ctx context.Context, uploadID string, partNumber int) error {
+func (fs *FilesystemBackend) DeletePart(ctx context.Context, uploadID string, partNumber int) (err error) {
+	defer fs.observe("DeletePart", time.Now(), &err)
 	return fs.deleteAt(ctx, partPath(uploadID, partNumber))
 }
 
@@ -167,7 +179,8 @@ func (fs *FilesystemBackend) uploadDir(uploadID string) string {
 	return filepath.Join(fs.rootPath, filepath.FromSlash(multipartPartsPrefix), uploadID)
 }
 
-func (fs *FilesystemBackend) ListUploads(ctx context.Context) ([]string, error) {
+func (fs *FilesystemBackend) ListUploads(ctx context.Context) (_ []string, err error) {
+	defer fs.observe("ListUploads", time.Now(), &err)
 	entries, err := os.ReadDir(filepath.Join(fs.rootPath, filepath.FromSlash(multipartPartsPrefix)))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -185,7 +198,8 @@ func (fs *FilesystemBackend) ListUploads(ctx context.Context) ([]string, error) 
 	return ids, nil
 }
 
-func (fs *FilesystemBackend) DeleteUpload(ctx context.Context, uploadID string) error {
+func (fs *FilesystemBackend) DeleteUpload(ctx context.Context, uploadID string) (err error) {
+	defer fs.observe("DeleteUpload", time.Now(), &err)
 	if uploadID == "" || uploadID == "." || uploadID == ".." || strings.ContainsAny(uploadID, `\/`) {
 		return ErrInvalidPath
 	}
@@ -195,7 +209,8 @@ func (fs *FilesystemBackend) DeleteUpload(ctx context.Context, uploadID string) 
 	return nil
 }
 
-func (fs *FilesystemBackend) CreateBucket(ctx context.Context, bucket string) error {
+func (fs *FilesystemBackend) CreateBucket(ctx context.Context, bucket string) (err error) {
+	defer fs.observe("CreateBucket", time.Now(), &err)
 	if err := validateBucket(bucket); err != nil {
 		return err
 	}
@@ -212,7 +227,8 @@ func (fs *FilesystemBackend) CreateBucket(ctx context.Context, bucket string) er
 	return syncDir(dir)
 }
 
-func (fs *FilesystemBackend) DeleteBucket(ctx context.Context, bucket string) error {
+func (fs *FilesystemBackend) DeleteBucket(ctx context.Context, bucket string) (err error) {
+	defer fs.observe("DeleteBucket", time.Now(), &err)
 	if err := validateBucket(bucket); err != nil {
 		return err
 	}

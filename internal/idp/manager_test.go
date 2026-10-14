@@ -383,7 +383,7 @@ func TestManager_UpdateInvalidatesCache(t *testing.T) {
 
 	// Simulate caching
 	mgr.mu.Lock()
-	mgr.providers[idp.ID] = nil // placeholder
+	mgr.providers[idp.ID] = cachedProvider{} // placeholder
 	mgr.mu.Unlock()
 
 	// Update should clear cache
@@ -408,7 +408,7 @@ func TestManager_DeleteInvalidatesCache(t *testing.T) {
 	require.NoError(t, mgr.CreateProvider(ctx, idp))
 
 	mgr.mu.Lock()
-	mgr.providers[idp.ID] = nil
+	mgr.providers[idp.ID] = cachedProvider{}
 	mgr.mu.Unlock()
 
 	require.NoError(t, mgr.DeleteProvider(ctx, idp.ID))

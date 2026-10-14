@@ -31,6 +31,13 @@ type Manager struct {
 	s3ClientFactory S3ClientFactory        // Factory for creating S3 clients (for testing)
 	observer        ChangeObserver
 	scheduleGate    func() bool
+	taskObserver    bgwork.TaskObserver
+}
+
+// SetTaskObserver sets what is told of each object a worker replicates. Set
+// before Start.
+func (m *Manager) SetTaskObserver(observe bgwork.TaskObserver) {
+	m.taskObserver = observe
 }
 
 // RulesTable is the table replication rules are kept in.
@@ -147,6 +154,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.workers = make([]*Worker, m.config.WorkerCount)
 	for i := 0; i < m.config.WorkerCount; i++ {
 		worker := newWorkerWithEncryption(i, m.queue, m.db, m.objectAdapter, m.objectManager, m.s3ClientFactory, m.config.CredentialEncryptionKey)
+		worker.observe = m.taskObserver
 		m.workers[i] = worker
 		w := worker
 		m.Spawn(func() { w.Start(ctx, m.Stopped()) })

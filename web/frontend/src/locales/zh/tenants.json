@@ -56,5 +56,5 @@
   "forceDeletingTenant": "正在强制删除租户...",
   "forceDeletingTenantMsg": "正在删除租户和所有关联资源",
   "maxBandwidthMbps": "最大带宽 (MB/s)",
-  "maxBandwidthHint": "该租户的上传+下载合计上限。0 = 无限制。"
+  "maxBandwidthHint": "该租户存储桶的 S3 上传和下载共享上限(每个节点)。控制台传输不受限制。0 = 无限制。"
 }
