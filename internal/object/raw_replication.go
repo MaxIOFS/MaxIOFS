@@ -178,7 +178,9 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 				Error("Raw replica: failed to save object metadata")
 			return fmt.Errorf("failed to save replica metadata: %w", err)
 		}
-		om.dropStaleShards(ctx, metaObj, objectRef)
+		if !sameWrite(existingObjBeforeSave, metaObj) {
+			om.dropStaleShards(ctx, metaObj, objectRef)
+		}
 	}
 	committed = true
 

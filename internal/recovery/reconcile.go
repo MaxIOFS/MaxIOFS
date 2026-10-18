@@ -226,6 +226,9 @@ func reconcileBucket(ctx context.Context, objectsRoot string, hashedKeys bool, b
 			return nil
 		case strings.HasSuffix(name, ".metadata"):
 			return nil
+		case storage.IsShardFileName(name):
+			// A shard is not an object: its entry comes from the cluster.
+			return nil
 		}
 
 		sidecar, _ := readSidecar(path)

@@ -928,8 +928,11 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 				Error("Failed to save object metadata — failing the write (data file kept on disk)")
 			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
-		// The shards held here of the write it replaces go.
-		om.dropStaleShards(ctx, metaObj, objectRef)
+		// The shards held here of the write it replaces go; those of its own
+		// write go when its placement lands.
+		if !sameWrite(existingObjBeforeSave, metaObj) {
+			om.dropStaleShards(ctx, metaObj, objectRef)
+		}
 	}
 	committed = true
 	releaseQuota()

@@ -71,6 +71,17 @@ func (h *HAObjectManager) spread(ctx context.Context, p *placement, obj *object.
 // stageWrite stages the shards of the write made here, read from its copy
 // here, on nodes.
 func (h *HAObjectManager) stageWrite(ctx context.Context, client *ProxyClient, p *placement, obj *object.Object, layout erasure.Layout, nodes []*Node) ([]error, error) {
+	data, err := h.openHeld(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+	defer data.Close()
+	return h.stageShards(ctx, client, obj, data, layout, nodes, 1, p.localID), nil
+}
+
+// openHeld opens the whole copy this node holds of the write obj is;
+// errSuperseded when the write here is a later one.
+func (h *HAObjectManager) openHeld(ctx context.Context, obj *object.Object) (io.ReadCloser, error) {
 	var held *object.Object
 	var data io.ReadCloser
 	var err error
@@ -83,13 +94,24 @@ func (h *HAObjectManager) stageWrite(ctx context.Context, client *ProxyClient, p
 		if obj.VersionID == "" && (errors.Is(err, object.ErrObjectNotFound) || errors.As(err, new(*object.DataElsewhereError))) {
 			return nil, errSuperseded
 		}
-		return nil, fmt.Errorf("re-read the write to cut it in shards: %w", err)
+		return nil, fmt.Errorf("re-read the write: %w", err)
 	}
-	defer data.Close()
 	if held.ETag != obj.ETag || held.LastModified.Unix() != obj.LastModified.Unix() || held.WrittenAt != obj.WrittenAt {
+		data.Close()
 		return nil, errSuperseded
 	}
-	return h.stageShards(ctx, client, obj, data, layout, nodes, 1, p.localID), nil
+	return data, nil
+}
+
+// storeCopyHere stores a whole copy of obj, its data read from data, as a
+// copy another node sends naming locations at the placement gen.
+func (h *HAObjectManager) storeCopyHere(ctx context.Context, obj *object.Object, data io.Reader, gen int64, locations []string) error {
+	named := *obj
+	named.Locations, named.LocationsGen = locations, gen
+	named.ECData, named.ECParity, named.ECBlock = 0, 0, 0
+	headers := wholeCopyHeaders(obj.Bucket, &named)
+	_, err := h.Manager.PutObject(ReplicaWriteContext(ctx, headers), obj.Bucket, obj.Key, data, headers)
+	return err
 }
 
 // spreadCopies keeps the write made here in whole copies: this node's and

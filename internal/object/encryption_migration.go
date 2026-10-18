@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -48,6 +50,17 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 				continue
 			}
 			refs[om.versionRef(bucket, key, v.VersionID)] = struct{}{}
+		}
+	}
+
+	// The shards this node holds of those writes are files of their own.
+	for _, ref := range slices.Collect(maps.Keys(refs)) {
+		indexes, err := om.storage.Shards(ctx, ref)
+		if err != nil {
+			return converted, skipped, err
+		}
+		for _, i := range indexes {
+			refs[ref.ShardOf(i)] = struct{}{}
 		}
 	}
 

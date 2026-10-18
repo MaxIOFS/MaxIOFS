@@ -102,7 +102,7 @@ func (w *HASyncWorker) heldHere(ctx context.Context, localID string) (objects, b
 			for _, v := range writes {
 				if !v.IsDeleteMarker && slices.Contains(v.Locations, localID) {
 					objects++
-					bytes += v.Size
+					bytes += heldBytes(v)
 				}
 			}
 		}

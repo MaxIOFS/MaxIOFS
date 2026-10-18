@@ -274,7 +274,8 @@ func (w *HASyncWorker) PlaceWrites(ctx context.Context) error {
 
 // DropEntriesHeldElsewhere removes, once this node has left the cluster, its
 // entries of the writes whose data the nodes of the cluster hold, which it no
-// longer reaches; the writes it holds stay. localID is the ID it had in the
+// longer reaches, and of those cut in shards, which its shard alone cannot
+// serve; the writes it holds whole stay. localID is the ID it had in the
 // cluster.
 func (w *HASyncWorker) DropEntriesHeldElsewhere(ctx context.Context, localID string) error {
 	writer, ok := ReplicaWriter(w.objMgr)
@@ -290,7 +291,7 @@ func (w *HASyncWorker) DropEntriesHeldElsewhere(ctx context.Context, localID str
 				continue
 			}
 			for _, v := range writes {
-				if v.IsDeleteMarker || len(v.Locations) == 0 || slices.Contains(v.Locations, localID) {
+				if v.IsDeleteMarker || len(v.Locations) == 0 || (slices.Contains(v.Locations, localID) && !isSharded(v)) {
 					continue
 				}
 				errs = errors.Join(errs, writer.DropEntry(ctx, bucket, key, v.VersionID))
@@ -661,6 +662,9 @@ func sendCopy(ctx context.Context, client *ProxyClient, objects object.Manager, 
 	case v.IsDeleteMarker:
 		return false, sendHADelete(ctx, client, node, localID, bucket, key, "", v.VersionID, v.LastModified)
 	case held != nil && holdsWrite(*held, v):
+	case isSharded(v):
+		// A shard is made for its node from the other shards (see the
+		// scrubber); the entry goes alone.
 	case len(v.Locations) == 0 || (slices.Contains(v.Locations, node.ID) && slices.Contains(v.Locations, localID)):
 		return true, sendObjectVersion(ctx, client, objects, node, localID, bucket, key, v.VersionID)
 	}

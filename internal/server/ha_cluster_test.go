@@ -51,9 +51,13 @@ type haNode struct {
 	// with once the copy is made: the sender takes it as failed.
 	copyAnswer atomic.Int32
 	// shards counts the shards its cluster port takes; refuseShards makes it
-	// refuse them.
-	shards       atomic.Int32
-	refuseShards atomic.Bool
+	// refuse them, refuseCopies whole copies. shardReads counts the shards it
+	// is asked for, down or not.
+	shards        atomic.Int32
+	refuseShards  atomic.Bool
+	refuseCopies  atomic.Bool
+	refuseEntries atomic.Bool
+	shardReads    atomic.Int32
 }
 
 // haCluster is n complete nodes of one cluster with a replication factor,
@@ -72,8 +76,15 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 		node := &haNode{Server: newClusterTestNode(t)}
 		routes := node.clusterServer.Handler
 		cs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/ha/shards/") {
+				node.shardReads.Add(1)
+			}
 			if node.down.Load() {
 				http.Error(w, "down", http.StatusServiceUnavailable)
+				return
+			}
+			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/ha/objects/") && node.refuseCopies.Load() {
+				http.Error(w, "refused", http.StatusInternalServerError)
 				return
 			}
 			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/ha/objects/") {
@@ -93,6 +104,10 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 					return
 				}
 				node.shards.Add(1)
+			}
+			if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/ha/object-entry") && node.refuseEntries.Load() {
+				http.Error(w, "refused", http.StatusInternalServerError)
+				return
 			}
 			if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/ha/object-entry") {
 				if fn := node.onEntry.Load(); fn != nil {

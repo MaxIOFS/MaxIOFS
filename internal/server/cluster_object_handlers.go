@@ -1296,6 +1296,7 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 			entry.WrittenAt = obj.WrittenAt
 			if req.Versions {
 				entry.Locations, entry.LocationsGen = obj.Locations, obj.LocationsGen
+				_, entry.Sharded = obj.Erasure()
 				if entry.HoldsCurrent, err = held(key, ""); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return

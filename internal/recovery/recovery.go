@@ -307,7 +307,7 @@ func walkBucket(bkt *bucketEntry, encryptor encryption.Encryptor, keys map[int][
 // MaxIOFS-internal artifact (markers, sidecars, staging/temp files) rather
 // than object data. Shared by the offline rebuild and the online reconciler.
 func isInternalObjectName(name string) bool {
-	return name == ".maxiofs-bucket" || name == ".maxiofs-folder" ||
+	return name == ".maxiofs-bucket" || name == ".maxiofs-folder" || storage.IsShardFileName(name) ||
 		strings.HasSuffix(name, ".metadata") ||
 		strings.HasSuffix(name, ".metadata-staging") ||
 		strings.HasPrefix(name, ".tmp_") ||

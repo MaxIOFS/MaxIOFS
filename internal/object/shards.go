@@ -80,6 +80,12 @@ func (s ShardInfo) isWriteOf(entry *metadata.ObjectMetadata) bool {
 		s.WrittenAt == entry.WrittenAt && s.VersionID == entry.VersionID
 }
 
+// sameWrite reports whether two entries are of one write.
+func sameWrite(a, b *metadata.ObjectMetadata) bool {
+	return a != nil && b != nil && a.VersionID == b.VersionID && a.ETag == b.ETag && a.Size == b.Size &&
+		a.LastModified.Unix() == b.LastModified.Unix() && a.WrittenAt == b.WrittenAt
+}
+
 // sameShard reports whether s and o name one shard: of one write, cut alike.
 func (s ShardInfo) sameShard(o ShardInfo) bool {
 	return s.Bucket == o.Bucket && s.Key == o.Key && s.VersionID == o.VersionID && s.Index == o.Index &&

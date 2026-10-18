@@ -371,3 +371,43 @@ func TestReconcileVersionIdentityComesFromTheSidecar(t *testing.T) {
 		t.Errorf("VersionID = %q, want the one recorded in the sidecar", versions[0].VersionID)
 	}
 }
+
+// A shard is not an object: reconcile restores no entry from it, though its
+// sidecar names the object.
+func TestReconcilePassesOverShards(t *testing.T) {
+	dataDir, store, cleanup := setupReconcileTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	ref := storage.ObjectRef{Bucket: "bkt", Key: "cut"}.ShardOf(1)
+	full := filepath.Join(dataDir, "objects", filepath.FromSlash(storage.RefPath(ref)))
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte("shard"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sidecar, err := json.Marshal(map[string]string{
+		storage.MetadataBucketField: "bkt", storage.MetadataKeyField: "cut", storage.MetadataShardField: "1",
+		"size": "5", "etag": "shard-etag", "last_modified": "1700000000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full+".metadata", sidecar, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !isInternalObjectName(filepath.Base(full)) {
+		t.Error("the offline rebuild takes a shard for an object")
+	}
+
+	report, err := Reconcile(ctx, dataDir, store, logrus.StandardLogger())
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v (failures: %v)", err, report.Failures)
+	}
+	if report.EntriesRestored != 0 || len(report.Failures) != 0 {
+		t.Fatalf("restored %d, failures %v", report.EntriesRestored, report.Failures)
+	}
+	if _, err := store.GetObject(ctx, "bkt", "cut"); err == nil {
+		t.Error("an entry was made from a shard")
+	}
+}

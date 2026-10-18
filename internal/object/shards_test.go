@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -323,4 +325,72 @@ func TestAWholeCopyOfAWriteInShardsIsNotStored(t *testing.T) {
 	assert.Equal(t, testLayout.Data, got.ECData)
 	assert.EqualValues(t, 2, got.LocationsGen)
 	assert.Equal(t, []int{0}, shardsOn(t, om, "b", "k", ""))
+}
+
+// The integrity check of a node checks the shard it holds of a write in
+// shards; a shard that does not read back is removed, for the cluster to make
+// it again. The shards of other nodes are passed over.
+func TestTheIntegrityCheckOfAShard(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	om.SetLocalNode(func() string { return "self" })
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b"}))
+	at := time.Now().Truncate(time.Second)
+	entry := shardedEntry("b", "k", "", "e1", at, 1, "a", "self", "b")
+	require.NoError(t, om.PutShard(ctx, shardOfEntry(entry, 1, 1), bytes.NewReader(shardBytes(1))))
+	require.NoError(t, om.PutReplicaMetadata(ctx, entry))
+	elsewhere := shardedEntry("b", "other", "", "e1", at, 1, "a", "b", "c")
+	require.NoError(t, om.PutReplicaMetadata(ctx, elsewhere))
+
+	result, err := om.VerifyObjectIntegrity(ctx, "b", "k")
+	require.NoError(t, err)
+	assert.Equal(t, IntegrityOK, result.Status, result.Reason)
+	result, err = om.VerifyObjectIntegrity(ctx, "b", "other")
+	require.NoError(t, err)
+	assert.Equal(t, IntegritySkipped, result.Status)
+
+	// One bit of the stored shard turns.
+	path := filepath.Join(om.config.Root, filepath.FromSlash(storage.RefPath(om.shardRef(shardOfEntry(entry, 1, 1)))))
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	raw[len(raw)-1] ^= 1
+	require.NoError(t, os.WriteFile(path, raw, 0o640))
+	result, err = om.VerifyObjectIntegrity(ctx, "b", "k")
+	require.NoError(t, err)
+	assert.Equal(t, IntegrityCorrupted, result.Status, result.Reason)
+	held, err := om.HoldsData(ctx, "b", "k", "")
+	require.NoError(t, err)
+	assert.False(t, held, "the corrupt shard is removed")
+	result, err = om.VerifyObjectIntegrity(ctx, "b", "k")
+	require.NoError(t, err)
+	assert.Equal(t, IntegrityMissing, result.Status)
+}
+
+// A whole copy of a write held here in shards, made for a newer placement,
+// keeps the shard until that placement lands.
+func TestAWholeCopyOfTheWriteKeepsItsShardUntilItsPlacementLands(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	om.SetLocalNode(func() string { return "self" })
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b"}))
+	content := strings.Repeat("0123456789", 4)
+	sum := md5.Sum([]byte(content))
+	at := time.Now().Truncate(time.Second)
+	entry := shardedEntry("b", "k", "", hex.EncodeToString(sum[:]), at, 1, "self", "a", "b")
+	require.NoError(t, om.PutShard(ctx, shardOfEntry(entry, 0, 1), bytes.NewReader(shardBytes(0))))
+	require.NoError(t, om.PutReplicaMetadata(ctx, entry))
+
+	copyCtx := WithReplicaCopy(WithReplicatedWrittenAt(WithReplicatedLastModified(ctx, at), at.UnixNano()))
+	copyCtx = WithLocationsGen(WithLocations(copyCtx, []string{"self"}), 2)
+	_, err := om.PutObject(copyCtx, "b", "k", strings.NewReader(content), http.Header{})
+	require.NoError(t, err)
+	assert.Equal(t, content, readAll(t, om, "b", "k"))
+	assert.Equal(t, []int{0}, shardsOn(t, om, "b", "k", ""), "the shard serves the placement in use")
+
+	require.NoError(t, om.SetLocations(ctx, "b", "k", LocationsChange{ETag: entry.ETag, LastModified: at.Unix(), WrittenAt: at.UnixNano(),
+		Locations: []string{"self", "a"}, Gen: 3}))
+	assert.Empty(t, shardsOn(t, om, "b", "k", ""))
+	assert.Equal(t, content, readAll(t, om, "b", "k"))
 }

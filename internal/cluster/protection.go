@@ -108,6 +108,9 @@ func (m *Manager) writeTarget(ctx context.Context, size int64) (dataTarget, erro
 // requiredNodes is the nodes taking data the protection needs: the factor,
 // or three for parity.
 func (p Protection) requiredNodes() int {
+	if p.Parity {
+		return 3
+	}
 	return p.Factor
 }
 

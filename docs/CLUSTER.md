@@ -34,7 +34,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Synchronous replication (factor 1–3): a factor of 2 is a mirror that keeps writing with its peer down; a factor of 3 needs one of its two peers
-- ✅ **Parity** (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
+- 🧪 **Parity** — nightly builds only, not in v1.8.0 (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
 - ✅ A node that comes back is caught up at once with the writes and deletes it missed
 - ✅ Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - ✅ Elected coordinator for configuration changes; a surviving node takes over
@@ -73,7 +73,8 @@ While a node is down, reads of its objects answer `503 ServiceUnavailable`
 with `Retry-After`; when it is back they are served again. An object whose node
 is lost is lost. For redundancy, use a factor of 2 or 3, or parity.
 
-**Parity is like RAID 5, and from five nodes like RAID 6.** Each object is cut
+**Parity is like RAID 5, and from five nodes like RAID 6** (nightly builds
+only, not in v1.8.0). Each object is cut
 in data shards and parity shards, each on its own node: 2+1 on three nodes, 3+1
 on four, 3+2 on five, 4+2 on six, up to 8+2. Any of its shards as many as its
 data shards read it: up to four nodes an object survives one node down, from
@@ -504,6 +505,8 @@ a factor of 1 an object has one copy.
 - The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, or with parity each shard of a byte on its own node, as their last health checks found their disks.
 
 ### Objects with parity
+
+> Nightly builds only: v1.8.0 has no parity.
 
 With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page) every node holds the entry of each write, and the nodes it names hold one shard each.
 

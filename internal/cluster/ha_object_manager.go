@@ -521,43 +521,60 @@ func sendVersionCopy(ctx context.Context, client *ProxyClient, objects object.Ma
 		return fmt.Errorf("re-read for fanout: %w", readErr)
 	}
 	defer reader.Close()
-	if as != nil {
-		obj.Locations, obj.LocationsGen = as.locations, as.gen
-	}
+	return sendCopyOf(ctx, client, n, localID, bucket, key, obj, reader, as)
+}
 
+// wholeCopyHeaders are the headers that carry a whole copy of obj and every field
+// its receiver keeps.
+func wholeCopyHeaders(bucket string, obj *object.Object) http.Header {
+	h := http.Header{}
+	h.Set("X-MaxIOFS-HA-Replica", "true")
+	h.Set(HABucketHeader, bucket)
+	if obj.VersionID != "" {
+		h.Set(HAObjectVersionHeader, obj.VersionID)
+	}
+	setHALastModified(h, obj)
+	setHAChecksum(h, obj)
+	SetHAObjectLock(h, obj)
+	SetHAAttributes(h, obj)
+	SetHALocations(h, obj)
+	h.Set("Content-Type", obj.ContentType)
+	if obj.ContentDisposition != "" {
+		h.Set("Content-Disposition", obj.ContentDisposition)
+	}
+	if obj.ContentEncoding != "" {
+		h.Set("Content-Encoding", obj.ContentEncoding)
+	}
+	if obj.CacheControl != "" {
+		h.Set("Cache-Control", obj.CacheControl)
+	}
+	if obj.ContentLanguage != "" {
+		h.Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.StorageClass != "" {
+		h.Set("x-amz-storage-class", obj.StorageClass)
+	}
+	for k, v := range obj.Metadata {
+		h.Set("x-amz-meta-"+k, v)
+	}
+	return h
+}
+
+// sendCopyOf sends n a whole copy of obj whose data reader gives, with the
+// locations as names when set.
+func sendCopyOf(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key string, obj *object.Object, reader io.Reader, as *newLocations) error {
+	if as != nil {
+		named := *obj
+		named.Locations, named.LocationsGen = as.locations, as.gen
+		obj = &named
+	}
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 	req, err := client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
-	req.Header.Set(HABucketHeader, bucket)
-	if obj.VersionID != "" {
-		req.Header.Set(HAObjectVersionHeader, obj.VersionID)
-	}
-	setHALastModified(req.Header, obj)
-	setHAChecksum(req.Header, obj)
-	SetHAObjectLock(req.Header, obj)
-	SetHAAttributes(req.Header, obj)
-	SetHALocations(req.Header, obj)
-	req.Header.Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		req.Header.Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		req.Header.Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		req.Header.Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		req.Header.Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.StorageClass != "" {
-		req.Header.Set("x-amz-storage-class", obj.StorageClass)
-	}
-	for k, v := range obj.Metadata {
-		req.Header.Set("x-amz-meta-"+k, v)
+	for k, v := range wholeCopyHeaders(bucket, obj) {
+		req.Header[k] = v
 	}
 	req.ContentLength = obj.Size
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -81,9 +82,16 @@ func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 	if !w.mgr.IsClusterEnabled() {
 		return nil
 	}
-	factor, err := w.mgr.GetReplicationFactor(ctx)
+	protection, err := w.mgr.GetProtection(ctx)
 	if err != nil {
 		return err
+	}
+	var layout erasure.Layout
+	var layoutOK bool
+	if protection.Parity {
+		if layout, layoutOK, err = w.mgr.ParityLayout(ctx); err != nil {
+			return err
+		}
 	}
 	ha, ok := w.objMgr.(*HAObjectManager)
 	if !ok {
@@ -106,8 +114,8 @@ func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 		return err
 	}
 	r := &placementRepair{
-		ha: ha, writer: writer, objects: w.objMgr, factor: factor, localID: localID,
-		nodes: make(map[string]*Node, len(all)), client: NewProxyClient(w.mgr.GetTLSConfig()),
+		ha: ha, writer: writer, objects: w.objMgr, protection: protection, layout: layout, layoutOK: layoutOK,
+		localID: localID, nodes: make(map[string]*Node, len(all)), client: NewProxyClient(w.mgr.GetTLSConfig()),
 	}
 	for _, n := range all {
 		r.nodes[n.ID] = n
@@ -223,11 +231,15 @@ func locationsChange(v object.ObjectVersion, locations []string, gen int64) obje
 }
 
 type placementRepair struct {
-	ha         *HAObjectManager
-	writer     object.ReplicaMetadataWriter
-	objects    object.Manager
-	client     *ProxyClient
-	factor     int
+	ha      *HAObjectManager
+	writer  object.ReplicaMetadataWriter
+	objects object.Manager
+	client  *ProxyClient
+	// protection is how the cluster keeps its data; with parity, layout is
+	// that of a write now, when layoutOK.
+	protection Protection
+	layout     erasure.Layout
+	layoutOK   bool
 	localID    string
 	nodes      map[string]*Node
 	peers      []*Node // the other nodes in service
@@ -272,9 +284,9 @@ func (r *placementRepair) repairPage(ctx context.Context, bucket string, keys []
 			switch {
 			case here:
 				r.remaining++
-				r.remainingBytes += v.Size
+				r.remainingBytes += heldBytes(v)
 			case before && r.moved != nil:
-				r.moved(v.Size)
+				r.moved(heldBytes(v))
 			}
 		}
 	}
@@ -319,7 +331,7 @@ func (r *placementRepair) adopt(ctx context.Context, bucket string, keys []strin
 			errs = errors.Join(errs, err)
 			if here {
 				r.remaining++
-				r.remainingBytes += v.Size
+				r.remainingBytes += heldBytes(v)
 			}
 		}
 	}
@@ -337,13 +349,16 @@ func holdsWrite(e ChecksumEntry, v object.ObjectVersion) bool {
 
 // adoptWrite gives write v, which names no node, its holders as locations when
 // this node is the first of them, trimmed to the factor; the copies a write
-// with fewer holders lacks are then made. It reports whether this node still
-// holds the write.
+// with fewer holders lacks are then made, or its shards cut. It reports
+// whether this node still holds the write.
 func (r *placementRepair) adoptWrite(ctx context.Context, bucket, key string, v object.ObjectVersion, holders []string) (bool, error) {
 	if slices.Min(holders) != r.localID {
 		return true, nil
 	}
-	locations := r.keep(holders)
+	locations := holders
+	if target := r.target(v); !target.sharded() {
+		locations = r.keep(holders, target.copies)
+	}
 	if err := r.ha.SetLocations(ctx, bucket, key, locationsChange(v, locations, 1)); err != nil {
 		return true, err
 	}
@@ -351,14 +366,30 @@ func (r *placementRepair) adoptWrite(ctx context.Context, bucket, key string, v 
 	return r.repairWrite(ctx, bucket, key, v)
 }
 
-// repairWrite repairs the copies of one write when this node is the first of
-// its living holders and holds its data. The copies of drained holders are
-// dropped once the others hold the factor's copies. It reports whether this
-// node still holds the write.
+// target is how the data of write v is to be kept.
+func (r *placementRepair) target(v object.ObjectVersion) dataTarget {
+	return targetOf(r.protection, r.layout, r.layoutOK, v.Size)
+}
+
+// repairWrite repairs the copies or the shards of one write when this node
+// is the first of its living holders. It reports whether this node still
+// holds the write.
 func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v object.ObjectVersion) (bool, error) {
 	if !slices.Contains(v.Locations, r.localID) {
 		return false, nil
 	}
+	target := r.target(v)
+	if isSharded(v) || target.sharded() {
+		return r.repairShards(ctx, bucket, key, v, target)
+	}
+	return r.repairCopies(ctx, bucket, key, v, target.copies)
+}
+
+// repairCopies repairs the copies of one write when this node is the first of
+// its living holders and holds its data. The copies of drained holders are
+// dropped once the others hold the factor's copies. It reports whether this
+// node still holds the write.
+func (r *placementRepair) repairCopies(ctx context.Context, bucket, key string, v object.ObjectVersion, factor int) (bool, error) {
 	var kept, staying []string
 	for _, id := range v.Locations {
 		n, ok := r.nodes[id]
@@ -373,7 +404,7 @@ func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v
 	if len(kept) == 0 || slices.Min(kept) != r.localID {
 		return true, nil
 	}
-	if len(kept) == len(v.Locations) && len(staying) == len(kept) && len(kept) == r.factor {
+	if len(kept) == len(v.Locations) && len(staying) == len(kept) && len(kept) == factor {
 		return true, nil
 	}
 	if held, err := r.writer.HoldsData(ctx, bucket, key, v.VersionID); err != nil || !held {
@@ -384,7 +415,7 @@ func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v
 	// then told the holders with a higher one.
 	gen, locations := v.LocationsGen, slices.Clone(staying)
 	for _, n := range r.candidates {
-		if len(locations) >= r.factor {
+		if len(locations) >= factor {
 			break
 		}
 		if slices.Contains(locations, n.ID) {
@@ -400,14 +431,14 @@ func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v
 		locations = named
 	}
 	// Short of the factor, the drained holders keep their copies.
-	if len(locations) < r.factor {
+	if len(locations) < factor {
 		for _, id := range kept {
 			if !slices.Contains(locations, id) {
 				locations = append(locations, id)
 			}
 		}
 	}
-	locations = r.keep(locations)
+	locations = r.keep(locations, factor)
 	here := slices.Contains(locations, r.localID)
 	if gen == v.LocationsGen && slices.Equal(locations, v.Locations) {
 		return here, nil
@@ -420,8 +451,8 @@ func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v
 
 // keep is locations trimmed to the factor: the nodes not drained first, this
 // node first among them, then those with the most free space.
-func (r *placementRepair) keep(locations []string) []string {
-	if len(locations) <= r.factor {
+func (r *placementRepair) keep(locations []string, factor int) []string {
+	if len(locations) <= factor {
 		return locations
 	}
 	kept := slices.Clone(locations)
@@ -434,7 +465,7 @@ func (r *placementRepair) keep(locations []string) []string {
 		}
 		return cmp.Compare(r.free(b), r.free(a))
 	})
-	return kept[:r.factor]
+	return kept[:factor]
 }
 
 func (r *placementRepair) drained(id string) bool {

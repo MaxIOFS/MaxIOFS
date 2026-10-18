@@ -719,8 +719,9 @@ func (s *AntiEntropyScrubber) processBatch(
 			}
 			// The same current object without a version, whose data the peer
 			// is to hold and lacks.
+			_, localSharded := local.Erasure()
 			lostCurrent := listed && divergence == divNone && local.VersionID == "" && peerEntry != nil && peerEntry.Found &&
-				!peerEntry.HoldsCurrent && slices.Contains(local.Locations, peer.ID) && slices.Contains(local.Locations, localID)
+				!peerEntry.HoldsCurrent && slices.Contains(local.Locations, peer.ID) && (localSharded || slices.Contains(local.Locations, localID))
 			if lostCurrent {
 				lost = append(lost, object.ObjectVersion{Object: *local})
 			}
@@ -730,6 +731,11 @@ func (s *AntiEntropyScrubber) processBatch(
 				local.LocationsGen > peerEntry.LocationsGen {
 				behind = append(behind, object.ObjectVersion{Object: *local})
 			}
+			// A shard a peer lacks is made again by one node only: the first
+			// of the write's other holders in service.
+			lost = slices.DeleteFunc(lost, func(v object.ObjectVersion) bool {
+				return isSharded(v) && !s.rebuildsFor(ctx, v, peer.ID, localID)
+			})
 			if divergence != divNone || len(missing) > 0 || len(lost) > 0 || len(behind) > 0 || !fixed {
 				cp.DivergencesFound++
 				if action != actNone {
@@ -744,6 +750,15 @@ func (s *AntiEntropyScrubber) processBatch(
 					}
 				}
 				for _, v := range lost {
+					if isSharded(v) {
+						if err := s.rebuildShardFor(ctx, client, peer, localID, v); err != nil {
+							logrus.WithError(err).WithFields(logrus.Fields{
+								"peer": peer.ID, "bucket": bucketPath, "key": key,
+							}).Warn("AntiEntropyScrubber: a shard was not made again for a node that is to hold it")
+							fixed = false
+						}
+						continue
+					}
 					if err := sendObjectVersion(ctx, client, s.objMgr, peer, localID, bucketPath, key, v.VersionID); err != nil {
 						logrus.WithError(err).WithFields(logrus.Fields{
 							"peer": peer.ID, "bucket": bucketPath, "key": key,
@@ -799,6 +814,8 @@ type ChecksumEntry struct {
 	LocationsGen int64    `json:"locations_gen,omitempty"`
 	Locations    []string `json:"locations,omitempty"`
 	HoldsCurrent bool     `json:"holds_current,omitempty"`
+	// Sharded reports that the current object's data is cut in shards.
+	Sharded bool `json:"sharded,omitempty"`
 }
 
 type divergenceKind int
@@ -917,7 +934,7 @@ func (s *AntiEntropyScrubber) applyAction(
 
 	case actPullFromPeer:
 		pull := s.pullObjectFromPeer
-		if peerEntry != nil && len(peerEntry.Locations) > 0 && !slices.Contains(peerEntry.Locations, localID) {
+		if peerEntry != nil && len(peerEntry.Locations) > 0 && (peerEntry.Sharded || !slices.Contains(peerEntry.Locations, localID)) {
 			pull = s.pullEntryFromPeer
 		}
 		if err := pull(ctx, client, peer, localID, bucketPath, key); err != nil {
@@ -1028,14 +1045,47 @@ func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, ke
 		switch {
 		case !there[v.VersionID]:
 			missing = append(missing, v)
+			// A shard it is to hold is made for it after its entry.
+			if !v.IsDeleteMarker && isSharded(v) && slices.Contains(v.Locations, peerID) {
+				lost = append(lost, v)
+			}
 		case !v.IsDeleteMarker && !held[v.VersionID] &&
-			slices.Contains(v.Locations, peerID) && slices.Contains(v.Locations, localID):
+			slices.Contains(v.Locations, peerID) && (isSharded(v) || slices.Contains(v.Locations, localID)):
 			lost = append(lost, v)
 		case !v.IsDeleteMarker && v.LocationsGen > peer.Gens[v.VersionID]:
 			behind = append(behind, v)
 		}
 	}
 	return missing, lost, behind, nil
+}
+
+// rebuildsFor reports whether this node makes again the shard peer lacks of
+// write v: the first of the write's other holders in service does.
+func (s *AntiEntropyScrubber) rebuildsFor(ctx context.Context, v object.ObjectVersion, peerID, localID string) bool {
+	for _, id := range slices.Sorted(slices.Values(v.Locations)) {
+		if id == peerID {
+			continue
+		}
+		if id == localID {
+			return true
+		}
+		if n, err := s.mgr.GetNode(ctx, id); err == nil && n.InService() {
+			return false
+		}
+	}
+	return false
+}
+
+// rebuildShardFor makes again from the other shards the shard of write v that
+// peer is to hold, and stores it there.
+func (s *AntiEntropyScrubber) rebuildShardFor(ctx context.Context, client *ProxyClient, peer *Node, localID string, v object.ObjectVersion) error {
+	ha, ok := s.objMgr.(*HAObjectManager)
+	if !ok {
+		return fmt.Errorf("this node keeps no shards")
+	}
+	index := slices.Index(v.Locations, peer.ID)
+	errs := ha.rebuildShards(ctx, client, &v.Object, map[int]*Node{index: peer}, v.LocationsGen, localID)
+	return errs[index]
 }
 
 // pullObjectFromPeer fetches the peer's copy and stores it locally as a

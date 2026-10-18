@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -332,4 +334,40 @@ func TestEncryptExistingObject_ConvertsAllVersions(t *testing.T) {
 	readBack, _ = io.ReadAll(reader)
 	reader.Close()
 	assert.Equal(t, []byte("version one plaintext"), readBack)
+}
+
+// A KEK rotation re-wraps the key of each shard this node holds; the shard
+// still reads back.
+func TestEncryptExistingObject_RewrapsShards(t *testing.T) {
+	ctx := context.Background()
+	kekStore := newKEKStore(t)
+	om, _ := newNodeManager(t, kekStore)
+	om.SetLocalNode(func() string { return "self" })
+	require.NoError(t, om.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b", OwnerID: "u"}))
+	entry := &metadata.ObjectMetadata{Bucket: "b", Key: "k", Size: 40, ETag: "e1", LastModified: time.Now().Truncate(time.Second),
+		Locations: []string{"a", "self", "c"}, LocationsGen: 1, ECData: 2, ECParity: 1, ECBlock: 16}
+	info := ShardOf(fromMetadataObject(entry), 1, 1)
+	data := bytes.Repeat([]byte{'s'}, int(info.Layout.ShardSize(40)))
+	require.NoError(t, om.PutShard(ctx, info, bytes.NewReader(data)))
+	require.NoError(t, om.PutReplicaMetadata(ctx, entry))
+	ref := om.shardRef(info)
+	before, err := om.storage.GetMetadata(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "1", before["kek-version"])
+
+	_, err = kekStore.Rotate(false)
+	require.NoError(t, err)
+	converted, _, err := om.EncryptExistingObject(ctx, "b", "k")
+	require.NoError(t, err)
+	assert.Equal(t, 1, converted)
+	after, err := om.storage.GetMetadata(ctx, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "2", after["kek-version"])
+	assert.Equal(t, "1", after[storage.MetadataShardField], "the shard keeps its index")
+	r, err := om.OpenShard(ctx, info, 0)
+	require.NoError(t, err)
+	got, err := io.ReadAll(r)
+	r.Close()
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
 }

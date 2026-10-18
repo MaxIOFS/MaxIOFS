@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/maxiofs/maxiofs/internal/metadata"
 )
 
 // IntegrityStatus represents the result of an integrity check
@@ -77,6 +79,21 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			Key:    key,
 			Status: IntegritySkipped,
 			Reason: "delete marker: not a data object",
+		}, nil
+	}
+
+	// Of data cut in shards this node checks the shard it holds, against the
+	// digest it was stored with.
+	if index, ok := om.shardHere(meta); ok {
+		meta.Bucket, meta.Key = bucket, key
+		return om.verifyShard(ctx, meta, index), nil
+	}
+	if _, sharded := ErasureLayout(meta); sharded {
+		return &IntegrityResult{
+			Key:        key,
+			Status:     IntegritySkipped,
+			StoredETag: storedETag,
+			Reason:     "data cut in shards held by other nodes of the cluster",
 		}, nil
 	}
 
@@ -158,6 +175,45 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 		ExpectedSize: meta.Size,
 		ActualSize:   actualSize,
 	}, nil
+}
+
+// verifyShard reads back shard index of the write entry is, held here: its
+// bytes must decrypt and match the size and digest they were stored with.
+func (om *objectManager) verifyShard(ctx context.Context, entry *metadata.ObjectMetadata, index int) *IntegrityResult {
+	info := ShardOf(fromMetadataObject(entry), index, entry.LocationsGen)
+	result := &IntegrityResult{Key: entry.Key, StoredETag: entry.ETag, ExpectedSize: info.Layout.ShardSize(entry.Size)}
+	sidecar, err := om.storage.GetMetadata(ctx, om.shardRef(info))
+	if err != nil {
+		result.Status, result.Reason = IntegrityMissing, "the shard this node holds is not on its disk"
+		return result
+	}
+	reader, err := om.OpenShard(ctx, info, 0)
+	if err != nil {
+		result.Status, result.Reason = IntegrityMissing, "the shard on this node's disk is of another write"
+		return result
+	}
+	defer reader.Close()
+	hasher := md5.New()
+	result.ActualSize, err = io.Copy(hasher, reader)
+	result.ComputedETag = fmt.Sprintf("%x", hasher.Sum(nil))
+	switch {
+	case err != nil:
+		result.Status, result.Reason = IntegrityCorrupted, fmt.Sprintf("the shard held here does not read back: %v", err)
+	case result.ActualSize != result.ExpectedSize || result.ComputedETag != sidecar["original-etag"]:
+		result.Status, result.Reason = IntegrityCorrupted, "the shard held here does not match its digest"
+	default:
+		result.Status, result.Reason = IntegrityOK, "the shard held here was verified"
+		return result
+	}
+	// A shard that is not the one stored goes: the cluster makes it again
+	// from the other shards.
+	reader.Close()
+	if err := om.DeleteShard(ctx, info); err != nil {
+		result.Reason += "; it could not be removed: " + err.Error()
+	} else {
+		result.Reason += "; removed, the cluster makes it again"
+	}
+	return result
 }
 
 // VerifyBucketIntegrity verifies a page of objects in a bucket.

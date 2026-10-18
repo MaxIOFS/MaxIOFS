@@ -10,14 +10,17 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -402,4 +405,63 @@ func TestEveryNodeReportsTheRoomOfTheClusterWithParity(t *testing.T) {
 		assert.EqualValues(t, 2000, capacity)
 		assert.EqualValues(t, 200, available)
 	}
+}
+
+// A write whose shards and whole copies are both too few is refused, and the
+// shards it stored are removed from the nodes that took them.
+func TestAWriteWithParityThatLandsNowhereLeavesNoShard(t *testing.T) {
+	c := newParityCluster(t, 3, "parity")
+	a, b, far := c.nodes[0], c.nodes[1], c.nodes[2]
+	ctx := context.Background()
+	b.refuseCopies.Store(true)
+	far.refuseShards.Store(true)
+	far.refuseCopies.Store(true)
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), Body: bytes.NewReader(payload(100000))})
+	assert.Equal(t, http.StatusServiceUnavailable, s3Status(err))
+	for _, n := range c.nodes {
+		assert.Empty(t, n.shardsHeld(t, "parity", "k", ""), "on %s", n.id)
+	}
+}
+
+// A read does not ask a node out of service for its shard: the parity shard
+// is read in its place.
+func TestAReadWithParityPassesOverANodeOutOfService(t *testing.T) {
+	c := newParityCluster(t, 3, "parity")
+	ctx := context.Background()
+	data := payload(300000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	locations := assertSharded(t, c, "parity", "k", "", erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock})
+	reader, away := c.byID(locations[2]), c.byID(locations[0])
+	_, err = reader.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusUnavailable, away.id)
+	require.NoError(t, err)
+	away.shardReads.Store(0)
+	assert.True(t, bytes.Equal(data, getBytes(t, reader.s3, "parity", "k")))
+	assert.Zero(t, away.shardReads.Load())
+}
+
+// A shard of a write that a delete on the node came after is not stored.
+func TestAShardOfADeletedWriteIsNotStored(t *testing.T) {
+	c := newParityCluster(t, 3, "parity")
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), Body: bytes.NewReader(payload(1000))})
+	require.NoError(t, err)
+	entry := b.entry(t, "parity", "k")
+	index := slices.Index(entry.Locations, b.id)
+	require.GreaterOrEqual(t, index, 0)
+	info := object.ShardOf(&object.Object{Bucket: "parity", Key: "k", ETag: entry.ETag, Size: entry.Size,
+		LastModified: entry.LastModified, WrittenAt: entry.WrittenAt, ECData: entry.ECData, ECParity: entry.ECParity, ECBlock: entry.ECBlock}, index, 1)
+	time.Sleep(1100 * time.Millisecond)
+	_, err = a.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String("parity"), Key: aws.String("k")})
+	require.NoError(t, err)
+	require.Empty(t, b.shardsHeld(t, "parity", "k", ""))
+
+	r := httptest.NewRequest(http.MethodPut, "/api/internal/cluster/ha/shards/k", bytes.NewReader(make([]byte, entry.ECBlock)))
+	r.Header.Set(cluster.HAShardHeader, cluster.EncodeShardInfo(info))
+	r = mux.SetURLVars(r, map[string]string{"key": "k"})
+	w := httptest.NewRecorder()
+	b.handleHAReceiveShard(w, r)
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Empty(t, b.shardsHeld(t, "parity", "k", ""))
 }
