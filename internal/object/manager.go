@@ -99,6 +99,11 @@ type Object struct {
 	Locations []string `json:"-"`
 	// LocationsGen numbers the change that set Locations; internal.
 	LocationsGen int64 `json:"-"`
+	// ECData, ECParity and ECBlock cut the data in shards when ECData is
+	// above 0: Locations[i] holds shard i; internal.
+	ECData   int `json:"-"`
+	ECParity int `json:"-"`
+	ECBlock  int `json:"-"`
 
 	Retention *RetentionConfig `json:"retention,omitempty"`
 	LegalHold *LegalHoldConfig `json:"legal_hold,omitempty"`
@@ -608,57 +613,67 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 	}
 
 	if isEncrypted {
-		decryptKey, keyErr := om.decryptionKeyFor(storageMetadata)
-		if keyErr != nil {
-			encryptedReader.Close()
-			return nil, nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
+		reader, err := om.decrypting(ctx, encryptedReader, storageMetadata)
+		if err != nil {
+			return nil, nil, err
 		}
-
-		pipeReader, pipeWriter := io.Pipe()
-
-		sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
-		if sseAlgorithm == "" {
-			sseAlgorithm = "AES-256-CTR" // assume legacy CTR for unmarked objects
-		}
-		encryptionMeta := &encryption.EncryptionMetadata{
-			Algorithm: sseAlgorithm,
-		}
-
-		// Decrypt in a goroutine — monitor context to prevent goroutine leak
-		go func() {
-			defer encryptedReader.Close()
-
-			// If the caller abandons the reader (e.g., client disconnects),
-			// the context will be cancelled, unblocking pipeWriter.Write()
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-ctx.Done():
-					pipeWriter.CloseWithError(ctx.Err())
-				case <-done:
-				}
-			}()
-
-			err := om.encryptor.DecryptStream(encryptedReader, pipeWriter, decryptKey, encryptionMeta)
-			close(done)
-
-			if err != nil {
-				// Ignore "closed pipe" errors - these occur during range requests when client
-				// closes connection after receiving requested bytes, which is expected behavior
-				if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
-					logrus.WithError(err).Error("Failed to decrypt object data")
-					pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
-					return
-				}
-			}
-			pipeWriter.Close()
-		}()
-
-		return object, pipeReader, nil
+		return object, reader, nil
 	} else {
 		// Object is NOT encrypted - return as-is
 		return object, encryptedReader, nil
 	}
+}
+
+// decrypting reads the plaintext of a stored file from encryptedReader, which
+// it closes; it stops when ctx ends.
+func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.ReadCloser, storageMetadata map[string]string) (io.ReadCloser, error) {
+	decryptKey, keyErr := om.decryptionKeyFor(storageMetadata)
+	if keyErr != nil {
+		encryptedReader.Close()
+		return nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
+	}
+
+	pipeReader, pipeWriter := io.Pipe()
+
+	sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
+	if sseAlgorithm == "" {
+		sseAlgorithm = "AES-256-CTR" // assume legacy CTR for unmarked objects
+	}
+	encryptionMeta := &encryption.EncryptionMetadata{
+		Algorithm: sseAlgorithm,
+	}
+
+	// Decrypt in a goroutine — monitor context to prevent goroutine leak
+	go func() {
+		defer encryptedReader.Close()
+
+		// If the caller abandons the reader (e.g., client disconnects),
+		// the context will be cancelled, unblocking pipeWriter.Write()
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				pipeWriter.CloseWithError(ctx.Err())
+			case <-done:
+			}
+		}()
+
+		err := om.encryptor.DecryptStream(encryptedReader, pipeWriter, decryptKey, encryptionMeta)
+		close(done)
+
+		if err != nil {
+			// Ignore "closed pipe" errors - these occur during range requests when client
+			// closes connection after receiving requested bytes, which is expected behavior
+			if err.Error() != "io: read/write on closed pipe" && !strings.Contains(err.Error(), "closed pipe") {
+				logrus.WithError(err).Error("Failed to decrypt object data")
+				pipeWriter.CloseWithError(fmt.Errorf("decryption failed: %w", err))
+				return
+			}
+		}
+		pipeWriter.Close()
+	}()
+
+	return pipeReader, nil
 }
 
 // putObject stores an object
@@ -780,7 +795,12 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		if err != nil {
 			return nil, err
 		}
+		// Newer locations here, of whole copies or of shards, are the
+		// copy's; it is stored where they name this node for a whole copy.
 		if here != nil && compareLocations(locationsGen, locations, here.LocationsGen, here.Locations) < 0 {
+			if !om.holdsData(here) {
+				return fromMetadataObject(here), nil
+			}
 			locations, locationsGen = here.Locations, here.LocationsGen
 		}
 		if !om.holdsData(&metadata.ObjectMetadata{Locations: locations}) {
@@ -908,6 +928,8 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 				Error("Failed to save object metadata — failing the write (data file kept on disk)")
 			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
+		// The shards held here of the write it replaces go.
+		om.dropStaleShards(ctx, metaObj, objectRef)
 	}
 	committed = true
 	releaseQuota()
@@ -1161,6 +1183,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 			logrus.WithError(err).Error("Failed to delete physical versioned file; bucket size will not be decremented until the file is cleaned up")
 			physicalDeleteOK = false
 		}
+		om.removeShards(ctx, objectRef)
 	}
 
 	if om.bucketManager != nil {
@@ -1254,6 +1277,7 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 			if err := om.storage.Delete(ctx, objectRef); err != nil && err != storage.ErrObjectNotFound {
 				logrus.WithError(err).Warn("Failed to delete orphaned physical file")
 			}
+			om.removeShards(ctx, objectRef)
 
 			// Clean up empty directories
 
@@ -1311,6 +1335,7 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 			}).WithError(err).Warn("Failed to delete physical file after metadata removal; file is now an orphan")
 		}
 	}
+	om.removeShards(ctx, objectRef)
 
 	// Clean up empty parent directories
 
@@ -2316,12 +2341,19 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 
 	var restorePreviousFinal func() error
 	var cleanupPreviousFinalBackup func()
+	// The write it replaces is kept for a rollback where its file is here.
 	if !versioningEnabled && existingObj != nil {
-		restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef, existingObj)
+		exists, err := om.storage.Exists(ctx, objectRef)
 		if err != nil {
-			return nil, fmt.Errorf("failed to backup existing object before multipart completion: %w", err)
+			return nil, fmt.Errorf("failed to check existing object before multipart completion: %w", err)
 		}
-		defer cleanupPreviousFinalBackup()
+		if exists {
+			restorePreviousFinal, cleanupPreviousFinalBackup, err = om.backupStorageObject(ctx, objectRef, existingObj)
+			if err != nil {
+				return nil, fmt.Errorf("failed to backup existing object before multipart completion: %w", err)
+			}
+			defer cleanupPreviousFinalBackup()
+		}
 	}
 
 	// Storage may report an error after publication; retain rollback until metadata commits.
@@ -2408,6 +2440,8 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 			logrus.WithError(delErr).Warn("Failed to remove orphaned combined object after metadata write failure")
 		}
 		return nil, fmt.Errorf("failed to save final multipart object metadata: %w", err)
+	} else {
+		om.dropStaleShards(ctx, metaObj, objectRef)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -2620,7 +2654,11 @@ func (om *objectManager) SetLocalNode(localNode func() string) {
 
 // holdsData reports whether this node is to hold the data of an entry. An
 // entry naming no node, or read outside a cluster, is held where its file is.
+// No node holds the whole data of an entry that cuts it in shards.
 func (om *objectManager) holdsData(meta *metadata.ObjectMetadata) bool {
+	if _, sharded := ErasureLayout(meta); sharded {
+		return false
+	}
 	if meta == nil || len(meta.Locations) == 0 || om.localNode == nil {
 		return true
 	}

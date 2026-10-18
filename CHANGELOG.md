@@ -5,6 +5,17 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Parity: Reed-Solomon erasure coding across the nodes of a cluster, a fourth choice beside the replication factor (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page; 3 healthy nodes at least). Each object is cut in data shards and parity shards, each on its own node: 2+1 on three nodes, 3+1 on four, 3+2 on five, up to 8+2. Up to four nodes an object survives one node down, from five nodes two; three nodes of 1 TB hold 2 TB. A read takes the data shards, and computes a missing one from parity. A write with nodes down is cut in fewer data shards, and short of three nodes kept in two whole copies; with no other node taking data it is answered `503`. Each node encrypts its shard with its own key; the integrity scan and KEK rotation cover shards.
+- The copy repair cuts the writes kept in whole copies in shards when parity is turned on, and joins them again when it is turned off; it makes again the shards of removed, dead or drained nodes, moves a drained node's shards, and cuts again the writes a fifth node gives two parity shards. The anti-entropy makes again a shard a node lacks.
+- `GET /api/v1/cluster/ha` reports `parity`, `data_shards` and `parity_shards`; with parity, the usable capacity, the tolerated failures and the capacity Veeam reads follow the shards.
+- With parity a drain, or marking a node dead, is refused when fewer than three nodes would take data.
+
+### Fixed
+- Completing a multipart upload over a key whose earlier write had no file on the node failed (`failed to backup existing object before multipart completion`): in a cluster, on every node that held the earlier write's entry only.
+
 ## [1.8.0] - 2026-10-13
 
 ### Changed

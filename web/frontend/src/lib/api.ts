@@ -2021,6 +2021,9 @@ export class APIClient {
   // Cluster HA methods
   static async getClusterHA(): Promise<{
     replication_factor: number;
+    parity: boolean;
+    data_shards: number;
+    parity_shards: number;
     node_count: number;
     tolerated_failures: number;
     total_bytes: number;
@@ -2041,8 +2044,15 @@ export class APIClient {
     return response.data.data;
   }
 
-  static async setClusterHA(factor: number): Promise<{ message: string; previous_factor: number; new_factor: number }> {
-    const response = await apiClient.put('/cluster/ha', { factor });
+  static async setClusterHA(protection: number | 'parity'): Promise<{
+    message: string;
+    previous_factor: number;
+    previous_parity: boolean;
+    new_factor: number;
+    parity: boolean;
+  }> {
+    const body = protection === 'parity' ? { parity: true } : { factor: protection };
+    const response = await apiClient.put('/cluster/ha', body);
     return response.data.data;
   }
 

@@ -27,6 +27,15 @@ import type { DrainProgress } from '@/types';
 
 type HealthStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown' | 'dead' | 'storage_pressure';
 type SyncStatus = 'running' | 'done' | 'failed';
+// Protection is how the cluster keeps the data: whole copies, or parity.
+type Protection = 1 | 2 | 3 | 'parity';
+
+// tolerance is the nodes whose loss the data survives; parity has two parity
+// shards from five nodes.
+function tolerance(p: Protection, nodeCount: number): number {
+  if (p === 'parity') return nodeCount > 4 ? 2 : 1;
+  return p - 1;
+}
 
 function HealthBadge({ status, drained }: { status: string; drained?: boolean }) {
   const { t } = useTranslation('cluster');
@@ -151,14 +160,17 @@ export default function ClusterHA() {
   const { t } = useTranslation('cluster');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [selectedFactor, setSelectedFactor] = useState<number | null>(null);
+  const [selectedFactor, setSelectedFactor] = useState<Protection | null>(null);
 
-  // Factor metadata — labels and descriptions come from i18n
+  // Protection metadata — labels and descriptions come from i18n
   const FACTOR_INFO = {
     1: { labelKey: 'factorNoReplication', descKey: 'factorNoReplicationDesc', color: 'text-red-600 dark:text-red-400' },
     2: { labelKey: 'factorMirror',        descKey: 'factorMirrorDesc',        color: 'text-amber-600 dark:text-amber-400' },
     3: { labelKey: 'factorTriple',        descKey: 'factorTripleDesc',        color: 'text-green-600 dark:text-green-400' },
+    parity: { labelKey: 'factorParity',   descKey: 'factorParityDesc',        color: 'text-green-600 dark:text-green-400' },
   } as const;
+  // The nodes each protection needs.
+  const REQUIRED_NODES: Record<Protection, number> = { 1: 1, 2: 2, 3: 3, parity: 3 };
 
   const { data: clusterConfig, isLoading: isConfigLoading, error: configError } = useQuery({
     queryKey: ['cluster-config'],
@@ -196,12 +208,14 @@ export default function ClusterHA() {
   });
 
   const setFactorMutation = useMutation({
-    mutationFn: (factor: number) => APIClient.setClusterHA(factor),
+    mutationFn: (protection: Protection) => APIClient.setClusterHA(protection),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['cluster-ha'] });
       queryClient.invalidateQueries({ queryKey: ['cluster-ha-sync-jobs'] });
       setSelectedFactor(null);
-      ModalManager.toast('success', t('factorChangedSuccess', { factor: result.new_factor }));
+      ModalManager.toast('success', result.parity
+        ? t('parityChangedSuccess')
+        : t('factorChangedSuccess', { factor: result.new_factor }));
     },
     onError: (error: any) => {
       ModalManager.apiError(error);
@@ -233,15 +247,24 @@ export default function ClusterHA() {
   const handleApplyFactor = () => {
     if (selectedFactor === null || !data) return;
 
-    const info = FACTOR_INFO[selectedFactor as keyof typeof FACTOR_INFO];
-    const isDowngrade = selectedFactor < data.replication_factor;
+    const current: Protection = data.parity ? 'parity' : (data.replication_factor as Protection);
+    const info = FACTOR_INFO[selectedFactor];
+    const isDowngrade = tolerance(selectedFactor, data.node_count) < tolerance(current, data.node_count);
     const desc = t(info.descKey);
 
+    let body: string;
+    if (selectedFactor === 'parity') {
+      body = t('confirmParityBody', { desc });
+    } else if (current === 'parity') {
+      body = t('confirmLeaveParityBody', { factor: selectedFactor, desc });
+    } else if (isDowngrade) {
+      body = t('confirmDowngradeBody', { from: current, to: selectedFactor, desc });
+    } else {
+      body = t('confirmChangeBody', { factor: selectedFactor, desc });
+    }
     ModalManager.confirm(
       isDowngrade ? t('confirmDowngradeTitle') : t('confirmChangeTitle'),
-      isDowngrade
-        ? t('confirmDowngradeBody', { from: data.replication_factor, to: selectedFactor, desc })
-        : t('confirmChangeBody', { factor: selectedFactor, desc }),
+      body,
       () => setFactorMutation.mutate(selectedFactor),
     );
   };
@@ -291,9 +314,11 @@ export default function ClusterHA() {
 
   if (!data) return null;
 
-  const activeFactor = selectedFactor ?? data.replication_factor;
-  const activeInfo = FACTOR_INFO[activeFactor as keyof typeof FACTOR_INFO];
-  const hasChange = selectedFactor !== null && selectedFactor !== data.replication_factor;
+  const currentProtection: Protection = data.parity ? 'parity' : (data.replication_factor as Protection);
+  const currentInfo = FACTOR_INFO[currentProtection];
+  const activeFactor = selectedFactor ?? currentProtection;
+  const activeInfo = FACTOR_INFO[activeFactor];
+  const hasChange = selectedFactor !== null && selectedFactor !== currentProtection;
 
   // Storage pressure: any node over 80%
   const pressureNodes = data.nodes.filter(
@@ -361,11 +386,15 @@ export default function ClusterHA() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
           <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('currentFactor')}</p>
-          <p className={`text-2xl font-bold ${FACTOR_INFO[data.replication_factor as keyof typeof FACTOR_INFO].color}`}>
-            ×{data.replication_factor}
+          <p className={`text-2xl font-bold ${currentInfo.color}`}>
+            {data.parity
+              ? data.data_shards > 0 ? `${data.data_shards}+${data.parity_shards}` : t('factorParity')
+              : `×${data.replication_factor}`}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            {t(FACTOR_INFO[data.replication_factor as keyof typeof FACTOR_INFO].labelKey)}
+            {data.parity && data.data_shards > 0
+              ? t('parityLayout', { data: data.data_shards, parity: data.parity_shards })
+              : t(currentInfo.labelKey)}
           </p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
@@ -388,12 +417,13 @@ export default function ClusterHA() {
       <div className="bg-card border border-border rounded-lg p-6 shadow-sm space-y-4">
         <h2 className="text-base font-semibold text-foreground">{t('changeReplicationFactor')}</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {([1, 2, 3] as const).map((f) => {
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {([1, 2, 3, 'parity'] as const).map((f) => {
             const info = FACTOR_INFO[f];
-            const isActive = f === data.replication_factor;
+            const isActive = f === currentProtection;
             const isSelected = f === selectedFactor;
-            const notEnoughNodes = data.node_count < f;
+            const required = REQUIRED_NODES[f];
+            const notEnoughNodes = data.node_count < required;
 
             return (
               <button
@@ -409,7 +439,7 @@ export default function ClusterHA() {
                 } ${notEnoughNodes ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className={`text-lg font-bold ${info.color}`}>×{f}</span>
+                  <span className={`text-lg font-bold ${info.color}`}>{f === 'parity' ? t('factorParity') : `×${f}`}</span>
                   {isActive && (
                     <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
                       {t('factorCurrent')}
@@ -420,7 +450,7 @@ export default function ClusterHA() {
                 <p className="text-xs text-muted-foreground mt-1">{t(info.descKey)}</p>
                 {notEnoughNodes && (
                   <p className="text-xs text-red-500 mt-1">
-                    {t(`factorRequires_${f === 1 ? 'one' : 'other'}`, { count: f, actual: data.node_count })}
+                    {t(`factorRequires_${required === 1 ? 'one' : 'other'}`, { count: required, actual: data.node_count })}
                   </p>
                 )}
               </button>
@@ -442,7 +472,7 @@ export default function ClusterHA() {
               loading={setFactorMutation.isPending}
               disabled={setFactorMutation.isPending}
             >
-              {t('applyFactor', { factor: activeFactor })}
+              {activeFactor === 'parity' ? t('applyParity') : t('applyFactor', { factor: activeFactor })}
             </Button>
           </div>
         )}

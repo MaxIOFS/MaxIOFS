@@ -152,14 +152,14 @@
 
 
   "haReplication": "HAレプリケーション",
-  "haReplicationDesc": "クラスター全体のレプリケーションファクター — すべてのノードのすべてのバケットに適用",
+  "haReplicationDesc": "クラスターがデータを保持する方式（完全コピーまたはパリティ） — すべてのノードのすべてのバケットに適用",
   "haLoadError": "クラスターHAステータスの読み込みに失敗しました。クラスターが有効になっていますか？",
 
   "storagePressureTitle": "ストレージ圧迫が検出されました",
   "storagePressureDesc_one": "{{nodes}}が80%以上の容量を使用しています。ストレージを拡張するかレプリケーションファクターを下げることを検討してください。",
   "storagePressureDesc_other": "{{nodes}}が80%以上の容量を使用しています。ストレージを拡張するかレプリケーションファクターを下げることを検討してください。",
 
-  "currentFactor": "現在のファクター",
+  "currentFactor": "現在の保護方式",
   "usableCapacity": "使用可能容量",
   "ofTotal": "全{{total}}中",
   "toleratedFailures": "許容される障害",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}}台のノードが同時に障害を起こせます",
   "nodesCan_other": "{{count}}台のノードが同時に障害を起こせます",
 
-  "changeReplicationFactor": "レプリケーションファクターを変更",
+  "changeReplicationFactor": "データ保護方式を変更",
   "factorCurrent": "現在",
   "factorRequires_one": "{{count}}台の正常なノードが必要 — クラスターには{{actual}}台あります",
   "factorRequires_other": "{{count}}台の正常なノードが必要 — クラスターには{{actual}}台あります",
   "applyFactor": "×{{factor}}を適用",
 
-  "confirmDowngradeTitle": "レプリケーションファクターをダウングレードしますか？",
-  "confirmChangeTitle": "レプリケーションファクターを変更しますか？",
+  "confirmDowngradeTitle": "データ保護を下げますか？",
+  "confirmChangeTitle": "データ保護方式を変更しますか？",
   "confirmDowngradeBody": "レプリケーションファクターを×{{from}}から×{{to}}に下げます。{{desc}} これにより、バックグラウンドで一部のノードから冗長コピーが削除されます。",
   "confirmChangeBody": "レプリケーションファクターを×{{factor}}に変更します。{{desc}} クラスターはバックグラウンドですべてのデータを新しいレプリカに同期します。",
   "factorChangedSuccess": "レプリケーションファクターが×{{factor}}に変更されました",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "各オブジェクトのコピーを別々のノードに2つ保持します。1台のノード障害を許容します。",
   "factorTriple": "トリプルコピー (×3)",
   "factorTripleDesc": "各オブジェクトのコピーを別々のノードに3つ保持します。2台のノードの同時障害を許容します。",
+  "factorParity": "パリティ",
+  "factorParityDesc": "各オブジェクトをデータシャードとパリティシャードに分割し、ノードごとに1つずつ保持します。4ノードまでは1台、5ノード以上では2台のノード障害を許容し、完全コピーより少ない容量で済みます。",
+  "parityLayout": "データシャード {{data}} + パリティシャード {{parity}}",
+  "applyParity": "パリティを適用",
+  "confirmParityBody": "パリティを有効にします。{{desc}} クラスターはバックグラウンドで保持しているオブジェクトをシャードに分割します。",
+  "confirmLeaveParityBody": "パリティを無効にし、×{{factor}}の完全コピーに切り替えます。{{desc}} クラスターはバックグラウンドでオブジェクトのコピーを作成します。",
+  "parityChangedSuccess": "パリティが有効になりました",
 
   "replicaSyncStatus": "レプリカ同期ステータス",
   "replicaSyncDesc": "各レプリカノードの初期および追いつき同期ジョブ",

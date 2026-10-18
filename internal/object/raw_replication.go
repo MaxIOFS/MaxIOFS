@@ -117,7 +117,7 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 		return err
 	}
 	if here != nil && compareLocations(metaObj.LocationsGen, metaObj.Locations, here.LocationsGen, here.Locations) < 0 {
-		metaObj.Locations, metaObj.LocationsGen = here.Locations, here.LocationsGen
+		takePlacement(metaObj, here)
 	}
 	if !om.holdsData(metaObj) {
 		return nil
@@ -178,6 +178,7 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 				Error("Raw replica: failed to save object metadata")
 			return fmt.Errorf("failed to save replica metadata: %w", err)
 		}
+		om.dropStaleShards(ctx, metaObj, objectRef)
 	}
 	committed = true
 

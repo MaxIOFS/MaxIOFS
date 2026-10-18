@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
@@ -34,6 +35,16 @@ type LocationsChange struct {
 	WrittenAt    int64    `json:"written_at,omitempty"`
 	Locations    []string `json:"locations"`
 	Gen          int64    `json:"gen"`
+	// Layout cuts the data in shards, Locations[i] holding shard i; zero for
+	// whole copies.
+	Layout erasure.Layout `json:"layout,omitzero"`
+}
+
+// takePlacement gives entry the placement of from: its locations, the number
+// of their change and the layout of its shards.
+func takePlacement(entry, from *metadata.ObjectMetadata) {
+	entry.Locations, entry.LocationsGen = from.Locations, from.LocationsGen
+	entry.ECData, entry.ECParity, entry.ECBlock = from.ECData, from.ECParity, from.ECBlock
 }
 
 // compareLocations orders two sets of locations of one write: by the number of
@@ -119,7 +130,7 @@ func (om *objectManager) PutReplicaMetadata(ctx context.Context, meta *metadata.
 		return err
 	}
 	if here != nil && compareLocations(entry.LocationsGen, entry.Locations, here.LocationsGen, here.Locations) < 0 {
-		entry.Locations, entry.LocationsGen = here.Locations, here.LocationsGen
+		takePlacement(&entry, here)
 	}
 
 	if entry.VersionID != "" {
@@ -162,15 +173,16 @@ func (om *objectManager) PutReplicaMetadata(ctx context.Context, meta *metadata.
 	return nil
 }
 
-// dropStaleData removes the file of an entry this node does not hold.
+// dropStaleData removes the file of an entry this node does not hold, and the
+// shards it does not need.
 func (om *objectManager) dropStaleData(ctx context.Context, entry *metadata.ObjectMetadata, ref storage.ObjectRef) {
-	if om.holdsData(entry) {
-		return
+	if !om.holdsData(entry) {
+		if err := om.storage.Delete(ctx, ref); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
+			logrus.WithError(err).WithFields(logrus.Fields{"bucket": ref.Bucket, "key": ref.Key}).
+				Warn("Failed to remove the data of an object other nodes hold")
+		}
 	}
-	if err := om.storage.Delete(ctx, ref); err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
-		logrus.WithError(err).WithFields(logrus.Fields{"bucket": ref.Bucket, "key": ref.Key}).
-			Warn("Failed to remove the data of an object other nodes hold")
-	}
+	om.dropStaleShards(ctx, entry, ref)
 }
 
 // ObjectEntry is this node's entry of an object, or of one of its versions.
@@ -191,7 +203,8 @@ func (om *objectManager) ObjectEntry(ctx context.Context, bucket, key, versionID
 
 // HoldsData reports whether this node has the data of one version of key, or
 // of its current object when versionID is empty: the entry names this node, or
-// no node, and the file is on the disk.
+// no node, and the file is on the disk. Of data cut in shards, it is the shard
+// the entry names this node for.
 func (om *objectManager) HoldsData(ctx context.Context, bucket, key, versionID string) (bool, error) {
 	entry, err := om.ObjectEntry(ctx, bucket, key, versionID)
 	if errors.Is(err, metadata.ErrObjectNotFound) || errors.Is(err, metadata.ErrVersionNotFound) {
@@ -200,7 +213,13 @@ func (om *objectManager) HoldsData(ctx context.Context, bucket, key, versionID s
 	if err != nil {
 		return false, err
 	}
-	if isMetadataDeleteMarker(entry) || !om.holdsData(entry) {
+	if isMetadataDeleteMarker(entry) {
+		return false, nil
+	}
+	if index, ok := om.shardHere(entry); ok {
+		return om.holdsShard(ctx, entry, index)
+	}
+	if !om.holdsData(entry) {
 		return false, nil
 	}
 	ref := om.objectRef(bucket, key)
@@ -228,6 +247,7 @@ func (om *objectManager) SetLocations(ctx context.Context, bucket, key string, c
 		return nil
 	}
 	entry.Locations, entry.LocationsGen = change.Locations, change.Gen
+	entry.ECData, entry.ECParity, entry.ECBlock = change.Layout.Data, change.Layout.Parity, change.Layout.Block
 	ref := om.objectRef(bucket, key)
 	if entry.VersionID != "" {
 		ref = om.versionRef(bucket, key, entry.VersionID)

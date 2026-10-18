@@ -15,8 +15,11 @@ type Backend interface {
 	GetMetadata(ctx context.Context, ref ObjectRef) (map[string]string, error)
 	SetMetadata(ctx context.Context, ref ObjectRef, metadata map[string]string) error
 
-	// List returns every object stored under one bucket, versions included.
+	// List returns every object stored under one bucket, versions and shards
+	// included.
 	List(ctx context.Context, bucket string) ([]ObjectInfo, error)
+	// Shards lists the indexes of the shards stored for a write.
+	Shards(ctx context.Context, ref ObjectRef) ([]int, error)
 
 	CreateBucket(ctx context.Context, bucket string) error
 	DeleteBucket(ctx context.Context, bucket string) error

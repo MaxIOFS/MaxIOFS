@@ -55,6 +55,10 @@ type placement struct {
 	// passOn is set when this node keeps no new data: under storage pressure
 	// or drained.
 	passOn bool
+	// parity: the write is held here alone, then spread over takers, the
+	// nodes that take data, this node first when it does (see spread).
+	parity bool
+	takers []*Node
 }
 
 // place chooses the nodes of a write made here in a cluster: this node and the
@@ -63,10 +67,11 @@ type placement struct {
 // is caught up when it is back. This node, under storage pressure or drained,
 // then passes its copy on (see relieve).
 func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
-	factor, err := h.mgr.GetReplicationFactor(ctx)
+	protection, err := h.mgr.GetProtection(ctx)
 	if err != nil {
 		return nil, false
 	}
+	factor := protection.Factor
 	localID, err := h.mgr.GetLocalNodeID(ctx)
 	if err != nil {
 		return nil, false
@@ -93,9 +98,18 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-	p := &placement{localID: localID, factor: factor, holders: []string{localID}}
-	if local, err := h.mgr.GetNode(ctx, localID); err == nil {
+	p := &placement{localID: localID, factor: factor, holders: []string{localID}, parity: protection.Parity}
+	local, err := h.mgr.GetNode(ctx, localID)
+	if err == nil {
 		p.passOn = local.HealthStatus == HealthStatusStoragePressure || local.Drained
+	}
+	if p.parity {
+		if local != nil && local.TakesData() {
+			p.takers = append(p.takers, local)
+		}
+		p.takers = append(p.takers, others...)
+		p.entries = append(slices.Clone(others), entriesOnly...)
+		return p, true
 	}
 	for _, n := range others {
 		if len(p.holders) < factor {
@@ -111,12 +125,13 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 
 // Space is the data a cluster has room for and the room left, as each node's
 // last health check found its disk: each byte is held on factor different
-// nodes. Dead nodes do not count.
+// nodes, or with parity its shards each on its own node. Dead nodes do not
+// count.
 func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool) {
 	if !m.IsClusterEnabled() {
 		return 0, 0, false
 	}
-	factor, err := m.GetReplicationFactor(ctx)
+	target, err := m.writeTarget(ctx, 1)
 	if err != nil {
 		return 0, 0, false
 	}
@@ -132,7 +147,16 @@ func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool
 		total = append(total, n.CapacityTotal)
 		free = append(free, freeSpace(n))
 	}
-	return spaceForCopies(total, factor), spaceForCopies(free, factor), true
+	return target.space(total), target.space(free), true
+}
+
+// space is the most data the given room of each node holds kept as t keeps
+// it: each shard of a byte is 1/Data of it, on its own node.
+func (t dataTarget) space(room []int64) int64 {
+	if t.sharded() {
+		return int64(t.layout.Data) * spaceForCopies(room, t.layout.Width())
+	}
+	return spaceForCopies(room, t.copies)
 }
 
 // spaceForCopies is the most data the given room of each node holds when each
@@ -298,7 +322,7 @@ func sendObjectEntry(ctx context.Context, client *ProxyClient, n *Node, localID,
 }
 
 // GetObject reads an object. One whose data other nodes hold is read from
-// them, from the part asked for.
+// them, from the part asked for; one cut in shards from its shards.
 func (h *HAObjectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*object.Object, io.ReadCloser, error) {
 	obj, reader, err := h.Manager.GetObject(ctx, bucket, key, versionID...)
 	var elsewhere *object.DataElsewhereError
@@ -307,6 +331,13 @@ func (h *HAObjectManager) GetObject(ctx context.Context, bucket, key string, ver
 	}
 	if !h.mgr.IsClusterEnabled() {
 		return nil, nil, object.ErrObjectNotFound
+	}
+	if _, sharded := elsewhere.Object.Erasure(); sharded {
+		shards, err := h.openShards(ctx, elsewhere.Object)
+		if err != nil {
+			return nil, nil, err
+		}
+		return elsewhere.Object, shards, nil
 	}
 	remote, err := h.openRemote(ctx, bucket, key, elsewhere.Object, elsewhere.Locations)
 	if err != nil {

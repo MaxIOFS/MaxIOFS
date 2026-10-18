@@ -8,10 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/sirupsen/logrus"
 )
 
-// handleGetClusterHA returns the current cluster replication factor and node status.
+// handleGetClusterHA returns how the cluster keeps its data — the replication
+// factor, or parity with the shards of a write — and node status.
 // GET /cluster/ha
 func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
@@ -24,11 +26,12 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	factor, err := s.clusterManager.GetReplicationFactor(r.Context())
+	protection, err := s.clusterManager.GetProtection(r.Context())
 	if err != nil {
 		s.writeError(w, "Failed to get replication factor: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	factor := protection.Factor
 
 	// Refresh all nodes' capacity by running a health check on each before listing.
 	allNodes, _ := s.clusterManager.ListNodes(r.Context())
@@ -54,6 +57,18 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 
 	// How many node failures the cluster can tolerate
 	toleratedFailures := factor - 1
+
+	// With parity a write is cut in data and parity shards, each on its own
+	// node; too few nodes keep it in two whole copies.
+	var dataShards, parityShards int
+	if protection.Parity {
+		usableBytes, toleratedFailures = totalBytes/2, 1
+		if layout, ok, err := s.clusterManager.ParityLayout(r.Context()); err == nil && ok {
+			dataShards, parityShards = layout.Data, layout.Parity
+			usableBytes = totalBytes * int64(layout.Data) / int64(layout.Width())
+			toleratedFailures = layout.Parity
+		}
+	}
 
 	type nodeStatus struct {
 		ID            string `json:"id"`
@@ -96,6 +111,9 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, map[string]interface{}{
 		"replication_factor": factor,
+		"parity":             protection.Parity,
+		"data_shards":        dataShards,
+		"parity_shards":      parityShards,
 		"node_count":         len(nodes),
 		"tolerated_failures": toleratedFailures,
 		"total_bytes":        totalBytes,
@@ -222,7 +240,8 @@ func (s *Server) handleGetClusterDegradedState(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// handleSetClusterHA changes the cluster-wide replication factor.
+// handleSetClusterHA changes how the cluster keeps its data: a replication
+// factor of whole copies, or parity.
 func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
@@ -235,13 +254,14 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Factor int `json:"factor"`
+		Factor int  `json:"factor"`
+		Parity bool `json:"parity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Factor < 1 || req.Factor > 3 {
+	if !req.Parity && (req.Factor < 1 || req.Factor > 3) {
 		s.writeError(w, "factor must be 1, 2, or 3", http.StatusBadRequest)
 		return
 	}
@@ -251,7 +271,13 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Failed to retrieve cluster nodes: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if len(nodes) < req.Factor {
+	if req.Parity && len(nodes) < 3 {
+		s.writeError(w, fmt.Sprintf(
+			"Not enough healthy nodes: parity requires 3 healthy nodes, cluster has %d", len(nodes),
+		), http.StatusBadRequest)
+		return
+	}
+	if !req.Parity && len(nodes) < req.Factor {
 		s.writeError(w, fmt.Sprintf(
 			"Not enough healthy nodes: factor %d requires %d healthy node(s), cluster has %d",
 			req.Factor, req.Factor, len(nodes),
@@ -267,7 +293,16 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 	}
 	// With replication, each replica node needs totalDataBytes / currentFactor worth of data
 	// Simplified: each node needs totalDataBytes / factor free space
-	requiredPerNode := totalDataBytes / int64(req.Factor)
+	var requiredPerNode int64
+	if req.Parity {
+		// Each node holds a shard of each write: Width/Data of the data over
+		// the nodes.
+		if layout, ok := erasure.For(len(nodes)); ok {
+			requiredPerNode = totalDataBytes * int64(layout.Width()) / int64(layout.Data) / int64(len(nodes))
+		}
+	} else {
+		requiredPerNode = totalDataBytes / int64(req.Factor)
+	}
 	requiredWithHeadroom := int64(float64(requiredPerNode) * 1.2)
 
 	type insufficientNode struct {
@@ -298,36 +333,53 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentFactor, _ := s.clusterManager.GetReplicationFactor(r.Context())
+	previous, _ := s.clusterManager.GetProtection(r.Context())
 
-	if err := s.clusterManager.SetReplicationFactor(r.Context(), req.Factor); err != nil {
+	if req.Parity {
+		err = s.clusterManager.SetParity(r.Context(), true)
+	} else {
+		err = s.clusterManager.SetReplicationFactor(r.Context(), req.Factor)
+		if err == nil && previous.Parity {
+			err = s.clusterManager.SetParity(r.Context(), false)
+		}
+	}
+	if err != nil {
 		s.writeError(w, "Failed to set replication factor: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	current, _ := s.clusterManager.GetProtection(r.Context())
 
 	logrus.WithFields(logrus.Fields{
-		"previous_factor": currentFactor,
-		"new_factor":      req.Factor,
+		"previous_factor": previous.Factor,
+		"previous_parity": previous.Parity,
+		"new_factor":      current.Factor,
+		"new_parity":      current.Parity,
 	}).Info("Cluster replication factor changed")
 
-	// Every node acts on the new factor; the others are told now.
-	if req.Factor != currentFactor {
-		s.factorChanged(currentFactor, req.Factor)
+	// Every node acts on the new protection; the others are told now.
+	if current != previous {
+		s.protectionChanged(previous, current)
 		s.syncMembershipNow()
 	}
 
+	message := "Replication factor updated"
+	if current.Parity {
+		message = "Parity turned on"
+	}
 	s.writeJSON(w, map[string]interface{}{
-		"message":         "Replication factor updated",
-		"previous_factor": currentFactor,
-		"new_factor":      req.Factor,
+		"message":         message,
+		"previous_factor": previous.Factor,
+		"previous_parity": previous.Parity,
+		"new_factor":      current.Factor,
+		"parity":          current.Parity,
 	})
 }
 
-// factorChanged makes this node act on a change of the replication factor,
-// made here or received from another node: its copies follow the new factor.
-// The work outlives the request that brings it.
-func (s *Server) factorChanged(previous, factor int) {
-	if s.haSyncWorker == nil || previous == factor {
+// protectionChanged makes this node act on a change of how the cluster keeps
+// its data, made here or received from another node: its copies and shards
+// follow the new protection. The work outlives the request that brings it.
+func (s *Server) protectionChanged(previous, current cluster.Protection) {
+	if s.haSyncWorker == nil || previous == current {
 		return
 	}
 	s.haSyncWorker.Trigger(s.backgroundContext())

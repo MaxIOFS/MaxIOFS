@@ -127,6 +127,8 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/cluster` | Tombstone-based deletion sync, rate limiter |
 | `internal/cluster` | Membership, health, object placement and copies between nodes, replication queue/workers |
 | `internal/cluster` | HA object manager: quorum writes, local rollback on quorum failure, anti-entropy |
+| `internal/cluster` | Parity: shards of each write over the nodes, reads that rebuild a missing shard, shard repair |
+| `internal/erasure` | Reed-Solomon layouts: cut an object in data and parity shards, read it back from any of them as many as its data shards |
 | `internal/clusterauth` | Inter-node request signature definition |
 | `internal/transfer` | Progress-based stall watchdog for requests that carry object data |
 | `internal/replication` | External S3 replication (user-configured, separate from cluster) |
@@ -180,9 +182,12 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
     │   ├── .maxiofs-bucket ←     Marker: tenant-qualified bucket path
     │   ├── 3f/a2/3fa2…c9   ←     Object: SHA-256 of the key (of key and
     │   │                          version ID for a stored version)
-    │   └── 3f/a2/3fa2…c9.metadata
-    │                       ←     Sidecar: size, etag, content-type,
-    │                              encryption fields (wrapped DEK)
+    │   ├── 3f/a2/3fa2…c9.metadata
+    │   │                   ←     Sidecar: size, etag, content-type,
+    │   │                          encryption fields (wrapped DEK)
+    │   └── 3f/a2/3fa2…c9.shard-1 (+ .metadata)
+    │                       ←     With parity: this node's shard of the
+    │                              object, encrypted with its own DEK
     └── ...
 ```
 
@@ -337,7 +342,8 @@ MaxIOFS supports **five authentication methods**:
 12. Cluster (replication factor 2 or 3): replicate to the healthy peers; a peer
     that misses the write is caught up when it is back. A factor of 3 needs one
     peer to confirm, or the new version is removed locally and the request
-    answers 503
+    answers 503. With parity: cut the object in data and parity shards, store
+    one on each node, then name them in the entry; the copy of step 9 goes
 13. Optional: Trigger webhook notifications (ObjectCreated)
 14. Return success to client
 ```
@@ -351,7 +357,8 @@ MaxIOFS supports **five authentication methods**:
    listings, HEAD and metadata from its own entry
 4. A read whose data Node 2 does not hold is read from a node that holds it
 5. A write is held by Node 2 and the nodes with the most free space, up to
-   the replication factor; its entry reaches every node before the answer
+   the replication factor, or cut in shards over them with parity; its entry
+   reaches every node before the answer
 6. A multipart upload's requests go to the node it was started on
 ```
 

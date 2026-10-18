@@ -50,6 +50,10 @@ type haNode struct {
 	// copyAnswer, when set, is the status its cluster port answers a copy
 	// with once the copy is made: the sender takes it as failed.
 	copyAnswer atomic.Int32
+	// shards counts the shards its cluster port takes; refuseShards makes it
+	// refuse them.
+	shards       atomic.Int32
+	refuseShards atomic.Bool
 }
 
 // haCluster is n complete nodes of one cluster with a replication factor,
@@ -82,6 +86,13 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 					http.Error(w, "answer lost", int(code))
 					return
 				}
+			}
+			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/ha/shards/") {
+				if node.refuseShards.Load() {
+					http.Error(w, "refused", http.StatusInternalServerError)
+					return
+				}
+				node.shards.Add(1)
 			}
 			if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/ha/object-entry") {
 				if fn := node.onEntry.Load(); fn != nil {

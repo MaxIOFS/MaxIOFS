@@ -412,6 +412,9 @@ decrypt after the rebuild. `--dry-run` reports without writing anything.
   error) and keeps the database's current-key marker.
 - Users, permissions and bucket configuration (policies, lifecycle, quotas)
   live in SQLite and must be re-applied by the admin if that database was lost.
+- **Shards** of objects a cluster with parity cut in shards are passed over: a
+  shard alone is not an object. The other nodes send the node the entries of
+  those objects when it is back in the cluster, and its shards serve again.
 
 ### Restore Procedure (Cluster)
 

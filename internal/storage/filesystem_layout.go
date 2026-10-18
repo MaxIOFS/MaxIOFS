@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,11 +37,61 @@ func BucketDirName(bucket string) string {
 // RefPath maps an object reference onto its location under the storage root.
 // The key never reaches the filesystem: the name is a digest, so no key can
 // collide with another, with a prefix of itself, or with a name that differs
-// only in case.
+// only in case. A shard is beside its write's file, named after it.
 func RefPath(ref ObjectRef) string {
 	sum := sha256.Sum256(digestInput(ref))
 	name := hex.EncodeToString(sum[:])
-	return path.Join(BucketDirName(ref.Bucket), name[0:2], name[2:4], name)
+	p := path.Join(BucketDirName(ref.Bucket), name[0:2], name[2:4], name)
+	if i, ok := ref.ShardIndex(); ok {
+		p += shardSuffix + strconv.Itoa(i)
+	}
+	return p
+}
+
+const shardSuffix = ".shard-"
+
+// IsShardFileName reports whether a file under a bucket is a shard's data.
+func IsShardFileName(name string) bool {
+	base, index, ok := strings.Cut(name, shardSuffix)
+	if !ok || len(base) != sha256.Size*2 || index == "" {
+		return false
+	}
+	for _, c := range index {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Shards lists the indexes of the shards stored for the write ref names.
+func (fs *FilesystemBackend) Shards(ctx context.Context, ref ObjectRef) (_ []int, err error) {
+	defer fs.observe("Shards", time.Now(), &err)
+	ref = ref.Write()
+	if err := validateRef(ref); err != nil {
+		return nil, err
+	}
+	write := RefPath(ref)
+	entries, err := os.ReadDir(fs.getFullPath(path.Dir(write)))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, NewErrorWithCause("ReadDirectory", "Failed to list the shards of a write", err)
+	}
+	prefix := path.Base(write) + shardSuffix
+	var shards []int
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, prefix) || !IsShardFileName(name) {
+			continue
+		}
+		if i, err := strconv.Atoi(name[len(prefix):]); err == nil {
+			shards = append(shards, i)
+		}
+	}
+	slices.Sort(shards)
+	return shards, nil
 }
 
 // ObjectPath returns where an object lives under the storage root.
@@ -144,6 +195,11 @@ func withIdentity(metadata map[string]string, ref ObjectRef) map[string]string {
 		delete(metadata, MetadataVersionField)
 	} else {
 		metadata[MetadataVersionField] = ref.VersionID
+	}
+	if i, ok := ref.ShardIndex(); ok {
+		metadata[MetadataShardField] = strconv.Itoa(i)
+	} else {
+		delete(metadata, MetadataShardField)
 	}
 	return metadata
 }

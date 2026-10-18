@@ -152,14 +152,14 @@
 
 
   "haReplication": "Replicação HA",
-  "haReplicationDesc": "Fator de replicação do cluster — aplica-se a todos os buckets em todos os nós",
+  "haReplicationDesc": "Como o cluster guarda os dados — cópias inteiras ou paridade — aplica-se a todos os buckets em todos os nós",
   "haLoadError": "Falha ao carregar o status de HA do cluster. O cluster está habilitado?",
 
   "storagePressureTitle": "Pressão de armazenamento detectada",
   "storagePressureDesc_one": "{{nodes}} está acima de 80% de capacidade. Considere expandir o armazenamento ou reduzir o fator de replicação.",
   "storagePressureDesc_other": "{{nodes}} estão acima de 80% de capacidade. Considere expandir o armazenamento ou reduzir o fator de replicação.",
 
-  "currentFactor": "Fator atual",
+  "currentFactor": "Proteção atual",
   "usableCapacity": "Capacidade utilizável",
   "ofTotal": "de {{total}} total",
   "toleratedFailures": "Falhas toleradas",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} nó pode falhar simultaneamente",
   "nodesCan_other": "{{count}} nós podem falhar simultaneamente",
 
-  "changeReplicationFactor": "Alterar fator de replicação",
+  "changeReplicationFactor": "Alterar a proteção dos dados",
   "factorCurrent": "Atual",
   "factorRequires_one": "Requer {{count}} nó saudável — o cluster tem {{actual}}",
   "factorRequires_other": "Requer {{count}} nós saudáveis — o cluster tem {{actual}}",
   "applyFactor": "Aplicar ×{{factor}}",
 
-  "confirmDowngradeTitle": "Reduzir fator de replicação?",
-  "confirmChangeTitle": "Alterar fator de replicação?",
+  "confirmDowngradeTitle": "Reduzir a proteção dos dados?",
+  "confirmChangeTitle": "Alterar a proteção dos dados?",
   "confirmDowngradeBody": "Você está reduzindo o fator de replicação de ×{{from}} para ×{{to}}. {{desc}} Isso removerá cópias redundantes de alguns nós em segundo plano.",
   "confirmChangeBody": "Você está alterando o fator de replicação para ×{{factor}}. {{desc}} O cluster sincronizará todos os dados para as novas réplicas em segundo plano.",
   "factorChangedSuccess": "Fator de replicação alterado para ×{{factor}}",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "Duas cópias de cada objeto, em nós diferentes. Tolera a falha de 1 nó.",
   "factorTriple": "Cópia tripla (×3)",
   "factorTripleDesc": "Três cópias de cada objeto, em nós diferentes. Tolera 2 falhas simultâneas de nós.",
+  "factorParity": "Paridade",
+  "factorParityDesc": "Cada objeto é dividido em fragmentos de dados e de paridade, um por nó. Até 4 nós tolera a falha de 1 nó, a partir de 5 nós de 2, com menos espaço que cópias inteiras.",
+  "parityLayout": "{{data}} fragmentos de dados + {{parity}} de paridade",
+  "applyParity": "Aplicar paridade",
+  "confirmParityBody": "Você está ativando a paridade. {{desc}} O cluster divide em fragmentos os objetos que guarda em segundo plano.",
+  "confirmLeaveParityBody": "Você está desativando a paridade para ×{{factor}} cópias inteiras. {{desc}} O cluster cria as cópias dos objetos em segundo plano.",
+  "parityChangedSuccess": "Paridade ativada",
 
   "replicaSyncStatus": "Status de sincronização de réplicas",
   "replicaSyncDesc": "Jobs de sincronização inicial e de atualização para cada nó de réplica",

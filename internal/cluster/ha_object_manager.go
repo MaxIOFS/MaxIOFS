@@ -219,6 +219,13 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 	if err != nil || !placed {
 		return obj, err
 	}
+	if p.parity {
+		if err := h.spread(ctx, p, obj); err != nil {
+			h.rollbackLocalPut(ctx, bucket, key, obj.VersionID, "PutObject")
+			return nil, err
+		}
+		return obj, nil
+	}
 	if err := h.replicate(ctx, p, bucket, key, obj.VersionID, obj.LastModified); err != nil {
 		h.rollbackLocalPut(ctx, bucket, key, obj.VersionID, "PutObject")
 		return nil, err
@@ -352,6 +359,13 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 	if err != nil || !placed {
 		return obj, err
 	}
+	if p.parity {
+		if err := h.spread(ctx, p, obj); err != nil {
+			h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, obj.VersionID, "CompleteMultipartUpload")
+			return nil, err
+		}
+		return obj, nil
+	}
 	if err := h.replicate(ctx, p, obj.Bucket, obj.Key, obj.VersionID, obj.LastModified); err != nil {
 		h.rollbackLocalPut(ctx, obj.Bucket, obj.Key, obj.VersionID, "CompleteMultipartUpload")
 		return nil, err
@@ -438,7 +452,7 @@ func (h *HAObjectManager) deleteTargets(ctx context.Context, deleted time.Time) 
 	if !h.mgr.IsClusterEnabled() {
 		return nil, 0, false
 	}
-	factor, err := h.mgr.GetReplicationFactor(ctx)
+	factor, err := h.mgr.quorumFactor(ctx)
 	if err != nil {
 		return nil, 0, false
 	}

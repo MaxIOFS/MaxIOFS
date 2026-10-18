@@ -47,8 +47,8 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 |---------|---------|--------|--------|------------|
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution | AGPL-3.0 | LGPL |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary | Monitors, managers, OSDs and RGW daemons, usually through cephadm or Rook |
-| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
-| **Erasure coding** | ❌ Not yet — whole copies | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
+| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, or parity, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
+| **Erasure coding** | ✅ Across nodes: Reed-Solomon parity, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
 | **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ⚠️ Enterprise only (site, bucket, batch) | ❌ No replication API | ⚠️ Between zones of a multisite configuration |
 | **Tiering** (lifecycle transitions to colder storage) | ❌ | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
 | **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys | ❌ Separate deployments per tenant | ❌ | ✅ RGW tenants |
@@ -81,7 +81,7 @@ drives (Free), or you need petabyte-scale clusters, tiering and a support SLA
 unreliable links, on modest hardware, and do not need versioning, Object Lock,
 bucket policies or server-side encryption.
 
-**Use Ceph when:** you need large scale, erasure coding across nodes, tiering, or
+**Use Ceph when:** you need large scale, tiering, or
 block and file storage next to object storage, and you have the people to run a
 Ceph cluster.
 
@@ -193,6 +193,7 @@ Ceph cluster.
 - **Dedicated cluster port 8082** — inter-node coordination fully separated from S3 (8080) and Console (8081)
 - Automatic failover and health monitoring
 - Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
+- **Parity** (Reed-Solomon erasure coding across nodes, like RAID 5, and RAID 6 from five nodes): each object is cut in data and parity shards, one per node; it survives 1 node down up to 4 nodes and 2 from 5, and 3 nodes of 1 TB hold 2 TB
 - A node that comes back is caught up at once with the writes and deletes it missed
 - Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - Anti-entropy, dead-node redistribution, storage-pressure health state
@@ -358,7 +359,7 @@ cd web/frontend && npm run test        # 121 frontend tests
 
 ## Known Limitations
 
-- **No erasure coding** — single-node data redundancy relies on filesystem/RAID; a cluster keeps whole copies of each object, one per node up to the factor
+- **No erasure coding within one node** — a single node's redundancy relies on filesystem/RAID; parity spreads shards across cluster nodes
 - **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned

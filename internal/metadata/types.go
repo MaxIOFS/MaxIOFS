@@ -20,15 +20,21 @@ type ObjectMetadata struct {
 	// written before: the data is where the file is. LocationsGen numbers the
 	// change that set them: 0 for the write, one more on each change; every
 	// node keeps the highest.
-	Locations          []string `json:"locations,omitempty"`
-	LocationsGen       int64    `json:"locations_gen,omitempty"`
-	ETag               string   `json:"etag"`
-	ContentType        string   `json:"content_type"`
-	StorageClass       string   `json:"storage_class,omitempty"`
-	ContentDisposition string   `json:"content_disposition,omitempty"`
-	ContentEncoding    string   `json:"content_encoding,omitempty"`
-	CacheControl       string   `json:"cache_control,omitempty"`
-	ContentLanguage    string   `json:"content_language,omitempty"`
+	Locations    []string `json:"locations,omitempty"`
+	LocationsGen int64    `json:"locations_gen,omitempty"`
+	// ECData above 0 cuts the data in Reed-Solomon shards: ECData data
+	// shards, ECParity parity shards, ECBlock bytes of each shard per stripe.
+	// Locations[i] holds shard i; no node holds the whole data.
+	ECData             int    `json:"ec_data,omitempty"`
+	ECParity           int    `json:"ec_parity,omitempty"`
+	ECBlock            int    `json:"ec_block,omitempty"`
+	ETag               string `json:"etag"`
+	ContentType        string `json:"content_type"`
+	StorageClass       string `json:"storage_class,omitempty"`
+	ContentDisposition string `json:"content_disposition,omitempty"`
+	ContentEncoding    string `json:"content_encoding,omitempty"`
+	CacheControl       string `json:"cache_control,omitempty"`
+	ContentLanguage    string `json:"content_language,omitempty"`
 
 	// Custom metadata (user-defined headers)
 	Metadata map[string]string `json:"metadata,omitempty"`

@@ -152,14 +152,14 @@
 
 
   "haReplication": "Replica HA",
-  "haReplicationDesc": "Fattore di replica a livello cluster — si applica a tutti i bucket su tutti i nodi",
+  "haReplicationDesc": "Come il cluster conserva i dati — copie intere o parità — si applica a tutti i bucket su tutti i nodi",
   "haLoadError": "Impossibile caricare lo stato HA del cluster. Il cluster è abilitato?",
 
   "storagePressureTitle": "Pressione di archiviazione rilevata",
   "storagePressureDesc_one": "{{nodes}} è sopra l'80% di capacità. Considerare di espandere l'archiviazione o ridurre il fattore di replica.",
   "storagePressureDesc_other": "{{nodes}} sono sopra l'80% di capacità. Considerare di espandere l'archiviazione o ridurre il fattore di replica.",
 
-  "currentFactor": "Fattore attuale",
+  "currentFactor": "Protezione attuale",
   "usableCapacity": "Capacità utilizzabile",
   "ofTotal": "di {{total}} totali",
   "toleratedFailures": "Guasti tollerati",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} nodo può guastarsi contemporaneamente",
   "nodesCan_other": "{{count}} nodi possono guastarsi contemporaneamente",
 
-  "changeReplicationFactor": "Cambia fattore di replica",
+  "changeReplicationFactor": "Cambia la protezione dei dati",
   "factorCurrent": "Attuale",
   "factorRequires_one": "Richiede {{count}} nodo integro — il cluster ne ha {{actual}}",
   "factorRequires_other": "Richiede {{count}} nodi integri — il cluster ne ha {{actual}}",
   "applyFactor": "Applica ×{{factor}}",
 
-  "confirmDowngradeTitle": "Ridurre il fattore di replica?",
-  "confirmChangeTitle": "Cambiare il fattore di replica?",
+  "confirmDowngradeTitle": "Ridurre la protezione dei dati?",
+  "confirmChangeTitle": "Cambiare la protezione dei dati?",
   "confirmDowngradeBody": "Si sta riducendo il fattore di replica da ×{{from}} a ×{{to}}. {{desc}} Questo rimuoverà le copie ridondanti da alcuni nodi in background.",
   "confirmChangeBody": "Si sta modificando il fattore di replica a ×{{factor}}. {{desc}} Il cluster sincronizzerà tutti i dati alle nuove repliche in background.",
   "factorChangedSuccess": "Fattore di replica modificato a ×{{factor}}",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "Due copie di ogni oggetto, su nodi diversi. Tollera il guasto di 1 nodo.",
   "factorTriple": "Copia tripla (×3)",
   "factorTripleDesc": "Tre copie di ogni oggetto, su nodi diversi. Tollera 2 guasti simultanei di nodi.",
+  "factorParity": "Parità",
+  "factorParityDesc": "Ogni oggetto è diviso in frammenti di dati e di parità, uno per nodo. Fino a 4 nodi tollera il guasto di 1 nodo, da 5 nodi di 2, con meno spazio delle copie intere.",
+  "parityLayout": "{{data}} frammenti di dati + {{parity}} di parità",
+  "applyParity": "Applica parità",
+  "confirmParityBody": "Si sta attivando la parità. {{desc}} Il cluster divide in frammenti gli oggetti che conserva in background.",
+  "confirmLeaveParityBody": "Si sta disattivando la parità per ×{{factor}} copie intere. {{desc}} Il cluster crea le copie degli oggetti in background.",
+  "parityChangedSuccess": "Parità attivata",
 
   "replicaSyncStatus": "Stato sincronizzazione repliche",
   "replicaSyncDesc": "Lavori di sincronizzazione iniziali e di recupero per ogni nodo replica",

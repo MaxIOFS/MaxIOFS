@@ -152,14 +152,14 @@
 
 
   "haReplication": "HA 复制",
-  "haReplicationDesc": "集群范围复制因子 — 应用于所有节点上的所有存储桶",
+  "haReplicationDesc": "集群保存数据的方式（完整副本或奇偶校验）— 应用于所有节点上的所有存储桶",
   "haLoadError": "加载集群 HA 状态失败，集群是否已启用？",
 
   "storagePressureTitle": "检测到存储压力",
   "storagePressureDesc_one": "{{nodes}} 容量超过 80%，请考虑扩展存储或降低复制因子。",
   "storagePressureDesc_other": "{{nodes}} 容量超过 80%，请考虑扩展存储或降低复制因子。",
 
-  "currentFactor": "当前因子",
+  "currentFactor": "当前保护方式",
   "usableCapacity": "可用容量",
   "ofTotal": "共 {{total}}",
   "toleratedFailures": "可容忍的故障",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} 个节点可以同时故障",
   "nodesCan_other": "{{count}} 个节点可以同时故障",
 
-  "changeReplicationFactor": "更改复制因子",
+  "changeReplicationFactor": "更改数据保护方式",
   "factorCurrent": "当前",
   "factorRequires_one": "需要 {{count}} 个健康节点 — 集群有 {{actual}} 个",
   "factorRequires_other": "需要 {{count}} 个健康节点 — 集群有 {{actual}} 个",
   "applyFactor": "应用 ×{{factor}}",
 
-  "confirmDowngradeTitle": "降低复制因子？",
-  "confirmChangeTitle": "更改复制因子？",
+  "confirmDowngradeTitle": "降低数据保护级别？",
+  "confirmChangeTitle": "更改数据保护方式？",
   "confirmDowngradeBody": "您正在将复制因子从 ×{{from}} 降低到 ×{{to}}。{{desc}} 这将在后台从某些节点删除冗余副本。",
   "confirmChangeBody": "您正在将复制因子更改为 ×{{factor}}。{{desc}} 集群将在后台将所有数据同步到新副本。",
   "factorChangedSuccess": "复制因子已更改为 ×{{factor}}",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "每个对象两个副本，位于不同节点。可容忍 1 个节点故障。",
   "factorTriple": "三重副本 (×3)",
   "factorTripleDesc": "每个对象三个副本，位于不同节点。可容忍 2 个节点同时故障。",
+  "factorParity": "奇偶校验",
+  "factorParityDesc": "每个对象被切分为数据分片和校验分片，每个节点保存一个。最多 4 个节点时可容忍 1 个节点故障，5 个及以上节点时可容忍 2 个，占用空间少于完整副本。",
+  "parityLayout": "{{data}} 个数据分片 + {{parity}} 个校验分片",
+  "applyParity": "应用奇偶校验",
+  "confirmParityBody": "您正在启用奇偶校验。{{desc}} 集群将在后台把所保存的对象切分为分片。",
+  "confirmLeaveParityBody": "您正在关闭奇偶校验，改为 ×{{factor}} 份完整副本。{{desc}} 集群将在后台创建对象的副本。",
+  "parityChangedSuccess": "已启用奇偶校验",
 
   "replicaSyncStatus": "副本同步状态",
   "replicaSyncDesc": "每个副本节点的初始和追赶同步任务",

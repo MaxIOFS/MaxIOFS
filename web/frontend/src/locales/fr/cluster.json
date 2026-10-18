@@ -152,14 +152,14 @@
 
 
   "haReplication": "Réplication HA",
-  "haReplicationDesc": "Facteur de réplication à l'échelle du cluster — s'applique à tous les buckets sur tous les nœuds",
+  "haReplicationDesc": "Comment le cluster conserve les données — copies entières ou parité — s'applique à tous les buckets sur tous les nœuds",
   "haLoadError": "Échec du chargement du statut HA du cluster. Le cluster est-il activé ?",
 
   "storagePressureTitle": "Pression de stockage détectée",
   "storagePressureDesc_one": "{{nodes}} est au-dessus de 80% de capacité. Envisagez d'étendre le stockage ou de réduire le facteur de réplication.",
   "storagePressureDesc_other": "{{nodes}} sont au-dessus de 80% de capacité. Envisagez d'étendre le stockage ou de réduire le facteur de réplication.",
 
-  "currentFactor": "Facteur actuel",
+  "currentFactor": "Protection actuelle",
   "usableCapacity": "Capacité utilisable",
   "ofTotal": "sur {{total}} au total",
   "toleratedFailures": "Pannes tolérées",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} nœud peut tomber en panne simultanément",
   "nodesCan_other": "{{count}} nœuds peuvent tomber en panne simultanément",
 
-  "changeReplicationFactor": "Modifier le facteur de réplication",
+  "changeReplicationFactor": "Modifier la protection des données",
   "factorCurrent": "Actuel",
   "factorRequires_one": "Nécessite {{count}} nœud sain — le cluster en a {{actual}}",
   "factorRequires_other": "Nécessite {{count}} nœuds sains — le cluster en a {{actual}}",
   "applyFactor": "Appliquer ×{{factor}}",
 
-  "confirmDowngradeTitle": "Réduire le facteur de réplication ?",
-  "confirmChangeTitle": "Modifier le facteur de réplication ?",
+  "confirmDowngradeTitle": "Réduire la protection des données ?",
+  "confirmChangeTitle": "Modifier la protection des données ?",
   "confirmDowngradeBody": "Vous réduisez le facteur de réplication de ×{{from}} à ×{{to}}. {{desc}} Cela supprimera les copies redondantes de certains nœuds en arrière-plan.",
   "confirmChangeBody": "Vous modifiez le facteur de réplication à ×{{factor}}. {{desc}} Le cluster synchronisera toutes les données vers les nouvelles répliques en arrière-plan.",
   "factorChangedSuccess": "Facteur de réplication modifié à ×{{factor}}",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "Deux copies de chaque objet, sur des nœuds différents. Tolère la panne d'1 nœud.",
   "factorTriple": "Triple copie (×3)",
   "factorTripleDesc": "Trois copies de chaque objet, sur des nœuds différents. Tolère 2 pannes de nœuds simultanées.",
+  "factorParity": "Parité",
+  "factorParityDesc": "Chaque objet est découpé en fragments de données et de parité, un par nœud. Jusqu'à 4 nœuds il tolère la panne d'1 nœud, à partir de 5 nœuds de 2, avec moins d'espace que des copies entières.",
+  "parityLayout": "{{data}} fragments de données + {{parity}} de parité",
+  "applyParity": "Appliquer la parité",
+  "confirmParityBody": "Vous activez la parité. {{desc}} Le cluster découpe en fragments les objets qu'il conserve en arrière-plan.",
+  "confirmLeaveParityBody": "Vous désactivez la parité au profit de ×{{factor}} copies entières. {{desc}} Le cluster crée les copies des objets en arrière-plan.",
+  "parityChangedSuccess": "Parité activée",
 
   "replicaSyncStatus": "Statut de synchronisation des répliques",
   "replicaSyncDesc": "Tâches de synchronisation initiale et de rattrapage pour chaque nœud réplique",

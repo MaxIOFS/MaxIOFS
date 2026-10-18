@@ -11,6 +11,8 @@ const (
 	MetadataBucketField  = "maxiofs-bucket"
 	MetadataKeyField     = "maxiofs-key"
 	MetadataVersionField = "maxiofs-version"
+	// MetadataShardField is the index of a shard among its write's shards.
+	MetadataShardField = "maxiofs-shard"
 )
 
 // Sidecar fields keeping an object's Object Lock state, so that a metadata
@@ -41,6 +43,25 @@ type ObjectRef struct {
 	Bucket    string
 	Key       string
 	VersionID string
+	// Shard is 0 for the write's own file and i+1 for its shard i.
+	Shard int
+}
+
+// ShardOf is the ref of shard i of r's write.
+func (r ObjectRef) ShardOf(i int) ObjectRef {
+	r.Shard = i + 1
+	return r
+}
+
+// ShardIndex is the index of the shard r names, when it names one.
+func (r ObjectRef) ShardIndex() (int, bool) {
+	return r.Shard - 1, r.Shard > 0
+}
+
+// Write is the ref of the write itself, of which r may name a shard.
+func (r ObjectRef) Write() ObjectRef {
+	r.Shard = 0
+	return r
 }
 
 // StorageError represents a storage-specific error

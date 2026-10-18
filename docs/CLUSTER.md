@@ -34,6 +34,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Synchronous replication (factor 1–3): a factor of 2 is a mirror that keeps writing with its peer down; a factor of 3 needs one of its two peers
+- ✅ **Parity** (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
 - ✅ A node that comes back is caught up at once with the writes and deletes it missed
 - ✅ Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - ✅ Elected coordinator for configuration changes; a surviving node takes over
@@ -70,7 +71,20 @@ took the write, or on the node with the most free space when that node is under
 storage pressure. The space of every node is used before any node runs out.
 While a node is down, reads of its objects answer `503 ServiceUnavailable`
 with `Retry-After`; when it is back they are served again. An object whose node
-is lost is lost. For redundancy, use a factor of 2 or 3.
+is lost is lost. For redundancy, use a factor of 2 or 3, or parity.
+
+**Parity is like RAID 5, and from five nodes like RAID 6.** Each object is cut
+in data shards and parity shards, each on its own node: 2+1 on three nodes, 3+1
+on four, 3+2 on five, 4+2 on six, up to 8+2. Any of its shards as many as its
+data shards read it: up to four nodes an object survives one node down, from
+five nodes two. Three nodes of 1 TB hold 2 TB of objects, against 1.5 TB with a
+factor of 2 and 1 TB with a factor of 3. A read takes the data shards; a shard
+that does not answer is replaced by a parity shard and its bytes are computed.
+A write needs another node that takes data: with nodes down it is cut in fewer
+data shards, and short of three nodes it is kept in whole copies, its parity
+shards plus one, which the copy repair cuts in shards when the nodes are back.
+With no other node taking data it is answered `503`. An empty object is kept in
+whole copies.
 
 **A node that missed writes is caught up as soon as it is back.** The node that
 accepted them records, per peer, the time of the earliest write that peer
@@ -117,13 +131,13 @@ done by hand, and nothing has to be removed or re-joined. If you *do* want to
 decommission it permanently, remove it from the console in the ordinary way —
 the surviving node is a coordinator, so that works too.
 
-| | 2 nodes, factor 2 | 3 nodes, factor 3 |
-|---|---|---|
-| Object reads with a node down | ✅ Continue | ✅ Continue |
-| Object writes with a node down | ✅ Continue | ✅ Continue |
-| Data redundancy (full copy per node) | ✅ Yes | ✅ Yes |
-| Configuration changes with a node down | ✅ Continue on the survivor | ✅ Continue |
-| Failed node returns | ✅ Rejoins and syncs | ✅ Rejoins and syncs |
+| | 2 nodes, factor 2 | 3 nodes, factor 3 | 3 nodes, parity |
+|---|---|---|---|
+| Object reads with a node down | ✅ Continue | ✅ Continue | ✅ Continue |
+| Object writes with a node down | ✅ Continue | ✅ Continue | ✅ Continue, in two whole copies |
+| Data redundancy | ✅ A whole copy on each node | ✅ A whole copy on each node | ✅ A shard on each node, 1.5× the data |
+| Configuration changes with a node down | ✅ Continue on the survivor | ✅ Continue | ✅ Continue |
+| Failed node returns | ✅ Rejoins and syncs | ✅ Rejoins and syncs | ✅ Rejoins and syncs |
 
 > **The trade this makes, stated plainly.** If both nodes are alive but the
 > network between them fails, each sees only itself and each becomes the
@@ -487,7 +501,21 @@ a factor of 1 an object has one copy.
 - Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. A higher factor adds the copies once the first syncs end; a lower one removes the copies it does not need.
 - After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, it answers `NoSuchBucket` for a bucket it lacks and may not list every object of one it has: update every node, and send traffic once the HA page shows the sync jobs done.
 - An object written before the cluster kept where its data is names no node. The copy repair asks every other healthy node which of these it holds; the first of the holders by node ID gives each its holders, trimmed to the factor, and makes the copies it lacks. Without the answer of every healthy node it waits for the next repair.
-- The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, as their last health checks found their disks.
+- The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, or with parity each shard of a byte on its own node, as their last health checks found their disks.
+
+### Objects with parity
+
+With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page) every node holds the entry of each write, and the nodes it names hold one shard each.
+
+- The layout follows the nodes that hold data, those neither dead nor drained: one parity shard up to four of them, two from five, and data shards for the others, eight at most. Each entry keeps the layout it was cut with.
+- The node that takes a write stores it whole, cuts it, sends each node its shard, then names them in its entry and sends the entry to every other node; the copy it stored goes. One shard more than the data shards is enough for the write; a node that missed its shard is given it when it is caught up. Short of that the write is kept in whole copies.
+- Each node encrypts its shard with a key of its own. Shards travel decrypted over the cluster's TLS connection. A shard is a file of its own beside the object's file, and carries the write it is of: a node never serves a shard of another write.
+- A write in shards is read from any node: from the data shards, or from a parity shard in place of one that does not answer, a range alone. With fewer shards answering than the data shards, the read is answered `503` with `Retry-After`; HEAD and listings still answer.
+- The copy repair follows the protection. Turning parity on cuts the writes kept in whole copies in shards; turning it off joins them in whole copies. The shard of a node removed, dead or drained is made again from the others on a node that holds none of the write, at the same index; a drained node's shard is copied from it while it answers. A write whose shards cannot stay on as many different nodes, or with fewer parity shards than the cluster asks (a fifth node), is cut again; no node is given the index it already holds a shard of, so the shards in use stay until the new placement lands.
+- The anti-entropy sends the entries of writes in shards. A shard a node is to hold and lacks is made again by the first of the write's other holders in service.
+- The integrity scan of a node checks the shard it holds of each write in shards: it must decrypt and match its digest. KEK rotation re-wraps the key of each shard.
+- A node that leaves the cluster drops its writes in shards: its shard alone cannot serve them. `maxiofs recover` rebuilds no entry from a shard; the cluster sends the node the entries when it is back.
+- Every node runs the same version before parity is turned on.
 
 ### Buckets
 
@@ -572,8 +600,8 @@ Every node holds the list of nodes. A change to a node (name, region, priority, 
   - It serves reads and is sent every entry, delete and change while its objects are moved: each copy it holds is made on the nodes that take data with the most free space, then dropped from it. The copy repair does this when the drain starts and at every pass of the dead-node reconciler (`ha.redistribution_check_interval_minutes`, 5).
   - The HA page shows the move: the objects and bytes the node held when it started, what it moved, and the expected end at the pace so far. The drained node counts them, and the other nodes take them from its health check.
   - Once a pass finds it holding no data, it answers every S3 request with `503`, `/health` included, so load balancers stop sending it requests; the console still answers. Every node then marks it dead (drained). It can be removed from the cluster. Multipart uploads still open on it are lost when it is removed.
-  - A drained node that does not answer is marked dead at once when its copies are held elsewhere (factor 2 or 3); with a factor of 1 it is waited for, and its objects are moved when it is back.
-  - Refused with `409` when the other nodes that take data would be fewer than the replication factor. A drained node stays out of service even when it answers.
+  - A drained node that does not answer is marked dead at once when its copies are held elsewhere (factor 2 or 3, or parity); with a factor of 1 it is waited for, and its objects are moved when it is back.
+  - Refused with `409` when the other nodes that take data would be fewer than the replication factor, or than three with parity. A drained node stays out of service even when it answers.
 - **Dead**: a node unreachable for longer than `ha.dead_node_threshold_hours` (24 hours) is marked dead by each node from its own health checks. When it answers again it is back in service and is compared on every write: the copies it held were made again elsewhere meanwhile, and their new locations reach it.
 - **Slow**: a node whose health check takes over a second is shown as degraded. It stays in service and takes data like a healthy one.
 - **Storage pressure**: a node whose disk reaches `ha.storage_pressure_threshold_percent` (90 %) is under storage pressure until it drops below `ha.storage_pressure_release_percent` (85 %), and the console is alerted both ways. It stays in service: its buckets are found and listed from every node, it is sent every entry, delete and change, and it counts as alive. It takes no new copy of data: writes, repairs and moves place copies on the other nodes.

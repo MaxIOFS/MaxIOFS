@@ -697,15 +697,15 @@ session: it opens only the resource it was minted for.
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
 | DELETE | `/api/v1/cluster/nodes/{id}` | Remove a node from every node; the node leaves when it next contacts one |
 | GET | `/api/v1/cluster/nodes/{id}/health` | Run a health check on one node |
-| POST | `/api/v1/cluster/nodes/{id}/drain` | Start the drain of a node, this one included: it takes no new data, its objects are moved to the other nodes, and once it holds none it serves no S3 request and is out of service on every node; `409` when the other nodes that take data would be fewer than the replication factor (global admin only) |
+| POST | `/api/v1/cluster/nodes/{id}/drain` | Start the drain of a node, this one included: it takes no new data, its objects are moved to the other nodes, and once it holds none it serves no S3 request and is out of service on every node; `409` when the other nodes that take data would be fewer than the replication factor, or than three with parity (global admin only) |
 | GET | `/api/v1/cluster/buckets/{bucket}/replicas` | Replication information for one bucket |
 
 ### High Availability
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/cluster/ha` | Replication factor and node status |
-| PUT | `/api/v1/cluster/ha` | Set the replication factor — body `{"factor":2}` (global admin only) |
+| GET | `/api/v1/cluster/ha` | Replication factor or parity (`parity`, `data_shards`, `parity_shards` of a write now), usable capacity, tolerated failures and node status |
+| PUT | `/api/v1/cluster/ha` | Set the replication factor — body `{"factor":2}` — or turn parity on — body `{"parity":true}`, 3 healthy nodes at least; a factor turns it off (global admin only) |
 | GET | `/api/v1/cluster/ha/sync-jobs` | Initial-sync jobs; a done job's `error_message` says how many objects it left to the catch-up |
 | GET | `/api/v1/cluster/ha/scrub-status` | Recent anti-entropy runs and the checkpoint of a running cycle |
 | GET | `/api/v1/cluster/ha/degraded-state` | Cluster degraded reason (empty when healthy) |

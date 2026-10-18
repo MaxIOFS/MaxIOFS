@@ -152,14 +152,14 @@
 
 
   "haReplication": "HA Replication",
-  "haReplicationDesc": "Cluster-wide replication factor — applies to all buckets on all nodes",
+  "haReplicationDesc": "How the cluster keeps the data — whole copies or parity — applies to all buckets on all nodes",
   "haLoadError": "Failed to load cluster HA status. Is the cluster enabled?",
 
   "storagePressureTitle": "Storage pressure detected",
   "storagePressureDesc_one": "{{nodes}} is above 80% capacity. Consider expanding storage or reducing the replication factor.",
   "storagePressureDesc_other": "{{nodes}} are above 80% capacity. Consider expanding storage or reducing the replication factor.",
 
-  "currentFactor": "Current factor",
+  "currentFactor": "Current protection",
   "usableCapacity": "Usable capacity",
   "ofTotal": "of {{total}} total",
   "toleratedFailures": "Tolerated failures",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} node can fail simultaneously",
   "nodesCan_other": "{{count}} nodes can fail simultaneously",
 
-  "changeReplicationFactor": "Change replication factor",
+  "changeReplicationFactor": "Change data protection",
   "factorCurrent": "Current",
   "factorRequires_one": "Requires {{count}} healthy node — cluster has {{actual}}",
   "factorRequires_other": "Requires {{count}} healthy nodes — cluster has {{actual}}",
   "applyFactor": "Apply ×{{factor}}",
 
-  "confirmDowngradeTitle": "Downgrade replication factor?",
-  "confirmChangeTitle": "Change replication factor?",
+  "confirmDowngradeTitle": "Lower data protection?",
+  "confirmChangeTitle": "Change data protection?",
   "confirmDowngradeBody": "You are reducing the replication factor from ×{{from}} to ×{{to}}. {{desc}} This will remove redundant copies from some nodes in the background.",
   "confirmChangeBody": "You are changing the replication factor to ×{{factor}}. {{desc}} The cluster will sync all data to new replicas in the background.",
   "factorChangedSuccess": "Replication factor changed to ×{{factor}}",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "Two copies of each object, on different nodes. Tolerates 1 node failure.",
   "factorTriple": "Triple copy (×3)",
   "factorTripleDesc": "Three copies of each object, on different nodes. Tolerates 2 simultaneous node failures.",
+  "factorParity": "Parity",
+  "factorParityDesc": "Each object is cut in data shards and parity shards, one per node. Up to 4 nodes it tolerates 1 node failure, from 5 nodes 2, with less space than whole copies.",
+  "parityLayout": "{{data}} data + {{parity}} parity shards",
+  "applyParity": "Apply parity",
+  "confirmParityBody": "You are turning parity on. {{desc}} The cluster cuts the objects it holds in shards in the background.",
+  "confirmLeaveParityBody": "You are turning parity off for ×{{factor}} whole copies. {{desc}} The cluster makes the copies of the objects in the background.",
+  "parityChangedSuccess": "Parity turned on",
 
   "replicaSyncStatus": "Replica sync status",
   "replicaSyncDesc": "Initial and catch-up sync jobs for each replica node",

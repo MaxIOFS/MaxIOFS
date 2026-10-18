@@ -152,14 +152,14 @@
 
 
   "haReplication": "HA-Replikation",
-  "haReplicationDesc": "Clusterweiter Replikationsfaktor — gilt für alle Buckets auf allen Knoten",
+  "haReplicationDesc": "Wie der Cluster die Daten speichert — ganze Kopien oder Parität — gilt für alle Buckets auf allen Knoten",
   "haLoadError": "Cluster-HA-Status konnte nicht geladen werden. Ist der Cluster aktiviert?",
 
   "storagePressureTitle": "Speicherdruck erkannt",
   "storagePressureDesc_one": "{{nodes}} hat mehr als 80% Kapazität. Erweitern Sie den Speicher oder reduzieren Sie den Replikationsfaktor.",
   "storagePressureDesc_other": "{{nodes}} haben mehr als 80% Kapazität. Erweitern Sie den Speicher oder reduzieren Sie den Replikationsfaktor.",
 
-  "currentFactor": "Aktueller Faktor",
+  "currentFactor": "Aktuelle Redundanz",
   "usableCapacity": "Nutzbare Kapazität",
   "ofTotal": "von {{total}} gesamt",
   "toleratedFailures": "Tolerierte Ausfälle",
@@ -167,14 +167,14 @@
   "nodesCan_one": "{{count}} Knoten kann gleichzeitig ausfallen",
   "nodesCan_other": "{{count}} Knoten können gleichzeitig ausfallen",
 
-  "changeReplicationFactor": "Replikationsfaktor ändern",
+  "changeReplicationFactor": "Redundanz der Daten ändern",
   "factorCurrent": "Aktuell",
   "factorRequires_one": "Erfordert {{count}} fehlerfreien Knoten — Cluster hat {{actual}}",
   "factorRequires_other": "Erfordert {{count}} fehlerfreie Knoten — Cluster hat {{actual}}",
   "applyFactor": "×{{factor}} anwenden",
 
-  "confirmDowngradeTitle": "Replikationsfaktor herabstufen?",
-  "confirmChangeTitle": "Replikationsfaktor ändern?",
+  "confirmDowngradeTitle": "Redundanz der Daten verringern?",
+  "confirmChangeTitle": "Redundanz der Daten ändern?",
   "confirmDowngradeBody": "Sie reduzieren den Replikationsfaktor von ×{{from}} auf ×{{to}}. {{desc}} Dadurch werden redundante Kopien von einigen Knoten im Hintergrund entfernt.",
   "confirmChangeBody": "Sie ändern den Replikationsfaktor auf ×{{factor}}. {{desc}} Der Cluster synchronisiert alle Daten im Hintergrund mit neuen Replikaten.",
   "factorChangedSuccess": "Replikationsfaktor auf ×{{factor}} geändert",
@@ -185,6 +185,13 @@
   "factorMirrorDesc": "Zwei Kopien jedes Objekts auf verschiedenen Knoten. Toleriert den Ausfall von 1 Knoten.",
   "factorTriple": "Dreifache Kopie (×3)",
   "factorTripleDesc": "Drei Kopien jedes Objekts auf verschiedenen Knoten. Toleriert 2 gleichzeitige Knotenausfälle.",
+  "factorParity": "Parität",
+  "factorParityDesc": "Jedes Objekt wird in Daten- und Paritätsfragmente geteilt, eines pro Knoten. Bis 4 Knoten toleriert es den Ausfall von 1 Knoten, ab 5 Knoten von 2, mit weniger Speicherplatz als ganze Kopien.",
+  "parityLayout": "{{data}} Daten- + {{parity}} Paritätsfragmente",
+  "applyParity": "Parität anwenden",
+  "confirmParityBody": "Sie aktivieren die Parität. {{desc}} Der Cluster teilt die gespeicherten Objekte im Hintergrund in Fragmente.",
+  "confirmLeaveParityBody": "Sie deaktivieren die Parität zugunsten von ×{{factor}} ganzen Kopien. {{desc}} Der Cluster erstellt die Kopien der Objekte im Hintergrund.",
+  "parityChangedSuccess": "Parität aktiviert",
 
   "replicaSyncStatus": "Replikat-Synchronisationsstatus",
   "replicaSyncDesc": "Initiale und Nachhol-Synchronisationsjobs für jeden Replikatknoten",

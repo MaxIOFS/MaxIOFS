@@ -920,14 +920,19 @@ func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
 	if !m.IsClusterEnabled() {
 		return true, nil
 	}
-	factor, err := m.GetReplicationFactor(ctx)
+	p, err := m.GetProtection(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get replication factor: %w", err)
 	}
-	if factor <= 1 {
+	if !p.redundant() {
 		return true, nil
 	}
-	neededReplicas := RequiredReplicaAcks(factor)
+	// Parity keeps a write on two nodes at least: whole copies when there is
+	// no room for its shards.
+	neededReplicas := RequiredReplicaAcks(p.Factor)
+	if p.Parity {
+		neededReplicas = 1
+	}
 	localID, err := m.GetLocalNodeID(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get local node id: %w", err)

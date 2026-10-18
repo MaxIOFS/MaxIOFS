@@ -27,6 +27,7 @@ var readOnlyBackendMethods = map[string]bool{
 	"PartMetadata": true,
 	"PartExists":   true,
 	"ListUploads":  true,
+	"Shards":       true,
 }
 
 // Mutators outside an object's path unit: bucket directories, and parts, which

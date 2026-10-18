@@ -236,6 +236,10 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "1",
 			description: "Cluster-wide replication factor: 1 = no replication, 2 = mirror (tolerates 1 node failure), 3 = triple copy (tolerates 2 node failures)",
 		},
+		"ha.parity": {
+			value:       "false",
+			description: "Cut the data of each write in Reed-Solomon data and parity shards over the nodes instead of keeping whole copies: one parity shard up to 4 nodes (tolerates 1 node failure), two from 5 nodes (tolerates 2)",
+		},
 		"ha.scrub_enabled": {
 			value:       "true",
 			description: "Enable the anti-entropy scrubber that detects and repairs replica divergences",

@@ -342,6 +342,9 @@ func (fs *FilesystemBackend) List(ctx context.Context, bucket string) (_ []Objec
 			Key:       sidecar[MetadataKeyField],
 			VersionID: sidecar[MetadataVersionField],
 		}
+		if i, err := strconv.Atoi(sidecar[MetadataShardField]); err == nil && IsShardFileName(name) {
+			ref = ref.ShardOf(i)
+		}
 		if ref.Bucket == "" {
 			ref.Bucket = bucket
 		}

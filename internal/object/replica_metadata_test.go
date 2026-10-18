@@ -601,3 +601,24 @@ func TestADroppedEntryIsRemovedWhateverItsLock(t *testing.T) {
 	_, err = om.ObjectEntry(ctx, "b", "k", "")
 	assert.Error(t, err, "an object without a version")
 }
+
+// A multipart upload completed over a write whose data other nodes hold
+// replaces it: there is no file here to keep for a rollback.
+func TestAMultipartUploadReplacesAWriteHeldElsewhere(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	om.SetLocalNode(func() string { return "self" })
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "b"}))
+	earlier := time.Now().Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, om.PutReplicaMetadata(ctx, &metadata.ObjectMetadata{Bucket: "b", Key: "k", Size: 5, ETag: "e5",
+		LastModified: earlier, Locations: []string{"other"}}))
+
+	upload, err := om.CreateMultipartUpload(ctx, "b", "k", http.Header{})
+	require.NoError(t, err)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, strings.NewReader("parts"))
+	require.NoError(t, err)
+	_, err = om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
+	require.NoError(t, err)
+	assert.Equal(t, "parts", readAll(t, om, "b", "k"))
+}
