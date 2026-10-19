@@ -154,3 +154,35 @@ func TestParityIsDegradedWithANodeDown(t *testing.T) {
 	reason := ClusterDegradedReason(ctx, db)
 	assert.True(t, strings.Contains(reason, "parity spreads each write over 4"), reason)
 }
+
+// The writes with parity are repaired when their layout changes, once every
+// node that holds data takes it: a fifth node gives them two parity shards.
+func TestTheWritesFollowTheLayoutOfParity(t *testing.T) {
+	db, mgr := parityDB(t, HealthStatusHealthy, HealthStatusHealthy, HealthStatusHealthy, HealthStatusHealthy)
+	ctx := context.Background()
+	syncer := &fakeSyncTrigger{}
+	r := NewDeadNodeReconciler(mgr, syncer, (&captureEmitter{}).emit)
+	t.Cleanup(r.Stop)
+	repairs := func(want int) {
+		t.Helper()
+		require.Eventually(t, func() bool { return syncer.Calls() == want }, 5*time.Second, 10*time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		assert.Equal(t, want, syncer.Calls())
+	}
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(1)
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(1)
+
+	insertNode(t, db, "n5", "n5", HealthStatusUnknown, nil)
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(1)
+	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = 'n5'`, HealthStatusHealthy)
+	require.NoError(t, err)
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(2)
+
+	require.NoError(t, mgr.SetParity(ctx, false))
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(2)
+}

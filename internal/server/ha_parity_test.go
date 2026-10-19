@@ -465,3 +465,31 @@ func TestAShardOfADeletedWriteIsNotStored(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
 	assert.Empty(t, b.shardsHeld(t, "parity", "k", ""))
 }
+
+// A shard of a version deleted on the node is not stored.
+func TestAShardOfADeletedVersionIsNotStored(t *testing.T) {
+	c := newParityCluster(t, 3, "parity")
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.SetVersioning(ctx, "", "parity", &bucket.VersioningConfig{Status: "Enabled"}))
+	out, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), Body: bytes.NewReader(payload(1000))})
+	require.NoError(t, err)
+	entry, err := b.metadataStore.GetObject(ctx, "parity", "k", *out.VersionId)
+	require.NoError(t, err)
+	index := slices.Index(entry.Locations, b.id)
+	require.GreaterOrEqual(t, index, 0)
+	info := object.ShardOf(&object.Object{Bucket: "parity", Key: "k", VersionID: *out.VersionId, ETag: entry.ETag, Size: entry.Size,
+		LastModified: entry.LastModified, WrittenAt: entry.WrittenAt, ECData: entry.ECData, ECParity: entry.ECParity, ECBlock: entry.ECBlock}, index, 1)
+	_, err = a.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), VersionId: out.VersionId})
+	require.NoError(t, err)
+	require.Empty(t, b.shardsHeld(t, "parity", "k", *out.VersionId))
+
+	r := httptest.NewRequest(http.MethodPut, "/api/internal/cluster/ha/shards/k",
+		bytes.NewReader(make([]byte, info.Layout.ShardSize(info.Size))))
+	r.Header.Set(cluster.HAShardHeader, cluster.EncodeShardInfo(info))
+	r = mux.SetURLVars(r, map[string]string{"key": "k"})
+	w := httptest.NewRecorder()
+	b.handleHAReceiveShard(w, r)
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Empty(t, b.shardsHeld(t, "parity", "k", *out.VersionId))
+}

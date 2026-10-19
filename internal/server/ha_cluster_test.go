@@ -152,8 +152,13 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 			if i == j {
 				continue
 			}
+			// Every copy of a node's row carries the time of that node's own,
+			// as the join package and the node list carry it.
+			var changed int64
+			require.NoError(t, peer.db.QueryRowContext(ctx, `SELECT changed_at FROM cluster_nodes WHERE id = ?`, peer.id).Scan(&changed))
 			require.NoError(t, node.clusterManager.AddNode(ctx, &cluster.Node{ID: peer.id, Name: fmt.Sprintf("node-%d", j),
-				Endpoint: clusterURLs[j], APIURL: apiURLs[j], NodeToken: token, Region: "us-east-1", Priority: 100, Metadata: "{}"}))
+				Endpoint: clusterURLs[j], APIURL: apiURLs[j], NodeToken: token, Region: "us-east-1", Priority: 100, Metadata: "{}",
+				ChangedAt: changed}))
 			_, err := node.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, peer.id)
 			require.NoError(t, err)
 		}

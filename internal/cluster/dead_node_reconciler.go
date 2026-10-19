@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
+	"github.com/maxiofs/maxiofs/internal/erasure"
 	"strconv"
 	"sync"
 	"time"
@@ -62,6 +63,9 @@ type DeadNodeReconciler struct {
 
 	bgwork.Worker
 	mu sync.Mutex
+	// layout is the layout of a write with parity the writes were last
+	// repaired for.
+	layout erasure.Layout
 }
 
 // NewDeadNodeReconciler builds a reconciler bound to the cluster manager and
@@ -135,6 +139,7 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	// A drain is an administrator's decision: it goes on with automatic
 	// redistribution off as well.
 	r.applyDrains(ctx)
+	r.followParityLayout(ctx)
 	if !r.redistributionEnabled(ctx) {
 		return nil
 	}
@@ -156,6 +161,42 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 
 	r.recomputeClusterDegradedState(ctx)
 	return nil
+}
+
+// followParityLayout repairs the writes when the layout of a write with parity
+// changes, once every node that holds data takes it: a node that joins, leaves
+// or dies changes how many shards a write is cut in, and each node repairs the
+// writes it is the first holder of.
+func (r *DeadNodeReconciler) followParityLayout(ctx context.Context) {
+	protection, err := r.mgr.GetProtection(ctx)
+	if err != nil {
+		return
+	}
+	if !protection.Parity {
+		return
+	}
+	layout, ok, err := r.mgr.ParityLayout(ctx)
+	if err != nil {
+		return
+	}
+	if ok {
+		var takers int
+		if err := r.mgr.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0`,
+			HealthStatusHealthy, HealthStatusDegraded,
+		).Scan(&takers); err != nil || takers < layout.Width() {
+			return
+		}
+	}
+	if layout == r.layout {
+		return
+	}
+	r.layout = layout
+	r.log.WithFields(logrus.Fields{"data": layout.Data, "parity": layout.Parity}).
+		Info("The layout of a write with parity changed: the writes are repaired")
+	if r.syncer != nil {
+		r.Spawn(func() { r.syncer.Trigger(ctx) })
+	}
 }
 
 // DrainNode starts the drain of a node, asked for by an administrator: the

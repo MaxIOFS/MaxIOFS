@@ -83,7 +83,9 @@ factor of 2 and 1 TB with a factor of 3. A read takes the data shards; a shard
 that does not answer is replaced by a parity shard and its bytes are computed.
 A write needs another node that takes data: with nodes down it is cut in fewer
 data shards, and short of three nodes it is kept in whole copies, its parity
-shards plus one, which the copy repair cuts in shards when the nodes are back.
+shards plus one. The copy repair cuts them in shards once the nodes are back,
+at its next pass: after each full anti-entropy cycle, and when a node or the
+protection changes.
 With no other node taking data it is answered `503`. An empty object is kept in
 whole copies.
 
@@ -514,7 +516,7 @@ With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page)
 - The node that takes a write stores it whole, cuts it, sends each node its shard, then names them in its entry and sends the entry to every other node; the copy it stored goes. One shard more than the data shards is enough for the write; a node that missed its shard is given it when it is caught up. Short of that the write is kept in whole copies.
 - Each node encrypts its shard with a key of its own. Shards travel decrypted over the cluster's TLS connection. A shard is a file of its own beside the object's file, and carries the write it is of: a node never serves a shard of another write.
 - A write in shards is read from any node: from the data shards, or from a parity shard in place of one that does not answer, a range alone. With fewer shards answering than the data shards, the read is answered `503` with `Retry-After`; HEAD and listings still answer.
-- The copy repair follows the protection. Turning parity on cuts the writes kept in whole copies in shards; turning it off joins them in whole copies. The shard of a node removed, dead or drained is made again from the others on a node that holds none of the write, at the same index; a drained node's shard is copied from it while it answers. A write whose shards cannot stay on as many different nodes, or with fewer parity shards than the cluster asks (a fifth node), is cut again; no node is given the index it already holds a shard of, so the shards in use stay until the new placement lands.
+- The copy repair follows the protection. Turning parity on cuts the writes kept in whole copies in shards; turning it off joins them in whole copies. The shard of a node removed, dead or drained is made again from the others on a node that holds none of the write, at the same index; a drained node's shard is copied from it while it answers. A write whose shards cannot stay on as many different nodes, or with fewer parity shards than the cluster asks (a fifth node), is cut again; no node is given the index it already holds a shard of, so the shards in use stay until the new placement lands. When the layout changes, every node repairs its writes at the next pass of the dead-node reconciler (`ha.redistribution_check_interval_minutes`, 5) once every node that holds data takes it.
 - The anti-entropy sends the entries of writes in shards. A shard a node is to hold and lacks is made again by the first of the write's other holders in service.
 - The integrity scan of a node checks the shard it holds of each write in shards: it must decrypt and match its digest. KEK rotation re-wraps the key of each shard.
 - A node that leaves the cluster drops its writes in shards: its shard alone cannot serve them. `maxiofs recover` rebuilds no entry from a shard; the cluster sends the node the entries when it is back.

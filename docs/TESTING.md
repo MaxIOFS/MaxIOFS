@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **339 Go test files**, **12 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **345 Go test files**, **13 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -168,7 +168,7 @@ npx vitest run --coverage
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 | `policy_public_test.go` | A bucket policy is public as AWS defines it: an Allow naming everyone not limited to source ranges of /8 (IPv4) or /32 (IPv6) or narrower |
 
-### `internal/cluster/` — 40 test files
+### `internal/cluster/` — 41 test files
 
 | File | Description |
 |------|-------------|
@@ -195,6 +195,7 @@ npx vitest run --coverage
 | `leader_test.go` | Leader lease granted when free, refused while held, a stale term is fenced |
 | `manager_test.go` | Cluster manager core operations |
 | `membership_test.go` | A node and its removal are ordered by time, the same second keeping the node; a removed node is not added back; edits and drains are stamped after the last change; a node dead by its probes is back when it answers and compared on every write, a drained one stays dead; a drain on another node is taken here: the copies of the drained nodes are moved, another node is out of service once it says it holds no data, and a node does not take itself out; a drain is refused below the replication factor; joining takes the cluster's membership |
+| `parity_protection_test.go` | Parity is off until turned on; its layout follows the nodes that hold data (one parity shard up to four, two from five, dead and drained nodes left out); a delete's quorum follows the parity; an empty write and a cluster too small for shards keep whole copies; room for data in shards; a write needs another node that takes data; a node is not marked dead nor drained when fewer than three would take data; degraded when fewer nodes take data than a write spans; the writes are repaired when the layout changes, once every node that holds data takes it |
 | `placement_repair_test.go` | Removing a member announces it once: a removal received again, or of a node that is not a member, does not |
 | `multipart_routing_test.go` | A multipart upload is made on the node its ID names, whatever the factor; with an ID naming no node, outside a cluster or on its own node, where the request is; a node gone from the cluster is reported; the other nodes' uploads are asked for, a node that does not answer left out |
 | `proxy_bounds_test.go` | Every proxy client entry point is bounded (no unbounded read/timeout) |
@@ -242,6 +243,12 @@ npx vitest run --coverage
 | File | Description |
 |------|-------------|
 | `store_test.go` | The secret is stored once (configured, fallback or generated) and kept across starts; adoption re-encrypts every stored credential and stores the secret in one transaction, a failure changes neither; a check writes nothing; fingerprints |
+
+### `internal/erasure/` — 1 test file
+
+| File | Description |
+|------|-------------|
+| `erasure_test.go` | The layout of a cluster of nodes; the size of a shard; an object read back with any parity's worth of shards missing, whatever its size against the stripes; too few shards refused; a shard failing mid-read replaced from its stripe; ranges and Seeks, a Seek while reading reopening the shards; each shard opened once in a sequential read; a missing shard rebuilt byte for byte without reading its stale bytes; a failed destination written no more; a short object refused; `Ready` reads the first stripe ahead |
 
 ### `internal/idp/` — 7 test files
 
@@ -347,7 +354,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 52 test files
+### `internal/object/` — 53 test files
 
 | File | Description |
 |------|-------------|
@@ -355,7 +362,7 @@ npx vitest run --coverage
 | `adapter_test.go` | Storage adapter abstraction |
 | `backup_restore_test.go` | A retained overwrite/multipart backup survives a failed restore and is removed after a successful one |
 | `delete_key_fidelity_test.go` | `DeleteObject` deletes only the key it was given |
-| `encryption_migration_test.go` | Background worker converts plaintext to envelope encryption; multipart ETag preserved |
+| `encryption_migration_test.go` | Background worker converts plaintext to envelope encryption; multipart ETag preserved; a KEK rotation re-wraps the key of each shard held |
 | `faultcheck_test.go` | Kills a subprocess mid-write (before/after data, before/after metadata) and checks what the next start recovers; also covers the retained-backup rollback path and the cost of an overwrite's backup copy |
 | `folder_marker_test.go` | A folder marker and a same-named object coexist (layout v2) |
 | `integration_test.go` | Full object lifecycle (put → get → delete) |
@@ -385,11 +392,12 @@ npx vitest run --coverage
 | `raw_replication_test.go` | Replica-side raw ciphertext write, plain and versioned |
 | `raw_replication_rollback_test.go` | A failed raw replica overwrite restores the previous data and sidecar, including existing versions |
 | `read_snapshot_test.go` | A reader keeps the generation it opened across a concurrent overwrite |
-| `replica_metadata_test.go` | The entry of an object whose data other nodes hold answers HEAD and listings and names them to a GET, removes a file kept for the key, and is not replaced by an earlier entry; versions land by time; a node serves its own file of an entry naming it, and every file outside a cluster; a lost copy names the other holders; user metadata changes in the entry; an earlier copy, plain or ciphertext, does not replace a later write; integrity is not checked here for data held elsewhere; the locations of a write or a version change only for that write, here and on its current entry, and a node they no longer name removes its file; the newest locations of a write, or of an older version, are kept against older changes, entries and copies, plain or ciphertext, one number going to the larger list; a copy, plain or ciphertext, is stored only where the newest locations name this node; a dropped entry is removed whatever its lock |
+| `replica_metadata_test.go` | The entry of an object whose data other nodes hold answers HEAD and listings and names them to a GET, removes a file kept for the key, and is not replaced by an earlier entry; versions land by time; a node serves its own file of an entry naming it, and every file outside a cluster; a lost copy names the other holders; user metadata changes in the entry; an earlier copy, plain or ciphertext, does not replace a later write; integrity is not checked here for data held elsewhere; the locations of a write or a version change only for that write, here and on its current entry, and a node they no longer name removes its file; the newest locations of a write, or of an older version, are kept against older changes, entries and copies, plain or ciphertext, one number going to the larger list; a copy, plain or ciphertext, is stored only where the newest locations name this node; a dropped entry is removed whatever its lock; a multipart upload completed over a write whose data other nodes hold replaces it |
 | `replica_versions_test.go` | Versions copied from another node, raw or not, land in order whatever order they arrive in: an older copy or delete marker never replaces the latest, a repeated copy is not counted twice |
 | `replica_copy_test.go` | A copy into a bucket whose versioning was suspended is stored as the version it copies, never replaces the current object (not even one of the same second), and a copied delete marker stays one; a copy carries its ETag, tags, ACL and restore state and is refused when its bytes do not match; changing tags or ACL keeps the restore status; a write while suspended keeps the bytes of the version it covers |
 | `reconcile_serialization_test.go` | Reconcile takes the same per-key lock as normal operations and does not race a concurrent PUT |
 | `review_part_crash_faultcheck_test.go` | An acknowledged multipart part survives a process kill during a replacement upload |
+| `shards_test.go` | A shard is stored encrypted beside its object's file and read back from any offset, only as the shard of its write and layout; an entry in shards is read from the nodes holding them, this node holding the shard it is named for; a shard follows the placement of its write (a staged one kept until its placement lands, one of an earlier write removed); deletes, overwrites, multipart completions and raw copies remove the shards of the writes they remove; a whole copy of a write in shards is not stored, or keeps the shard until its placement lands; the integrity check of a shard, a corrupt one removed |
 | `search_objects_test.go` | Object search and listing |
 | `sidecar_loss_test.go` | A lost sidecar never serves ciphertext as if it were the plaintext object |
 | `staging_cost_test.go` | Content passes of PUT staging and multipart completion, per path; the large-part probe is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#put-staging-and-multipart-completion)) |
@@ -415,7 +423,7 @@ npx vitest run --coverage
 | File | Description |
 |------|-------------|
 | `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off |
-| `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk |
+| `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk; a shard is passed over by reconcile and the offline rebuild |
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
 | `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone |
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
@@ -444,7 +452,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 57 test files
+### `internal/server/` — 59 test files
 
 | File | Description |
 |------|-------------|
@@ -473,6 +481,8 @@ npx vitest run --coverage
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
 | `group_handlers_test.go` | A group member add is rejected across a different tenant scope; group delete removes policies atomically |
 | `ha_cluster_test.go` | Complete nodes with their S3 APIs and AWS SDK clients: a multipart upload's parts, listings, completion and abort reach the node it was started on from any node; a node that does not answer gives `503`, one gone from the cluster `NoSuchUpload`; an upload named after no node is made where it is. Three nodes with a factor of 2: a write is held by its node and the node with the most free space and listed, read (a range alone) and answered for HEAD on every node; a read tries each holder and answers `503` with none; a delete reaches every node; an overwrite moves its data; every version is listed and read everywhere; tags set where the data is not; a node serves only the data it holds, and its console finds an object whose holders do not answer. A node that missed writes, or lost its data, is sent what it holds; an initial sync sends each node what it holds; a later write reaches a node not holding it as an entry. The copies of a removed or dead node are made again, a lower factor drops the extra copies, a higher one adds those it needs after the request is answered and the first sync's entry, arriving after, does not undo it, a full cycle repairs them, and a factor of 1 keeps one copy. A node under storage pressure passes its copy (object, version, multipart) to one node, to the next when one does not take it, keeps it when none does or no other node holds the entry only, and finishes even when the client goes away; a copy whose answer was lost, after a move or a repair, is removed. Every node reports to Veeam the room of the cluster and what a tenant uses on every node. The usage of every bucket and tenant is the same on every node, as counted and as recounted from the entries. A factor raised from 1 on one node reaches every node, each object copied once. With a factor of 1 a write is held by the node that takes it alone, listed, read and deleted from every node; a node under storage pressure passes it to the node with the most free space, a slow one keeps it. A cluster of factor 1 from a version that kept each bucket on one node places each node's writes once, at start, and sends every node the buckets and entries without their data; a first sync and a catch-up place them before sending; above a factor of 1 they are not placed; objects that name no node are given their holders by the first of them, a node with another write not counted, and wait while a node does not answer. A node under storage pressure takes entries, changes and deletes but no new copy, and is caught up; a node that leaves keeps only the writes it holds; a dead node that comes back takes the locations changed meanwhile, and a later cycle sends no entry; a drained node's objects are moved with factors 1 and 2 and read from every node, it then answers no S3 request, its health check included, and the others take it out of service; a node being drained takes no copy and passes on the writes it takes; a drained node keeps the copy no node takes, is not empty while a pass fails, and a write it holds with another node keeps the other without a copy; a drained node counts what it holds and moved, and the other nodes take it from its health check and show it |
+| `ha_parity_test.go` | Parity between complete nodes with S3 clients: a write cut over three nodes in 2+1 and read from any, a range alone; read with any one node down and not with two, HEAD still answering; five nodes cut in 3+2 and read with two down; a shard not taken leaves the write in the others, or in whole copies with the shards taken removed; a write with a node down kept in two whole copies, refused with two down and not kept; an empty object in copies; multipart, versions and deletes; an overwrite replaces the shards; a delete on five nodes needs another node; the console turns parity on from three nodes, shows the layout, room and tolerated failures, a factor turns it off; Veeam sees the room for shards; a write landing nowhere leaves no shard; a read passes over a node out of service; a shard of a deleted write or version is not stored |
+| `ha_parity_repair_test.go` | Turning parity on cuts the copies in shards and off joins them; the shard of a removed node made again at the same index; a drained node's shard moved, copied from it with another node down; a fifth node raises the parity, no node keeping its index; a lost shard made again by one node; a node that missed a write's shard and entry sent both in one catch-up; a node takes the entry of a later write in shards; a node that leaves drops its shards; a write whose shards no longer fit is cut again; a write that cannot be cut keeps its copies, the staged shards removed |
 | `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only; a deletion removes a write made before it in its second. An initial sync that fails some objects leaves them to the catch-up and says how many; a joining node is sent the objects; a catch-up sends every version the node missed, once, and its copies keep the tags; a version or delete marker deleted on a node is not stored again by a copy |
 | `ha_rows_test.go` | Between two complete nodes with a replication factor of 2: shares, replication rules, inventory configurations and reports reach the other node in both directions; a node that was down is caught up, rows from before the upgrade included; the coordinator's inventory report, its file and run reach the other node; a node that is not the coordinator writes no report; with a factor of 1 changes are dated and sent too; an undated change is missed by every node |
 | `iam_admin_test.go` | Tenant scope separates administrators; who a policy grants administration to |
@@ -520,13 +530,14 @@ npx vitest run --coverage
 | `manager_test.go` | Pre-signed share link generation and access |
 | `reencrypt_test.go` | Share keys move to a new secret; the store reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 
-### `internal/storage/` — 11 test files
+### `internal/storage/` — 12 test files
 
 | File | Description |
 |------|-------------|
 | `durability_test.go` | `Put` flushes data and sidecar, and survives a read-back |
 | `filesystem_layout_test.go` | Layout v2 multipart upload directory: listed, discarded, ID cannot carry a path separator |
 | `filesystem_list_test.go` | Listing returns every object in a bucket; empty on an absent bucket |
+| `filesystem_shard_test.go` | The shards of a write are files of their own beside its file, each with its index in its sidecar, found by the write's ref, listed, deleted alone |
 | `filesystem_staged_commit_test.go` | The staged-sidecar two-phase commit: normal put/overwrite, roll-forward after the data commit, roll-back when it never happened |
 | `filesystem_test.go` | Filesystem storage operations (read, write, delete, stat) |
 | `folder_conflict_test.go` | An object and a same-named folder marker coexist; keys differing only in case coexist; a key ending in `.metadata` is ordinary (layout v2) |
@@ -622,6 +633,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `api-token.test.ts` | JWT payload decoding for refresh scheduling |
 | `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
+| `ClusterHA.test.tsx` | The HA page shows the layout of a write with parity, turns parity on and off, and needs three nodes for it |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
 | `IdentityProviders.test.tsx` | IDP management UI flows |
@@ -845,13 +857,14 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 48 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 38 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
-| Cluster | 37 | Sync, replication, routing, HA quorum, rollback and catch-up, health |
+| Object | 53 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 59 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Cluster | 41 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity |
 | S3 Compat | 38 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
-| Storage | 11 | Filesystem, staged commit, layout v2, benchmarks |
+| Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
+| Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
 | Replication | 8 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 6 | Prometheus, history, system, performance |
 | Bucket | 5 | CRUD, deletion, policy, integration, name uniqueness |
@@ -863,6 +876,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **290** | |
-| Frontend | 11 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules |
+| **Total Go** | **345** | |
+| Frontend | 13 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page |
 | Performance | 4 | Upload, download, mixed, common |

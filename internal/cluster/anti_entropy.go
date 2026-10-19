@@ -719,9 +719,8 @@ func (s *AntiEntropyScrubber) processBatch(
 			}
 			// The same current object without a version, whose data the peer
 			// is to hold and lacks.
-			_, localSharded := local.Erasure()
 			lostCurrent := listed && divergence == divNone && local.VersionID == "" && peerEntry != nil && peerEntry.Found &&
-				!peerEntry.HoldsCurrent && slices.Contains(local.Locations, peer.ID) && (localSharded || slices.Contains(local.Locations, localID))
+				!peerEntry.HoldsCurrent && slices.Contains(local.Locations, peer.ID) && slices.Contains(local.Locations, localID)
 			if lostCurrent {
 				lost = append(lost, object.ObjectVersion{Object: *local})
 			}
@@ -1050,7 +1049,7 @@ func (s *AntiEntropyScrubber) versionsToSend(ctx context.Context, bucketPath, ke
 				lost = append(lost, v)
 			}
 		case !v.IsDeleteMarker && !held[v.VersionID] &&
-			slices.Contains(v.Locations, peerID) && (isSharded(v) || slices.Contains(v.Locations, localID)):
+			slices.Contains(v.Locations, peerID) && slices.Contains(v.Locations, localID):
 			lost = append(lost, v)
 		case !v.IsDeleteMarker && v.LocationsGen > peer.Gens[v.VersionID]:
 			behind = append(behind, v)

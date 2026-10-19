@@ -266,11 +266,15 @@ func TestANodeThatLeavesDropsItsShards(t *testing.T) {
 }
 
 // A drained node's shard is copied from it: it moves with another holder
-// down, when the others are too few to make it again.
+// down, when the others are too few to make it again. The holder down is not
+// the one that repairs the write, the first of its living holders by ID.
 func TestADrainedNodesShardIsCopiedWithAnotherNodeDown(t *testing.T) {
 	c, spare, locations, data := fourWithASpare(t)
 	ctx := context.Background()
-	drained, away := c.byID(locations[2]), c.byID(locations[1])
+	drained, away := c.byID(locations[2]), c.byID(locations[0])
+	if away.id == slices.Min(locations) {
+		away = c.byID(locations[1])
+	}
 	away.down.Store(true)
 	w := httptest.NewRecorder()
 	drained.handleDrainClusterNode(w, asGlobalAdmin(httptest.NewRequest(http.MethodPost, "/api/v1/cluster/nodes/"+drained.id+"/drain", nil),
@@ -283,10 +287,10 @@ func TestADrainedNodesShardIsCopiedWithAnotherNodeDown(t *testing.T) {
 		return slices.Equal([]int{2}, spare.shardsHeld(t, "spare", "k", ""))
 	}, 20*time.Second, 100*time.Millisecond)
 	away.down.Store(false)
-	c.byID(locations[0]).down.Store(true)
 	require.Eventually(t, func() bool {
 		return slices.Equal([]string{locations[0], locations[1], spare.id}, spare.entry(t, "spare", "k").Locations)
 	}, 20*time.Second, 100*time.Millisecond)
+	c.byID(locations[0]).down.Store(true)
 	assert.True(t, bytes.Equal(data, getBytes(t, spare.s3, "spare", "k")))
 	layout := erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock}
 	progress := drained.haSyncWorker.DrainProgress()
@@ -381,4 +385,55 @@ func TestANodeTakesTheEntryOfALaterWriteInShards(t *testing.T) {
 	behind.antiEntropyScrubber.CatchUp(c.nodes[0].id, time.Unix(1, 0))
 	require.Eventually(t, func() bool { return behind.scrubRuns(t) > before }, 20*time.Second, 100*time.Millisecond)
 	assert.Equal(t, want, behind.entry(t, "later", "k").ETag)
+}
+
+// A write whose shards no longer fit on as many different nodes, once a node
+// is removed, is cut again over the nodes left.
+func TestARemovedNodeLeavesItsWritesCutAgain(t *testing.T) {
+	c := newParityCluster(t, 4, "fewer")
+	ctx := context.Background()
+	data := payload(400000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("fewer"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	before := assertSharded(t, c, "fewer", "k", "", erasure.Layout{Data: 3, Parity: 1, Block: erasure.DefaultBlock})
+	gone := c.byID(before[3])
+	for _, n := range c.except(gone) {
+		require.NoError(t, n.clusterManager.RemoveNode(ctx, gone.id))
+	}
+	rest := &haCluster{nodes: c.except(gone)}
+	rest.repairAll(t)
+	eventuallySharded(t, rest, "fewer", "k", erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock})
+	rest.nodes[0].down.Store(true)
+	assert.True(t, bytes.Equal(data, getBytes(t, rest.nodes[1].s3, "fewer", "k")))
+}
+
+// A write that cannot be cut in shards, a node refusing its shard, keeps its
+// whole copies, and the shards the others took go.
+func TestAWriteNotCutInShardsKeepsItsCopies(t *testing.T) {
+	c := newHACluster(t, 3, 2)
+	ctx := context.Background()
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "keep", routingAdminID))
+	data := payload(300000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("keep"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	copies := c.nodes[0].entry(t, "keep", "k").Locations
+	for _, n := range c.nodes {
+		require.NoError(t, n.clusterManager.SetParity(ctx, true))
+		n.refuseShards.Store(n.id != slices.Min(copies))
+	}
+	designated := c.byID(slices.Min(copies))
+	before := 0
+	for _, n := range c.except(designated) {
+		before += int(n.shards.Load())
+	}
+	assert.Error(t, designated.haSyncWorker.RepairPlacement(ctx), "the repair reports the write it could not cut")
+	for _, n := range c.nodes {
+		e := n.entry(t, "keep", "k")
+		assert.Zero(t, e.ECData)
+		assert.Equal(t, copies, e.Locations)
+		assert.Empty(t, n.shardsHeld(t, "keep", "k", ""), "no staged shard stays on %s", n.id)
+	}
+	for _, id := range copies {
+		assert.True(t, c.byID(id).holds(t, "keep", "k", ""))
+	}
 }
