@@ -198,6 +198,12 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 		}
 		parsed = append(parsed, parsedRecord{version: r.Version, key: key, current: r.IsCurrent})
 	}
+	// The cluster's current key replaces a key of this node's own, or an
+	// older one of the cluster's: keys sent by a node that missed a rotation
+	// do not take it back.
+	if currentVersion != 0 && s.clusterShared[s.current] && currentVersion < s.current {
+		currentVersion = s.current
+	}
 	held := currentVersion == s.current
 	for _, p := range parsed {
 		if _, exists := s.keys[p.version]; !exists || !s.clusterShared[p.version] {

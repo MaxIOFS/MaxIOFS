@@ -36,7 +36,7 @@ import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
 import { PublicAccessBlockFields } from '@/components/PublicAccessBlockFields';
 import { BucketPolicyEditor } from '@/components/BucketPolicyEditor';
 import type { BucketPolicyDocument } from '@/lib/bucketPolicyRules';
-import { lifecycleXML, classMovesOf, noMove, TRANSITION_CLASSES, type ClassMove } from '@/lib/lifecycleRules';
+import { lifecycleXML, consoleRuleOf, formOf, noMove, TRANSITION_CLASSES, type ClassMove } from '@/lib/lifecycleRules';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest, PublicAccessBlockConfig } from '@/types';
 
 // Tab types
@@ -176,6 +176,7 @@ export default function BucketSettingsPage() {
   const [_lifecycleText, setLifecycleText] = useState('');
   const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
   const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
+  const [otherLifecycleRules, setOtherLifecycleRules] = useState(0);
   // Moves to a colder storage class the cluster keeps, of the current objects
   // and of the noncurrent versions.
   const [moveCurrent, setMoveCurrent] = useState<ClassMove>(noMove);
@@ -1037,30 +1038,14 @@ export default function BucketSettingsPage() {
     // Use bucketData.lifecycle directly instead of making another API call
     const lifecycle = bucketData?.lifecycle;
 
-    // Reset to defaults first
-    setNoncurrentDays(30);
-    setDeleteExpiredMarkers(true);
-    setMoveCurrent(noMove);
-    setMoveNoncurrent(noMove);
-
-    // Parse lifecycle to extract values
-    if (lifecycle && lifecycle.Rules && lifecycle.Rules.length > 0) {
-      const rule = lifecycle.Rules[0];
-
-      // Extract NoncurrentDays
-      if (rule.NoncurrentVersionExpiration?.NoncurrentDays) {
-        setNoncurrentDays(rule.NoncurrentVersionExpiration.NoncurrentDays);
-      }
-
-      // Extract ExpiredObjectDeleteMarker
-      if (rule.Expiration?.ExpiredObjectDeleteMarker !== undefined) {
-        setDeleteExpiredMarkers(rule.Expiration.ExpiredObjectDeleteMarker);
-      }
-
-      const moves = classMovesOf(rule);
-      setMoveCurrent(moves.moveCurrent);
-      setMoveNoncurrent(moves.moveNoncurrent);
-    }
+    // The rule the console writes; the others, set through the S3 API, stay.
+    const { rule, others } = consoleRuleOf(lifecycle?.Rules);
+    const form = formOf(rule);
+    setNoncurrentDays(form.noncurrentDays);
+    setDeleteExpiredMarkers(form.deleteExpiredMarkers);
+    setMoveCurrent(form.moveCurrent);
+    setMoveNoncurrent(form.moveNoncurrent);
+    setOtherLifecycleRules(others);
 
     setLifecycleText(lifecycle ? JSON.stringify(lifecycle, null, 2) : '');
     setIsLifecycleModalOpen(true);
@@ -3105,8 +3090,13 @@ export default function BucketSettingsPage() {
         <div className="space-y-6">
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              {t('lifecycle.lifecycleInfo')}
+              {t(transitionClasses.length > 0 ? 'lifecycle.lifecycleInfoMove' : 'lifecycle.lifecycleInfo')}
             </p>
+            {otherLifecycleRules > 0 && (
+              <p className="text-sm text-blue-800 dark:text-blue-200 mt-2">
+                {t('lifecycle.otherRulesKept', { count: otherLifecycleRules })}
+              </p>
+            )}
           </div>
 
           <div>

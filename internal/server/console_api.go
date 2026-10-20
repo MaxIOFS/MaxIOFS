@@ -5303,6 +5303,23 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// The console sets the rules it sends, by ID: the stored rules of other
+	// IDs, set through the S3 API, stay.
+	stored, err := s.bucketManager.GetLifecycle(r.Context(), tenantID, bucketName)
+	switch {
+	case errors.Is(err, bucket.ErrLifecycleNotFound):
+		stored = nil
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		s.writeError(w, "Bucket not found", http.StatusNotFound)
+		return
+	case err != nil:
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if lifecycleConfig, err = bucket.WithStoredRules(lifecycleConfig, stored); err != nil {
+		s.writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Set lifecycle configuration
 	if err := s.bucketManager.SetLifecycle(r.Context(), tenantID, bucketName, lifecycleConfig); err != nil {

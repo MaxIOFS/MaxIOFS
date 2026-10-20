@@ -259,3 +259,33 @@ func TestQuorum_SurvivorOfATwoNodeClusterCanWin(t *testing.T) {
 	assert.Less(t, contested.votes, contested.needed(),
 		"a peer that answers still has to agree")
 }
+
+// A node does not name itself the coordinator when it does not hold the lease,
+// as after a restart with its own lease still recorded: a configuration write
+// it takes is answered that an election is going on, not forwarded to itself.
+func TestLease_ANodeWithoutTheLeaseDoesNotNameItself(t *testing.T) {
+	node, cleanup := leaseNode(t)
+	defer cleanup()
+	ctx := context.Background()
+	node.localNodeID = "node-a"
+	require.NoError(t, node.recordLease(ctx, "node-a", 1))
+	assert.Equal(t, "", node.LeaderID(ctx), "its own lease from before a restart")
+
+	node.mu.Lock()
+	node.knownLeader = "node-a"
+	node.mu.Unlock()
+	assert.Equal(t, "", node.LeaderID(ctx))
+
+	node.mu.Lock()
+	node.isLeader = true
+	node.leaderUntil = time.Now().Add(time.Minute)
+	node.mu.Unlock()
+	assert.Equal(t, "node-a", node.LeaderID(ctx), "it holds the lease")
+
+	node.standDown()
+	node.mu.Lock()
+	node.knownLeader = ""
+	node.mu.Unlock()
+	require.NoError(t, node.recordLease(ctx, "node-b", 2))
+	assert.Equal(t, "node-b", node.LeaderID(ctx))
+}

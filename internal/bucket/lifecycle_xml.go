@@ -125,6 +125,39 @@ func LifecycleFromXML(doc *LifecycleConfigurationXML) (*LifecycleConfig, error) 
 	return config, nil
 }
 
+// WithStoredRules sets the rules of sent among those of stored: a rule of
+// sent replaces in place the stored rule of its ID, the stored rules of other
+// IDs, or of none, stay, and the others of sent go last. More rules than S3
+// keeps are refused.
+func WithStoredRules(sent, stored *LifecycleConfig) (*LifecycleConfig, error) {
+	byID := make(map[string]LifecycleRule, len(sent.Rules))
+	for _, rule := range sent.Rules {
+		if rule.ID != "" {
+			byID[rule.ID] = rule
+		}
+	}
+	merged := &LifecycleConfig{}
+	placed := make(map[string]bool, len(byID))
+	if stored != nil {
+		for _, rule := range stored.Rules {
+			if replacement, ok := byID[rule.ID]; ok {
+				rule = replacement
+				placed[rule.ID] = true
+			}
+			merged.Rules = append(merged.Rules, rule)
+		}
+	}
+	for _, rule := range sent.Rules {
+		if !placed[rule.ID] {
+			merged.Rules = append(merged.Rules, rule)
+		}
+	}
+	if len(merged.Rules) > maxLifecycleRules {
+		return nil, refuse(lifecycleInvalidRequest, "A lifecycle configuration has %d rules at most", maxLifecycleRules)
+	}
+	return merged, nil
+}
+
 func lifecycleRuleFromXML(x *LifecycleRuleXML) (LifecycleRule, error) {
 	rule := LifecycleRule{ID: x.ID, Status: x.Status}
 	if len(x.ID) > maxLifecycleRuleID {

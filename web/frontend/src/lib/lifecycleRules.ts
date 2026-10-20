@@ -9,6 +9,17 @@ export const noMove: ClassMove = { on: false, days: 30, storageClass: '' };
 // The classes a lifecycle rule can move objects to.
 export const TRANSITION_CLASSES = ['STANDARD_IA', 'INTELLIGENT_TIERING', 'ONEZONE_IA', 'GLACIER_IR', 'GLACIER', 'DEEP_ARCHIVE'];
 
+// CONSOLE_RULE_ID names the rule the bucket settings write; the rules of other
+// IDs, set through the S3 API, are kept as they are.
+export const CONSOLE_RULE_ID = 'delete-old-versions';
+
+// consoleRuleOf is the stored rule the bucket settings write, and how many
+// other rules the bucket has.
+export function consoleRuleOf(rules?: LifecycleRule[]): { rule?: LifecycleRule; others: number } {
+  const rule = rules?.find((r) => r.ID === CONSOLE_RULE_ID);
+  return { rule, others: (rules?.length ?? 0) - (rule ? 1 : 0) };
+}
+
 // LifecycleForm is what the bucket settings ask of a lifecycle.
 export interface LifecycleForm {
   noncurrentDays: number;
@@ -18,7 +29,7 @@ export interface LifecycleForm {
 }
 
 // lifecycleXML is the lifecycle configuration of the form: one rule for the
-// whole bucket.
+// whole bucket, CONSOLE_RULE_ID.
 export function lifecycleXML(form: LifecycleForm): string {
   const parts = [
     `    <NoncurrentVersionExpiration>\n      <NoncurrentDays>${form.noncurrentDays}</NoncurrentDays>\n    </NoncurrentVersionExpiration>`,
@@ -34,12 +45,25 @@ export function lifecycleXML(form: LifecycleForm): string {
   }
   return `<LifecycleConfiguration>
   <Rule>
-    <ID>delete-old-versions</ID>
+    <ID>${CONSOLE_RULE_ID}</ID>
     <Status>Enabled</Status>
     <Prefix></Prefix>
 ${parts.join('\n')}
   </Rule>
 </LifecycleConfiguration>`;
+}
+
+// formOf is what the form asks of the rule of the console: its values, or the
+// defaults when the bucket has none.
+export function formOf(rule?: LifecycleRule): LifecycleForm {
+  if (!rule) {
+    return { noncurrentDays: 30, deleteExpiredMarkers: true, moveCurrent: noMove, moveNoncurrent: noMove };
+  }
+  return {
+    noncurrentDays: rule.NoncurrentVersionExpiration?.NoncurrentDays || 30,
+    deleteExpiredMarkers: rule.Expiration?.ExpiredObjectDeleteMarker === true,
+    ...classMovesOf(rule),
+  };
 }
 
 // classMovesOf are the moves a stored rule makes: its first transition by

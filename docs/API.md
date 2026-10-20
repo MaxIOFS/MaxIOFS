@@ -527,7 +527,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | GET | `/api/v1/buckets/{name}/object-lock` | Get Object Lock config (enabled flag, default retention) |
 | PUT | `/api/v1/buckets/{name}/object-lock` | Set Object Lock config |
 | GET | `/api/v1/buckets/{name}/lifecycle` | Get lifecycle rules |
-| PUT | `/api/v1/buckets/{name}/lifecycle` | Set lifecycle rules |
+| PUT | `/api/v1/buckets/{name}/lifecycle` | Set the lifecycle rules sent; a stored rule of another ID stays |
 | DELETE | `/api/v1/buckets/{name}/lifecycle` | Delete lifecycle rules |
 | GET | `/api/v1/buckets/{name}/quota` | Get the bucket quota and current usage |
 | PUT | `/api/v1/buckets/{name}/quota` | Set the bucket quota (size, object count) |

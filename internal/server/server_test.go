@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1229,8 +1231,9 @@ func TestHandlePutBucketLifecycle(t *testing.T) {
 
 		stored, err := server.bucketManager.GetLifecycle(testCtx, tenantID, bucketName)
 		require.NoError(t, err)
-		require.Len(t, stored.Rules, 1)
-		rule := stored.Rules[0]
+		i := slices.IndexFunc(stored.Rules, func(r bucket.LifecycleRule) bool { return r.ID == "archive" })
+		require.GreaterOrEqual(t, i, 0)
+		rule := stored.Rules[i]
 		assert.Equal(t, []bucket.Tag{{Key: "kind", Value: "backup"}}, rule.Filter.Tags)
 		require.Len(t, rule.Transitions, 1)
 		assert.Equal(t, "GLACIER", rule.Transitions[0].StorageClass)
@@ -1257,6 +1260,54 @@ func TestHandlePutBucketLifecycle(t *testing.T) {
 
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
+}
+
+// The console sets the lifecycle rules it sends, by ID: a stored rule it does
+// not send, set through the S3 API, stays as it is.
+func TestTheConsoleKeepsTheLifecycleRulesItDoesNotSend(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	tenantID, bucketName := "test-tenant", "test-bucket-lifecycle-kept"
+	cleanupTestData(t, tenantID, bucketName)
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
+	zero := 0
+	aging := bucket.LifecycleRule{ID: "aging", Status: "Enabled", Filter: bucket.LifecycleFilter{Prefix: "aging/"},
+		Transitions: []bucket.LifecycleTransition{{Days: &zero, StorageClass: "GLACIER"}}}
+	require.NoError(t, server.bucketManager.SetLifecycle(ctx, tenantID, bucketName, &bucket.LifecycleConfig{Rules: []bucket.LifecycleRule{aging}}))
+
+	put := func(days int) {
+		t.Helper()
+		body := fmt.Sprintf(`<LifecycleConfiguration><Rule><ID>delete-old-versions</ID><Status>Enabled</Status><Prefix></Prefix>
+			<NoncurrentVersionExpiration><NoncurrentDays>%d</NoncurrentDays></NoncurrentVersionExpiration></Rule></LifecycleConfiguration>`, days)
+		req := createAuthenticatedRequest("PUT", "/api/v1/buckets/"+bucketName+"/lifecycle", strings.NewReader(body), tenantID, "user-1", false)
+		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
+		rr := httptest.NewRecorder()
+		server.handlePutBucketLifecycle(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	}
+	rules := func() map[string]bucket.LifecycleRule {
+		t.Helper()
+		stored, err := server.bucketManager.GetLifecycle(ctx, tenantID, bucketName)
+		require.NoError(t, err)
+		byID := map[string]bucket.LifecycleRule{}
+		for _, r := range stored.Rules {
+			byID[r.ID] = r
+		}
+		require.Len(t, byID, len(stored.Rules), "one rule of each ID")
+		return byID
+	}
+
+	put(30)
+	byID := rules()
+	require.Len(t, byID, 2)
+	assert.Equal(t, aging, byID["aging"])
+	assert.Equal(t, 30, byID["delete-old-versions"].NoncurrentVersionExpiration.NoncurrentDays)
+
+	put(60)
+	byID = rules()
+	require.Len(t, byID, 2)
+	assert.Equal(t, aging, byID["aging"], "the rule set through S3 stays")
+	assert.Equal(t, 60, byID["delete-old-versions"].NoncurrentVersionExpiration.NoncurrentDays)
 }
 
 // TestHandleDeleteBucketLifecycle tests deleting bucket lifecycle configuration

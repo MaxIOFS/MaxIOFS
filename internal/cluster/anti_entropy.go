@@ -724,6 +724,13 @@ func (s *AntiEntropyScrubber) processBatch(
 			if lostCurrent {
 				lost = append(lost, object.ObjectVersion{Object: *local})
 			}
+			// The current object without a version pushed to the peer goes as
+			// its entry alone when cut in shards: the shard the peer is to hold
+			// is made for it.
+			if action == actPushToPeer && local.VersionID == "" && isSharded(object.ObjectVersion{Object: *local}) &&
+				slices.Contains(local.Locations, peer.ID) {
+				lost = append(lost, object.ObjectVersion{Object: *local})
+			}
 			// The same current object without a version, whose locations the
 			// peer has older: a node that was away missed their change.
 			if listed && !lostCurrent && divergence == divNone && local.VersionID == "" && peerEntry != nil && peerEntry.Found &&

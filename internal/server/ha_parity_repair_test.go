@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,6 +357,67 @@ func TestANodeThatMissedAWriteInShardsIsSentBoth(t *testing.T) {
 		_, err := missing.metadataStore.GetObject(ctx, "missed", "k")
 		return err == nil && slices.Equal([]int{index}, missing.shardsHeld(t, "missed", "k", ""))
 	}, 20*time.Second, 100*time.Millisecond)
+}
+
+// The node that makes the shards of a write again, catching up a node that
+// took neither the shard nor the entry before any other node sends it the
+// entry, sends the entry and makes the shard.
+func TestTheNodeThatMakesTheShardSendsTheEntryAndTheShard(t *testing.T) {
+	c := newParityCluster(t, 5, "missed")
+	ctx := context.Background()
+	missing := c.nodes[3]
+	missing.refuseShards.Store(true)
+	missing.refuseEntries.Store(true)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("missed"), Key: aws.String("k"), Body: bytes.NewReader(payload(200000))})
+	require.NoError(t, err)
+	index := slices.Index(c.nodes[0].entry(t, "missed", "k").Locations, missing.id)
+	require.GreaterOrEqual(t, index, 0)
+	missing.refuseShards.Store(false)
+	missing.refuseEntries.Store(false)
+
+	// The first of the write's other holders by ID makes the shard.
+	others := c.except(missing)
+	slices.SortFunc(others, func(a, b *haNode) int { return strings.Compare(a.id, b.id) })
+	maker := others[0]
+	_, err = maker.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, missing.id)
+	require.NoError(t, err)
+	startScrubber(t, maker.Server)
+	maker.antiEntropyScrubber.CatchUp(missing.id, time.Unix(1, 0))
+	require.Eventually(t, func() bool {
+		_, err := missing.metadataStore.GetObject(ctx, "missed", "k")
+		return err == nil && slices.Equal([]int{index}, missing.shardsHeld(t, "missed", "k", ""))
+	}, 20*time.Second, 100*time.Millisecond)
+}
+
+// A node of another class that missed the entry of a write in shards is sent
+// the entry alone: it holds no shard of it.
+func TestANodeOutOfTheShardsOfAWriteIsSentItsEntryAlone(t *testing.T) {
+	c := newHACluster(t, 5, 2)
+	ctx := context.Background()
+	c.keepClass(t, cluster.StorageClass{Name: "DEEP_ARCHIVE", Parity: true})
+	for _, n := range c.nodes[2:] {
+		c.putInClass(t, n, "DEEP_ARCHIVE")
+	}
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "deep", routingAdminID))
+	missing := c.nodes[0]
+	missing.refuseEntries.Store(true)
+	putClassed(t, c.nodes[1], "deep", "k", "DEEP_ARCHIVE", payload(300<<10))
+	_, err := missing.metadataStore.GetObject(ctx, "deep", "k")
+	require.Error(t, err)
+	missing.refuseEntries.Store(false)
+
+	for _, n := range c.except(missing) {
+		_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, missing.id)
+		require.NoError(t, err)
+		startScrubber(t, n.Server)
+		n.antiEntropyScrubber.CatchUp(missing.id, time.Unix(1, 0))
+	}
+	require.Eventually(t, func() bool {
+		_, err := missing.metadataStore.GetObject(ctx, "deep", "k")
+		return err == nil
+	}, 20*time.Second, 100*time.Millisecond)
+	assert.Empty(t, missing.shardsHeld(t, "deep", "k", ""))
+	assert.Zero(t, missing.shards.Load())
 }
 
 // A node holding an earlier write of a key takes the entry of a later write

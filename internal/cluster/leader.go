@@ -171,20 +171,22 @@ func (m *LeaderManager) CurrentTerm() int64 {
 }
 
 // LeaderID returns the node believed to hold the lease, for error messages that
-// tell a caller where to go.
+// tell a caller where to go. This node is named only while it holds the lease:
+// a lease of its own recorded before a restart is not held.
 func (m *LeaderManager) LeaderID(ctx context.Context) string {
 	m.mu.RLock()
-	known := m.knownLeader
+	known, local := m.knownLeader, m.localNodeID
 	m.mu.RUnlock()
-	if known != "" {
-		return known
+	leaderID := known
+	if leaderID == "" {
+		var expiresAt int64
+		err := m.db.QueryRowContext(ctx,
+			`SELECT leader_id, expires_at FROM cluster_leader WHERE id = 1`).Scan(&leaderID, &expiresAt)
+		if err != nil || time.Now().Unix() >= expiresAt {
+			return ""
+		}
 	}
-
-	var leaderID string
-	var expiresAt int64
-	err := m.db.QueryRowContext(ctx,
-		`SELECT leader_id, expires_at FROM cluster_leader WHERE id = 1`).Scan(&leaderID, &expiresAt)
-	if err != nil || time.Now().Unix() >= expiresAt {
+	if leaderID == local && !m.IsLeader() {
 		return ""
 	}
 	return leaderID

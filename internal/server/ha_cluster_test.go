@@ -529,6 +529,7 @@ func TestANodeThatMissedWritesIsSentWhatItHolds(t *testing.T) {
 	require.Equal(t, []string{a.id, far.id}, a.entry(t, "placed", "other").Locations, "b was down")
 
 	b.down.Store(false)
+	copies := b.copies.Load()
 	startScrubber(t, a.Server)
 	_, err = a.clusterManager.CheckNodeHealth(ctx, b.id)
 	require.NoError(t, err)
@@ -536,6 +537,7 @@ func TestANodeThatMissedWritesIsSentWhatItHolds(t *testing.T) {
 		_, err := b.metadataStore.GetObject(ctx, "placed", "other")
 		return b.holds(t, "placed", "its", "") && err == nil
 	}, 15*time.Second, 50*time.Millisecond)
+	assert.EqualValues(t, 1, b.copies.Load()-copies, "its copy is sent once")
 	assert.False(t, b.holds(t, "placed", "other", ""), "b is sent the entry only")
 	assert.Equal(t, []string{a.id, far.id}, b.entry(t, "placed", "other").Locations)
 	assert.Equal(t, "held elsewhere", getBody(t, b.s3, "placed", "other"))

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -364,4 +365,35 @@ func TestConcurrentRotations(t *testing.T) {
 	// Exactly one current row remains.
 	_, current := store.CurrentKEK()
 	assert.True(t, seen[current], "current must be one of the rotated versions")
+}
+
+// A node that missed a rotation and sends its keys does not take the cluster
+// back to the key before it.
+func TestAKeySetFromBeforeARotationDoesNotTakeTheKeyBack(t *testing.T) {
+	dbA := createTestDB(t)
+	storeA, err := Bootstrap(dbA, "")
+	require.NoError(t, err)
+	before, err := storeA.EnsureClusterKey()
+	require.NoError(t, err)
+	dbB := createTestDB(t)
+	storeB, err := Bootstrap(dbB, "")
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(before))
+
+	rotated, err := storeA.Rotate(true)
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(storeA.ClusterSharedKeys()))
+	require.NoError(t, storeB.AdoptClusterKeys(before), "the keys of a node that missed the rotation")
+	_, current := storeB.CurrentKEK()
+	assert.Equal(t, rotated, current)
+	storeB, err = Bootstrap(dbB, "")
+	require.NoError(t, err)
+	_, current = storeB.CurrentKEK()
+	assert.Equal(t, rotated, current, "after a restart")
+
+	stale := slices.Clone(before)
+	for i := range stale {
+		stale[i].IsCurrent = false
+	}
+	assert.ErrorContains(t, storeB.AdoptClusterKeys(stale), "no current version")
 }

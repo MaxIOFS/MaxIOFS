@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -170,4 +172,37 @@ func TestALifecycleS3WouldNotTakeIsRefused(t *testing.T) {
 			assert.Equal(t, c.code, refused.Code, refused.Message)
 		})
 	}
+}
+
+// The rules sent replace the stored rules of their IDs, in place; the stored
+// rules of other IDs, or of none, stay; a new rule goes last. More rules than
+// S3 keeps are refused.
+func TestTheRulesSentAreSetAmongTheStoredOnes(t *testing.T) {
+	r := func(id, prefix string) LifecycleRule {
+		return LifecycleRule{ID: id, Status: "Enabled", Filter: LifecycleFilter{Prefix: prefix}}
+	}
+	stored := &LifecycleConfig{Rules: []LifecycleRule{r("a", "a/"), r("", "x/"), r("console", "old/"), r("", "y/")}}
+	sent := &LifecycleConfig{Rules: []LifecycleRule{r("console", ""), r("new", "n/")}}
+	merged, err := WithStoredRules(sent, stored)
+	require.NoError(t, err)
+	assert.Equal(t, []LifecycleRule{r("a", "a/"), r("", "x/"), r("console", ""), r("", "y/"), r("new", "n/")}, merged.Rules)
+
+	merged, err = WithStoredRules(&LifecycleConfig{Rules: []LifecycleRule{r("", "s/")}}, stored)
+	require.NoError(t, err)
+	assert.Equal(t, append(slices.Clone(stored.Rules), r("", "s/")), merged.Rules, "a rule of no ID replaces none")
+
+	merged, err = WithStoredRules(sent, nil)
+	require.NoError(t, err)
+	assert.Equal(t, sent.Rules, merged.Rules)
+
+	many := &LifecycleConfig{}
+	for i := 0; i < maxLifecycleRules; i++ {
+		many.Rules = append(many.Rules, r(fmt.Sprint(i), ""))
+	}
+	_, err = WithStoredRules(&LifecycleConfig{Rules: []LifecycleRule{r("0", "z/")}}, many)
+	require.NoError(t, err, "a stored rule replaced")
+	_, err = WithStoredRules(sent, many)
+	var refused *LifecycleError
+	require.True(t, errors.As(err, &refused), "refused: %v", err)
+	assert.Equal(t, "InvalidRequest", refused.Code)
 }
