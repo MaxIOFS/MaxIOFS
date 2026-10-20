@@ -243,9 +243,11 @@ type LifecycleRule struct {
 
 // LifecycleFilter represents lifecycle rule filter
 type LifecycleFilter struct {
-	Prefix string            `json:"prefix,omitempty"`
-	Tags   map[string]string `json:"tags,omitempty"`
-	And    *LifecycleAnd     `json:"and,omitempty"`
+	Prefix                string            `json:"prefix,omitempty"`
+	Tags                  map[string]string `json:"tags,omitempty"`
+	ObjectSizeGreaterThan *int64            `json:"object_size_greater_than,omitempty"`
+	ObjectSizeLessThan    *int64            `json:"object_size_less_than,omitempty"`
+	And                   *LifecycleAnd     `json:"and,omitempty"`
 }
 
 // LifecycleAnd combines multiple filter criteria
@@ -270,13 +272,15 @@ type LifecycleTransition struct {
 
 // NoncurrentExpiration represents noncurrent version expiration
 type NoncurrentExpiration struct {
-	NoncurrentDays int `json:"noncurrent_days"`
+	NoncurrentDays          int `json:"noncurrent_days"`
+	NewerNoncurrentVersions int `json:"newer_noncurrent_versions,omitempty"`
 }
 
 // NoncurrentTransition represents noncurrent version transition
 type NoncurrentTransition struct {
-	NoncurrentDays int    `json:"noncurrent_days"`
-	StorageClass   string `json:"storage_class"`
+	NoncurrentDays          int    `json:"noncurrent_days"`
+	NewerNoncurrentVersions int    `json:"newer_noncurrent_versions,omitempty"`
+	StorageClass            string `json:"storage_class"`
 }
 
 // AbortMultipartMetadata represents abort incomplete multipart upload configuration

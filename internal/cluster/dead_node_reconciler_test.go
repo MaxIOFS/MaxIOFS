@@ -3,8 +3,11 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -475,4 +478,83 @@ func TestClusterDegradedReason_RoundTrip(t *testing.T) {
 
 	require.NoError(t, SetGlobalConfig(context.Background(), db, clusterDegradedReasonKey, "foo"))
 	assert.Equal(t, "foo", ClusterDegradedReason(context.Background(), db))
+}
+
+// The degraded state follows the health of the nodes: a change of a node's
+// health recomputes it, without waiting for the reconciler's next pass.
+func TestTheDegradedStateFollowsTheHealthOfTheNodes(t *testing.T) {
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	setReplicationFactor(t, db, 2)
+	mgr := newTestManager(t, db)
+	ctx := context.Background()
+	var answer atomic.Int32
+	answer.Store(http.StatusOK)
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(int(answer.Load()))
+	}))
+	defer peer.Close()
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	insertNode(t, db, "peer", "peer", HealthStatusUnknown, nil)
+	_, err := db.Exec(`UPDATE cluster_nodes SET endpoint = ? WHERE id = ?`, peer.URL, "peer")
+	require.NoError(t, err)
+
+	emitter := &captureEmitter{}
+	r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, emitter.emit)
+	defer r.Stop()
+	mgr.OnHealthChange(func() { r.RecomputeDegradedState(ctx) })
+	r.recomputeClusterDegradedState(ctx)
+	require.NotEmpty(t, ClusterDegradedReason(ctx, db), "the peer is not known to be healthy yet")
+
+	degraded := func(want bool) func() bool {
+		return func() bool { return (ClusterDegradedReason(ctx, db) != "") == want }
+	}
+	_, err = mgr.CheckNodeHealth(ctx, "peer")
+	require.NoError(t, err)
+	assert.Eventually(t, degraded(false), 5*time.Second, 10*time.Millisecond, "the peer answers")
+
+	answer.Store(http.StatusServiceUnavailable)
+	_, err = mgr.CheckNodeHealth(ctx, "peer")
+	require.NoError(t, err)
+	assert.Eventually(t, degraded(true), 5*time.Second, 10*time.Millisecond, "the peer answers no more")
+
+	answer.Store(http.StatusOK)
+	_, err = mgr.CheckNodeHealth(ctx, "peer")
+	require.NoError(t, err)
+	assert.Eventually(t, degraded(false), 5*time.Second, 10*time.Millisecond, "the peer is back")
+
+	mgr.markNodeUnavailable(ctx, "peer", "a copy to it failed")
+	assert.Eventually(t, degraded(true), 5*time.Second, 10*time.Millisecond, "a request to the peer failed")
+
+	var kinds []DeadNodeEventKind
+	for _, ev := range emitter.snapshot() {
+		kinds = append(kinds, ev.Kind)
+	}
+	assert.Equal(t, []DeadNodeEventKind{EventClusterDegraded, EventClusterDegradedResolved, EventClusterDegraded,
+		EventClusterDegradedResolved, EventClusterDegraded}, kinds)
+}
+
+// The degraded state the console reads is that of the nodes as they are now.
+func TestTheDegradedStateReadIsComputedNow(t *testing.T) {
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	setReplicationFactor(t, db, 2)
+	mgr := newTestManager(t, db)
+	ctx := context.Background()
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	insertNode(t, db, "peer", "peer", HealthStatusHealthy, nil)
+	r := NewDeadNodeReconciler(mgr, &fakeSyncTrigger{}, nil)
+	require.NoError(t, SetGlobalConfig(ctx, db, clusterDegradedReasonKey, "cluster has 1 healthy node(s), replication factor is 2"))
+	assert.Empty(t, r.DegradedReason(ctx), "both nodes are healthy")
+
+	setReplicationFactor(t, db, 3)
+	assert.Contains(t, r.DegradedReason(ctx), "replication factor is 3")
+}
+
+// A node out of a cluster is not degraded, whatever factor it was left with.
+func TestANodeOutOfAClusterIsNotDegraded(t *testing.T) {
+	db := setupDeadNodeReconcilerDB(t)
+	setReplicationFactor(t, db, 2)
+	r := NewDeadNodeReconciler(newTestManager(t, db), &fakeSyncTrigger{}, nil)
+	assert.Empty(t, r.DegradedReason(context.Background()))
 }

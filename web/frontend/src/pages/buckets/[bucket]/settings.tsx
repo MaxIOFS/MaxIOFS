@@ -36,10 +36,60 @@ import { ReadOnlyBucketNotice } from '@/components/ReadOnlyBucketNotice';
 import { PublicAccessBlockFields } from '@/components/PublicAccessBlockFields';
 import { BucketPolicyEditor } from '@/components/BucketPolicyEditor';
 import type { BucketPolicyDocument } from '@/lib/bucketPolicyRules';
+import { lifecycleXML, classMovesOf, noMove, TRANSITION_CLASSES, type ClassMove } from '@/lib/lifecycleRules';
 import type { NotificationConfiguration, NotificationRule, ReplicationRule, CreateReplicationRuleRequest, PublicAccessBlockConfig } from '@/types';
 
 // Tab types
 type TabId = 'general' | 'security' | 'quota' | 'lifecycle' | 'notifications' | 'replication' | 'inventory' | 'website';
+
+function ClassMoveRow({ id, label, daysLabel, classLabel, move, classes, onChange }: {
+  id: string;
+  label: string;
+  daysLabel: string;
+  classLabel: string;
+  move: ClassMove;
+  classes: string[];
+  onChange: (move: ClassMove) => void;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        type="checkbox"
+        id={id}
+        checked={move.on}
+        onChange={(e) => onChange({ ...move, on: e.target.checked, storageClass: move.storageClass || classes[0] })}
+        className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+      />
+      <div className="flex-1 space-y-2">
+        <label htmlFor={id} className="block text-sm font-medium text-foreground">{label}</label>
+        {move.on && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label={classLabel}
+              value={move.storageClass}
+              onChange={(e) => onChange({ ...move, storageClass: e.target.value })}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
+            >
+              {classes.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              aria-label={daysLabel}
+              min="0"
+              max="36500"
+              value={move.days}
+              onChange={(e) => onChange({ ...move, days: Math.max(0, parseInt(e.target.value) || 0) })}
+              className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-700 bg-card text-foreground rounded-md text-sm"
+            />
+            <span className="text-sm text-muted-foreground">{daysLabel}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface TabInfo {
   id: TabId;
@@ -126,6 +176,10 @@ export default function BucketSettingsPage() {
   const [_lifecycleText, setLifecycleText] = useState('');
   const [noncurrentDays, setNoncurrentDays] = useState<number>(30);
   const [deleteExpiredMarkers, setDeleteExpiredMarkers] = useState<boolean>(true);
+  // Moves to a colder storage class the cluster keeps, of the current objects
+  // and of the noncurrent versions.
+  const [moveCurrent, setMoveCurrent] = useState<ClassMove>(noMove);
+  const [moveNoncurrent, setMoveNoncurrent] = useState<ClassMove>(noMove);
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const [tags, setTags] = useState<Record<string, string>>({});
   const [newTagKey, setNewTagKey] = useState('');
@@ -514,8 +568,11 @@ export default function BucketSettingsPage() {
   const { data: serverConfig } = useQuery({
     queryKey: ['serverConfig'],
     queryFn: APIClient.getServerConfig,
-    enabled: activeTab === 'website',
+    enabled: activeTab === 'website' || activeTab === 'lifecycle',
   });
+  // The classes a lifecycle rule moves objects to: those the cluster keeps on
+  // nodes of their own.
+  const transitionClasses = (serverConfig?.cluster?.storageClasses ?? []).filter((c) => TRANSITION_CLASSES.includes(c));
   const websiteHostnameConfigured = !!serverConfig?.server?.websiteHostname;
   const websiteHostname = serverConfig?.server?.websiteHostname ?? '';
 
@@ -983,6 +1040,8 @@ export default function BucketSettingsPage() {
     // Reset to defaults first
     setNoncurrentDays(30);
     setDeleteExpiredMarkers(true);
+    setMoveCurrent(noMove);
+    setMoveNoncurrent(noMove);
 
     // Parse lifecycle to extract values
     if (lifecycle && lifecycle.Rules && lifecycle.Rules.length > 0) {
@@ -997,6 +1056,10 @@ export default function BucketSettingsPage() {
       if (rule.Expiration?.ExpiredObjectDeleteMarker !== undefined) {
         setDeleteExpiredMarkers(rule.Expiration.ExpiredObjectDeleteMarker);
       }
+
+      const moves = classMovesOf(rule);
+      setMoveCurrent(moves.moveCurrent);
+      setMoveNoncurrent(moves.moveNoncurrent);
     }
 
     setLifecycleText(lifecycle ? JSON.stringify(lifecycle, null, 2) : '');
@@ -3081,6 +3144,33 @@ export default function BucketSettingsPage() {
             </div>
           </div>
 
+          {transitionClasses.length > 0 && (
+            <div className="space-y-3 pt-4 border-t">
+              <div>
+                <p className="text-sm font-medium text-foreground">{t('lifecycle.transitionsTitle')}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('lifecycle.transitionsHint')}</p>
+              </div>
+              <ClassMoveRow
+                id="move-current"
+                label={t('lifecycle.moveCurrentLabel')}
+                daysLabel={t('lifecycle.moveCurrentDays')}
+                classLabel={t('lifecycle.moveClass')}
+                move={moveCurrent}
+                classes={transitionClasses}
+                onChange={setMoveCurrent}
+              />
+              <ClassMoveRow
+                id="move-noncurrent"
+                label={t('lifecycle.moveNoncurrentLabel')}
+                daysLabel={t('lifecycle.moveNoncurrentDays')}
+                classLabel={t('lifecycle.moveClass')}
+                move={moveNoncurrent}
+                classes={transitionClasses}
+                onChange={setMoveNoncurrent}
+              />
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsLifecycleModalOpen(false)}>
               {t('lifecycle.cancel')}
@@ -3088,16 +3178,7 @@ export default function BucketSettingsPage() {
             <Button
               onClick={() => {
                 // Generate XML from form values
-                const xml = `<LifecycleConfiguration>
-  <Rule>
-    <ID>delete-old-versions</ID>
-    <Status>Enabled</Status>
-    <Prefix></Prefix>
-    <NoncurrentVersionExpiration>
-      <NoncurrentDays>${noncurrentDays}</NoncurrentDays>
-    </NoncurrentVersionExpiration>${deleteExpiredMarkers ? '\n    <Expiration>\n      <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>\n    </Expiration>' : ''}
-  </Rule>
-</LifecycleConfiguration>`;
+                const xml = lifecycleXML({ noncurrentDays, deleteExpiredMarkers, moveCurrent, moveNoncurrent });
                 saveLifecycleMutation.mutate(xml);
               }}
               disabled={isGlobalAdminInTenantBucket || saveLifecycleMutation.isPending}

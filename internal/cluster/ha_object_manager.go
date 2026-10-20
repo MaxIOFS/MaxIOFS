@@ -203,15 +203,16 @@ func (h *HAObjectManager) PutObject(ctx context.Context, bucket, key string, dat
 	if !h.mgr.IsClusterEnabled() {
 		return h.Manager.PutObject(ctx, bucket, key, data, headers)
 	}
+	sc := headers.Get("x-amz-storage-class")
 	if !isHAReplica(ctx) && !isHARollback(ctx) {
-		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
+		if ok, err := h.mgr.canAcceptWrites(ctx, sc); err == nil && !ok {
 			return nil, ErrClusterDegraded
 		}
 	}
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return h.Manager.PutObject(ctx, bucket, key, data, headers)
 	}
-	p, placed := h.place(ctx)
+	p, placed := h.place(ctx, sc)
 	if placed {
 		ctx = object.WithLocations(ctx, p.holders)
 	}
@@ -239,12 +240,12 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 	if !h.mgr.IsClusterEnabled() {
 		return h.Manager.DeleteObject(ctx, bucket, key, bypassGovernance, versionID...)
 	}
+	written, sc := h.lastWritten(ctx, bucket, key, versionID...)
 	if !isHAReplica(ctx) && !isHARollback(ctx) {
-		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
+		if ok, err := h.mgr.canAcceptWrites(ctx, sc); err == nil && !ok {
 			return "", ErrClusterDegraded
 		}
 	}
-	written := h.lastWritten(ctx, bucket, key, versionID...)
 	markerID, err := h.Manager.DeleteObject(ctx, bucket, key, bypassGovernance, versionID...)
 	if err != nil {
 		return "", err
@@ -259,31 +260,32 @@ func (h *HAObjectManager) DeleteObject(ctx context.Context, bucket, key string, 
 	if len(versionID) > 0 {
 		specificVersionID = versionID[0]
 	}
-	if err := h.fanoutDelete(ctx, bucket, key, specificVersionID, markerID); err != nil {
+	if err := h.fanoutDelete(ctx, bucket, key, specificVersionID, markerID, sc); err != nil {
 		return markerID, err
 	}
 	return markerID, nil
 }
 
 // lastWritten returns when the version a delete removes, or the current
-// object of the key, was written (unix seconds), or 0.
-func (h *HAObjectManager) lastWritten(ctx context.Context, bucket, key string, versionID ...string) int64 {
+// object of the key, was written (unix seconds), or 0, and its storage
+// class.
+func (h *HAObjectManager) lastWritten(ctx context.Context, bucket, key string, versionID ...string) (int64, string) {
 	if len(versionID) == 0 || versionID[0] == "" {
 		if obj, err := h.Manager.GetObjectMetadata(ctx, bucket, key); err == nil {
-			return obj.LastModified.Unix()
+			return obj.LastModified.Unix(), obj.StorageClass
 		}
-		return 0
+		return 0, ""
 	}
 	versions, err := h.Manager.GetObjectVersions(ctx, bucket, key)
 	if err != nil {
-		return 0
+		return 0, ""
 	}
 	for _, v := range versions {
 		if v.VersionID == versionID[0] {
-			return v.LastModified.Unix()
+			return v.LastModified.Unix(), v.StorageClass
 		}
 	}
-	return 0
+	return 0, ""
 }
 
 // versionTime is when a version of key was written, or the zero time.
@@ -343,15 +345,17 @@ func (h *HAObjectManager) CompleteMultipartUpload(ctx context.Context, uploadID 
 	if !h.mgr.IsClusterEnabled() {
 		return h.Manager.CompleteMultipartUpload(ctx, uploadID, parts)
 	}
-	if !isHAReplica(ctx) && !isHARollback(ctx) {
-		if ok, err := h.mgr.ClusterCanAcceptWrites(ctx); err == nil && !ok {
-			return nil, ErrClusterDegraded
-		}
-	}
 	if isHAReplica(ctx) || isHARollback(ctx) {
 		return h.Manager.CompleteMultipartUpload(ctx, uploadID, parts)
 	}
-	p, placed := h.place(ctx)
+	var sc string
+	if uploads, ok := h.Manager.(object.UploadStorageClasser); ok {
+		sc, _ = uploads.UploadStorageClass(ctx, uploadID)
+	}
+	if ok, err := h.mgr.canAcceptWrites(ctx, sc); err == nil && !ok {
+		return nil, ErrClusterDegraded
+	}
+	p, placed := h.place(ctx, sc)
 	if placed {
 		ctx = object.WithLocations(ctx, p.holders)
 	}
@@ -444,15 +448,16 @@ func RequiredReplicaAcks(factor int) int {
 	return (factor+1)/2 - 1
 }
 
-// deleteTargets are the nodes a delete made here goes to: every other healthy
-// node, as every node holds the entry, of which enough confirm for the
-// factor's quorum. A node neither healthy nor dead misses the delete made at
-// deleted, and is recorded as such.
-func (h *HAObjectManager) deleteTargets(ctx context.Context, deleted time.Time) ([]*Node, int, bool) {
+// deleteTargets are the nodes the delete of a write of storage class sc made
+// here goes to: every other healthy node, as every node holds the entry, of
+// which enough confirm for the quorum of the write's class. A node neither
+// healthy nor dead misses the delete made at deleted, and is recorded as
+// such.
+func (h *HAObjectManager) deleteTargets(ctx context.Context, deleted time.Time, sc string) ([]*Node, int, bool) {
 	if !h.mgr.IsClusterEnabled() {
 		return nil, 0, false
 	}
-	factor, err := h.mgr.quorumFactor(ctx)
+	factor, err := h.mgr.quorumFactor(ctx, sc)
 	if err != nil {
 		return nil, 0, false
 	}
@@ -653,11 +658,12 @@ func sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObje
 	return true, nil
 }
 
-// fanoutDelete replicates a delete made here to every other healthy node, and
-// returns ErrClusterDegraded when fewer than the quorum confirm.
-func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specificVersionID, deleteMarkerVersionID string) error {
+// fanoutDelete replicates a delete made here of a write of storage class sc
+// to every other healthy node, and returns ErrClusterDegraded when fewer than
+// the quorum confirm.
+func (h *HAObjectManager) fanoutDelete(ctx context.Context, bucket, key, specificVersionID, deleteMarkerVersionID, sc string) error {
 	deleted := time.Now()
-	targets, needed, ok := h.deleteTargets(ctx, deleted)
+	targets, needed, ok := h.deleteTargets(ctx, deleted, sc)
 	if !ok {
 		return nil
 	}

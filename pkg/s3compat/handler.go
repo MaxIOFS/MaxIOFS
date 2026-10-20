@@ -2025,7 +2025,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy",
 		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
-		"InvalidDigest":
+		"InvalidDigest", "InvalidStorageClass":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":

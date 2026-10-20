@@ -1,6 +1,10 @@
 package bucket
 
 import (
+	"maps"
+	"slices"
+	"time"
+
 	"github.com/maxiofs/maxiofs/internal/metadata"
 )
 
@@ -243,110 +247,155 @@ func fromMetadataLifecycle(l *metadata.LifecycleMetadata) *LifecycleConfig {
 	}
 }
 
+// toMetadataLifecycleRule stores a rule: a date as RFC 3339, an unset number
+// of days as 0.
 func toMetadataLifecycleRule(r *LifecycleRule) metadata.LifecycleRule {
 	rule := metadata.LifecycleRule{
 		ID:     r.ID,
 		Status: r.Status,
+		Filter: &metadata.LifecycleFilter{
+			Prefix:                r.Filter.Prefix,
+			ObjectSizeGreaterThan: r.Filter.ObjectSizeGreaterThan,
+			ObjectSizeLessThan:    r.Filter.ObjectSizeLessThan,
+		},
 	}
-
-	// Simple prefix filter
-	rule.Filter = &metadata.LifecycleFilter{
-		Prefix: r.Filter.Prefix,
-	}
-
-	// Expiration
-	if r.Expiration != nil {
-		days := 0
-		if r.Expiration.Days != nil {
-			days = *r.Expiration.Days
+	if len(r.Filter.Tags) > 0 {
+		rule.Filter.Tags = make(map[string]string, len(r.Filter.Tags))
+		for _, tag := range r.Filter.Tags {
+			rule.Filter.Tags[tag.Key] = tag.Value
 		}
+	}
+
+	if e := r.Expiration; e != nil {
 		rule.Expiration = &metadata.LifecycleExpiration{
-			Days: days,
-		}
-		if r.Expiration.ExpiredObjectDeleteMarker != nil {
-			rule.Expiration.ExpiredObjectDeleteMarker = *r.Expiration.ExpiredObjectDeleteMarker
-		}
-	}
-
-	// Transition
-	if r.Transition != nil {
-		days := 0
-		if r.Transition.Days != nil {
-			days = *r.Transition.Days
-		}
-		rule.Transitions = []metadata.LifecycleTransition{
-			{
-				Days:         days,
-				StorageClass: r.Transition.StorageClass,
-			},
+			Days:                      intOrZero(e.Days),
+			Date:                      storedDate(e.Date),
+			ExpiredObjectDeleteMarker: e.ExpiredObjectDeleteMarker != nil && *e.ExpiredObjectDeleteMarker,
 		}
 	}
-
-	// NoncurrentVersionExpiration
-	if r.NoncurrentVersionExpiration != nil {
+	for _, t := range r.Transitions {
+		rule.Transitions = append(rule.Transitions, metadata.LifecycleTransition{
+			Days:         intOrZero(t.Days),
+			Date:         storedDate(t.Date),
+			StorageClass: t.StorageClass,
+		})
+	}
+	if n := r.NoncurrentVersionExpiration; n != nil {
 		rule.NoncurrentVersionExpiration = &metadata.NoncurrentExpiration{
-			NoncurrentDays: r.NoncurrentVersionExpiration.NoncurrentDays,
+			NoncurrentDays:          n.NoncurrentDays,
+			NewerNoncurrentVersions: n.NewerNoncurrentVersions,
 		}
 	}
-
-	// AbortIncompleteMultipartUpload
-	if r.AbortIncompleteMultipartUpload != nil {
+	for _, t := range r.NoncurrentVersionTransitions {
+		rule.NoncurrentVersionTransitions = append(rule.NoncurrentVersionTransitions, metadata.NoncurrentTransition{
+			NoncurrentDays:          t.NoncurrentDays,
+			NewerNoncurrentVersions: t.NewerNoncurrentVersions,
+			StorageClass:            t.StorageClass,
+		})
+	}
+	if a := r.AbortIncompleteMultipartUpload; a != nil {
 		rule.AbortIncompleteMultipartUpload = &metadata.AbortMultipartMetadata{
-			DaysAfterInitiation: r.AbortIncompleteMultipartUpload.DaysAfterInitiation,
+			DaysAfterInitiation: a.DaysAfterInitiation,
 		}
 	}
-
 	return rule
 }
 
+// fromMetadataLifecycleRule reads a stored rule. An expiration of 0 days is
+// one by date or of delete markers only; a transition of 0 days without a
+// date moves the objects at once.
 func fromMetadataLifecycleRule(r *metadata.LifecycleRule) LifecycleRule {
 	rule := LifecycleRule{
 		ID:     r.ID,
 		Status: r.Status,
 	}
 
-	// Simple prefix filter
-	if r.Filter != nil {
+	if f := r.Filter; f != nil {
 		rule.Filter = LifecycleFilter{
-			Prefix: r.Filter.Prefix,
+			Prefix:                f.Prefix,
+			ObjectSizeGreaterThan: f.ObjectSizeGreaterThan,
+			ObjectSizeLessThan:    f.ObjectSizeLessThan,
+		}
+		tags := maps.Clone(f.Tags)
+		if f.And != nil {
+			if rule.Filter.Prefix == "" {
+				rule.Filter.Prefix = f.And.Prefix
+			}
+			if tags == nil && len(f.And.Tags) > 0 {
+				tags = maps.Clone(f.And.Tags)
+			}
+		}
+		for _, key := range slices.Sorted(maps.Keys(tags)) {
+			rule.Filter.Tags = append(rule.Filter.Tags, Tag{Key: key, Value: tags[key]})
 		}
 	}
 
-	// Expiration
-	if r.Expiration != nil {
-		days := r.Expiration.Days
-		deleteMarker := r.Expiration.ExpiredObjectDeleteMarker
-		rule.Expiration = &LifecycleExpiration{
-			Days:                      &days,
-			ExpiredObjectDeleteMarker: &deleteMarker,
+	// An expiration stored with nothing to say, its date lost before dates
+	// were kept, is none.
+	if e := r.Expiration; e != nil && (e.Days > 0 || readDate(e.Date) != nil || e.ExpiredObjectDeleteMarker) {
+		rule.Expiration = &LifecycleExpiration{Date: readDate(e.Date)}
+		if e.Days > 0 {
+			days := e.Days
+			rule.Expiration.Days = &days
+		}
+		if e.ExpiredObjectDeleteMarker {
+			marker := true
+			rule.Expiration.ExpiredObjectDeleteMarker = &marker
 		}
 	}
-
-	// Transition (only first one)
-	if len(r.Transitions) > 0 {
-		t := r.Transitions[0]
-		days := t.Days
-		rule.Transition = &LifecycleTransition{
-			Days:         &days,
-			StorageClass: t.StorageClass,
+	for _, t := range r.Transitions {
+		transition := LifecycleTransition{Date: readDate(t.Date), StorageClass: t.StorageClass}
+		if transition.Date == nil {
+			days := t.Days
+			transition.Days = &days
 		}
+		rule.Transitions = append(rule.Transitions, transition)
 	}
-
-	// NoncurrentVersionExpiration
-	if r.NoncurrentVersionExpiration != nil {
+	if n := r.NoncurrentVersionExpiration; n != nil {
 		rule.NoncurrentVersionExpiration = &NoncurrentVersionExpiration{
-			NoncurrentDays: r.NoncurrentVersionExpiration.NoncurrentDays,
+			NoncurrentDays:          n.NoncurrentDays,
+			NewerNoncurrentVersions: n.NewerNoncurrentVersions,
 		}
 	}
-
-	// AbortIncompleteMultipartUpload
-	if r.AbortIncompleteMultipartUpload != nil {
+	for _, t := range r.NoncurrentVersionTransitions {
+		rule.NoncurrentVersionTransitions = append(rule.NoncurrentVersionTransitions, NoncurrentVersionTransition{
+			NoncurrentDays:          t.NoncurrentDays,
+			NewerNoncurrentVersions: t.NewerNoncurrentVersions,
+			StorageClass:            t.StorageClass,
+		})
+	}
+	if a := r.AbortIncompleteMultipartUpload; a != nil {
 		rule.AbortIncompleteMultipartUpload = &LifecycleAbortIncompleteMultipartUpload{
-			DaysAfterInitiation: r.AbortIncompleteMultipartUpload.DaysAfterInitiation,
+			DaysAfterInitiation: a.DaysAfterInitiation,
 		}
 	}
-
 	return rule
+}
+
+func intOrZero(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
+func storedDate(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func readDate(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	t = t.UTC()
+	return &t
 }
 
 // CORS conversion

@@ -53,7 +53,7 @@ func fanoutToRecorder(t *testing.T, obj *object.Object) http.Header {
 	require.NoError(t, err)
 
 	h := &HAObjectManager{Manager: &lockedObjectManager{obj: obj}, mgr: mgr}
-	p, placed := h.place(ctx)
+	p, placed := h.place(ctx, "")
 	require.True(t, placed)
 	require.NoError(t, h.replicate(ctx, p, "bucket", "key", obj.VersionID, time.Now()))
 	select {

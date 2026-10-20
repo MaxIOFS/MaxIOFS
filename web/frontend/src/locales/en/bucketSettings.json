@@ -301,7 +301,14 @@
     "deleteMarkersHint": "Automatically remove delete markers when they are the only version remaining",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "saveRules": "Save Rules"
+    "saveRules": "Save Rules",
+    "transitionsTitle": "Move to a colder storage class",
+    "transitionsHint": "The objects are moved to the nodes of the class; they are read as before.",
+    "moveCurrentLabel": "Move objects",
+    "moveCurrentDays": "days after they were written",
+    "moveNoncurrentLabel": "Move noncurrent versions",
+    "moveNoncurrentDays": "days after they became noncurrent",
+    "moveClass": "Storage class"
   },
   "notifications": {
     "title": "Event Notifications",

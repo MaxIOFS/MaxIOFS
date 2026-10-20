@@ -28,14 +28,17 @@ func isSharded(v object.ObjectVersion) bool {
 	return ok
 }
 
-// shardNodes are the nodes a write's shards go to: this node first when it
-// takes data, then the others that do, the most free space first.
-func (r *placementRepair) shardNodes() []*Node {
+// shardNodes are the nodes the shards of a write of class go to: the nodes
+// that take data in the class, then those of other classes; this node first
+// among those it is in, then the most free space first.
+func (r *placementRepair) shardNodes(class string) []*Node {
 	var nodes []*Node
 	if n, ok := r.nodes[r.localID]; ok && n.TakesData() {
 		nodes = append(nodes, n)
 	}
-	return append(nodes, r.candidates...)
+	nodes = append(nodes, r.candidates...)
+	r.view.sortForClass(nodes, class)
+	return nodes
 }
 
 // livingHolders are the nodes write v names that are neither dead nor gone.
@@ -50,11 +53,12 @@ func (r *placementRepair) livingHolders(v object.ObjectVersion) []string {
 }
 
 // repairShards repairs a write kept in shards, or to be: whole copies are cut
-// in shards and shards joined in whole copies as the protection asks, the
-// shards of dead, removed or drained nodes are made again on other nodes, and
-// shards that a cluster can no longer hold apart, or with less parity than it
-// asks, are cut again. The first of the write's living holders acts. It
-// reports whether this node still holds the write.
+// in shards and shards joined in whole copies as the protection of its class
+// asks, the shards of dead, removed or drained nodes are made again on other
+// nodes and those of nodes of another class on nodes of its own, and shards
+// that a cluster can no longer hold apart, or with less parity than it asks,
+// are cut again. The first of the write's living holders acts. It reports
+// whether this node still holds the write.
 func (r *placementRepair) repairShards(ctx context.Context, bucket, key string, v object.ObjectVersion, target dataTarget) (bool, error) {
 	living := r.livingHolders(v)
 	if len(living) == 0 || slices.Min(living) != r.localID {
@@ -85,7 +89,7 @@ func (r *placementRepair) cutInShards(ctx context.Context, bucket, key string, v
 	if held, err := r.writer.HoldsData(ctx, bucket, key, v.VersionID); err != nil || !held {
 		return err != nil, err
 	}
-	nodes := r.shardNodes()
+	nodes := r.shardNodes(r.view.of(v.StorageClass))
 	layout, ok := fit(layout, len(nodes))
 	if !ok {
 		return r.repairCopies(ctx, bucket, key, v, layout.Parity+1)
@@ -120,11 +124,12 @@ func (r *placementRepair) placeShards(ctx context.Context, bucket, key string, v
 }
 
 // joinShards keeps a write cut in shards in copies whole copies on the nodes
-// that take data, this node first.
+// that take data, those of its class first, this node first among those it
+// is in.
 func (r *placementRepair) joinShards(ctx context.Context, bucket, key string, v object.ObjectVersion, copies int) (bool, error) {
 	gen, locations := v.LocationsGen, []string(nil)
 	var errs error
-	for _, n := range r.shardNodes() {
+	for _, n := range r.shardNodes(r.view.of(v.StorageClass)) {
 		if len(locations) >= copies {
 			break
 		}
@@ -158,22 +163,28 @@ func (r *placementRepair) joinShards(ctx context.Context, bucket, key string, v 
 }
 
 // mendShards makes the shards of dead, removed or drained holders again on
-// nodes holding none of the write, or cuts the write again when its shards
-// cannot stay apart on the nodes there are or have less parity than target.
+// nodes holding none of the write, those of the write's class first, and
+// moves those of holders of another class to nodes of its own; it cuts the
+// write again when its shards cannot stay apart on the nodes there are or
+// have less parity than target.
 func (r *placementRepair) mendShards(ctx context.Context, bucket, key string, v object.ObjectVersion, layout, target erasure.Layout) (bool, error) {
-	var replaced []int
+	class := r.view.of(v.StorageClass)
+	var replaced, elsewhere []int
 	staying := 0
 	for i, id := range v.Locations {
 		n, ok := r.nodes[id]
 		switch {
 		case !ok || n.HealthStatus == HealthStatusDead, n.Drained:
 			replaced = append(replaced, i)
+		case r.view.node(n) != class:
+			elsewhere = append(elsewhere, i)
+			staying++
 		default:
 			staying++
 		}
 	}
 	var free []*Node
-	for _, n := range r.shardNodes() {
+	for _, n := range r.shardNodes(class) {
 		if !slices.Contains(v.Locations, n.ID) {
 			free = append(free, n)
 		}
@@ -185,6 +196,14 @@ func (r *placementRepair) mendShards(ctx context.Context, bucket, key string, v 
 	for _, i := range replaced {
 		if len(free) == 0 {
 			// A drained holder keeps its shard until a node takes it.
+			break
+		}
+		want[i], free = free[0], free[1:]
+	}
+	// A holder of another class keeps its shard until a node of the class
+	// takes it.
+	for _, i := range elsewhere {
+		if len(free) == 0 || r.view.node(free[0]) != class {
 			break
 		}
 		want[i], free = free[0], free[1:]
@@ -216,9 +235,10 @@ func (r *placementRepair) mendShards(ctx context.Context, bucket, key string, v 
 }
 
 // recutShards cuts a write in shards again by target, over the nodes that
-// take data; too few of them for shards keep it in whole copies.
+// take data, those of its class first; too few of them for shards keep it in
+// whole copies.
 func (r *placementRepair) recutShards(ctx context.Context, bucket, key string, v object.ObjectVersion, target erasure.Layout) (bool, error) {
-	nodes := r.shardNodes()
+	nodes := r.shardNodes(r.view.of(v.StorageClass))
 	layout, ok := fit(target, len(nodes))
 	if !ok {
 		return r.joinShards(ctx, bucket, key, v, target.Parity+1)
@@ -260,8 +280,8 @@ func assignShards(nodes []*Node, current []string) []*Node {
 }
 
 // moveShards puts each shard of want on its new node for the placement gen:
-// copied from a drained holder still in service, made again from the other
-// shards otherwise. It returns each shard's error.
+// copied from a holder still in service, drained or of another class, made
+// again from the other shards otherwise. It returns each shard's error.
 func (r *placementRepair) moveShards(ctx context.Context, obj *object.Object, want map[int]*Node, gen int64) map[int]error {
 	errs := make(map[int]error, len(want))
 	rebuild := make(map[int]*Node)
@@ -273,7 +293,7 @@ func (r *placementRepair) moveShards(ctx context.Context, obj *object.Object, wa
 				continue
 			}
 			logrus.WithError(err).WithFields(logrus.Fields{"node_id": from.ID, "bucket": obj.Bucket, "key": obj.Key, "shard": i}).
-				Debug("HASyncWorker: a drained node's shard is made again from the others")
+				Debug("HASyncWorker: a shard not copied from its node is made again from the others")
 		}
 		rebuild[i] = want[i]
 	}

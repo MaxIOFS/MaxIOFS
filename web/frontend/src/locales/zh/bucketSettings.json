@@ -301,7 +301,14 @@
     "deleteMarkersHint": "当删除标记是唯一剩余版本时自动删除",
     "cancel": "取消",
     "saving": "保存中...",
-    "saveRules": "保存规则"
+    "saveRules": "保存规则",
+    "transitionsTitle": "移到更冷的存储类别",
+    "transitionsHint": "对象被移到该类别的节点，读取方式不变。",
+    "moveCurrentLabel": "移动对象",
+    "moveCurrentDays": "天后（自写入起）",
+    "moveNoncurrentLabel": "移动非当前版本",
+    "moveNoncurrentDays": "天后（自不再是当前版本起）",
+    "moveClass": "存储类别"
   },
   "notifications": {
     "title": "事件通知",

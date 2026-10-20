@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -133,65 +132,6 @@ func (h *Handler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Bucket Lifecycle XML structures
-type LifecycleConfiguration struct {
-	XMLName xml.Name        `xml:"LifecycleConfiguration"`
-	Rules   []LifecycleRule `xml:"Rule"`
-}
-
-type LifecycleRule struct {
-	ID                             string                          `xml:"ID"`
-	Status                         string                          `xml:"Status"`
-	Prefix                         string                          `xml:"Prefix,omitempty"`
-	Filter                         *LifecycleFilter                `xml:"Filter,omitempty"`
-	Expiration                     *LifecycleExpiration            `xml:"Expiration,omitempty"`
-	Transition                     []LifecycleTransition           `xml:"Transition,omitempty"`
-	NoncurrentVersionExpiration    *NoncurrentVersionExpiration    `xml:"NoncurrentVersionExpiration,omitempty"`
-	NoncurrentVersionTransition    []NoncurrentVersionTransition   `xml:"NoncurrentVersionTransition,omitempty"`
-	AbortIncompleteMultipartUpload *AbortIncompleteMultipartUpload `xml:"AbortIncompleteMultipartUpload,omitempty"`
-}
-
-type LifecycleFilter struct {
-	Prefix string              `xml:"Prefix,omitempty"`
-	Tag    *LifecycleFilterTag `xml:"Tag,omitempty"`
-	And    *LifecycleFilterAnd `xml:"And,omitempty"`
-}
-
-type LifecycleFilterTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
-type LifecycleFilterAnd struct {
-	Prefix string               `xml:"Prefix,omitempty"`
-	Tags   []LifecycleFilterTag `xml:"Tag,omitempty"`
-}
-
-type LifecycleExpiration struct {
-	Days                      int    `xml:"Days,omitempty"`
-	Date                      string `xml:"Date,omitempty"`
-	ExpiredObjectDeleteMarker bool   `xml:"ExpiredObjectDeleteMarker,omitempty"`
-}
-
-type LifecycleTransition struct {
-	Days         int    `xml:"Days,omitempty"`
-	Date         string `xml:"Date,omitempty"`
-	StorageClass string `xml:"StorageClass"`
-}
-
-type NoncurrentVersionExpiration struct {
-	NoncurrentDays int `xml:"NoncurrentDays"`
-}
-
-type NoncurrentVersionTransition struct {
-	NoncurrentDays int    `xml:"NoncurrentDays"`
-	StorageClass   string `xml:"StorageClass"`
-}
-
-type AbortIncompleteMultipartUpload struct {
-	DaysAfterInitiation int `xml:"DaysAfterInitiation"`
-}
-
 // GetBucketLifecycle retrieves the bucket lifecycle configuration
 func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -222,46 +162,7 @@ func (h *Handler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert internal lifecycle config to XML structure
-	xmlConfig := LifecycleConfiguration{
-		Rules: make([]LifecycleRule, len(lifecycleConfig.Rules)),
-	}
-
-	for i, rule := range lifecycleConfig.Rules {
-		xmlRule := LifecycleRule{
-			ID:     rule.ID,
-			Status: rule.Status,
-			Prefix: rule.Filter.Prefix,
-		}
-
-		if rule.Expiration != nil {
-			exp := &LifecycleExpiration{}
-			if rule.Expiration.Days != nil {
-				exp.Days = *rule.Expiration.Days
-			}
-			if rule.Expiration.Date != nil {
-				exp.Date = rule.Expiration.Date.Format(time.RFC3339)
-			}
-			if rule.Expiration.ExpiredObjectDeleteMarker != nil {
-				exp.ExpiredObjectDeleteMarker = *rule.Expiration.ExpiredObjectDeleteMarker
-			}
-			xmlRule.Expiration = exp
-		}
-
-		if rule.NoncurrentVersionExpiration != nil {
-			xmlRule.NoncurrentVersionExpiration = &NoncurrentVersionExpiration{
-				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
-			}
-		}
-
-		if rule.AbortIncompleteMultipartUpload != nil {
-			xmlRule.AbortIncompleteMultipartUpload = &AbortIncompleteMultipartUpload{
-				DaysAfterInitiation: rule.AbortIncompleteMultipartUpload.DaysAfterInitiation,
-			}
-		}
-
-		xmlConfig.Rules[i] = xmlRule
-	}
+	xmlConfig := bucket.LifecycleToXML(lifecycleConfig)
 
 	h.writeXMLResponse(w, http.StatusOK, xmlConfig)
 }
@@ -277,71 +178,22 @@ func (h *Handler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the XML lifecycle configuration
-	var xmlConfig LifecycleConfiguration
+	var xmlConfig bucket.LifecycleConfigurationXML
 	if err := decodeS3ControlXML(w, r, &xmlConfig); err != nil {
 		h.writeError(w, "MalformedXML", "The XML is not well-formed", bucketName, r)
 		return
 	}
 	defer r.Body.Close()
 
-	// Validate lifecycle configuration
-	if len(xmlConfig.Rules) == 0 {
-		h.writeError(w, "InvalidRequest", "Lifecycle configuration must contain at least one rule", bucketName, r)
+	lifecycleConfig, err := bucket.LifecycleFromXML(&xmlConfig)
+	var refused *bucket.LifecycleError
+	if errors.As(err, &refused) {
+		h.writeError(w, refused.Code, refused.Message, bucketName, r)
 		return
 	}
-
-	// Convert XML structure to internal lifecycle config
-	lifecycleConfig := &bucket.LifecycleConfig{
-		Rules: make([]bucket.LifecycleRule, len(xmlConfig.Rules)),
-	}
-
-	for i, rule := range xmlConfig.Rules {
-		prefix := rule.Prefix
-		if prefix == "" && rule.Filter != nil {
-			prefix = rule.Filter.Prefix
-		}
-
-		internalRule := bucket.LifecycleRule{
-			ID:     rule.ID,
-			Status: rule.Status,
-			Filter: bucket.LifecycleFilter{
-				Prefix: prefix,
-			},
-		}
-
-		if rule.Expiration != nil {
-			exp := &bucket.LifecycleExpiration{}
-			if rule.Expiration.Days > 0 {
-				days := rule.Expiration.Days
-				exp.Days = &days
-			}
-			if rule.Expiration.Date != "" {
-				parsedDate, err := time.Parse(time.RFC3339, rule.Expiration.Date)
-				if err == nil {
-					exp.Date = &parsedDate
-				}
-			}
-			if rule.Expiration.ExpiredObjectDeleteMarker {
-				expiredMarker := true
-				exp.ExpiredObjectDeleteMarker = &expiredMarker
-			}
-			internalRule.Expiration = exp
-		}
-
-		if rule.NoncurrentVersionExpiration != nil {
-			internalRule.NoncurrentVersionExpiration = &bucket.NoncurrentVersionExpiration{
-				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
-			}
-		}
-
-		if rule.AbortIncompleteMultipartUpload != nil {
-			internalRule.AbortIncompleteMultipartUpload = &bucket.LifecycleAbortIncompleteMultipartUpload{
-				DaysAfterInitiation: rule.AbortIncompleteMultipartUpload.DaysAfterInitiation,
-			}
-		}
-
-		lifecycleConfig.Rules[i] = internalRule
+	if err != nil {
+		h.writeError(w, "MalformedXML", err.Error(), bucketName, r)
+		return
 	}
 
 	// Set the lifecycle configuration
@@ -1246,14 +1098,14 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
 	encCfg, err := h.bucketManager.GetEncryption(r.Context(), tenantID, bucketName)
+	if err == bucket.ErrEncryptionNotFound {
+		// Every object is encrypted: a bucket with no configuration of its
+		// own has the AES256 default, as in AWS.
+		encCfg, err = &bucket.EncryptionConfig{Type: "AES256"}, nil
+	}
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
-			return
-		}
-		if err == bucket.ErrEncryptionNotFound {
-			h.writeError(w, "ServerSideEncryptionConfigurationNotFoundError",
-				"The server side encryption configuration was not found", bucketName, r)
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)

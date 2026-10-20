@@ -301,7 +301,14 @@
     "deleteMarkersHint": "Löschmarkierungen automatisch entfernen, wenn sie die einzige verbleibende Version sind",
     "cancel": "Abbrechen",
     "saving": "Wird gespeichert...",
-    "saveRules": "Regeln speichern"
+    "saveRules": "Regeln speichern",
+    "transitionsTitle": "In eine kältere Speicherklasse verschieben",
+    "transitionsHint": "Die Objekte werden auf die Knoten der Klasse verschoben; sie werden wie bisher gelesen.",
+    "moveCurrentLabel": "Objekte verschieben",
+    "moveCurrentDays": "Tage nach dem Schreiben",
+    "moveNoncurrentLabel": "Nicht aktuelle Versionen verschieben",
+    "moveNoncurrentDays": "Tage, nachdem sie nicht mehr aktuell sind",
+    "moveClass": "Speicherklasse"
   },
   "notifications": {
     "title": "Ereignisbenachrichtigungen",

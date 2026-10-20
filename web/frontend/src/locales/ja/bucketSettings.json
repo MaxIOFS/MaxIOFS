@@ -301,7 +301,14 @@
     "deleteMarkersHint": "削除マーカーが残っている唯一のバージョンになった場合に自動的に削除します",
     "cancel": "キャンセル",
     "saving": "保存中...",
-    "saveRules": "ルールを保存"
+    "saveRules": "ルールを保存",
+    "transitionsTitle": "より低温のストレージクラスへ移動",
+    "transitionsHint": "オブジェクトはクラスのノードに移動され、これまでどおり読み取れます。",
+    "moveCurrentLabel": "オブジェクトを移動",
+    "moveCurrentDays": "日後 (書き込みから)",
+    "moveNoncurrentLabel": "最新でないバージョンを移動",
+    "moveNoncurrentDays": "日後 (最新でなくなってから)",
+    "moveClass": "ストレージクラス"
   },
   "notifications": {
     "title": "イベント通知",

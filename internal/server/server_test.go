@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -1207,6 +1208,44 @@ func TestHandlePutBucketLifecycle(t *testing.T) {
 		server.handlePutBucketLifecycle(rr, req)
 
 		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("should keep the filters and transitions of its rules", func(t *testing.T) {
+		xmlBody := `<LifecycleConfiguration>
+	<Rule>
+		<ID>archive</ID>
+		<Status>Enabled</Status>
+		<Filter><Tag><Key>kind</Key><Value>backup</Value></Tag></Filter>
+		<Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition>
+		<NoncurrentVersionTransition><NoncurrentDays>7</NoncurrentDays><StorageClass>DEEP_ARCHIVE</StorageClass></NoncurrentVersionTransition>
+		<NoncurrentVersionExpiration><NoncurrentDays>90</NoncurrentDays></NoncurrentVersionExpiration>
+	</Rule>
+</LifecycleConfiguration>`
+		req := createAuthenticatedRequest("PUT", "/api/v1/buckets/"+bucketName+"/lifecycle", strings.NewReader(xmlBody), tenantID, "user-1", false)
+		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
+		rr := httptest.NewRecorder()
+		server.handlePutBucketLifecycle(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+		stored, err := server.bucketManager.GetLifecycle(testCtx, tenantID, bucketName)
+		require.NoError(t, err)
+		require.Len(t, stored.Rules, 1)
+		rule := stored.Rules[0]
+		assert.Equal(t, []bucket.Tag{{Key: "kind", Value: "backup"}}, rule.Filter.Tags)
+		require.Len(t, rule.Transitions, 1)
+		assert.Equal(t, "GLACIER", rule.Transitions[0].StorageClass)
+		assert.Equal(t, 30, *rule.Transitions[0].Days)
+		assert.Equal(t, []bucket.NoncurrentVersionTransition{{NoncurrentDays: 7, StorageClass: "DEEP_ARCHIVE"}}, rule.NoncurrentVersionTransitions)
+	})
+
+	t.Run("should refuse a rule S3 would refuse", func(t *testing.T) {
+		xmlBody := `<LifecycleConfiguration><Rule><ID>r</ID><Status>Enabled</Status>
+			<Transition><Days>1</Days><StorageClass>COLD</StorageClass></Transition></Rule></LifecycleConfiguration>`
+		req := createAuthenticatedRequest("PUT", "/api/v1/buckets/"+bucketName+"/lifecycle", strings.NewReader(xmlBody), tenantID, "user-1", false)
+		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
+		rr := httptest.NewRecorder()
+		server.handlePutBucketLifecycle(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
 	})
 
 	t.Run("should require authentication", func(t *testing.T) {

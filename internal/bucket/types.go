@@ -84,14 +84,19 @@ type LifecycleRule struct {
 	Filter                         LifecycleFilter                          `json:"Filter"`
 	Expiration                     *LifecycleExpiration                     `json:"Expiration,omitempty"`
 	NoncurrentVersionExpiration    *NoncurrentVersionExpiration             `json:"NoncurrentVersionExpiration,omitempty"`
-	Transition                     *LifecycleTransition                     `json:"Transition,omitempty"`
+	Transitions                    []LifecycleTransition                    `json:"Transitions,omitempty"`
+	NoncurrentVersionTransitions   []NoncurrentVersionTransition            `json:"NoncurrentVersionTransitions,omitempty"`
 	AbortIncompleteMultipartUpload *LifecycleAbortIncompleteMultipartUpload `json:"AbortIncompleteMultipartUpload,omitempty"`
 }
 
-// LifecycleFilter represents lifecycle rule filter
+// LifecycleFilter is the objects a rule acts on: those whose key starts with
+// Prefix, that carry every one of Tags and whose size, in bytes, is above
+// ObjectSizeGreaterThan and below ObjectSizeLessThan when these are set.
 type LifecycleFilter struct {
-	Prefix string `json:"Prefix,omitempty"`
-	Tag    *Tag   `json:"Tag,omitempty"`
+	Prefix                string `json:"Prefix,omitempty"`
+	Tags                  []Tag  `json:"Tags,omitempty"`
+	ObjectSizeGreaterThan *int64 `json:"ObjectSizeGreaterThan,omitempty"`
+	ObjectSizeLessThan    *int64 `json:"ObjectSizeLessThan,omitempty"`
 }
 
 // LifecycleExpiration represents object expiration settings
@@ -101,16 +106,28 @@ type LifecycleExpiration struct {
 	ExpiredObjectDeleteMarker *bool      `json:"ExpiredObjectDeleteMarker,omitempty"`
 }
 
-// LifecycleTransition represents object transition settings
+// LifecycleTransition moves the current objects to StorageClass Days after
+// they were written, or on Date.
 type LifecycleTransition struct {
 	Days         *int       `json:"Days,omitempty"`
 	Date         *time.Time `json:"Date,omitempty"`
 	StorageClass string     `json:"StorageClass"`
 }
 
-// NoncurrentVersionExpiration represents noncurrent version expiration settings
+// NoncurrentVersionExpiration deletes the versions noncurrent for
+// NoncurrentDays, but for the NewerNoncurrentVersions newest of each key.
 type NoncurrentVersionExpiration struct {
-	NoncurrentDays int `json:"NoncurrentDays"` // Delete noncurrent versions after this many days
+	NoncurrentDays          int `json:"NoncurrentDays"`
+	NewerNoncurrentVersions int `json:"NewerNoncurrentVersions,omitempty"`
+}
+
+// NoncurrentVersionTransition moves the versions noncurrent for
+// NoncurrentDays to StorageClass, but for the NewerNoncurrentVersions newest
+// of each key.
+type NoncurrentVersionTransition struct {
+	NoncurrentDays          int    `json:"NoncurrentDays"`
+	NewerNoncurrentVersions int    `json:"NewerNoncurrentVersions,omitempty"`
+	StorageClass            string `json:"StorageClass"`
 }
 
 // LifecycleAbortIncompleteMultipartUpload represents incomplete multipart upload abort settings

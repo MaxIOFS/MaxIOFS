@@ -415,6 +415,8 @@ decrypt after the rebuild. `--dry-run` reports without writing anything.
 - **Shards** of objects a cluster with parity cut in shards are passed over: a
   shard alone is not an object. The other nodes send the node the entries of
   those objects when it is back in the cluster, and its shards serve again.
+- An object comes back with the **storage class** of its write; a lifecycle
+  transition moves it again at the next pass.
 
 ### Restore Procedure (Cluster)
 

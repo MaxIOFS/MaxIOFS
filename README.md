@@ -50,7 +50,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
 | **Erasure coding** | 🧪 Nightly builds only, not in v1.8.0: Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
 | **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ⚠️ Enterprise only (site, bucket, batch) | ❌ No replication API | ⚠️ Between zones of a multisite configuration |
-| **Tiering** (lifecycle transitions to colder storage) | ❌ | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
+| **Tiering** (lifecycle transitions to colder storage) | 🧪 Nightly builds only, not in v1.8.0: storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
 | **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys | ❌ Separate deployments per tenant | ❌ | ✅ RGW tenants |
 | **Access control** | ✅ AWS IAM protocol — users, versioned policies, roles, `AssumeRole`; bucket policies and ACLs | ✅ IAM-style policies | ⚠️ Per-access-key-per-bucket permissions; no bucket policies or ACLs | ✅ Users, bucket and user policies, roles, ACLs |
 | **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ | ❌ | ✅ |
@@ -58,7 +58,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **SSO / identity providers** | ✅ LDAP/AD and OAuth2/OIDC, auto-provisioning, group mappings | ✅ LDAP and OIDC | ❌ | ✅ LDAP, Keystone, OIDC |
 | **Versioning** | ✅ | ✅ | ❌ | ✅ |
 | **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, legal hold, Veeam B&R validated | ✅ | ❌ | ✅ |
-| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
+| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; 🧪 transitions to storage classes in nightly builds | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
 | **Bucket notifications** | ✅ Webhook | ✅ Webhook, Kafka, NATS, Redis and more | ❌ | ✅ HTTP, Kafka, AMQP |
 | **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, no redirects | ✅ |
 | **S3 Select** | ✅ SQL on CSV/JSON | ✅ | ❌ | ✅ CSV, JSON, Parquet |
@@ -100,7 +100,7 @@ Ceph cluster.
 - Object Lock — COMPLIANCE and GOVERNANCE modes, legal hold, per-version enforcement; retention and legal hold sent with a PUT are stored in the same metadata write as the object
 - Bucket policies — evaluated with the caller's IAM policies, AWS-style; `"*"` grants requests without credentials; conditions on `aws:SourceIp` and `aws:SecureTransport`
 - CORS — stored and enforced on actual requests, OPTIONS preflight handled before auth
-- Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker
+- Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker; *nightly builds only:* `Transition` and `NoncurrentVersionTransition` to storage classes, filters by tags and size
 - Object tagging, object ACLs, bucket tagging
 - Bucket notifications — webhook dispatch after PutObject, DeleteObject, CopyObject, CompleteMultipartUpload
 - Static website hosting — subdomain routing, index document, error document, routing rules
@@ -194,6 +194,7 @@ Ceph cluster.
 - Automatic failover and health monitoring
 - Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
 - **Parity** — *nightly builds only, not in v1.8.0* (Reed-Solomon erasure coding across nodes, like RAID 5, and RAID 6 from five nodes): each object is cut in data and parity shards, one per node; it survives 1 node down up to 4 nodes and 2 from 5, and 3 nodes of 1 TB hold 2 TB
+- **Storage classes** — *nightly builds only, not in v1.8.0*: a storage class (`GLACIER`, `DEEP_ARCHIVE`…) is kept on nodes of its own, with its own copies or parity; lifecycle transitions move objects to it, and every node still reads them
 - A node that comes back is caught up at once with the writes and deletes it missed
 - Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - Anti-entropy, dead-node redistribution, storage-pressure health state
@@ -351,8 +352,8 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (345 files)
-cd web/frontend && npm run test        # 125 frontend tests
+go test ./...                          # 4,400+ backend tests (352 files)
+cd web/frontend && npm run test        # 136 frontend tests
 ```
 
 ---
@@ -360,7 +361,7 @@ cd web/frontend && npm run test        # 125 frontend tests
 ## Known Limitations
 
 - **No erasure coding in v1.8.0** — a cluster keeps whole copies of each object, one per node up to the factor; parity across nodes is in the nightly builds only. A single node's redundancy relies on filesystem/RAID
-- **No cloud tiering** — lifecycle rules expire objects but do not tier to cold storage
+- **No tiering in v1.8.0** — lifecycle rules expire objects but do not move them; in the nightly builds transitions move objects to storage classes kept on nodes of the cluster. There is no transition to an external cloud
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned
 - **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time

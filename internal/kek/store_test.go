@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
@@ -189,6 +190,65 @@ func TestAdoptClusterKeys(t *testing.T) {
 }
 
 func hexEncode(b []byte) string { return hex.EncodeToString(b) }
+
+// The keys a node already holds, as each peer sends them every minute, are
+// taken without a write or a log line; a change is still taken.
+func TestAdoptingTheKeysANodeHoldsChangesNothing(t *testing.T) {
+	dbA := createTestDB(t)
+	storeA, err := Bootstrap(dbA, "")
+	require.NoError(t, err)
+	clusterKeys, err := storeA.EnsureClusterKey()
+	require.NoError(t, err)
+	dbB := createTestDB(t)
+	dbB.SetMaxOpenConns(1)
+	storeB, err := Bootstrap(dbB, "")
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(clusterKeys))
+
+	logs := logtest.NewGlobal()
+	defer logs.Reset()
+	_, err = dbB.Exec(`PRAGMA query_only = ON`)
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(clusterKeys), "nothing is written")
+	assert.Empty(t, logs.AllEntries())
+
+	_, err = dbB.Exec(`PRAGMA query_only = OFF`)
+	require.NoError(t, err)
+	_, err = storeA.Rotate(true)
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(storeA.ClusterSharedKeys()))
+	_, current := storeB.CurrentKEK()
+	assert.Equal(t, 3, current, "a rotation is taken")
+	assert.Equal(t, "✅ Cluster encryption KEKs adopted", logs.LastEntry().Message)
+
+	local, err := storeB.Rotate(false)
+	require.NoError(t, err)
+	require.NoError(t, storeB.AdoptClusterKeys(storeA.ClusterSharedKeys()))
+	_, current = storeB.CurrentKEK()
+	assert.Equal(t, 3, current, "a key of the node's own is left for the cluster's, v%d", local)
+
+	dbC := createTestDB(t)
+	storeC, err := Bootstrap(dbC, "")
+	require.NoError(t, err)
+	keys := storeA.ClusterSharedKeys()
+	require.Len(t, keys, 2)
+	for _, k := range keys {
+		if k.IsCurrent {
+			require.NoError(t, storeC.AdoptClusterKeys([]KeyRecord{k}))
+		}
+	}
+	require.NoError(t, storeC.AdoptClusterKeys(keys))
+	_, err = storeC.KEKByVersion(2)
+	assert.NoError(t, err, "a key the node lacks is taken")
+
+	_, err = dbC.Exec(`UPDATE encryption_keys SET cluster_shared = 0 WHERE version = 2`)
+	require.NoError(t, err)
+	storeC, err = Bootstrap(dbC, "")
+	require.NoError(t, err)
+	require.False(t, storeC.IsClusterShared(2))
+	require.NoError(t, storeC.AdoptClusterKeys(keys))
+	assert.True(t, storeC.IsClusterShared(2), "a key the node holds as its own is marked the cluster's")
+}
 
 // TestRotate verifies rotation creates the next version, moves the current
 // marker, keeps old versions decryptable and survives reload.

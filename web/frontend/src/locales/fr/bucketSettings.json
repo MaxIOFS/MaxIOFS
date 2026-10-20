@@ -301,7 +301,14 @@
     "deleteMarkersHint": "Supprimer automatiquement les marqueurs de suppression lorsqu'ils sont la seule version restante",
     "cancel": "Annuler",
     "saving": "Enregistrement...",
-    "saveRules": "Enregistrer les règles"
+    "saveRules": "Enregistrer les règles",
+    "transitionsTitle": "Déplacer vers une classe de stockage plus froide",
+    "transitionsHint": "Les objets sont déplacés vers les nœuds de la classe ; ils se lisent comme avant.",
+    "moveCurrentLabel": "Déplacer les objets",
+    "moveCurrentDays": "jours après leur écriture",
+    "moveNoncurrentLabel": "Déplacer les versions non actuelles",
+    "moveNoncurrentDays": "jours après qu'elles ne sont plus actuelles",
+    "moveClass": "Classe de stockage"
   },
   "notifications": {
     "title": "Notifications d'événements",

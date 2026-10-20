@@ -2,6 +2,8 @@ package object
 
 import (
 	"time"
+
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 )
 
 // ObjectVersion represents a versioned object
@@ -185,14 +187,14 @@ type PartInfo struct {
 
 // Storage class constants
 const (
-	StorageClassStandard           = "STANDARD"
-	StorageClassReducedRedundancy  = "REDUCED_REDUNDANCY"
-	StorageClassStandardIA         = "STANDARD_IA"
-	StorageClassOnezoneIA          = "ONEZONE_IA"
-	StorageClassIntelligentTiering = "INTELLIGENT_TIERING"
-	StorageClassGlacier            = "GLACIER"
-	StorageClassDeepArchive        = "DEEP_ARCHIVE"
-	StorageClassGlacierIR          = "GLACIER_IR"
+	StorageClassStandard           = storageclass.Standard
+	StorageClassReducedRedundancy  = storageclass.ReducedRedundancy
+	StorageClassStandardIA         = storageclass.StandardIA
+	StorageClassOnezoneIA          = storageclass.OnezoneIA
+	StorageClassIntelligentTiering = storageclass.IntelligentTiering
+	StorageClassGlacier            = storageclass.Glacier
+	StorageClassDeepArchive        = storageclass.DeepArchive
+	StorageClassGlacierIR          = storageclass.GlacierIR
 )
 
 // Object Lock constants

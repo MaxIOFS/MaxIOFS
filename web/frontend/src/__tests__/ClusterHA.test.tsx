@@ -36,6 +36,7 @@ function node(id: string) {
     capacity_used: 100,
     capacity_free: 900,
     drained: false,
+    storage_class: 'STANDARD',
   };
 }
 
@@ -106,6 +107,22 @@ describe('Cluster HA page', () => {
       expect.stringContaining('You are turning parity off for ×3 whole copies.'),
       expect.any(Function),
     );
+  });
+
+  it('measures the protection of STANDARD by its nodes, with other classes kept', async () => {
+    vi.mocked(APIClient.getClusterHA).mockResolvedValue(haState({
+      node_count: 5,
+      standard_nodes: 2,
+      storage_classes: 2,
+      nodes: [node('a'), node('b'), { ...node('c'), storage_class: 'GLACIER' }],
+    }));
+    render(<ClusterHA />);
+    const parity = await screen.findByRole('button', { name: /Each object is cut in data shards/ });
+    expect(parity).toBeDisabled();
+    expect(parity).toHaveTextContent('Requires 3 healthy nodes — cluster has 2');
+    expect(screen.getByText('This is the protection of STANDARD. Each other storage class has its own.')).toBeInTheDocument();
+    expect(screen.getByText('GLACIER')).toBeInTheDocument();
+    expect(screen.getAllByText('STANDARD')).toHaveLength(2);
   });
 
   it('needs three nodes for parity', async () => {

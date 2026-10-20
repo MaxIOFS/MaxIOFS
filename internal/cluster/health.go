@@ -136,6 +136,9 @@ func (m *Manager) CheckNodeHealth(ctx context.Context, nodeID string) (*HealthSt
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node health: %w", err)
 	}
+	if status != node.HealthStatus {
+		m.noteHealthChange()
+	}
 	if (&Node{HealthStatus: status}).InService() {
 		m.catchUpReplica(ctx, nodeID)
 	}

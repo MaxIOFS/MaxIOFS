@@ -21,7 +21,7 @@ var errSuperseded = errors.New("the write was replaced by a later one")
 // is never kept on one node: too few copies is ErrClusterDegraded. The other
 // nodes are then sent its entry.
 func (h *HAObjectManager) spread(ctx context.Context, p *placement, obj *object.Object) error {
-	target, err := h.mgr.writeTarget(ctx, obj.Size)
+	target, err := h.mgr.writeTarget(ctx, p.class, obj.Size)
 	if err != nil {
 		return err
 	}

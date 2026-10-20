@@ -23,12 +23,16 @@ type Node struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 	UnavailableSince *time.Time `json:"unavailable_since,omitempty"`
 	// ChangedAt is when the fields every node holds alike last changed (unix
-	// seconds): name, endpoint, API URL, token, region, priority and Drained.
+	// seconds): name, endpoint, API URL, token, region, priority, Drained and
+	// StorageClass.
 	ChangedAt int64 `json:"changed_at"`
 	// Drained marks a node an administrator takes out of the cluster: it takes
 	// no new data and its copies are moved to the other nodes; once it holds
 	// none it is out of service (dead) on every node.
 	Drained bool `json:"drained"`
+	// StorageClass is the class whose data the node keeps (see StorageClass);
+	// empty for STANDARD.
+	StorageClass string `json:"storage_class"`
 }
 
 // HealthStatus represents node health status

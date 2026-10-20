@@ -324,6 +324,9 @@ export interface LifecycleRule {
   Status: 'Enabled' | 'Disabled';
   Filter?: {
     Prefix?: string;
+    Tags?: { Key: string; Value: string }[];
+    ObjectSizeGreaterThan?: number;
+    ObjectSizeLessThan?: number;
   };
   Expiration?: {
     Days?: number;
@@ -332,16 +335,25 @@ export interface LifecycleRule {
   };
   NoncurrentVersionExpiration?: {
     NoncurrentDays: number;
+    NewerNoncurrentVersions?: number;
   };
-  Transition?: LifecycleTransition[];
+  Transitions?: LifecycleTransition[];
+  NoncurrentVersionTransitions?: NoncurrentVersionTransition[];
   AbortIncompleteMultipartUpload?: {
     DaysAfterInitiation: number;
   };
 }
 
 export interface LifecycleTransition {
-  days: number;
-  storageClass: string;
+  Days?: number;
+  Date?: string;
+  StorageClass: string;
+}
+
+export interface NoncurrentVersionTransition {
+  NoncurrentDays: number;
+  NewerNoncurrentVersions?: number;
+  StorageClass: string;
 }
 
 export interface NotificationConfiguration {
@@ -881,6 +893,8 @@ export interface ServerConfig {
   maintenanceMode: boolean;
   cluster?: {
     enabled: boolean;
+    // The storage classes the cluster keeps on nodes of their own.
+    storageClasses?: string[];
   };
 }
 
@@ -1174,6 +1188,40 @@ export interface NodeHealthStatus {
 }
 
 // How far a node being drained is in moving its objects to the other nodes.
+// StorageClassState is how a storage class of a cluster keeps its data now.
+export interface StorageClassState {
+  name: string;
+  factor: number;
+  parity: boolean;
+  data_shards: number;
+  parity_shards: number;
+  node_count: number;
+  takers: number;
+  required_nodes: number;
+  total_bytes: number;
+  usable_bytes: number;
+  tolerated_failures: number;
+  // Fewer nodes of the class take data than it spreads a write over.
+  below_protection: boolean;
+}
+
+export interface StorageClassNode {
+  id: string;
+  name: string;
+  storage_class: string;
+  health_status: string;
+  drained: boolean;
+  capacity_total: number;
+  capacity_used: number;
+}
+
+export interface StorageClassesResponse {
+  classes: StorageClassState[];
+  nodes: StorageClassNode[];
+  // The classes the cluster can still keep on nodes of their own.
+  definable: string[];
+}
+
 export interface DrainProgress {
   started_at: string;
   total_objects: number;

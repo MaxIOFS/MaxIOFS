@@ -62,6 +62,7 @@ import type {
   NodeHealthStatus,
   ListNodesResponse,
   DrainProgress,
+  StorageClassesResponse,
   LatenciesResponse,
   ThroughputResponse,
   SearchObjectsRequest,
@@ -2025,6 +2026,10 @@ export class APIClient {
     data_shards: number;
     parity_shards: number;
     node_count: number;
+    // The nodes of STANDARD, whose protection this is, and how many classes
+    // the cluster keeps, STANDARD included.
+    standard_nodes: number;
+    storage_classes: number;
     tolerated_failures: number;
     total_bytes: number;
     usable_bytes: number;
@@ -2037,10 +2042,33 @@ export class APIClient {
       capacity_used: number;
       capacity_free: number;
       drained: boolean;
+      storage_class: string;
       drain_progress?: DrainProgress;
     }>;
   }> {
     const response = await apiClient.get('/cluster/ha');
+    return response.data.data;
+  }
+
+  static async getStorageClasses(): Promise<StorageClassesResponse> {
+    const response = await apiClient.get('/cluster/storage-classes');
+    return response.data.data;
+  }
+
+  // setStorageClass keeps a class on nodes of its own, or changes its protection.
+  static async setStorageClass(name: string, protection: number | 'parity'): Promise<{ message: string; name: string }> {
+    const body = protection === 'parity' ? { parity: true } : { factor: protection };
+    const response = await apiClient.put(`/cluster/storage-classes/${encodeURIComponent(name)}`, body);
+    return response.data.data;
+  }
+
+  static async deleteStorageClass(name: string): Promise<{ message: string; name: string }> {
+    const response = await apiClient.delete(`/cluster/storage-classes/${encodeURIComponent(name)}`);
+    return response.data.data;
+  }
+
+  static async setNodeStorageClass(nodeId: string, storageClass: string): Promise<{ message: string; node_id: string; storage_class: string }> {
+    const response = await apiClient.put(`/cluster/nodes/${nodeId}/storage-class`, { storage_class: storageClass });
     return response.data.data;
   }
 

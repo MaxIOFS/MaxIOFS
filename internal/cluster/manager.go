@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/maxiofs/maxiofs/internal/kek"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,6 +43,7 @@ type Manager struct {
 	storagePressureFn StoragePressureEmitter
 	replicaCaughtUp   atomic.Pointer[func(nodeID string, since time.Time)]
 	nodeRemoved       atomic.Pointer[func(nodeID string)]
+	healthChanged     atomic.Pointer[func()]
 	left              atomic.Pointer[func(localID string)]
 	// drainsDone holds the drained nodes whose last health check said they
 	// hold no data any more, and drainProgress how far the others said they
@@ -71,6 +73,18 @@ func (m *Manager) observeTask(task string, fn func() error) error {
 // OnNodeRemoved sets what runs when a member of the cluster is removed here.
 func (m *Manager) OnNodeRemoved(fn func(nodeID string)) {
 	m.nodeRemoved.Store(&fn)
+}
+
+// OnHealthChange sets what runs when the health of a node changes here. It
+// must not block: it runs inside health checks and requests.
+func (m *Manager) OnHealthChange(fn func()) {
+	m.healthChanged.Store(&fn)
+}
+
+func (m *Manager) noteHealthChange() {
+	if fn := m.healthChanged.Load(); fn != nil {
+		(*fn)()
+	}
 }
 
 // OnLeft sets what runs once this node has left the cluster, given the ID it
@@ -236,6 +250,8 @@ type JoinPackageNode struct {
 	Priority  int    `json:"priority"`
 	ChangedAt int64  `json:"changed_at,omitempty"`
 	Drained   bool   `json:"drained,omitempty"`
+	// StorageClass is empty for STANDARD.
+	StorageClass string `json:"storage_class,omitempty"`
 }
 
 // NodesToJoinPackage converts a slice of *Node into []*JoinPackageNode, preserving
@@ -253,6 +269,8 @@ func NodesToJoinPackage(nodes []*Node) []*JoinPackageNode {
 			Priority:  n.Priority,
 			ChangedAt: n.ChangedAt,
 			Drained:   n.Drained,
+
+			StorageClass: n.StorageClass,
 		})
 	}
 	return out
@@ -445,8 +463,8 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 		INSERT INTO cluster_nodes (
 			id, name, endpoint, api_url, node_token, region, priority,
 			health_status, latency_ms, capacity_total, capacity_used,
-			bucket_count, metadata, created_at, updated_at, changed_at, drained
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			bucket_count, metadata, created_at, updated_at, changed_at, drained, storage_class
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name       = excluded.name,
 			endpoint   = excluded.endpoint,
@@ -456,9 +474,10 @@ func (m *Manager) AddNode(ctx context.Context, node *Node) error {
 			priority   = excluded.priority,
 			updated_at = excluded.updated_at,
 			changed_at = excluded.changed_at,
-			drained    = excluded.drained
+			drained    = excluded.drained,
+			storage_class = excluded.storage_class
 	`, node.ID, node.Name, node.Endpoint, node.APIURL, node.NodeToken, node.Region, node.Priority,
-		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now, node.ChangedAt, node.Drained)
+		HealthStatusUnknown, 0, 0, 0, 0, node.Metadata, now, now, node.ChangedAt, node.Drained, node.StorageClass)
 
 	if err != nil {
 		return fmt.Errorf("failed to add node: %w", err)
@@ -480,7 +499,7 @@ var nodeColumnNames = []string{
 	"health_status", "last_health_check", "last_seen", "latency_ms",
 	"capacity_total", "capacity_used", "bucket_count", "metadata",
 	"created_at", "updated_at", "unavailable_since",
-	"changed_at", "drained",
+	"changed_at", "drained", "storage_class",
 }
 
 // nodeColumns lists nodeColumnNames for a SELECT, each prefixed with alias.
@@ -505,7 +524,7 @@ func scanNode(row rowScanner) (*Node, error) {
 		&node.HealthStatus, &lastHealthCheck, &lastSeen, &node.LatencyMs,
 		&node.CapacityTotal, &node.CapacityUsed, &node.BucketCount, &node.Metadata,
 		&node.CreatedAt, &node.UpdatedAt, &unavailableSince,
-		&node.ChangedAt, &node.Drained,
+		&node.ChangedAt, &node.Drained, &node.StorageClass,
 	); err != nil {
 		return nil, err
 	}
@@ -621,16 +640,21 @@ func (m *Manager) GetHealthyNodes(ctx context.Context) ([]*Node, error) {
 // and keeps when it first was: the dead-node threshold counts from then.
 func (m *Manager) markNodeUnavailable(ctx context.Context, nodeID, reason string) {
 	now := time.Now()
-	if _, err := m.db.ExecContext(ctx,
+	res, err := m.db.ExecContext(ctx,
 		`UPDATE cluster_nodes
 		 SET health_status = ?, updated_at = ?,
 		     unavailable_since = COALESCE(unavailable_since, ?)
 		 WHERE id = ? AND health_status != ?`,
 		HealthStatusUnavailable, now, now, nodeID, HealthStatusDead,
-	); err != nil {
+	)
+	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"node_id": nodeID, "reason": reason,
 		}).Warn("failed to mark node unavailable")
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		m.noteHealthChange()
 	}
 }
 
@@ -915,15 +939,24 @@ func (m *Manager) SetReplicationFactor(ctx context.Context, factor int) error {
 	return SetGlobalConfig(ctx, m.db, "ha.replication_factor", fmt.Sprintf("%d", factor))
 }
 
-// ClusterCanAcceptWrites reports whether the cluster has enough healthy
+// ClusterCanAcceptWrites reports whether enough other nodes take data for a
+// write of STANDARD (see canAcceptWrites).
 func (m *Manager) ClusterCanAcceptWrites(ctx context.Context) (bool, error) {
+	return m.canAcceptWrites(ctx, storageclass.Standard)
+}
+
+// canAcceptWrites reports whether enough other nodes take data for a write
+// of storage class sc. The nodes of every class count: a class with too few
+// nodes keeps its writes on the others.
+func (m *Manager) canAcceptWrites(ctx context.Context, sc string) (bool, error) {
 	if !m.IsClusterEnabled() {
 		return true, nil
 	}
-	p, err := m.GetProtection(ctx)
+	view, err := m.classView(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get replication factor: %w", err)
 	}
+	p := view.protection[view.of(sc)]
 	if !p.redundant() {
 		return true, nil
 	}

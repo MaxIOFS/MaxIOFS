@@ -55,7 +55,7 @@ func TestTheProtectionAndTheLayoutOfParity(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock}, layout)
-	quorum, err := mgr.quorumFactor(ctx)
+	quorum, err := mgr.quorumFactor(ctx, "")
 	require.NoError(t, err)
 	assert.Equal(t, 2, quorum)
 
@@ -64,13 +64,13 @@ func TestTheProtectionAndTheLayoutOfParity(t *testing.T) {
 	layout, _, err = mgr.ParityLayout(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, erasure.Layout{Data: 3, Parity: 2, Block: erasure.DefaultBlock}, layout)
-	quorum, err = mgr.quorumFactor(ctx)
+	quorum, err = mgr.quorumFactor(ctx, "")
 	require.NoError(t, err)
 	assert.Equal(t, 3, quorum, "two parity shards: a delete needs the quorum of three copies")
 
 	require.NoError(t, mgr.SetParity(ctx, false))
 	setReplicationFactor(t, db, 3)
-	quorum, err = mgr.quorumFactor(ctx)
+	quorum, err = mgr.quorumFactor(ctx, "")
 	require.NoError(t, err)
 	assert.Equal(t, 3, quorum)
 }

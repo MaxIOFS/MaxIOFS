@@ -39,7 +39,7 @@ type Store struct {
 	keys          map[int][]byte
 	clusterShared map[int]bool
 	current       int
-	writeMu sync.Mutex
+	writeMu       sync.Mutex
 }
 
 // Bootstrap resolves the KEK (see package doc for the priority order) and
@@ -163,7 +163,8 @@ func (s *Store) EnsureClusterKey() ([]KeyRecord, error) {
 	return s.ClusterSharedKeys(), nil
 }
 
-// AdoptClusterKeys merges the cluster-shared keys received in a join package.
+// AdoptClusterKeys merges the cluster-shared keys received in a join package
+// or from a peer. Keys it already holds as they are change nothing.
 func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -197,9 +198,18 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 		}
 		parsed = append(parsed, parsedRecord{version: r.Version, key: key, current: r.IsCurrent})
 	}
+	held := currentVersion == s.current
+	for _, p := range parsed {
+		if _, exists := s.keys[p.version]; !exists || !s.clusterShared[p.version] {
+			held = false
+		}
+	}
 	s.mu.RUnlock()
 	if currentVersion == 0 {
 		return fmt.Errorf("cluster key set has no current version")
+	}
+	if held {
+		return nil
 	}
 
 	// Apply the whole set atomically: upserts + current marker in one
@@ -239,7 +249,7 @@ func (s *Store) AdoptClusterKeys(records []KeyRecord) error {
 	s.current = currentVersion
 	s.mu.Unlock()
 
-	logrus.WithField("kek_version", currentVersion).Info("✅ Cluster encryption KEKs adopted from join package")
+	logrus.WithField("kek_version", currentVersion).Info("✅ Cluster encryption KEKs adopted")
 	return nil
 }
 
@@ -278,7 +288,6 @@ func (s *Store) Rotate(clusterShared bool) (int, error) {
 		Info("✅ Encryption KEK rotated — new objects wrap with the new version; the worker re-wraps existing DEKs")
 	return next, nil
 }
-
 
 // markCurrent atomically moves the is_current marker to the given version.
 func (s *Store) markCurrent(version int) error {

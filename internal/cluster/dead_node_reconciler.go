@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/maxiofs/maxiofs/internal/bgwork"
-	"github.com/maxiofs/maxiofs/internal/erasure"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -63,9 +65,13 @@ type DeadNodeReconciler struct {
 
 	bgwork.Worker
 	mu sync.Mutex
-	// layout is the layout of a write with parity the writes were last
-	// repaired for.
-	layout erasure.Layout
+	// degradedMu orders the computations of the degraded state; recompute is
+	// set while one is to come.
+	degradedMu sync.Mutex
+	recompute  atomic.Bool
+	// shape is what the placement of the writes followed when they were last
+	// repaired for it (see classView.placementShape).
+	shape string
 }
 
 // NewDeadNodeReconciler builds a reconciler bound to the cluster manager and
@@ -139,7 +145,7 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	// A drain is an administrator's decision: it goes on with automatic
 	// redistribution off as well.
 	r.applyDrains(ctx)
-	r.followParityLayout(ctx)
+	r.followPlacement(ctx)
 	if !r.redistributionEnabled(ctx) {
 		return nil
 	}
@@ -163,37 +169,29 @@ func (r *DeadNodeReconciler) RunOnce(ctx context.Context) error {
 	return nil
 }
 
-// followParityLayout repairs the writes when the layout of a write with parity
-// changes, once every node that holds data takes it: a node that joins, leaves
-// or dies changes how many shards a write is cut in, and each node repairs the
-// writes it is the first holder of.
-func (r *DeadNodeReconciler) followParityLayout(ctx context.Context) {
-	protection, err := r.mgr.GetProtection(ctx)
+// followPlacement repairs the writes when what their placement follows
+// changes (see classView.placementShape): the protection of a class, the
+// layout of a write with parity, once every node of its class that holds
+// data takes it, or the nodes of a class. Each node repairs the writes it is
+// the first holder of.
+func (r *DeadNodeReconciler) followPlacement(ctx context.Context) {
+	view, err := r.mgr.classView(ctx)
 	if err != nil {
 		return
 	}
-	if !protection.Parity {
-		return
-	}
-	layout, ok, err := r.mgr.ParityLayout(ctx)
+	nodes, err := r.mgr.ListNodes(ctx)
 	if err != nil {
 		return
 	}
-	if ok {
-		var takers int
-		if err := r.mgr.db.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0`,
-			HealthStatusHealthy, HealthStatusDegraded,
-		).Scan(&takers); err != nil || takers < layout.Width() {
-			return
-		}
-	}
-	if layout == r.layout {
+	shape, settled := view.placementShape(nodes)
+	if !settled || shape == r.shape {
 		return
 	}
-	r.layout = layout
-	r.log.WithFields(logrus.Fields{"data": layout.Data, "parity": layout.Parity}).
-		Info("The layout of a write with parity changed: the writes are repaired")
+	r.shape = shape
+	if shape == "" {
+		return
+	}
+	r.log.WithField("placement", shape).Info("The placement of the writes changed: the writes are repaired")
 	if r.syncer != nil {
 		r.Spawn(func() { r.syncer.Trigger(ctx) })
 	}
@@ -203,7 +201,7 @@ func (r *DeadNodeReconciler) followParityLayout(ctx context.Context) {
 // node takes no new data and its copies are moved to the other nodes (see
 // RepairPlacement); once it holds none it is out of service on every node. A
 // drain is refused when the other nodes that take data are fewer than the
-// replication factor.
+// most demanding class needs.
 func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason string) error {
 	if !r.mgr.IsClusterEnabled() {
 		return fmt.Errorf("cluster is not enabled")
@@ -219,7 +217,7 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 	if node.Drained {
 		return fmt.Errorf("node already drained")
 	}
-	protection, err := r.mgr.GetProtection(ctx)
+	view, err := r.mgr.classView(ctx)
 	if err != nil {
 		return err
 	}
@@ -231,7 +229,7 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 		).Scan(&takers); err != nil {
 			return fmt.Errorf("count the nodes that take data: %w", err)
 		}
-		if takers < protection.requiredNodes() {
+		if takers < view.requiredNodes() {
 			return ErrDrainBelowReplicationFactor
 		}
 	}
@@ -244,7 +242,7 @@ func (r *DeadNodeReconciler) DrainNode(ctx context.Context, nodeID, reason strin
 	r.log.WithFields(logrus.Fields{"node_id": nodeID, "reason": reason}).Info("Drain started")
 	node.Drained = true
 	localID, _ := r.mgr.GetLocalNodeID(ctx)
-	r.applyDrain(context.WithoutCancel(ctx), node, localID, protection)
+	r.applyDrain(context.WithoutCancel(ctx), node, localID, view)
 
 	r.recomputeClusterDegradedState(ctx)
 	return nil
@@ -275,22 +273,22 @@ func (r *DeadNodeReconciler) applyDrains(ctx context.Context) {
 	if len(nodes) == 0 {
 		return
 	}
-	protection, err := r.mgr.GetProtection(ctx)
+	view, err := r.mgr.classView(ctx)
 	if err != nil {
 		return
 	}
 	localID, _ := r.mgr.GetLocalNodeID(ctx)
 	for _, node := range nodes {
-		r.applyDrain(ctx, node, localID, protection)
+		r.applyDrain(ctx, node, localID, view)
 	}
 }
 
 // applyDrain acts on a drained node not yet out of service. Another node that
 // said it holds no data any more is taken out of service, and so is one not in
-// service when its copies are held elsewhere (a factor above 1, or parity).
-// Otherwise the copies are moved on: by every node, this one included, and by
-// the drained node itself.
-func (r *DeadNodeReconciler) applyDrain(ctx context.Context, node *Node, localID string, protection Protection) {
+// service when its copies are held elsewhere (a factor above 1, or parity, in
+// every class). Otherwise the copies are moved on: by every node, this one
+// included, and by the drained node itself.
+func (r *DeadNodeReconciler) applyDrain(ctx context.Context, node *Node, localID string, view *classView) {
 	var err error
 	switch {
 	case node.ID == localID:
@@ -299,7 +297,7 @@ func (r *DeadNodeReconciler) applyDrain(ctx context.Context, node *Node, localID
 	case r.mgr.drainDone(node.ID):
 		// It holds no copy: the nodes left need not hold the factor's.
 		err = r.markDead(ctx, node, "drained", false)
-	case !node.InService() && protection.redundant():
+	case !node.InService() && view.redundant():
 		err = r.markDeadIfSafe(ctx, node, "drained while unavailable")
 	default:
 		r.moveCopies(ctx)
@@ -334,13 +332,12 @@ func (r *DeadNodeReconciler) markDeadIfSafe(ctx context.Context, node *Node, rea
 }
 
 // markDead marks the node dead; with safe, not when the nodes left that take
-// data would be fewer than the replication factor.
+// data would be fewer than the most demanding class needs.
 func (r *DeadNodeReconciler) markDead(ctx context.Context, node *Node, reason string, safe bool) error {
-	protection, err := r.mgr.GetProtection(ctx)
-	if err != nil {
-		protection = Protection{Factor: 1}
+	factor := 1
+	if view, err := r.mgr.classView(ctx); err == nil {
+		factor = view.requiredNodes()
 	}
-	factor := protection.requiredNodes()
 
 	// Count the nodes that take data, healthy or slow and not drained,
 	// excluding the candidate. Unavailable, drained and storage-pressure nodes
@@ -435,61 +432,80 @@ const wholeCatchUp = 1
 // fewer healthy nodes than the replication factor.
 var ErrBelowReplicationFactor = errors.New("marking the node dead would leave fewer healthy nodes than the replication factor")
 
-// recomputeClusterDegradedState compares healthy node count against the
-// replication factor. Sets/clears the degraded reason and emits SSE events on
-// transitions.
+// recomputeClusterDegradedState compares, in each class, the nodes that take
+// data against what its protection spreads a write over. Sets/clears the
+// degraded reason and emits SSE events on transitions.
 func (r *DeadNodeReconciler) recomputeClusterDegradedState(ctx context.Context) {
-	protection, err := r.mgr.GetProtection(ctx)
-	factor := protection.Factor
-	if err != nil || !protection.redundant() {
-		// Factor 1 (no replication) cannot be degraded.
-		r.clearClusterDegradedReason(ctx, factor, 0)
+	r.degradedMu.Lock()
+	defer r.degradedMu.Unlock()
+	view, err := r.mgr.classView(ctx)
+	if err != nil {
 		return
 	}
-
-	var healthy int
-	if err := r.mgr.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status IN (?, ?) AND drained = 0`, HealthStatusHealthy, HealthStatusDegraded,
-	).Scan(&healthy); err != nil {
+	nodes, err := r.mgr.ListNodes(ctx)
+	if err != nil {
 		r.log.WithError(err).Warn("Failed to count healthy nodes for degraded-state check")
 		return
 	}
-
+	factor := view.protection[storageclass.Standard].Factor
 	prevReason, _ := GetGlobalConfig(ctx, r.mgr.db, clusterDegradedReasonKey)
 
-	needed := factor
-	if protection.Parity {
-		// Every write is cut over every node holding data, up to its shards.
-		needed = 2
-		if layout, ok, err := r.mgr.ParityLayout(ctx); err == nil && ok {
-			needed = layout.Width()
+	var reasons []string
+	healthy := 0
+	for _, class := range view.names() {
+		protection := view.protection[class]
+		if !protection.redundant() {
+			// A factor of 1 (no replication) cannot be degraded.
+			continue
 		}
-	}
-	if healthy < needed {
+		takers := view.takers(nodes, class)
+		needed := protection.Factor
+		if protection.Parity {
+			// Every write is cut over every node holding data, up to its shards.
+			needed = 2
+			if layout, ok := view.layout(nodes, class); ok {
+				needed = layout.Width()
+			}
+		}
+		if takers >= needed {
+			continue
+		}
 		consequence := "writes are kept on fewer nodes than the factor; the nodes that miss them are caught up when they are back"
 		if protection.Parity {
 			consequence = "writes are cut in fewer shards, or kept in whole copies, until the nodes are back"
 		}
-		if accepts, err := r.mgr.ClusterCanAcceptWrites(ctx); err == nil && !accepts {
+		if class != storageclass.Standard {
+			consequence = "its writes are kept on nodes of other classes as well, until it has the nodes"
+		}
+		if accepts, err := r.mgr.canAcceptWrites(ctx, class); err == nil && !accepts {
 			consequence = "writes are refused with 503 until a node is back"
 		}
-		newReason := fmt.Sprintf("cluster has %d healthy node(s), replication factor is %d: %s", healthy, factor, consequence)
+		reason := fmt.Sprintf("cluster has %d healthy node(s), replication factor is %d: %s", takers, protection.Factor, consequence)
 		if protection.Parity {
-			newReason = fmt.Sprintf("cluster has %d healthy node(s), parity spreads each write over %d: %s", healthy, needed, consequence)
+			reason = fmt.Sprintf("cluster has %d healthy node(s), parity spreads each write over %d: %s", takers, needed, consequence)
 		}
-		// Avoid noisy re-emission if the reason hasn't changed.
-		if prevReason != newReason {
-			r.setClusterDegradedReason(ctx, newReason)
-			r.emitEvent(DeadNodeEvent{
-				Kind:         EventClusterDegraded,
-				Reason:       newReason,
-				Factor:       factor,
-				NonDeadNodes: healthy,
-			})
+		if class != storageclass.Standard {
+			reason = "storage class " + class + ": " + strings.Replace(reason, "cluster has", "it has", 1)
+		} else {
+			healthy = takers
 		}
+		reasons = append(reasons, reason)
+	}
+	if len(reasons) == 0 {
+		r.clearClusterDegradedReason(ctx, factor, view.takers(nodes, storageclass.Standard))
 		return
 	}
-	r.clearClusterDegradedReason(ctx, factor, healthy)
+	newReason := strings.Join(reasons, "; ")
+	// Avoid noisy re-emission if the reason hasn't changed.
+	if prevReason != newReason {
+		r.setClusterDegradedReason(ctx, newReason)
+		r.emitEvent(DeadNodeEvent{
+			Kind:         EventClusterDegraded,
+			Reason:       newReason,
+			Factor:       factor,
+			NonDeadNodes: healthy,
+		})
+	}
 }
 
 func (r *DeadNodeReconciler) setClusterDegradedReason(ctx context.Context, reason string) {
@@ -563,6 +579,29 @@ func (r *DeadNodeReconciler) redistributionEnabled(ctx context.Context) bool {
 		return true
 	}
 	return v == "true" || v == "1"
+}
+
+// RecomputeDegradedState computes the degraded state again in the background.
+// A call made while one is to come is folded into it.
+func (r *DeadNodeReconciler) RecomputeDegradedState(ctx context.Context) {
+	if !r.recompute.CompareAndSwap(false, true) {
+		return
+	}
+	if !r.Spawn(func() {
+		r.recompute.Store(false)
+		r.recomputeClusterDegradedState(ctx)
+	}) {
+		r.recompute.Store(false)
+	}
+}
+
+// DegradedReason returns the degraded reason of the nodes as they are now (""
+// when the cluster is healthy).
+func (r *DeadNodeReconciler) DegradedReason(ctx context.Context) string {
+	if r.mgr.IsClusterEnabled() {
+		r.recomputeClusterDegradedState(ctx)
+	}
+	return ClusterDegradedReason(ctx, r.mgr.db)
 }
 
 // ClusterDegradedReason returns the persisted degraded reason ("" when the

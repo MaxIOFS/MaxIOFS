@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -69,53 +68,80 @@ func (w *HASyncWorker) StartRepair(ctx context.Context) {
 }
 
 // RepairPlacement makes the copies of the writes this node holds match the
-// replication factor. A write that lost holders to dead or removed nodes, or
-// to a raised factor, is copied to the healthy nodes with the most free space;
-// one with more holders than the factor keeps this node and those with the
-// most free space. The copies of a drained node are copied to other nodes,
-// then dropped. Each write is repaired by the first of its holders that is
-// neither dead nor removed, so that one node acts on it. A write that names
-// no node, made before the cluster kept them, is first given the nodes that
-// hold it (see adopt). A drained node that a whole pass finds holding no
-// write is out of service (see Manager.setLocalDrainDone).
+// protection of their class. A write that lost holders to dead or removed
+// nodes, or to a raised factor, is copied to the healthy nodes of its class
+// with the most free space, and to nodes of other classes when its class has
+// too few; one with more holders than the factor keeps this node and those
+// of its class with the most free space. The copies of a drained node, or of
+// a node of another class, are copied to other nodes, then dropped. Each
+// write is repaired by the first of its holders that is neither dead nor
+// removed, so that one node acts on it. A write that names no node, made
+// before the cluster kept them, is first given the nodes that hold it (see
+// adopt). A drained node that a whole pass finds holding no write is out of
+// service (see Manager.setLocalDrainDone).
 func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 	if !w.mgr.IsClusterEnabled() {
 		return nil
-	}
-	protection, err := w.mgr.GetProtection(ctx)
-	if err != nil {
-		return err
-	}
-	var layout erasure.Layout
-	var layoutOK bool
-	if protection.Parity {
-		if layout, layoutOK, err = w.mgr.ParityLayout(ctx); err != nil {
-			return err
-		}
 	}
 	ha, ok := w.objMgr.(*HAObjectManager)
 	if !ok {
 		return nil
 	}
-	writer, ok := ReplicaWriter(w.objMgr)
+	r, err := ha.placementRepair(ctx)
+	if err != nil || r == nil {
+		return err
+	}
+	local, ok := r.nodes[r.localID]
+	draining := ok && local.Drained && local.HealthStatus != HealthStatusDead
+	if !draining {
+		w.drain.reset()
+	} else if !w.drain.started() {
+		objects, bytes, err := w.heldHere(ctx, r.localID)
+		if err != nil {
+			return err
+		}
+		w.drain.begin(objects, bytes)
+	}
+	if draining {
+		r.moved = w.drain.moved
+	}
+	err = w.eachPage(ctx, r.repairPage)
+	if !draining || err != nil {
+		return err
+	}
+	w.drain.settle(r.remaining, r.remainingBytes)
+	if r.remaining == 0 {
+		return w.mgr.setLocalDrainDone(ctx)
+	}
+	return nil
+}
+
+// placementRepair is a repair of the copies as the cluster is now; nil when
+// this node keeps no entries.
+func (h *HAObjectManager) placementRepair(ctx context.Context) (*placementRepair, error) {
+	writer, ok := ReplicaWriter(h)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	localID, err := w.mgr.GetLocalNodeID(ctx)
+	view, err := h.mgr.classView(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	all, err := w.mgr.ListNodes(ctx)
+	localID, err := h.mgr.GetLocalNodeID(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	healthy, err := w.mgr.GetHealthyNodes(ctx)
+	all, err := h.mgr.ListNodes(ctx)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	healthy, err := h.mgr.GetHealthyNodes(ctx)
+	if err != nil {
+		return nil, err
 	}
 	r := &placementRepair{
-		ha: ha, writer: writer, objects: w.objMgr, protection: protection, layout: layout, layoutOK: layoutOK,
-		localID: localID, nodes: make(map[string]*Node, len(all)), client: NewProxyClient(w.mgr.GetTLSConfig()),
+		ha: h, writer: writer, objects: h, view: view, all: all,
+		localID: localID, nodes: make(map[string]*Node, len(all)), client: NewProxyClient(h.mgr.GetTLSConfig()),
 	}
 	for _, n := range all {
 		r.nodes[n.ID] = n
@@ -134,29 +160,7 @@ func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-	local, ok := r.nodes[localID]
-	draining := ok && local.Drained && local.HealthStatus != HealthStatusDead
-	if !draining {
-		w.drain.reset()
-	} else if !w.drain.started() {
-		objects, bytes, err := w.heldHere(ctx, localID)
-		if err != nil {
-			return err
-		}
-		w.drain.begin(objects, bytes)
-	}
-	if draining {
-		r.moved = w.drain.moved
-	}
-	err = w.eachPage(ctx, r.repairPage)
-	if !draining || err != nil {
-		return err
-	}
-	w.drain.settle(r.remaining, r.remainingBytes)
-	if r.remaining == 0 {
-		return w.mgr.setLocalDrainDone(ctx)
-	}
-	return nil
+	return r, nil
 }
 
 // eachPage calls fn with each page of keys of every bucket this node holds,
@@ -235,11 +239,10 @@ type placementRepair struct {
 	writer  object.ReplicaMetadataWriter
 	objects object.Manager
 	client  *ProxyClient
-	// protection is how the cluster keeps its data; with parity, layout is
-	// that of a write now, when layoutOK.
-	protection Protection
-	layout     erasure.Layout
-	layoutOK   bool
+	// view is how each class keeps its data; all are the nodes of the
+	// cluster, as the layout of a class with parity follows them.
+	view       *classView
+	all        []*Node
 	localID    string
 	nodes      map[string]*Node
 	peers      []*Node // the other nodes in service
@@ -357,7 +360,7 @@ func (r *placementRepair) adoptWrite(ctx context.Context, bucket, key string, v 
 	}
 	locations := holders
 	if target := r.target(v); !target.sharded() {
-		locations = r.keep(holders, target.copies)
+		locations = r.keep(holders, target.copies, r.view.of(v.StorageClass))
 	}
 	if err := r.ha.SetLocations(ctx, bucket, key, locationsChange(v, locations, 1)); err != nil {
 		return true, err
@@ -366,9 +369,27 @@ func (r *placementRepair) adoptWrite(ctx context.Context, bucket, key string, v 
 	return r.repairWrite(ctx, bucket, key, v)
 }
 
-// target is how the data of write v is to be kept.
+// target is how the data of write v is to be kept: as its class keeps it.
 func (r *placementRepair) target(v object.ObjectVersion) dataTarget {
-	return targetOf(r.protection, r.layout, r.layoutOK, v.Size)
+	return r.view.target(r.all, r.view.of(v.StorageClass), v.Size)
+}
+
+// inClass reports whether node id is in class.
+func (r *placementRepair) inClass(id, class string) bool {
+	n, ok := r.nodes[id]
+	return ok && r.view.node(n) == class
+}
+
+// classCandidates are the other nodes that take data, most free space first,
+// in class or out of it.
+func (r *placementRepair) classCandidates(class string, in bool) []*Node {
+	var nodes []*Node
+	for _, n := range r.candidates {
+		if (r.view.node(n) == class) == in {
+			nodes = append(nodes, n)
+		}
+	}
+	return nodes
 }
 
 // repairWrite repairs the copies or the shards of one write when this node
@@ -386,10 +407,14 @@ func (r *placementRepair) repairWrite(ctx context.Context, bucket, key string, v
 }
 
 // repairCopies repairs the copies of one write when this node is the first of
-// its living holders and holds its data. The copies of drained holders are
-// dropped once the others hold the factor's copies. It reports whether this
-// node still holds the write.
+// its living holders and holds its data. New copies go to the nodes of the
+// write's class; short of them, the holders out of the class or drained keep
+// their copies, then nodes of other classes take new ones. The copies of the
+// holders out of the class and of the drained ones are dropped once the
+// others hold the factor's copies. It reports whether this node still holds
+// the write.
 func (r *placementRepair) repairCopies(ctx context.Context, bucket, key string, v object.ObjectVersion, factor int) (bool, error) {
+	class := r.view.of(v.StorageClass)
 	var kept, staying []string
 	for _, id := range v.Locations {
 		n, ok := r.nodes[id]
@@ -397,7 +422,7 @@ func (r *placementRepair) repairCopies(ctx context.Context, bucket, key string, 
 			continue
 		}
 		kept = append(kept, id)
-		if !n.Drained {
+		if !n.Drained && r.view.node(n) == class {
 			staying = append(staying, id)
 		}
 	}
@@ -411,10 +436,33 @@ func (r *placementRepair) repairCopies(ctx context.Context, bucket, key string, 
 		return err != nil, err
 	}
 
-	// Each new copy names its node with a number of its own; every node is
-	// then told the holders with a higher one.
-	gen, locations := v.LocationsGen, slices.Clone(staying)
-	for _, n := range r.candidates {
+	gen, locations := r.copyTo(ctx, bucket, key, v, r.classCandidates(class, true), slices.Clone(staying), factor, v.LocationsGen)
+	if len(locations) < factor {
+		for _, id := range kept {
+			if !slices.Contains(locations, id) {
+				locations = append(locations, id)
+			}
+		}
+	}
+	if len(locations) < factor {
+		gen, locations = r.copyTo(ctx, bucket, key, v, r.classCandidates(class, false), locations, factor, gen)
+	}
+	locations = r.keep(locations, factor, class)
+	here := slices.Contains(locations, r.localID)
+	if gen == v.LocationsGen && slices.Equal(locations, v.Locations) {
+		return here, nil
+	}
+	if err := r.ha.SetLocations(ctx, bucket, key, locationsChange(v, locations, gen+1)); err != nil {
+		return true, err
+	}
+	return here, nil
+}
+
+// copyTo makes new copies of write v on nodes until locations reach the
+// factor. Each new copy names its node with a number of its own, from gen
+// on; every node is then told the holders with a higher one.
+func (r *placementRepair) copyTo(ctx context.Context, bucket, key string, v object.ObjectVersion, nodes []*Node, locations []string, factor int, gen int64) (int64, []string) {
+	for _, n := range nodes {
 		if len(locations) >= factor {
 			break
 		}
@@ -430,34 +478,19 @@ func (r *placementRepair) repairCopies(ctx context.Context, bucket, key string, 
 		}
 		locations = named
 	}
-	// Short of the factor, the drained holders keep their copies.
-	if len(locations) < factor {
-		for _, id := range kept {
-			if !slices.Contains(locations, id) {
-				locations = append(locations, id)
-			}
-		}
-	}
-	locations = r.keep(locations, factor)
-	here := slices.Contains(locations, r.localID)
-	if gen == v.LocationsGen && slices.Equal(locations, v.Locations) {
-		return here, nil
-	}
-	if err := r.ha.SetLocations(ctx, bucket, key, locationsChange(v, locations, gen+1)); err != nil {
-		return true, err
-	}
-	return here, nil
+	return gen, locations
 }
 
-// keep is locations trimmed to the factor: the nodes not drained first, this
-// node first among them, then those with the most free space.
-func (r *placementRepair) keep(locations []string, factor int) []string {
+// keep is locations trimmed to the factor: the nodes of class not drained
+// first, then those of other classes not drained, this node first among
+// each, then those with the most free space.
+func (r *placementRepair) keep(locations []string, factor int, class string) []string {
 	if len(locations) <= factor {
 		return locations
 	}
 	kept := slices.Clone(locations)
 	slices.SortStableFunc(kept, func(a, b string) int {
-		if c := cmp.Compare(boolRank(r.drained(a)), boolRank(r.drained(b))); c != 0 {
+		if c := cmp.Compare(r.leaving(a, class), r.leaving(b, class)); c != 0 {
 			return c
 		}
 		if c := cmp.Compare(boolRank(a != r.localID), boolRank(b != r.localID)); c != 0 {
@@ -466,6 +499,18 @@ func (r *placementRepair) keep(locations []string, factor int) []string {
 		return cmp.Compare(r.free(b), r.free(a))
 	})
 	return kept[:factor]
+}
+
+// leaving ranks how much node id is to give up the data of a write of class:
+// 0 in the class, 1 in another, 2 drained.
+func (r *placementRepair) leaving(id, class string) int {
+	switch {
+	case r.drained(id):
+		return 2
+	case !r.inClass(id, class):
+		return 1
+	}
+	return 0
 }
 
 func (r *placementRepair) drained(id string) bool {

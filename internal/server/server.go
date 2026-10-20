@@ -715,6 +715,9 @@ func New(cfg *config.Config) (*Server, error) {
 		},
 	))
 
+	// The degraded state follows the health of the nodes.
+	clusterManager.OnHealthChange(func() { server.deadNodeReconciler.RecomputeDegradedState(server.backgroundContext()) })
+
 	clusterManager.SetStoragePressureEmitter(func(ev cluster.StoragePressureEvent) {
 		server.broadcastStoragePressureEvent(ev)
 	})

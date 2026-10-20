@@ -128,7 +128,9 @@ MaxIOFS is a single-binary S3-compatible object storage system built in Go with 
 | `internal/cluster` | Membership, health, object placement and copies between nodes, replication queue/workers |
 | `internal/cluster` | HA object manager: quorum writes, local rollback on quorum failure, anti-entropy |
 | `internal/cluster` | Parity: shards of each write over the nodes, reads that rebuild a missing shard, shard repair |
+| `internal/cluster` | Storage classes: groups of nodes keeping the data of one class, each with its own protection; a write's move to another class |
 | `internal/erasure` | Reed-Solomon layouts: cut an object in data and parity shards, read it back from any of them as many as its data shards |
+| `internal/storageclass` | The S3 storage classes: from the warmest to the coldest, those a lifecycle rule moves objects to, those a cluster keeps on nodes of their own |
 | `internal/clusterauth` | Inter-node request signature definition |
 | `internal/transfer` | Progress-based stall watchdog for requests that carry object data |
 | `internal/replication` | External S3 replication (user-configured, separate from cluster) |
@@ -358,7 +360,8 @@ MaxIOFS supports **five authentication methods**:
 4. A read whose data Node 2 does not hold is read from a node that holds it
 5. A write is held by Node 2 and the nodes with the most free space, up to
    the replication factor, or cut in shards over them with parity; its entry
-   reaches every node before the answer
+   reaches every node before the answer. The nodes are those of the write's
+   storage class first, and Node 2 passes its copy on when it is in another
 6. A multipart upload's requests go to the node it was started on
 ```
 

@@ -650,6 +650,7 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 				WrittenAt:    obj.WrittenAt,
 				ETag:         obj.ETag,
 				Size:         obj.Size,
+				StorageClass: obj.StorageClass,
 			})
 			if maxKeys > 0 && len(allVersions) >= maxKeys {
 				break

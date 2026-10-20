@@ -101,7 +101,36 @@ func InitSchema(db *sql.DB) error {
 	if err := applyMembershipMigration(db); err != nil {
 		return err
 	}
-	return applyWritesPlacedMigration(db)
+	if err := applyWritesPlacedMigration(db); err != nil {
+		return err
+	}
+	return applyStorageClassMigration(db)
+}
+
+// applyStorageClassMigration adds the storage class whose data a node keeps.
+func applyStorageClassMigration(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(cluster_nodes)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "storage_class" {
+			rows.Close()
+			return nil
+		}
+	}
+	rows.Close()
+	if _, err := db.Exec("ALTER TABLE cluster_nodes ADD COLUMN storage_class TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("failed to add column storage_class: %w", err)
+	}
+	return nil
 }
 
 // applyWritesPlacedMigration adds the record that this node gave its writes

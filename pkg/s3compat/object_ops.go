@@ -880,6 +880,10 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 			headers.Set(name, v)
 		}
 	}
+	// The copy is of the class asked for, STANDARD otherwise, as in S3.
+	if sc := r.Header.Get("x-amz-storage-class"); sc != "" {
+		headers.Set("x-amz-storage-class", sc)
+	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
 	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)

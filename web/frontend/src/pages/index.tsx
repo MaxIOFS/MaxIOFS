@@ -151,7 +151,8 @@ export default function Dashboard() {
   }
 
   // Calculate metrics
-  const encryptedBucketsCount = buckets.filter((b: any) => b.encryption).length;
+  // Every object is encrypted, whatever the bucket's own configuration.
+  const encryptedBucketsCount = totalBuckets;
   const _encryptedPercentage = totalBuckets > 0 ? ((encryptedBucketsCount / totalBuckets) * 100).toFixed(0) : 0;
 
   // In cluster mode use aggregated capacity; in standalone use the local disk stats
@@ -252,7 +253,7 @@ export default function Dashboard() {
           value={encryptedBucketsCount}
           icon={Shield}
           description={t('outOfTotalBuckets', { total: totalBuckets })}
-          color="warning"
+          color="success"
         />
       </div>
 

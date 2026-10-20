@@ -38,13 +38,17 @@ type LocationsChange struct {
 	// Layout cuts the data in shards, Locations[i] holding shard i; zero for
 	// whole copies.
 	Layout erasure.Layout `json:"layout,omitzero"`
+	// Class, when set, is the storage class the write moves to with the
+	// change.
+	Class string `json:"class,omitempty"`
 }
 
 // takePlacement gives entry the placement of from: its locations, the number
-// of their change and the layout of its shards.
+// of their change, the layout of its shards and its storage class.
 func takePlacement(entry, from *metadata.ObjectMetadata) {
 	entry.Locations, entry.LocationsGen = from.Locations, from.LocationsGen
 	entry.ECData, entry.ECParity, entry.ECBlock = from.ECData, from.ECParity, from.ECBlock
+	entry.StorageClass = from.StorageClass
 }
 
 // compareLocations orders two sets of locations of one write: by the number of
@@ -248,23 +252,14 @@ func (om *objectManager) SetLocations(ctx context.Context, bucket, key string, c
 	}
 	entry.Locations, entry.LocationsGen = change.Locations, change.Gen
 	entry.ECData, entry.ECParity, entry.ECBlock = change.Layout.Data, change.Layout.Parity, change.Layout.Block
+	if change.Class != "" {
+		entry.StorageClass = change.Class
+	}
 	ref := om.objectRef(bucket, key)
 	if entry.VersionID != "" {
 		ref = om.versionRef(bucket, key, entry.VersionID)
-		version := &metadata.ObjectVersion{
-			VersionID:    entry.VersionID,
-			IsLatest:     entry.IsLatest,
-			Key:          key,
-			Size:         entry.Size,
-			ETag:         entry.ETag,
-			LastModified: entry.LastModified,
-			WrittenAt:    entry.WrittenAt,
-			StorageClass: entry.StorageClass,
-		}
-		if err := om.metadataStore.PutObjectVersion(ctx, entry, version); err != nil {
-			return fmt.Errorf("failed to save the entry: %w", err)
-		}
-	} else if err := om.metadataStore.PutObject(ctx, entry); err != nil {
+	}
+	if err := om.saveEntry(ctx, entry); err != nil {
 		return fmt.Errorf("failed to save the entry: %w", err)
 	}
 	om.dropStaleData(ctx, entry, ref)

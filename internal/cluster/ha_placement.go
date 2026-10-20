@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,33 +45,44 @@ func SetHALocations(h http.Header, obj *object.Object) {
 const HAETagHeader = "X-HA-ETag"
 
 // placement is where a write made here goes: the nodes that hold its data,
-// this node first, and the other healthy nodes, which hold its entry, most
-// free space first.
+// this node first, and the other healthy nodes, which hold its entry, those of
+// the write's class first, then most free space first.
 type placement struct {
 	localID string
 	factor  int
 	holders []string
 	remote  []*Node
 	entries []*Node
-	// passOn is set when this node keeps no new data: under storage pressure
-	// or drained.
+	// class is the class whose nodes keep the write (see classView.of).
+	class string
+	view  *classView
+	// passOn is set when this node keeps no new data of the write: under
+	// storage pressure, drained, or in another class.
 	passOn bool
+	// inClassOnly is set when this node passes its copy on for being in
+	// another class alone: only a node of the write's class takes it.
+	inClassOnly bool
 	// parity: the write is held here alone, then spread over takers, the
-	// nodes that take data, this node first when it does (see spread).
+	// nodes that take data, those of the write's class first and this node
+	// first among those it is in (see spread).
 	parity bool
 	takers []*Node
 }
 
-// place chooses the nodes of a write made here in a cluster: this node and the
-// healthy nodes with the most free space hold its data, up to the factor; the
-// other healthy nodes hold its entry. A node neither healthy nor dead misses the write and
-// is caught up when it is back. This node, under storage pressure or drained,
-// then passes its copy on (see relieve).
-func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
-	protection, err := h.mgr.GetProtection(ctx)
+// place chooses the nodes of a write of storage class sc made here in a
+// cluster: this node and the healthy nodes of the write's class with the most
+// free space hold its data, up to the factor, and nodes of other classes when
+// the class has too few; the other healthy nodes hold its entry. A node
+// neither healthy nor dead misses the write and is caught up when it is
+// back. This node, under storage pressure, drained or in another class, then
+// passes its copy on (see relieve).
+func (h *HAObjectManager) place(ctx context.Context, sc string) (*placement, bool) {
+	view, err := h.mgr.classView(ctx)
 	if err != nil {
 		return nil, false
 	}
+	class := view.of(sc)
+	protection := view.protection[class]
 	factor := protection.Factor
 	localID, err := h.mgr.GetLocalNodeID(ctx)
 	if err != nil {
@@ -98,16 +110,20 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-	p := &placement{localID: localID, factor: factor, holders: []string{localID}, parity: protection.Parity}
+	view.sortForClass(others, class)
+	p := &placement{localID: localID, factor: factor, holders: []string{localID}, parity: protection.Parity, class: class, view: view}
 	local, err := h.mgr.GetNode(ctx, localID)
 	if err == nil {
-		p.passOn = local.HealthStatus == HealthStatusStoragePressure || local.Drained
+		elsewhere := view.node(local) != class
+		p.passOn = local.HealthStatus == HealthStatusStoragePressure || local.Drained || elsewhere
+		p.inClassOnly = elsewhere && local.TakesData()
 	}
 	if p.parity {
 		if local != nil && local.TakesData() {
 			p.takers = append(p.takers, local)
 		}
 		p.takers = append(p.takers, others...)
+		view.sortForClass(p.takers, class)
 		p.entries = append(slices.Clone(others), entriesOnly...)
 		return p, true
 	}
@@ -123,7 +139,7 @@ func (h *HAObjectManager) place(ctx context.Context) (*placement, bool) {
 	return p, true
 }
 
-// Space is the data a cluster has room for and the room left, as each node's
+// Space is the data STANDARD has room for and the room left, as each node's
 // last health check found its disk: each byte is held on factor different
 // nodes, or with parity its shards each on its own node. Dead nodes do not
 // count.
@@ -131,7 +147,7 @@ func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool
 	if !m.IsClusterEnabled() {
 		return 0, 0, false
 	}
-	target, err := m.writeTarget(ctx, 1)
+	view, err := m.classView(ctx)
 	if err != nil {
 		return 0, 0, false
 	}
@@ -139,9 +155,10 @@ func (m *Manager) Space(ctx context.Context) (capacity, available int64, ok bool
 	if err != nil {
 		return 0, 0, false
 	}
+	target := view.target(nodes, storageclass.Standard, 1)
 	var total, free []int64
 	for _, n := range nodes {
-		if n.HealthStatus == HealthStatusDead {
+		if n.HealthStatus == HealthStatusDead || view.node(n) != storageclass.Standard {
 			continue
 		}
 		total = append(total, n.CapacityTotal)
@@ -210,8 +227,10 @@ func (h *HAObjectManager) replicate(ctx context.Context, p *placement, bucket, k
 }
 
 // relieve passes this node's copy of a write, when this node is under storage
-// pressure or drained, to the node with the most free space among those that
-// hold its entry only; the copy stays here when none takes it. Each copy names its node
+// pressure, drained or in another class, to the first node that takes data
+// among those that hold its entry only: those of the write's class first,
+// most free space first; of the write's class only when this node is just in
+// another. The copy stays here when none takes it. Each copy names its node
 // with a number of its own, and every node is then told the holders with a
 // higher one.
 func (h *HAObjectManager) relieve(ctx context.Context, p *placement, bucket, key string, obj *object.Object) {
@@ -223,7 +242,7 @@ func (h *HAObjectManager) relieve(ctx context.Context, p *placement, bucket, key
 	others := slices.DeleteFunc(slices.Clone(p.holders), func(id string) bool { return id == p.localID })
 	gen, locations := obj.LocationsGen, p.holders
 	for _, n := range p.entries {
-		if !n.TakesData() {
+		if !n.TakesData() || (p.inClassOnly && p.view.node(n) != p.class) {
 			continue
 		}
 		gen++

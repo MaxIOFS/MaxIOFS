@@ -167,6 +167,14 @@ describe('Dashboard Page', () => {
   });
 
   describe('Rendering', () => {
+    it('counts every bucket as encrypted: every object is', async () => {
+      render(<Dashboard />);
+      const title = await screen.findByText('Encrypted Buckets');
+      await waitFor(() => {
+        expect(title.nextElementSibling).toHaveTextContent('2');
+      });
+    });
+
     it('should render dashboard title and description', async () => {
       render(<Dashboard />);
 

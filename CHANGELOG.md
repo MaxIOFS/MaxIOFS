@@ -12,9 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The copy repair cuts the writes kept in whole copies in shards when parity is turned on, and joins them again when it is turned off; it makes again the shards of removed, dead or drained nodes, moves a drained node's shards, and cuts again the writes a fifth node gives two parity shards: every node repairs its writes within one pass of the dead-node reconciler of a change of the layout. The anti-entropy makes again a shard a node lacks.
 - `GET /api/v1/cluster/ha` reports `parity`, `data_shards` and `parity_shards`; with parity, the usable capacity, the tolerated failures and the capacity Veeam reads follow the shards.
 - With parity a drain, or marking a node dead, is refused when fewer than three nodes would take data.
+- Storage classes in a cluster (Cluster → Storage classes, `/api/v1/cluster/storage-classes`): a storage class (`GLACIER`, `DEEP_ARCHIVE`…) is kept on nodes of its own, with its own factor or parity; STANDARD is every other node, with the protection of the HA page. An object's data goes to the nodes of its class: `x-amz-storage-class` on PUT, multipart upload and CopyObject. A class with fewer nodes than its protection needs keeps its objects on other nodes as well, until it has them. A node put in another class moves the objects of its old class to the other nodes of that class. Every node reads every object.
+- Lifecycle `Transition` and `NoncurrentVersionTransition`, by days or by date, move objects to a colder storage class: in a cluster to the nodes of that class, copied there before the other nodes drop theirs; outside a cluster the object takes the class only. An object due to expire is not moved.
+- Lifecycle filters by tags (`Tag`, `And`) and size (`ObjectSizeGreaterThan`, `ObjectSizeLessThan`), and `NewerNoncurrentVersions`.
+- Console: the lifecycle rules of a bucket move objects and noncurrent versions to a storage class the cluster keeps; the HA page names the class of each node.
+
+### Changed
+- The protection, room and tolerated failures of the HA page, and the capacity Veeam reads, are those of STANDARD's nodes.
+- A drain, or marking a node dead, counts the nodes that take data against the most demanding storage class.
+- A lifecycle configuration S3 would refuse is refused with S3's error (`MalformedXML`, `InvalidArgument`, `InvalidRequest`, `InvalidStorageClass`) on the S3 API and the console: an expiration of 0 days, a date that is none, `ExpiredObjectDeleteMarker` with days, a date or tags, a filter of two conditions without `And`, a transition to STANDARD or to no class, two rules of one ID. A configuration without rules is `MalformedXML` (was `InvalidRequest`).
 
 ### Fixed
+- A lifecycle rule that only removed expired delete markers, the console's default, deleted every object of its bucket at the next pass; on a versioned bucket every object was given a delete marker. An expiration by date lost its date when stored and did the same.
+- An expiration with a date in the future expired the objects at once; it waits for the date.
+- A lifecycle filter by tags, or `And` of a prefix and tags, was dropped: the rule acted on the whole bucket.
+- `NoncurrentVersionExpiration` counted a version's days from its own write: a version written a year ago and replaced yesterday was deleted at once. Its days count from when the next version was written. `NewerNoncurrentVersions` was ignored: every version old enough was deleted.
+- `Transition` and `NoncurrentVersionTransition` rules were accepted and dropped.
+- `GetBucketEncryption` answered `ServerSideEncryptionConfigurationNotFoundError` for a bucket without an encryption configuration of its own, though every object is encrypted; it gives the AES256 default, as AWS does. The dashboard counted as encrypted only the buckets with such a configuration; it counts every bucket.
 - Completing a multipart upload over a key whose earlier write had no file on the node failed (`failed to backup existing object before multipart completion`): in a cluster, on every node that held the earlier write's entry only.
+- In a cluster, every key sync from a peer rewrote the node's encryption keys and logged `Cluster encryption KEKs adopted from join package`, several times a minute. A sync that brings no change writes and logs nothing.
+- The cluster degraded banner stayed up to 5 minutes after its cause was gone, as after nodes join a cluster: the degraded state was computed only at the dead-node reconciler's passes. It is computed when a node's health changes and when the console reads it.
 
 ## [1.8.0] - 2026-10-13
 

@@ -35,6 +35,7 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Synchronous replication (factor 1–3): a factor of 2 is a mirror that keeps writing with its peer down; a factor of 3 needs one of its two peers
 - 🧪 **Parity** — nightly builds only, not in v1.8.0 (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
+- 🧪 **Storage classes** — nightly builds only, not in v1.8.0: groups of nodes keep the data of a storage class (`GLACIER`, `DEEP_ARCHIVE`…), each class with its own factor or parity; lifecycle transitions move the objects to a colder class
 - ✅ A node that comes back is caught up at once with the writes and deletes it missed
 - ✅ Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - ✅ Elected coordinator for configuration changes; a surviving node takes over
@@ -504,7 +505,7 @@ a factor of 1 an object has one copy.
 - Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. A higher factor adds the copies once the first syncs end; a lower one removes the copies it does not need.
 - After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, it answers `NoSuchBucket` for a bucket it lacks and may not list every object of one it has: update every node, and send traffic once the HA page shows the sync jobs done.
 - An object written before the cluster kept where its data is names no node. The copy repair asks every other healthy node which of these it holds; the first of the holders by node ID gives each its holders, trimmed to the factor, and makes the copies it lacks. Without the answer of every healthy node it waits for the next repair.
-- The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of the cluster: what the nodes but the dead ones hold with each byte on factor different nodes, or with parity each shard of a byte on its own node, as their last health checks found their disks.
+- The capacity Veeam reads for a bucket (SOSAPI `capacity.xml`) is its quota, else its tenant's quota less what the tenant uses on every node, else the room of STANDARD: what its nodes but the dead ones hold with each byte on factor different nodes, or with parity each shard of a byte on its own node, as their last health checks found their disks.
 
 ### Objects with parity
 
@@ -522,6 +523,24 @@ With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page)
 - A node that leaves the cluster drops its writes in shards: its shard alone cannot serve them. `maxiofs recover` rebuilds no entry from a shard; the cluster sends the node the entries when it is back.
 - Every node runs the same version before parity is turned on.
 
+### Storage classes
+
+> Nightly builds only: v1.8.0 has no storage classes.
+
+A storage class with an S3 name (`REDUCED_REDUNDANCY`, `STANDARD_IA`, `INTELLIGENT_TIERING`, `ONEZONE_IA`, `GLACIER_IR`, `GLACIER`, `DEEP_ARCHIVE`) can be kept on nodes of its own, with a protection of its own: whole copies (a factor of 1 to 3) or parity. STANDARD is every node in no other class; its protection is the one set on the HA page. The classes and the class of each node are set on the Storage classes page (Cluster → Storage classes).
+
+- An object is of the class of its write: the `x-amz-storage-class` of its PUT, multipart upload or copy (a copy without one is STANDARD, as in S3), or the class a lifecycle transition gives it. An object of a class the cluster does not keep is kept in STANDARD and keeps its class: HEAD and listings give it.
+- The data of a write goes to the nodes of its class with the most free space; a node that takes a write of another class passes its copy on, as a node under storage pressure does. A class with fewer nodes taking data than its protection spreads a write over keeps its writes on nodes of other classes as well, so that each write has its copies or shards; the copy repair moves them to the nodes of the class once it has them. The cluster is then degraded, with the class named.
+- Every node reads every object, whatever its class: there is no restore to wait for (`RestoreObject` answers at once). The AWS CLI's `aws s3 cp` downloads an object of `GLACIER` or `DEEP_ARCHIVE` only with `--force-glacier-transfer`, or once `aws s3api restore-object` has answered; `aws s3api get-object` and the SDKs read it as any other.
+- A node put in another class copies the writes of its old class to the other nodes of that class, then drops them, and takes the writes of its new one. A node does not leave a class whose other nodes taking data would be fewer than its protection needs (`409`); a class is emptied by deleting it, which puts its nodes back in STANDARD. Its objects keep their class and are kept in STANDARD.
+- Lifecycle `Transition` (days or a date) and `NoncurrentVersionTransition` rules move objects to a colder class: `STANDARD_IA`, `INTELLIGENT_TIERING`, `ONEZONE_IA`, `GLACIER_IR`, `GLACIER`, `DEEP_ARCHIVE`, from the warmest; never to a warmer one. Of the transitions due, the coldest wins; an object due to expire is not moved. Every node runs the rules and moves the writes it is the first living holder of: it gives each its class on every node, with a change of its placement, then copies it to the nodes of the class, or cuts it in shards there, before the other nodes drop theirs. A move that does not end is ended by the next repair.
+- When the protection of a class changes, or the nodes of a class, every node repairs its writes at the next pass of the dead-node reconciler; the node where the change is made at once.
+- Drains and dead nodes count every node that takes data against the most demanding class, as a class short of nodes keeps its writes on others.
+- The room Veeam reads (SOSAPI `capacity.xml`), and the room and protection on the HA page, are STANDARD's.
+- Outside a cluster a transition gives the object its class only.
+- `maxiofs recover` gives an object the class of its write; the next lifecycle pass moves it again.
+- Every node runs the same version before a class is kept.
+
 ### Buckets
 
 Every node holds every bucket, whatever the factor.
@@ -532,7 +551,7 @@ Every node holds every bucket, whatever the factor.
 - A node keeps its copy of a bucket deleted elsewhere when the copy changed after the deletion or holds an object under retention or a legal hold; such a copy is kept and logged. A copy holding objects written after the deletion is kept with those objects only, and sent to the other nodes as created again then. Otherwise the copy is removed with its objects.
 - A bucket whose name another tenant holds on a node is refused there and logged.
 - A deletion is kept at least 7 days, and until every member of the cluster has been sent it.
-- Lifecycle: the coordinator expires objects, and its deletes reach the other nodes. Every node aborts the incomplete multipart uploads started on it.
+- Lifecycle: the coordinator expires objects, and its deletes reach the other nodes. Every node aborts the incomplete multipart uploads started on it, and moves to a colder storage class the writes it is the first holder of (see Storage classes).
 - Multipart uploads: an upload is held by the node it was started on, and its ID names that node. Its parts, part listing, completion and abort are sent to that node from whichever node they reach, so a load balancer may spread them. A node that does not answer is answered `503` with `Retry-After`; a node no longer in the cluster took its uploads with it (`NoSuchUpload`). Listing the uploads of a bucket asks every healthy node. An upload started before the upgrade has an ID that names no node and is made on the node a request reaches.
 - Inventory: the coordinator writes the reports. The report file, its row and the configuration's last run reach the other nodes.
 - Scheduled replication rules run on the coordinator. Real-time rules queue each write on the node that took it.
@@ -676,6 +695,7 @@ Primary endpoint groups:
 
 - Cluster management: initialize, join, leave, status, nodes, health, drain.
 - Replication: factor, sync jobs, anti-entropy runs, degraded state, a bucket's replicas.
+- Storage classes: the classes kept, the protection of each, the class of each node.
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/maxiofs/maxiofs/internal/erasure"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 )
 
 // parityConfigKey turns parity on: the data of a write is cut in data and
@@ -38,22 +39,25 @@ func (m *Manager) SetParity(ctx context.Context, on bool) error {
 	return SetGlobalConfig(ctx, m.db, parityConfigKey, strconv.FormatBool(on))
 }
 
-// dataNodes counts the nodes that hold data: those neither dead nor drained.
-func (m *Manager) dataNodes(ctx context.Context) (int, error) {
-	var n int
-	err := m.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM cluster_nodes WHERE health_status != ? AND drained = 0`, HealthStatusDead).Scan(&n)
-	return n, err
+// ParityLayout is the layout of the shards of a write with parity in
+// STANDARD: erasure.For its nodes that hold data. Fewer than three nodes have
+// none.
+func (m *Manager) ParityLayout(ctx context.Context) (erasure.Layout, bool, error) {
+	return m.ClassLayout(ctx, storageclass.Standard)
 }
 
-// ParityLayout is the layout of the shards of a write with parity: erasure.For
-// the nodes that hold data. Fewer than three nodes have none.
-func (m *Manager) ParityLayout(ctx context.Context) (erasure.Layout, bool, error) {
-	n, err := m.dataNodes(ctx)
+// ClassLayout is the layout of the shards of a write with parity in class:
+// erasure.For the nodes of the class that hold data.
+func (m *Manager) ClassLayout(ctx context.Context, class string) (erasure.Layout, bool, error) {
+	view, err := m.classView(ctx)
 	if err != nil {
 		return erasure.Layout{}, false, err
 	}
-	layout, ok := erasure.For(n)
+	nodes, err := m.ListNodes(ctx)
+	if err != nil {
+		return erasure.Layout{}, false, err
+	}
+	layout, ok := view.layout(nodes, view.of(class))
 	return layout, ok, nil
 }
 
@@ -89,20 +93,18 @@ func targetOf(p Protection, layout erasure.Layout, haveLayout bool, size int64) 
 	return dataTarget{layout: layout}
 }
 
-// writeTarget is how the data of a write of size bytes made now is to be kept.
-func (m *Manager) writeTarget(ctx context.Context, size int64) (dataTarget, error) {
-	p, err := m.GetProtection(ctx)
+// writeTarget is how the data of a write of storage class sc and size bytes
+// made now is to be kept.
+func (m *Manager) writeTarget(ctx context.Context, sc string, size int64) (dataTarget, error) {
+	view, err := m.classView(ctx)
 	if err != nil {
 		return dataTarget{}, err
 	}
-	if !p.Parity {
-		return targetOf(p, erasure.Layout{}, false, size), nil
-	}
-	layout, ok, err := m.ParityLayout(ctx)
+	nodes, err := m.ListNodes(ctx)
 	if err != nil {
 		return dataTarget{}, err
 	}
-	return targetOf(p, layout, ok, size), nil
+	return view.target(nodes, view.of(sc), size), nil
 }
 
 // requiredNodes is the nodes taking data the protection needs: the factor,
@@ -119,16 +121,26 @@ func (p Protection) redundant() bool {
 	return p.Parity || p.Factor > 1
 }
 
-// quorumFactor is the factor whose quorum a write's delete needs: the factor
-// of whole copies, or the parity of the shards plus one.
-func (m *Manager) quorumFactor(ctx context.Context) (int, error) {
-	p, err := m.GetProtection(ctx)
-	if err != nil || !p.Parity {
-		return p.Factor, err
+// quorumFactor is the factor whose quorum the delete of a write of storage
+// class sc needs: the factor of whole copies, or the parity of the shards
+// plus one.
+func (m *Manager) quorumFactor(ctx context.Context, sc string) (int, error) {
+	view, err := m.classView(ctx)
+	if err != nil {
+		return 0, err
 	}
-	layout, ok, err := m.ParityLayout(ctx)
-	if err != nil || !ok {
-		return 2, err
+	class := view.of(sc)
+	p := view.protection[class]
+	if !p.Parity {
+		return p.Factor, nil
+	}
+	nodes, err := m.ListNodes(ctx)
+	if err != nil {
+		return 0, err
+	}
+	layout, ok := view.layout(nodes, class)
+	if !ok {
+		return 2, nil
 	}
 	return layout.Parity + 1, nil
 }

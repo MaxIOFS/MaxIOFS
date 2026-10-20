@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -1828,4 +1829,52 @@ func TestADeadNodeThatComesBackTakesTheLocationsChangedMeanwhile(t *testing.T) {
 	a.antiEntropyScrubber.CatchUp(far.id, time.Unix(1, 0))
 	require.Eventually(t, func() bool { return a.scrubRuns(t) > runs }, 15*time.Second, 50*time.Millisecond)
 	assert.Zero(t, entries.Load(), "the locations agree")
+}
+
+// The degraded banner shows the nodes as they are: it follows a change of a
+// node's health at once, and the console reads it as it is now.
+func TestTheDegradedBannerFollowsTheNodes(t *testing.T) {
+	c := newHACluster(t, 2, 2)
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	degraded := func() (bool, string) {
+		rr := consoleCall(t, a, a.handleGetClusterDegradedState, http.MethodGet, "/cluster/ha/degraded-state", nil, nil)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		var state struct {
+			Data struct {
+				Degraded bool   `json:"degraded"`
+				Reason   string `json:"reason"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &state))
+		return state.Data.Degraded, state.Data.Reason
+	}
+
+	require.NoError(t, cluster.SetGlobalConfig(ctx, a.db, "ha.cluster_degraded_reason",
+		"cluster has 1 healthy node(s), replication factor is 2: writes are kept on fewer nodes than the factor"))
+	stale, reason := degraded()
+	assert.False(t, stale, "both nodes are healthy: %s", reason)
+	_, err := a.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusUnavailable, b.id)
+	require.NoError(t, err)
+	down, reason := degraded()
+	assert.True(t, down, "the other node is unavailable")
+	assert.Contains(t, reason, "1 healthy node(s)")
+	_, err = a.db.ExecContext(ctx, `UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusHealthy, b.id)
+	require.NoError(t, err)
+	down, reason = degraded()
+	require.False(t, down, reason)
+
+	b.down.Store(true)
+	_, err = a.clusterManager.CheckNodeHealth(ctx, b.id)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool {
+		return cluster.ClusterDegradedReason(ctx, a.db) != ""
+	}, 5*time.Second, 10*time.Millisecond, "the node that does not answer leaves the cluster degraded")
+
+	b.down.Store(false)
+	_, err = a.clusterManager.CheckNodeHealth(ctx, b.id)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool {
+		return cluster.ClusterDegradedReason(ctx, a.db) == ""
+	}, 5*time.Second, 10*time.Millisecond, "the node is back")
 }

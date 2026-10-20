@@ -596,6 +596,10 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/cluster/nodes/{nodeId}", s.handleRemoveClusterNode).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/cluster/nodes/{nodeId}/health", s.handleCheckNodeHealth).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/nodes/{nodeId}/drain", s.handleDrainClusterNode).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/nodes/{nodeId}/storage-class", s.handleSetNodeStorageClass).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/cluster/storage-classes", s.handleGetStorageClasses).Methods("GET", "OPTIONS")
+	router.HandleFunc("/cluster/storage-classes/{name}", s.handleSetStorageClass).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/cluster/storage-classes/{name}", s.handleDeleteStorageClass).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/cluster/ha", s.handleGetClusterHA).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/ha", s.handleSetClusterHA).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/cluster/ha/sync-jobs", s.handleGetHASyncJobs).Methods("GET", "OPTIONS")
@@ -3238,8 +3242,19 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Expose cluster mode so the frontend can adapt UI accordingly.
 	isClusterEnabledCfg := s.clusterManager != nil && s.clusterManager.IsClusterEnabled()
+	// The classes a cluster keeps on nodes of their own, which a lifecycle
+	// rule moves objects to.
+	storageClasses := []string{}
+	if isClusterEnabledCfg {
+		if classes, err := s.clusterManager.StorageClasses(r.Context()); err == nil {
+			for _, c := range classes {
+				storageClasses = append(storageClasses, c.Name)
+			}
+		}
+	}
 	config["cluster"] = map[string]interface{}{
-		"enabled": isClusterEnabledCfg,
+		"enabled":        isClusterEnabledCfg,
+		"storageClasses": storageClasses,
 	}
 
 	s.writeJSON(w, config)
@@ -5278,62 +5293,15 @@ func (s *Server) handlePutBucketLifecycle(w http.ResponseWriter, r *http.Request
 	}
 	defer r.Body.Close()
 
-	// Parse XML lifecycle configuration
-	var xmlConfig struct {
-		XMLName xml.Name `xml:"LifecycleConfiguration"`
-		Rules   []struct {
-			ID                          string `xml:"ID"`
-			Status                      string `xml:"Status"`
-			Prefix                      string `xml:"Prefix"`
-			NoncurrentVersionExpiration *struct {
-				NoncurrentDays int `xml:"NoncurrentDays"`
-			} `xml:"NoncurrentVersionExpiration"`
-			Expiration *struct {
-				Days                      int  `xml:"Days"`
-				ExpiredObjectDeleteMarker bool `xml:"ExpiredObjectDeleteMarker"`
-			} `xml:"Expiration"`
-		} `xml:"Rule"`
-	}
-
+	var xmlConfig bucket.LifecycleConfigurationXML
 	if err := xml.Unmarshal(body, &xmlConfig); err != nil {
 		s.writeError(w, "Invalid XML: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Convert to internal format
-	lifecycleConfig := &bucket.LifecycleConfig{
-		Rules: make([]bucket.LifecycleRule, len(xmlConfig.Rules)),
-	}
-
-	for i, rule := range xmlConfig.Rules {
-		internalRule := bucket.LifecycleRule{
-			ID:     rule.ID,
-			Status: rule.Status,
-			Filter: bucket.LifecycleFilter{
-				Prefix: rule.Prefix,
-			},
-		}
-
-		if rule.NoncurrentVersionExpiration != nil {
-			internalRule.NoncurrentVersionExpiration = &bucket.NoncurrentVersionExpiration{
-				NoncurrentDays: rule.NoncurrentVersionExpiration.NoncurrentDays,
-			}
-		}
-
-		if rule.Expiration != nil {
-			exp := &bucket.LifecycleExpiration{}
-			if rule.Expiration.Days > 0 {
-				days := rule.Expiration.Days
-				exp.Days = &days
-			}
-			if rule.Expiration.ExpiredObjectDeleteMarker {
-				expiredMarker := true
-				exp.ExpiredObjectDeleteMarker = &expiredMarker
-			}
-			internalRule.Expiration = exp
-		}
-
-		lifecycleConfig.Rules[i] = internalRule
+	lifecycleConfig, err := bucket.LifecycleFromXML(&xmlConfig)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Set lifecycle configuration

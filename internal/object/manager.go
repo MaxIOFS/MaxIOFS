@@ -786,8 +786,10 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		}
 	}
 	// A copy keeps the newest locations of its write, those it carries or those
-	// here, and its data is stored only where they name this node.
+	// here, with the class they gave it, and its data is stored only where
+	// they name this node.
 	locations, locationsGen := locationsFromContext(ctx), locationsGenFromContext(ctx)
+	storageClass := storageClassOrDefault(storageMetadata["storage-class"])
 	if isReplicaCopy(ctx) {
 		lm, _ := replicatedLastModifiedFromContext(ctx)
 		here, err := om.writeHere(ctx, bucket, key, versionID, existingObjBeforeSave,
@@ -801,7 +803,7 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 			if !om.holdsData(here) {
 				return fromMetadataObject(here), nil
 			}
-			locations, locationsGen = here.Locations, here.LocationsGen
+			locations, locationsGen, storageClass = here.Locations, here.LocationsGen, here.StorageClass
 		}
 		if !om.holdsData(&metadata.ObjectMetadata{Locations: locations}) {
 			if here != nil {
@@ -882,7 +884,7 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		CacheControl:       storageMetadata["cache-control"],
 		ContentLanguage:    storageMetadata["content-language"],
 		Metadata:           userMetadata,
-		StorageClass:       storageClassOrDefault(storageMetadata["storage-class"]),
+		StorageClass:       storageClass,
 		VersionID:          versionID,
 		ChecksumAlgorithm:  checksumAlgo,
 		ChecksumValue:      checksumValue,

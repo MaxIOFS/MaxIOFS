@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/erasure"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,30 +46,17 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate usable capacity based on factor and cluster total
-	var totalBytes int64
-	for _, n := range nodes {
-		totalBytes += n.CapacityTotal
+	// The cluster's protection is STANDARD's: its room and the failures it
+	// survives are those of its nodes (see the storage classes).
+	classes, err := s.clusterManager.StorageClassStatus(r.Context())
+	if err != nil || len(classes) == 0 {
+		s.writeError(w, "Failed to read the storage classes", http.StatusInternalServerError)
+		return
 	}
-	var usableBytes int64
-	if factor > 0 {
-		usableBytes = totalBytes / int64(factor)
-	}
-
-	// How many node failures the cluster can tolerate
-	toleratedFailures := factor - 1
-
-	// With parity a write is cut in data and parity shards, each on its own
-	// node; too few nodes keep it in two whole copies.
-	var dataShards, parityShards int
-	if protection.Parity {
-		usableBytes, toleratedFailures = totalBytes/2, 1
-		if layout, ok, err := s.clusterManager.ParityLayout(r.Context()); err == nil && ok {
-			dataShards, parityShards = layout.Data, layout.Parity
-			usableBytes = totalBytes * int64(layout.Data) / int64(layout.Width())
-			toleratedFailures = layout.Parity
-		}
-	}
+	standard := classes[0]
+	totalBytes, usableBytes := standard.TotalBytes, standard.UsableBytes
+	toleratedFailures := standard.ToleratedFailures
+	dataShards, parityShards := standard.DataShards, standard.ParityShards
 
 	type nodeStatus struct {
 		ID            string `json:"id"`
@@ -78,6 +66,7 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		CapacityUsed  int64  `json:"capacity_used"`
 		CapacityFree  int64  `json:"capacity_free"`
 		Drained       bool   `json:"drained"`
+		StorageClass  string `json:"storage_class"`
 		// DrainProgress is how far a node being drained is in moving its
 		// objects.
 		DrainProgress *cluster.DrainProgress `json:"drain_progress,omitempty"`
@@ -98,6 +87,7 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 			CapacityUsed:  n.CapacityUsed,
 			CapacityFree:  n.CapacityTotal - n.CapacityUsed,
 			Drained:       n.Drained,
+			StorageClass:  s.clusterManager.NodeStorageClass(r.Context(), n),
 		}
 		if n.Drained && n.HealthStatus != cluster.HealthStatusDead {
 			if n.ID == localNodeID && s.haSyncWorker != nil {
@@ -115,6 +105,8 @@ func (s *Server) handleGetClusterHA(w http.ResponseWriter, r *http.Request) {
 		"data_shards":        dataShards,
 		"parity_shards":      parityShards,
 		"node_count":         len(nodes),
+		"standard_nodes":     standard.Nodes,
+		"storage_classes":    len(classes),
 		"tolerated_failures": toleratedFailures,
 		"total_bytes":        totalBytes,
 		"usable_bytes":       usableBytes,
@@ -225,15 +217,15 @@ func (s *Server) handleDrainClusterNode(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleGetClusterDegradedState returns the cluster-wide degraded reason ("" when healthy).
-// Used by the UI to render the degraded banner.
+// handleGetClusterDegradedState returns the degraded reason of the nodes as
+// they are now ("" when healthy). Used by the UI to render the degraded banner.
 // GET /cluster/ha/degraded-state
 func (s *Server) handleGetClusterDegradedState(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
 		return
 	}
-	reason := cluster.ClusterDegradedReason(r.Context(), s.db)
+	reason := s.deadNodeReconciler.DegradedReason(r.Context())
 	s.writeJSON(w, map[string]interface{}{
 		"degraded": reason != "",
 		"reason":   reason,
@@ -265,11 +257,17 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "factor must be 1, 2, or 3", http.StatusBadRequest)
 		return
 	}
-	// Verify enough healthy nodes exist for the requested factor
-	nodes, err := s.clusterManager.GetHealthyNodes(r.Context())
+	// Verify enough healthy nodes of STANDARD exist for the requested factor
+	healthy, err := s.clusterManager.GetHealthyNodes(r.Context())
 	if err != nil {
 		s.writeError(w, "Failed to retrieve cluster nodes: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	var nodes []*cluster.Node
+	for _, n := range healthy {
+		if s.clusterManager.NodeStorageClass(r.Context(), n) == storageclass.Standard {
+			nodes = append(nodes, n)
+		}
 	}
 	if req.Parity && len(nodes) < 3 {
 		s.writeError(w, fmt.Sprintf(
@@ -334,6 +332,7 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	previous, _ := s.clusterManager.GetProtection(r.Context())
+	previousSettings := s.clusterManager.PlacementSettings(r.Context())
 
 	if req.Parity {
 		err = s.clusterManager.SetParity(r.Context(), true)
@@ -358,7 +357,7 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 
 	// Every node acts on the new protection; the others are told now.
 	if current != previous {
-		s.protectionChanged(previous, current)
+		s.protectionChanged(previousSettings, s.clusterManager.PlacementSettings(r.Context()))
 		s.syncMembershipNow()
 	}
 
@@ -376,9 +375,10 @@ func (s *Server) handleSetClusterHA(w http.ResponseWriter, r *http.Request) {
 }
 
 // protectionChanged makes this node act on a change of how the cluster keeps
-// its data, made here or received from another node: its copies and shards
-// follow the new protection. The work outlives the request that brings it.
-func (s *Server) protectionChanged(previous, current cluster.Protection) {
+// its data (see Manager.PlacementSettings), made here or received from
+// another node: its copies and shards follow the new protection. The work
+// outlives the request that brings it.
+func (s *Server) protectionChanged(previous, current string) {
 	if s.haSyncWorker == nil || previous == current {
 		return
 	}

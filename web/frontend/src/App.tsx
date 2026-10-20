@@ -45,6 +45,7 @@ const IAM                = React.lazy(() => import('@/pages/iam/index'));
 const ClusterOverview    = React.lazy(() => import('@/pages/cluster/Overview'));
 const ClusterNodes       = React.lazy(() => import('@/pages/cluster/Nodes'));
 const ClusterHA          = React.lazy(() => import('@/pages/cluster/HA'));
+const StorageClasses     = React.lazy(() => import('@/pages/cluster/StorageClasses'));
 
 // Error Boundary to catch React render crashes and show a recovery UI
 class ErrorBoundary extends React.Component<
@@ -362,6 +363,16 @@ function App() {
                 <ProtectedRoute>
                   <AppLayout>
                     <ClusterHA />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster/storage-classes"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <StorageClasses />
                   </AppLayout>
                 </ProtectedRoute>
               }

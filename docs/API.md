@@ -148,10 +148,12 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 - **Range Requests** — Partial object downloads via `Range` header
 - **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`
 - **Conditional Writes** — `PutObject If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists (atomic create-if-absent)
-- **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted
+- **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted; `GetBucketEncryption` gives `AES256` for a bucket without a configuration of its own, as every object is encrypted
 - **PublicAccessBlock enforcement** — `IgnorePublicAcls` voids public ACLs and `RestrictPublicBuckets` public bucket policies for requests without credentials; `BlockPublicAcls` and `BlockPublicPolicy` refuse a request carrying a public ACL or a public policy (`403 AccessDenied`); configure via `PUT /{bucket}?publicAccessBlock`
 - **Bucket policies** — evaluated with the caller's IAM policies, AWS-style; principals `"*"`, `arn:aws:iam:::user/<name>` or a user ID; conditions on `aws:SourceIp` and `aws:SecureTransport`; a policy using anything else is refused with `MalformedPolicy` (see SECURITY.md)
 - **OwnershipControls** — default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
+- **Lifecycle** — `Expiration` (days, a date, or delete markers alone), `Transition` and `NoncurrentVersionTransition` to a colder storage class, `NoncurrentVersionExpiration` with `NewerNoncurrentVersions`, `AbortIncompleteMultipartUpload`; filters by prefix, tags (`Tag`, `And`) and size (`ObjectSizeGreaterThan`, `ObjectSizeLessThan`). A version is noncurrent from when the next one was written. A rule S3 would refuse is refused with its error: `MalformedXML`, `InvalidArgument`, `InvalidRequest` or `InvalidStorageClass`. In a cluster a transition moves the object to the nodes of its class (see CLUSTER.md)
+- **Storage classes** — `x-amz-storage-class` on PUT, CreateMultipartUpload and CopyObject (a copy without one is STANDARD); returned on GET, HEAD and listings
 - **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored
 - **SelectObjectContent** — SQL queries on object data streamed via Amazon Event Stream binary protocol (Records/Stats/End events, CRC32-framed); see section below
 - **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`
@@ -697,22 +699,26 @@ session: it opens only the resource it was minted for.
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
 | DELETE | `/api/v1/cluster/nodes/{id}` | Remove a node from every node; the node leaves when it next contacts one |
 | GET | `/api/v1/cluster/nodes/{id}/health` | Run a health check on one node |
-| POST | `/api/v1/cluster/nodes/{id}/drain` | Start the drain of a node, this one included: it takes no new data, its objects are moved to the other nodes, and once it holds none it serves no S3 request and is out of service on every node; `409` when the other nodes that take data would be fewer than the replication factor, or than three with parity (global admin only) |
+| POST | `/api/v1/cluster/nodes/{id}/drain` | Start the drain of a node, this one included: it takes no new data, its objects are moved to the other nodes, and once it holds none it serves no S3 request and is out of service on every node; `409` when the other nodes that take data would be fewer than the most demanding storage class needs (its factor, or three with parity) (global admin only) |
+| PUT | `/api/v1/cluster/nodes/{id}/storage-class` | Put a node in a storage class kept by the cluster, STANDARD included — body `{"storage_class":"GLACIER"}`; `409` when the other nodes of its class that take data would be fewer than its protection needs (global admin only) |
 | GET | `/api/v1/cluster/buckets/{bucket}/replicas` | Replication information for one bucket |
 
 ### High Availability
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/cluster/ha` | Replication factor or parity (`parity`, `data_shards`, `parity_shards` of a write now), usable capacity, tolerated failures and node status |
+| GET | `/api/v1/cluster/ha` | Replication factor or parity of STANDARD (`parity`, `data_shards`, `parity_shards` of a write now), its usable capacity, tolerated failures and nodes (`standard_nodes`), the classes kept (`storage_classes`), and node status with the class of each |
 | PUT | `/api/v1/cluster/ha` | Set the replication factor — body `{"factor":2}` — or turn parity on — body `{"parity":true}`, 3 healthy nodes at least; a factor turns it off (global admin only) |
 | GET | `/api/v1/cluster/ha/sync-jobs` | Initial-sync jobs; a done job's `error_message` says how many objects it left to the catch-up |
 | GET | `/api/v1/cluster/ha/scrub-status` | Recent anti-entropy runs and the checkpoint of a running cycle |
-| GET | `/api/v1/cluster/ha/degraded-state` | Cluster degraded reason (empty when healthy) |
+| GET | `/api/v1/cluster/ha/degraded-state` | Cluster degraded reason, computed for the nodes as they are (empty when healthy) |
+| GET | `/api/v1/cluster/storage-classes` | The storage classes kept, STANDARD first: protection, layout with parity, nodes, room, tolerated failures, `below_protection`; the nodes with their class; the classes that can be added (global admin only) |
+| PUT | `/api/v1/cluster/storage-classes/{name}` | Keep a storage class on nodes of its own, or change its protection — body `{"factor":2}` or `{"parity":true}`; STANDARD's is set with `/cluster/ha` (global admin only) |
+| DELETE | `/api/v1/cluster/storage-classes/{name}` | Stop keeping a storage class: its nodes go back to STANDARD and its objects are kept there (global admin only) |
 
-The factor is 1, 2 or 3. Setting it requires as many healthy nodes as the factor,
-and on every node free space of at least the current data divided by the factor,
-plus 20%.
+The factor is 1, 2 or 3. Setting it requires as many healthy nodes of STANDARD as
+the factor, and on every node free space of at least the current data divided by
+the factor, plus 20%.
 
 ### Notifications (SSE)
 

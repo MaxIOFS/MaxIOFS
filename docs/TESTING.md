@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **345 Go test files**, **13 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **352 Go test files**, **15 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -155,7 +155,7 @@ npx vitest run --coverage
 |------|-------------|
 | `worker_test.go` | `Stop` waits for the goroutine and is idempotent under concurrency; a spawn after `Stop` is refused; the zero value is usable |
 
-### `internal/bucket/` — 8 test files
+### `internal/bucket/` — 9 test files
 
 | File | Description |
 |------|-------------|
@@ -163,19 +163,20 @@ npx vitest run --coverage
 | `create_entry_test.go` | Creating a bucket whose name has a removal pending finishes the removal first, a bucket from another node included; creating one that exists touches nothing |
 | `delete_bucket_test.go` | Bucket deletion with object cleanup |
 | `integration_test.go` | Bucket CRUD + versioning integration |
+| `lifecycle_xml_test.go` | A lifecycle keeps every condition and action of its rules, stored and read back as XML: filters by prefix, tags and size, expirations by days, date or of delete markers, transitions by days and date, noncurrent transitions and the noncurrent versions kept; a lifecycle S3 would refuse is refused with S3's error |
 | `manager_test.go` | Bucket manager core operations |
 | `policy_decision_test.go` | A bucket policy that cannot be read denies; a missing policy or bucket leaves the decision to the caller's permissions |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 | `policy_public_test.go` | A bucket policy is public as AWS defines it: an Allow naming everyone not limited to source ranges of /8 (IPv4) or /32 (IPv6) or narrower |
 
-### `internal/cluster/` — 41 test files
+### `internal/cluster/` — 42 test files
 
 | File | Description |
 |------|-------------|
 | `access_key_sync_test.go` | Cross-node access key synchronization |
 | `anti_entropy_test.go` | HA anti-entropy worker and reconciliation; a node compares with every other healthy node |
 | `bucket_permission_sync_test.go` | Bucket permission replication |
-| `dead_node_reconciler_test.go` | Dead-node replica redistribution; a drain leaves the node in service and moves its copies, retried at every pass, and takes it out once it holds no data; a drain the others cannot hold is refused; a drained node that does not answer is out at once with a factor above 1 and waited for with a factor of 1; a node being drained does not count for the factor when another node would be marked dead or for the degraded state |
+| `dead_node_reconciler_test.go` | Dead-node replica redistribution; a drain leaves the node in service and moves its copies, retried at every pass, and takes it out once it holds no data; a drain the others cannot hold is refused; a drained node that does not answer is out at once with a factor above 1 and waited for with a factor of 1; a node being drained does not count for the factor when another node would be marked dead or for the degraded state; the degraded state follows each change of a node's health and is computed when read, and a node out of a cluster is not degraded |
 | `drain_progress_test.go` | The time left of a drain is the pace so far applied to what is left, unknown while nothing moved; a pass that finds more raises the total |
 | `deletion_log_test.go` | Tombstone-based deletion sync: a deletion keeps its time and the later of two records; each node is sent each deletion once, in order, and again when it changes |
 | `deletion_order_test.go` | A deletion is dated after the last change of what it removes; entities of every type and their deletions are ordered by time, the same second keeping the entity; an earlier release's deletion log is repaired once; the IAM payload carries deletion times |
@@ -208,6 +209,7 @@ npx vitest run --coverage
 | `mark_dead_busy_test.go` | A node is marked dead while another writer holds the database; marking a node already dead changes nothing and tells no one |
 | `sync_held_data_test.go` | A node sent a write it already holds gets its entry, not its data again; without knowing, or holding another write, it gets the data |
 | `sync_schema_test.go` | A default no one changed is dated at the epoch, a default seeded with the time of its seeding too; a changed setting keeps the time of its change |
+| `storage_classes_test.go` | The classes a cluster keeps, set, changed and deleted, its nodes back in STANDARD; stored classes it cannot keep passed over; a node leaves its class only when the class keeps its protection, a node down or drained counting for none; each class has its own layout, quorum, write target and acceptance of writes; the room of the cluster is STANDARD's, each class's state with its room and tolerated failures; the writes are repaired when the nodes or protection of a class change; a class below its protection makes the cluster degraded by name; a drain keeps the nodes of the most demanding class; the class of a node travels with its row; the placement settings follow the classes |
 | `storage_pressure_test.go` | Storage-pressure health state; a node under storage pressure stays in service, takes no new data and misses no write, and is caught up when it answers again under pressure; a slow node is in service and takes data, counts for writes, dead marking and the degraded state, a slow and full one is under pressure; a drained node's health check notes the end of its drain, and a later one clears it |
 | `task_observer_test.go` | The cluster's background tasks are told to the observer set on the manager |
 | `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
@@ -278,7 +280,7 @@ npx vitest run --coverage
 | File | Description |
 |------|-------------|
 | `bundle_test.go` | Recovery bundle export and decryption: round trip, wrong or short passphrase, garbage input, several KEK versions, download tracking |
-| `store_test.go` | KEK bootstrap (database key wins over config, config seeds version 1, otherwise generated), lookup by version, cluster key creation and adoption, rotation, concurrent rotations |
+| `store_test.go` | KEK bootstrap (database key wins over config, config seeds version 1, otherwise generated), lookup by version, cluster key creation and adoption, keys already held adopted without a write or a log line, rotation, concurrent rotations |
 
 ### `internal/layout/` — 1 test file
 
@@ -286,13 +288,16 @@ npx vitest run --coverage
 |------|-------------|
 | `migrate_test.go` | Layout v1 → v2 migration: moves every object and version, idempotent, resumes after an interruption, dry run, refuses duplicate or tenant-like bucket names, reports inconsistencies, prunes the old tree once per directory, purges implicit folder objects |
 
-### `internal/lifecycle/` — 4 test files
+### `internal/lifecycle/` — 7 test files
 
 | File | Description |
 |------|-------------|
 | `expiration_gate_test.go` | A node the gate stops expires nothing and still aborts its own multipart uploads; the pass deletes through the manager set after construction |
 | `expiration_test.go` | Lifecycle expiration behavior |
+| `noncurrent_test.go` | A version is noncurrent from when the next one was written; the newest noncurrent versions a rule keeps are not expired, a delete marker not one of them; the filter limits the noncurrent versions expired |
+| `stored_rules_test.go` | Over real stores: a rule removing delete markers alone expires no object; an expiration on a date waits for it; a rule expires only the objects its filter takes, by prefix, every tag and size |
 | `task_observer_test.go` | Each lifecycle pass is told to the task observer, failed when the buckets cannot be listed |
+| `transition_test.go` | Over real stores: a transition moves the objects its filter takes to the coldest class due, as days pass, a disabled rule none; a transition on a date waits for it; an object only moves to a colder class; an expiration due wins over a transition; noncurrent versions move the days after a later version replaced them, but for the newest kept |
 | `worker_test.go` | Lifecycle rule evaluation and object expiration |
 
 ### `internal/logging/` — 5 test files
@@ -354,7 +359,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 53 test files
+### `internal/object/` — 54 test files
 
 | File | Description |
 |------|-------------|
@@ -397,6 +402,7 @@ npx vitest run --coverage
 | `replica_copy_test.go` | A copy into a bucket whose versioning was suspended is stored as the version it copies, never replaces the current object (not even one of the same second), and a copied delete marker stays one; a copy carries its ETag, tags, ACL and restore state and is refused when its bytes do not match; changing tags or ACL keeps the restore status; a write while suspended keeps the bytes of the version it covers |
 | `reconcile_serialization_test.go` | Reconcile takes the same per-key lock as normal operations and does not race a concurrent PUT |
 | `review_part_crash_faultcheck_test.go` | An acknowledged multipart part survives a process kill during a replacement upload |
+| `storage_class_test.go` | A write moves to another class as the write named, not another of its key nor a delete marker, its data where it was; a version moves alone; a change of placement carries the class and an entry of an older placement keeps the newer one's, a copy too; a multipart upload completes in the class it was started with; every version listed has its class |
 | `shards_test.go` | A shard is stored encrypted beside its object's file and read back from any offset, only as the shard of its write and layout; an entry in shards is read from the nodes holding them, this node holding the shard it is named for; a shard follows the placement of its write (a staged one kept until its placement lands, one of an earlier write removed); deletes, overwrites, multipart completions and raw copies remove the shards of the writes they remove; a whole copy of a write in shards is not stored, or keeps the shard until its placement lands; the integrity check of a shard, a corrupt one removed |
 | `search_objects_test.go` | Object search and listing |
 | `sidecar_loss_test.go` | A lost sidecar never serves ciphertext as if it were the plaintext object |
@@ -452,7 +458,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 59 test files
+### `internal/server/` — 60 test files
 
 | File | Description |
 |------|-------------|
@@ -480,7 +486,8 @@ npx vitest run --coverage
 | `encryption_worker_test.go` | Background encryption pass, its manual-run endpoint, and shutdown tracking |
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
 | `group_handlers_test.go` | A group member add is rejected across a different tenant scope; group delete removes policies atomically |
-| `ha_cluster_test.go` | Complete nodes with their S3 APIs and AWS SDK clients: a multipart upload's parts, listings, completion and abort reach the node it was started on from any node; a node that does not answer gives `503`, one gone from the cluster `NoSuchUpload`; an upload named after no node is made where it is. Three nodes with a factor of 2: a write is held by its node and the node with the most free space and listed, read (a range alone) and answered for HEAD on every node; a read tries each holder and answers `503` with none; a delete reaches every node; an overwrite moves its data; every version is listed and read everywhere; tags set where the data is not; a node serves only the data it holds, and its console finds an object whose holders do not answer. A node that missed writes, or lost its data, is sent what it holds; an initial sync sends each node what it holds; a later write reaches a node not holding it as an entry. The copies of a removed or dead node are made again, a lower factor drops the extra copies, a higher one adds those it needs after the request is answered and the first sync's entry, arriving after, does not undo it, a full cycle repairs them, and a factor of 1 keeps one copy. A node under storage pressure passes its copy (object, version, multipart) to one node, to the next when one does not take it, keeps it when none does or no other node holds the entry only, and finishes even when the client goes away; a copy whose answer was lost, after a move or a repair, is removed. Every node reports to Veeam the room of the cluster and what a tenant uses on every node. The usage of every bucket and tenant is the same on every node, as counted and as recounted from the entries. A factor raised from 1 on one node reaches every node, each object copied once. With a factor of 1 a write is held by the node that takes it alone, listed, read and deleted from every node; a node under storage pressure passes it to the node with the most free space, a slow one keeps it. A cluster of factor 1 from a version that kept each bucket on one node places each node's writes once, at start, and sends every node the buckets and entries without their data; a first sync and a catch-up place them before sending; above a factor of 1 they are not placed; objects that name no node are given their holders by the first of them, a node with another write not counted, and wait while a node does not answer. A node under storage pressure takes entries, changes and deletes but no new copy, and is caught up; a node that leaves keeps only the writes it holds; a dead node that comes back takes the locations changed meanwhile, and a later cycle sends no entry; a drained node's objects are moved with factors 1 and 2 and read from every node, it then answers no S3 request, its health check included, and the others take it out of service; a node being drained takes no copy and passes on the writes it takes; a drained node keeps the copy no node takes, is not empty while a pass fails, and a write it holds with another node keeps the other without a copy; a drained node counts what it holds and moved, and the other nodes take it from its health check and show it |
+| `ha_cluster_test.go` | Complete nodes with their S3 APIs and AWS SDK clients: a multipart upload's parts, listings, completion and abort reach the node it was started on from any node; a node that does not answer gives `503`, one gone from the cluster `NoSuchUpload`; an upload named after no node is made where it is. Three nodes with a factor of 2: a write is held by its node and the node with the most free space and listed, read (a range alone) and answered for HEAD on every node; a read tries each holder and answers `503` with none; a delete reaches every node; an overwrite moves its data; every version is listed and read everywhere; tags set where the data is not; a node serves only the data it holds, and its console finds an object whose holders do not answer. A node that missed writes, or lost its data, is sent what it holds; an initial sync sends each node what it holds; a later write reaches a node not holding it as an entry. The copies of a removed or dead node are made again, a lower factor drops the extra copies, a higher one adds those it needs after the request is answered and the first sync's entry, arriving after, does not undo it, a full cycle repairs them, and a factor of 1 keeps one copy. A node under storage pressure passes its copy (object, version, multipart) to one node, to the next when one does not take it, keeps it when none does or no other node holds the entry only, and finishes even when the client goes away; a copy whose answer was lost, after a move or a repair, is removed. Every node reports to Veeam the room of the cluster and what a tenant uses on every node. The usage of every bucket and tenant is the same on every node, as counted and as recounted from the entries. A factor raised from 1 on one node reaches every node, each object copied once. With a factor of 1 a write is held by the node that takes it alone, listed, read and deleted from every node; a node under storage pressure passes it to the node with the most free space, a slow one keeps it. A cluster of factor 1 from a version that kept each bucket on one node places each node's writes once, at start, and sends every node the buckets and entries without their data; a first sync and a catch-up place them before sending; above a factor of 1 they are not placed; objects that name no node are given their holders by the first of them, a node with another write not counted, and wait while a node does not answer. A node under storage pressure takes entries, changes and deletes but no new copy, and is caught up; a node that leaves keeps only the writes it holds; a dead node that comes back takes the locations changed meanwhile, and a later cycle sends no entry; a drained node's objects are moved with factors 1 and 2 and read from every node, it then answers no S3 request, its health check included, and the others take it out of service; a node being drained takes no copy and passes on the writes it takes; a drained node keeps the copy no node takes, is not empty while a pass fails, and a write it holds with another node keeps the other without a copy; a drained node counts what it holds and moved, and the other nodes take it from its health check and show it; the degraded banner follows a change of a node's health and shows the nodes as they are |
+| `ha_storage_class_test.go` | Storage classes between complete nodes with S3 clients: the writes of a class, by PUT, multipart upload or copy, are held by its nodes, a write of no class or of a class not kept by STANDARD's; a class with too few nodes keeps its writes elsewhere, then moves them to its nodes; a lifecycle transition moves a write to the nodes of its class, once, and to a class with parity cuts it in shards; a node put in another class moves its data off; a deleted class keeps its objects; the console keeps the classes and puts nodes in them, the HA page names each node's class; a delete takes the quorum of its class; the HA page sets STANDARD's protection by its nodes |
 | `ha_parity_test.go` | Parity between complete nodes with S3 clients: a write cut over three nodes in 2+1 and read from any, a range alone; read with any one node down and not with two, HEAD still answering; five nodes cut in 3+2 and read with two down; a shard not taken leaves the write in the others, or in whole copies with the shards taken removed; a write with a node down kept in two whole copies, refused with two down and not kept; an empty object in copies; multipart, versions and deletes; an overwrite replaces the shards; a delete on five nodes needs another node; the console turns parity on from three nodes, shows the layout, room and tolerated failures, a factor turns it off; Veeam sees the room for shards; a write landing nowhere leaves no shard; a read passes over a node out of service; a shard of a deleted write or version is not stored |
 | `ha_parity_repair_test.go` | Turning parity on cuts the copies in shards and off joins them; the shard of a removed node made again at the same index; a drained node's shard moved, copied from it with another node down; a fifth node raises the parity, no node keeping its index; a lost shard made again by one node; a node that missed a write's shard and entry sent both in one catch-up; a node takes the entry of a later write in shards; a node that leaves drops its shards; a write whose shards no longer fit is cut again; a write that cannot be cut keeps its copies, the staged shards removed |
 | `ha_bucket_test.go` | Between two complete nodes with a replication factor of 2: every bucket change (configuration, ACL, deletion) reaches the other node in both directions with the same version; usage stays each node's; a node that was down is sent its buckets, then their objects; a new replica is sent the buckets first; deletions keep newer data and data under a legal hold; refusals; lifecycle expires on the coordinator only; a deletion removes a write made before it in its second. An initial sync that fails some objects leaves them to the catch-up and says how many; a joining node is sent the objects; a catch-up sends every version the node missed, once, and its copies keep the tags; a version or delete marker deleted on a node is not stored again by a copy |
@@ -633,7 +640,9 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `api-token.test.ts` | JWT payload decoding for refresh scheduling |
 | `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
-| `ClusterHA.test.tsx` | The HA page shows the layout of a write with parity, turns parity on and off, and needs three nodes for it |
+| `ClusterHA.test.tsx` | The HA page shows the layout of a write with parity, turns parity on and off, and needs three nodes for it; with other storage classes it counts the nodes of STANDARD and names each node's class |
+| `lifecycleRules.test.ts` | The lifecycle of the bucket settings: noncurrent versions and lone delete markers expired, objects and noncurrent versions moved to a colder class, a move off or of no class left out, the moves of a stored rule read back |
+| `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
 | `IdentityProviders.test.tsx` | IDP management UI flows |
@@ -857,9 +866,9 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 53 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 59 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
-| Cluster | 41 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity |
+| Object | 54 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 60 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Cluster | 42 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
 | S3 Compat | 38 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
@@ -867,7 +876,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
 | Replication | 8 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 6 | Prometheus, history, system, performance |
-| Bucket | 5 | CRUD, deletion, policy, integration, name uniqueness |
+| Bucket | 6 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
 | IDP | 5 | LDAP, OAuth, crypto, storage |
 | Recovery | 5 | Offline recover, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
@@ -875,7 +884,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Inventory | 4 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
-| Other | 23 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **345** | |
-| Frontend | 13 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page |
+| Other | 26 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
+| **Total Go** | **352** | |
+| Frontend | 15 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, storage classes, lifecycle rules |
 | Performance | 4 | Upload, download, mixed, common |

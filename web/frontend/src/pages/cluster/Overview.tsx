@@ -16,6 +16,7 @@ import {
   Check,
   KeyRound,
   Shield,
+  Layers,
 } from 'lucide-react';
 import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
@@ -266,6 +267,14 @@ export default function ClusterOverview() {
           >
             <Shield className="h-4 w-4" />
             HA Replication
+          </Button>
+          <Button
+            onClick={() => navigate('/cluster/storage-classes')}
+            variant="outline"
+            className="bg-card hover:bg-secondary"
+          >
+            <Layers className="h-4 w-4" />
+            {t('storageClasses')}
           </Button>
         </div>
       </div>

@@ -240,6 +240,10 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "false",
 			description: "Cut the data of each write in Reed-Solomon data and parity shards over the nodes instead of keeping whole copies: one parity shard up to 4 nodes (tolerates 1 node failure), two from 5 nodes (tolerates 2)",
 		},
+		"ha.storage_classes": {
+			value:       "[]",
+			description: "Storage classes kept on nodes of their own, each with its protection, as JSON; every node in no other class is STANDARD",
+		},
 		"ha.scrub_enabled": {
 			value:       "true",
 			description: "Enable the anti-entropy scrubber that detects and repairs replica divergences",

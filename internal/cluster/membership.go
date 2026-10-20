@@ -81,8 +81,8 @@ func (m *Manager) ApplyNodeList(ctx context.Context, list *NodeList) (drained []
 		}
 		if _, err := m.db.ExecContext(ctx, `
 			INSERT INTO cluster_nodes (id, name, endpoint, api_url, node_token, region, priority,
-				health_status, metadata, changed_at, drained)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+				health_status, metadata, changed_at, drained, storage_class)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				name       = excluded.name,
 				endpoint   = excluded.endpoint,
@@ -91,9 +91,10 @@ func (m *Manager) ApplyNodeList(ctx context.Context, list *NodeList) (drained []
 				region     = excluded.region,
 				priority   = excluded.priority,
 				changed_at = excluded.changed_at,
-				drained    = excluded.drained
+				drained    = excluded.drained,
+				storage_class = excluded.storage_class
 		`, n.ID, n.Name, n.Endpoint, n.APIURL, n.NodeToken, n.Region, n.Priority,
-			HealthStatusUnknown, n.ChangedAt, n.Drained); err != nil {
+			HealthStatusUnknown, n.ChangedAt, n.Drained, n.StorageClass); err != nil {
 			return drained, fmt.Errorf("store node %s: %w", n.ID, err)
 		}
 		if n.Drained && !wasDrained {

@@ -301,7 +301,14 @@
     "deleteMarkersHint": "Rimuovi automaticamente i marcatori di eliminazione quando sono l'unica versione rimanente",
     "cancel": "Annulla",
     "saving": "Salvataggio...",
-    "saveRules": "Salva regole"
+    "saveRules": "Salva regole",
+    "transitionsTitle": "Sposta in una classe di archiviazione più fredda",
+    "transitionsHint": "Gli oggetti vengono spostati sui nodi della classe; si leggono come prima.",
+    "moveCurrentLabel": "Sposta gli oggetti",
+    "moveCurrentDays": "giorni dopo la scrittura",
+    "moveNoncurrentLabel": "Sposta le versioni non correnti",
+    "moveNoncurrentDays": "giorni dopo che non sono più correnti",
+    "moveClass": "Classe di archiviazione"
   },
   "notifications": {
     "title": "Notifiche eventi",

@@ -18,6 +18,7 @@ import {
   PowerOff,
   Skull,
   Gauge,
+  Layers,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import APIClient from '@/lib/api';
@@ -249,7 +250,8 @@ export default function ClusterHA() {
 
     const current: Protection = data.parity ? 'parity' : (data.replication_factor as Protection);
     const info = FACTOR_INFO[selectedFactor];
-    const isDowngrade = tolerance(selectedFactor, data.node_count) < tolerance(current, data.node_count);
+    const nodes = data.standard_nodes ?? data.node_count;
+    const isDowngrade = tolerance(selectedFactor, nodes) < tolerance(current, nodes);
     const desc = t(info.descKey);
 
     let body: string;
@@ -319,6 +321,10 @@ export default function ClusterHA() {
   const activeFactor = selectedFactor ?? currentProtection;
   const activeInfo = FACTOR_INFO[activeFactor];
   const hasChange = selectedFactor !== null && selectedFactor !== currentProtection;
+  // The protection set here is that of STANDARD; with other classes, each has
+  // its own.
+  const standardNodes = data.standard_nodes ?? data.node_count;
+  const hasClasses = (data.storage_classes ?? 1) > 1;
 
   // Storage pressure: any node over 80%
   const pressureNodes = data.nodes.filter(
@@ -416,6 +422,15 @@ export default function ClusterHA() {
       {/* Factor selector */}
       <div className="bg-card border border-border rounded-lg p-6 shadow-sm space-y-4">
         <h2 className="text-base font-semibold text-foreground">{t('changeReplicationFactor')}</h2>
+        {hasClasses && (
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <span>{t('haStandardNote')}</span>
+            <Button size="sm" variant="outline" onClick={() => navigate('/cluster/storage-classes')}>
+              <Layers className="h-3.5 w-3.5" />
+              {t('storageClasses')}
+            </Button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {([1, 2, 3, 'parity'] as const).map((f) => {
@@ -423,7 +438,7 @@ export default function ClusterHA() {
             const isActive = f === currentProtection;
             const isSelected = f === selectedFactor;
             const required = REQUIRED_NODES[f];
-            const notEnoughNodes = data.node_count < required;
+            const notEnoughNodes = standardNodes < required;
 
             return (
               <button
@@ -450,7 +465,7 @@ export default function ClusterHA() {
                 <p className="text-xs text-muted-foreground mt-1">{t(info.descKey)}</p>
                 {notEnoughNodes && (
                   <p className="text-xs text-red-500 mt-1">
-                    {t(`factorRequires_${required === 1 ? 'one' : 'other'}`, { count: required, actual: data.node_count })}
+                    {t(`factorRequires_${required === 1 ? 'one' : 'other'}`, { count: required, actual: standardNodes })}
                   </p>
                 )}
               </button>
@@ -603,6 +618,11 @@ export default function ClusterHA() {
                         {node.name}
                         {isLocal && (
                           <span className="text-xs text-muted-foreground font-normal">{t('thisNode')}</span>
+                        )}
+                        {hasClasses && (
+                          <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-normal">
+                            {node.storage_class}
+                          </span>
                         )}
                         {node.drained && (
                           <span className="text-xs text-muted-foreground font-normal">

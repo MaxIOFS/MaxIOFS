@@ -166,6 +166,10 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}", handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
 	router.HandleFunc("/{bucket}", handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
 
+	router.HandleFunc("/{bucket}", handler.GetBucketEncryption).Methods("GET").Queries("encryption", "")
+	router.HandleFunc("/{bucket}", handler.PutBucketEncryption).Methods("PUT").Queries("encryption", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketEncryption).Methods("DELETE").Queries("encryption", "")
+
 	router.HandleFunc("/{bucket}", handler.PutBucketCORS).Methods("PUT").Queries("cors", "")
 	router.HandleFunc("/{bucket}", handler.GetBucketCORS).Methods("GET").Queries("cors", "")
 	router.HandleFunc("/{bucket}", handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "")
@@ -788,12 +792,75 @@ func TestS3BucketLifecycle(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "<Days>30</Days>", "Should contain expiration days")
 	})
 
+	t.Run("Put and get rules with transitions and tag filters", func(t *testing.T) {
+		body := `<LifecycleConfiguration><Rule><ID>archive</ID><Status>Enabled</Status>
+			<Filter><And><Prefix>backups/</Prefix><Tag><Key>kind</Key><Value>full</Value></Tag></And></Filter>
+			<Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition>
+			<NoncurrentVersionTransition><NoncurrentDays>1</NoncurrentDays><StorageClass>DEEP_ARCHIVE</StorageClass></NoncurrentVersionTransition>
+		</Rule></LifecycleConfiguration>`
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?lifecycle", []byte(body))
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		req, w = env.makeS3Request("GET", "/"+bucketName+"?lifecycle", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		got := w.Body.String()
+		for _, want := range []string{
+			"<Prefix>backups/</Prefix>", "<Key>kind</Key>", "<Value>full</Value>",
+			"<Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition>",
+			"<NoncurrentVersionTransition><NoncurrentDays>1</NoncurrentDays><StorageClass>DEEP_ARCHIVE</StorageClass></NoncurrentVersionTransition>",
+		} {
+			assert.Contains(t, got, want)
+		}
+	})
+
+	t.Run("A rule S3 would refuse is refused", func(t *testing.T) {
+		body := `<LifecycleConfiguration><Rule><ID>r</ID><Status>Enabled</Status>
+			<Transition><Days>1</Days><StorageClass>STANDARD</StorageClass></Transition></Rule></LifecycleConfiguration>`
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?lifecycle", []byte(body))
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "<Code>InvalidStorageClass</Code>")
+	})
+
 	t.Run("Delete bucket lifecycle", func(t *testing.T) {
 		req, w := env.makeS3Request("DELETE", "/"+bucketName+"?lifecycle", nil)
 		env.router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNoContent, w.Code, "Should delete bucket lifecycle")
 	})
+}
+
+// Every bucket encrypts its objects: one with no encryption configuration
+// gives the AES256 default, as AWS does, and a deleted configuration gives it
+// back.
+func TestS3EveryBucketIsEncryptedByDefault(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	bucketName := "encrypted-by-default"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+
+	get := func() string {
+		t.Helper()
+		req, w := env.makeS3Request("GET", "/"+bucketName+"?encryption", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		return w.Body.String()
+	}
+	assert.Contains(t, get(), "<SSEAlgorithm>AES256</SSEAlgorithm>")
+
+	body := `<ServerSideEncryptionConfiguration><Rule><ApplyServerSideEncryptionByDefault><SSEAlgorithm>AES256</SSEAlgorithm></ApplyServerSideEncryptionByDefault></Rule></ServerSideEncryptionConfiguration>`
+	req, w := env.makeS3Request("PUT", "/"+bucketName+"?encryption", []byte(body))
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, get(), "<SSEAlgorithm>AES256</SSEAlgorithm>")
+
+	req, w = env.makeS3Request("DELETE", "/"+bucketName+"?encryption", nil)
+	env.router.ServeHTTP(w, req)
+	require.Less(t, w.Code, 300, w.Body.String())
+	assert.Contains(t, get(), "<SSEAlgorithm>AES256</SSEAlgorithm>")
 }
 
 // TestS3BucketCORS tests CORS configuration via S3 API
