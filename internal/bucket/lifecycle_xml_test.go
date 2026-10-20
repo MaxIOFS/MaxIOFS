@@ -87,6 +87,7 @@ func TestALifecycleKeepsWhatItsRulesSay(t *testing.T) {
 			Tags:                  []Tag{{Key: "kind", Value: "audit"}, {Key: "team", Value: "ops"}},
 			ObjectSizeGreaterThan: &ten,
 			ObjectSizeLessThan:    &fiveThousand,
+			Form:                  FilterFormFilter,
 		},
 		Transitions: []LifecycleTransition{
 			{Days: &thirty, StorageClass: "STANDARD_IA"},
@@ -98,17 +99,17 @@ func TestALifecycleKeepsWhatItsRulesSay(t *testing.T) {
 		NoncurrentVersionExpiration: &NoncurrentVersionExpiration{NoncurrentDays: 60, NewerNoncurrentVersions: 3},
 	}, {
 		ID: "until", Status: "Disabled",
-		Filter:      LifecycleFilter{Tags: []Tag{{Key: "temp", Value: "yes"}}},
+		Filter:      LifecycleFilter{Tags: []Tag{{Key: "temp", Value: "yes"}}, Form: FilterFormFilter},
 		Expiration:  &LifecycleExpiration{Date: &until},
 		Transitions: []LifecycleTransition{{Date: &from, StorageClass: "GLACIER_IR"}},
 	}, {
 		ID: "markers", Status: "Enabled",
-		Filter:                         LifecycleFilter{Prefix: "tmp/"},
+		Filter:                         LifecycleFilter{Prefix: "tmp/", Form: FilterFormPrefix},
 		Expiration:                     &LifecycleExpiration{ExpiredObjectDeleteMarker: &yes},
 		AbortIncompleteMultipartUpload: &LifecycleAbortIncompleteMultipartUpload{DaysAfterInitiation: 7},
 	}, {
 		ID: "large", Status: "Enabled",
-		Filter:     LifecycleFilter{ObjectSizeGreaterThan: &mebibyte},
+		Filter:     LifecycleFilter{ObjectSizeGreaterThan: &mebibyte, Form: FilterFormFilter},
 		Expiration: &LifecycleExpiration{Days: &fourHundred},
 	}}}
 	assert.Equal(t, want, stored)
@@ -120,6 +121,48 @@ func TestALifecycleKeepsWhatItsRulesSay(t *testing.T) {
 	again, err := parseLifecycle(t, string(body))
 	require.NoError(t, err)
 	assert.Equal(t, want, again)
+}
+
+// A rule reads back with its prefix in the form it was given: in a Filter or
+// as the rule's Prefix, empty or not. A rule stored before the form was kept
+// reads back as it did.
+func TestARuleReadsBackInTheFormItWasGiven(t *testing.T) {
+	manager, cleanup := setupBucketTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, manager.CreateBucket(ctx, "", "forms", ""))
+	rule := func(id, filter string) string {
+		return `<Rule><ID>` + id + `</ID><Status>Enabled</Status>` + filter + `<Expiration><Days>1</Days></Expiration></Rule>`
+	}
+	config, err := parseLifecycle(t, `<LifecycleConfiguration>`+
+		rule("filter", `<Filter><Prefix>aging/</Prefix></Filter>`)+
+		rule("prefix", `<Prefix>logs/</Prefix>`)+
+		rule("empty-prefix", `<Prefix></Prefix>`)+
+		rule("empty-filter-prefix", `<Filter><Prefix></Prefix></Filter>`)+
+		rule("empty-filter", `<Filter></Filter>`)+
+		rule("none", ``)+
+		`</LifecycleConfiguration>`)
+	require.NoError(t, err)
+	config.Rules = append(config.Rules, LifecycleRule{ID: "before", Status: "Enabled",
+		Filter: LifecycleFilter{Prefix: "old/"}, Expiration: &LifecycleExpiration{Days: new(int)}})
+	*config.Rules[len(config.Rules)-1].Expiration.Days = 1
+	require.NoError(t, manager.SetLifecycle(ctx, "", "forms", config))
+	stored, err := manager.GetLifecycle(ctx, "", "forms")
+	require.NoError(t, err)
+	body, err := xml.Marshal(LifecycleToXML(stored))
+	require.NoError(t, err)
+
+	for id, filter := range map[string]string{
+		"filter":              `<Filter><Prefix>aging/</Prefix></Filter>`,
+		"prefix":              `<Prefix>logs/</Prefix>`,
+		"empty-prefix":        `<Prefix></Prefix>`,
+		"empty-filter-prefix": `<Filter><Prefix></Prefix></Filter>`,
+		"empty-filter":        `<Filter><Prefix></Prefix></Filter>`,
+		"none":                ``,
+		"before":              `<Prefix>old/</Prefix>`,
+	} {
+		assert.Contains(t, string(body), `<ID>`+id+`</ID><Status>Enabled</Status>`+filter+`<Expiration>`, id)
+	}
 }
 
 // A lifecycle whose rules S3 would not take is refused, with the error S3

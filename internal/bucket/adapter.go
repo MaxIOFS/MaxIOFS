@@ -257,6 +257,7 @@ func toMetadataLifecycleRule(r *LifecycleRule) metadata.LifecycleRule {
 			Prefix:                r.Filter.Prefix,
 			ObjectSizeGreaterThan: r.Filter.ObjectSizeGreaterThan,
 			ObjectSizeLessThan:    r.Filter.ObjectSizeLessThan,
+			Form:                  r.Filter.Form,
 		},
 	}
 	if len(r.Filter.Tags) > 0 {
@@ -315,6 +316,7 @@ func fromMetadataLifecycleRule(r *metadata.LifecycleRule) LifecycleRule {
 			Prefix:                f.Prefix,
 			ObjectSizeGreaterThan: f.ObjectSizeGreaterThan,
 			ObjectSizeLessThan:    f.ObjectSizeLessThan,
+			Form:                  f.Form,
 		}
 		tags := maps.Clone(f.Tags)
 		if f.And != nil {

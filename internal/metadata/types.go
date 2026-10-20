@@ -248,6 +248,7 @@ type LifecycleFilter struct {
 	ObjectSizeGreaterThan *int64            `json:"object_size_greater_than,omitempty"`
 	ObjectSizeLessThan    *int64            `json:"object_size_less_than,omitempty"`
 	And                   *LifecycleAnd     `json:"and,omitempty"`
+	Form                  string            `json:"form,omitempty"`
 }
 
 // LifecycleAnd combines multiple filter criteria

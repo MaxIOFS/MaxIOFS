@@ -792,6 +792,21 @@ func TestS3BucketLifecycle(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "<Days>30</Days>", "Should contain expiration days")
 	})
 
+	t.Run("Get a prefix in the form it was put", func(t *testing.T) {
+		body := `<LifecycleConfiguration><Rule><ID>aging</ID><Status>Enabled</Status>
+			<Filter><Prefix>aging/</Prefix></Filter>
+			<Transition><Days>0</Days><StorageClass>GLACIER</StorageClass></Transition>
+		</Rule></LifecycleConfiguration>`
+		req, w := env.makeS3Request("PUT", "/"+bucketName+"?lifecycle", []byte(body))
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		req, w = env.makeS3Request("GET", "/"+bucketName+"?lifecycle", nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<Filter><Prefix>aging/</Prefix></Filter>")
+	})
+
 	t.Run("Put and get rules with transitions and tag filters", func(t *testing.T) {
 		body := `<LifecycleConfiguration><Rule><ID>archive</ID><Status>Enabled</Status>
 			<Filter><And><Prefix>backups/</Prefix><Tag><Key>kind</Key><Value>full</Value></Tag></And></Filter>

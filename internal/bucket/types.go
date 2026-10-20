@@ -7,18 +7,18 @@ import (
 
 // Common bucket errors
 var (
-	ErrBucketNotFound      = errors.New("bucket not found")
-	ErrBucketAlreadyExists = errors.New("bucket already exists")
-	ErrBucketNotEmpty      = errors.New("bucket not empty")
-	ErrInvalidBucketName   = errors.New("invalid bucket name")
-	ErrPolicyNotFound      = errors.New("policy not found")
-	ErrLifecycleNotFound   = errors.New("lifecycle configuration not found")
-	ErrCORSNotFound        = errors.New("CORS configuration not found")
-	ErrWebsiteNotFound            = errors.New("website configuration not found")
-	ErrEncryptionNotFound         = errors.New("server-side encryption configuration not found")
-	ErrPublicAccessBlockNotFound  = errors.New("public access block configuration not found")
-	ErrOwnershipControlsNotFound  = errors.New("ownership controls not found")
-	ErrLoggingNotFound            = errors.New("logging configuration not found")
+	ErrBucketNotFound            = errors.New("bucket not found")
+	ErrBucketAlreadyExists       = errors.New("bucket already exists")
+	ErrBucketNotEmpty            = errors.New("bucket not empty")
+	ErrInvalidBucketName         = errors.New("invalid bucket name")
+	ErrPolicyNotFound            = errors.New("policy not found")
+	ErrLifecycleNotFound         = errors.New("lifecycle configuration not found")
+	ErrCORSNotFound              = errors.New("CORS configuration not found")
+	ErrWebsiteNotFound           = errors.New("website configuration not found")
+	ErrEncryptionNotFound        = errors.New("server-side encryption configuration not found")
+	ErrPublicAccessBlockNotFound = errors.New("public access block configuration not found")
+	ErrOwnershipControlsNotFound = errors.New("ownership controls not found")
+	ErrLoggingNotFound           = errors.New("logging configuration not found")
 )
 
 // WebsiteConfig represents static website hosting configuration for a bucket.
@@ -97,7 +97,17 @@ type LifecycleFilter struct {
 	Tags                  []Tag  `json:"Tags,omitempty"`
 	ObjectSizeGreaterThan *int64 `json:"ObjectSizeGreaterThan,omitempty"`
 	ObjectSizeLessThan    *int64 `json:"ObjectSizeLessThan,omitempty"`
+	// Form is how the rule gave its prefix, read back the same:
+	// FilterFormPrefix or FilterFormFilter. A rule stored before it was kept
+	// has none.
+	Form string `json:"Form,omitempty"`
 }
+
+// The forms a rule gives its prefix in: the rule's Prefix, or a Filter.
+const (
+	FilterFormPrefix = "Prefix"
+	FilterFormFilter = "Filter"
+)
 
 // LifecycleExpiration represents object expiration settings
 type LifecycleExpiration struct {

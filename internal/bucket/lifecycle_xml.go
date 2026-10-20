@@ -264,13 +264,14 @@ func lifecycleFilterFromXML(x *LifecycleRuleXML) (LifecycleFilter, error) {
 	f := x.Filter
 	if f == nil {
 		if x.Prefix != nil {
-			filter.Prefix = *x.Prefix
+			filter.Prefix, filter.Form = *x.Prefix, FilterFormPrefix
 		}
 		return filter, nil
 	}
 	if x.Prefix != nil {
 		return filter, refuse(lifecycleMalformed, "A rule has a Prefix or a Filter, not both")
 	}
+	filter.Form = FilterFormFilter
 	set := 0
 	for _, given := range []bool{f.Prefix != nil, f.Tag != nil, f.ObjectSizeGreaterThan != nil, f.ObjectSizeLessThan != nil, f.And != nil} {
 		if given {
@@ -435,8 +436,11 @@ func writeLifecycleFilter(x *LifecycleRuleXML, f LifecycleFilter) {
 	}
 	switch {
 	case len(f.Tags) == 0 && f.ObjectSizeGreaterThan == nil && f.ObjectSizeLessThan == nil:
-		if f.Prefix != "" {
-			prefix := f.Prefix
+		prefix := f.Prefix
+		switch {
+		case f.Form == FilterFormFilter:
+			x.Filter = &LifecycleFilterXML{Prefix: &prefix}
+		case f.Form == FilterFormPrefix || prefix != "":
 			x.Prefix = &prefix
 		}
 	case conditions == 1 && len(f.Tags) == 1:

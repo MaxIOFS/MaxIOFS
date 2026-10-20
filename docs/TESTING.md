@@ -163,7 +163,7 @@ npx vitest run --coverage
 | `create_entry_test.go` | Creating a bucket whose name has a removal pending finishes the removal first, a bucket from another node included; creating one that exists touches nothing |
 | `delete_bucket_test.go` | Bucket deletion with object cleanup |
 | `integration_test.go` | Bucket CRUD + versioning integration |
-| `lifecycle_xml_test.go` | A lifecycle keeps every condition and action of its rules, stored and read back as XML: filters by prefix, tags and size, expirations by days, date or of delete markers, transitions by days and date, noncurrent transitions and the noncurrent versions kept; a lifecycle S3 would refuse is refused with S3's error; the rules sent set among the stored ones by ID |
+| `lifecycle_xml_test.go` | A lifecycle keeps every condition and action of its rules, stored and read back as XML: filters by prefix, tags and size, expirations by days, date or of delete markers, transitions by days and date, noncurrent transitions and the noncurrent versions kept; a lifecycle S3 would refuse is refused with S3's error; the rules sent set among the stored ones by ID; a prefix read back in the form it was given, a rule stored before as it was |
 | `manager_test.go` | Bucket manager core operations |
 | `policy_decision_test.go` | A bucket policy that cannot be read denies; a missing policy or bucket leaves the decision to the caller's permissions |
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
