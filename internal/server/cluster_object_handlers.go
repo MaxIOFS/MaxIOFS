@@ -727,7 +727,8 @@ func (s *Server) handleHAReceivePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx = cluster.WithHAReplicaContext(ctx)
-	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, r.Header.Get(cluster.HAObjectVersionHeader)) {
+	written, _ := cluster.HALastModifiedFromHeader(r.Header)
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, r.Header.Get(cluster.HAObjectVersionHeader), written) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -785,7 +786,7 @@ func (s *Server) handleHAReceiveRawPut(w http.ResponseWriter, r *http.Request, c
 		http.Error(w, "invalid raw object-meta payload", http.StatusBadRequest)
 		return
 	}
-	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, metaObj.VersionID) ||
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, metaObj.VersionID, metaObj.LastModified) ||
 		(metaObj.VersionID == "" && cluster.KeyDeletedAfter(ctx, s.db, bucketPath, key, metaObj.LastModified)) {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -826,9 +827,19 @@ func (s *Server) handleHAReceiveDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "conflicting version headers", http.StatusBadRequest)
 		return
 	}
-	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, deleteMarkerVersionID) {
+	markedAt, _ := cluster.HALastModifiedFromHeader(r.Header)
+	if cluster.VersionDeleted(ctx, s.db, bucketPath, key, deleteMarkerVersionID, markedAt) {
 		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+	// A delete of the null version made before the null version held here
+	// leaves it.
+	if specificVersionID == metadata.NullVersionID && !markedAt.IsZero() {
+		if null, err := s.objectManager.GetObjectMetadata(ctx, bucketPath, key, metadata.NullVersionID); err == nil &&
+			null.LastModified.Unix() >= markedAt.Unix() {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
 	if deleteMarkerVersionID != "" {
 		ctx = object.WithReplicatedVersionID(ctx, deleteMarkerVersionID)
@@ -1005,6 +1016,9 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		if err := json.Unmarshal(op.Data, &cfg); err != nil {
 			return err
 		}
+		if op.BypassGovernance {
+			ctx = object.WithBypassGovernance(ctx)
+		}
 		if op.VersionID != "" {
 			return om.SetObjectRetention(ctx, bucket, op.Key, &cfg, op.VersionID)
 		}
@@ -1097,6 +1111,9 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	if obj.ContentLanguage != "" {
 		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.Expires != "" {
+		w.Header().Set("Expires", obj.Expires)
 	}
 	if obj.StorageClass != "" {
 		w.Header().Set("x-amz-storage-class", obj.StorageClass)
@@ -1196,7 +1213,7 @@ func (s *Server) handleHAReceiveObjectEntry(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ctx := cluster.WithHAReplicaContext(r.Context())
-	if cluster.VersionDeleted(ctx, s.db, entry.Bucket, entry.Key, entry.VersionID) ||
+	if cluster.VersionDeleted(ctx, s.db, entry.Bucket, entry.Key, entry.VersionID, entry.LastModified) ||
 		(entry.VersionID == "" && cluster.KeyDeletedAfter(ctx, s.db, entry.Bucket, entry.Key, entry.LastModified)) {
 		w.WriteHeader(http.StatusNoContent)
 		return

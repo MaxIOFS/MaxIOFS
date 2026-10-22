@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,23 +130,32 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		RetainUntilDate: xmlRetention.RetainUntilDate,
 	}
 
+	ctx := r.Context()
+	if r.Header.Get("x-amz-bypass-governance-retention") == "true" {
+		user, userExists := auth.GetUserFromContext(ctx)
+		if err := h.validateBypassGovernance(ctx, user, userExists, h.resolveBucketTenantID(r, bucketName), bucketName, objectKey); err != nil {
+			h.writeError(w, "AccessDenied", err.Error(), objectKey, r)
+			return
+		}
+		ctx = object.WithBypassGovernance(ctx)
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	versionID := r.URL.Query().Get("versionId")
 	// Set the retention, targeting a specific version if versionId is provided
-	if err := h.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention, versionID); err != nil {
-		if err == object.ErrObjectNotFound {
+	if err := h.objectManager.SetObjectRetention(ctx, bucketPath, objectKey, retention, versionID); err != nil {
+		switch {
+		case errors.Is(err, object.ErrObjectNotFound):
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
-			return
-		}
-		if err == object.ErrRetentionLocked {
+		case errors.Is(err, object.ErrRetentionLocked):
 			h.writeError(w, "AccessDenied", "The retention period is locked and cannot be modified", objectKey, r)
-			return
+		case errors.Is(err, object.ErrCannotShortenCompliance):
+			h.writeError(w, "AccessDenied", "A COMPLIANCE retention in force can only be extended", objectKey, r)
+		case errors.Is(err, object.ErrCannotShortenGovernance):
+			h.writeError(w, "AccessDenied", "A GOVERNANCE retention in force is shortened or removed only bypassing it", objectKey, r)
+		default:
+			h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		}
-		if err == object.ErrCannotShortenCompliance {
-			h.writeError(w, "AccessDenied", "Cannot shorten retention period for COMPLIANCE mode Object Lock", objectKey, r)
-			return
-		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 
@@ -266,10 +276,11 @@ type getObjectAttributesResponse struct {
 }
 
 type objectAttributesCksum struct {
-	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
-	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
-	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
-	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
 }
 
 type objectAttributesParts struct {
@@ -333,6 +344,8 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 			ck.ChecksumSHA1 = obj.ChecksumValue
 		case "SHA256":
 			ck.ChecksumSHA256 = obj.ChecksumValue
+		case "CRC64NVME":
+			ck.ChecksumCRC64NVME = obj.ChecksumValue
 		}
 		resp.Checksum = ck
 	}
@@ -442,14 +455,14 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 		Tags: make([]object.Tag, len(xmlTagging.TagSet.Tags)),
 	}
 	for i, tag := range xmlTagging.TagSet.Tags {
-		if tag.Key == "" {
-			h.writeError(w, "InvalidTag", "Tag key cannot be empty", objectKey, r)
-			return
-		}
 		tags.Tags[i] = object.Tag{
 			Key:   tag.Key,
 			Value: tag.Value,
 		}
+	}
+	if err := checkObjectTags(tags.Tags); err != nil {
+		h.writeError(w, "InvalidTag", err.Error(), objectKey, r)
+		return
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
@@ -833,6 +846,14 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "InvalidTag", err.Error(), destKey, r)
 		return
 	}
+	if h.writeHeadersRefused(w, r, destKey, r.Header, directive == "REPLACE") {
+		return
+	}
+	if sourceBucketPath == h.getBucketPath(r, destBucket) && sourceKey == destKey && copySourceVersionID == "" &&
+		!copyChangesSomething(r, directive, taggingDirective) {
+		h.writeError(w, "InvalidRequest", "This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.", destKey, r)
+		return
+	}
 
 	headers := make(http.Header)
 	if directive == "REPLACE" {
@@ -849,7 +870,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Preserve S3 system response headers from request if provided
-		for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language"} {
+		for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language", "Expires"} {
 			if v := r.Header.Get(h); v != "" {
 				headers.Set(h, v)
 			}
@@ -869,6 +890,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 		if sourceObj.ContentLanguage != "" {
 			headers.Set("Content-Language", sourceObj.ContentLanguage)
+		}
+		if sourceObj.Expires != "" {
+			headers.Set("Expires", sourceObj.Expires)
 		}
 		for k, v := range sourceObj.Metadata {
 			headers.Set("X-Amz-Meta-"+k, v)
@@ -938,6 +962,23 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, result)
 
 	h.fireNotifications(r.Context(), destBucket, destTenantID, destKey, "s3:ObjectCreated:Copy", destObj.ETag, destObj.Size)
+}
+
+// copyChangesSomething reports whether a copy of an object onto itself
+// changes it: S3 refuses one that changes nothing.
+func copyChangesSomething(r *http.Request, directive, taggingDirective string) bool {
+	if directive == "REPLACE" || taggingDirective == "REPLACE" {
+		return true
+	}
+	changes := []string{"x-amz-storage-class", "x-amz-website-redirect-location", "x-amz-acl",
+		"x-amz-server-side-encryption", "x-amz-server-side-encryption-aws-kms-key-id",
+		"x-amz-server-side-encryption-customer-algorithm"}
+	for _, name := range append(changes, objectLockHeaders...) {
+		if r.Header.Get(name) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func parseCopySourceHeader(copySource string) (bucketName, objectKey, versionID string, err error) {

@@ -104,6 +104,9 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 	if srcObj.ContentLanguage != "" {
 		headers.Set("Content-Language", srcObj.ContentLanguage)
 	}
+	if srcObj.Expires != "" {
+		headers.Set("Expires", srcObj.Expires)
+	}
 	for k, v := range srcObj.Metadata {
 		headers.Set("X-Amz-Meta-"+k, v)
 	}
@@ -469,6 +472,9 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	}
 	if srcObj.ContentLanguage != "" {
 		headers.Set("Content-Language", srcObj.ContentLanguage)
+	}
+	if srcObj.Expires != "" {
+		headers.Set("Expires", srcObj.Expires)
 	}
 	for k, v := range srcObj.Metadata {
 		headers.Set("X-Amz-Meta-"+k, v)

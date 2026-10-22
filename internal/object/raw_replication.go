@@ -154,7 +154,7 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 
 	landing := versionLanding{latest: true}
 	if versioned {
-		if landing, err = om.landReplicatedVersion(ctx, bucket, key, metaObj.VersionID, metaObj.LastModified, existingObjBeforeSave); err != nil {
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, metaObj.VersionID, metaObj.LastModified, metaObj.WrittenAt, existingObjBeforeSave); err != nil {
 			return err
 		}
 		metaObj.IsLatest = landing.latest

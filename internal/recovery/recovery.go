@@ -380,6 +380,7 @@ func objectFromSidecar(path, bucketPath, key, versionID string, sidecar map[stri
 		ContentEncoding:    sidecar["content-encoding"],
 		CacheControl:       sidecar["cache-control"],
 		ContentLanguage:    sidecar["content-language"],
+		Expires:            sidecar["expires"],
 		StorageClass:       sidecar["storage-class"],
 		LegalHold:          sidecar[storage.MetadataLegalHoldField] == "ON",
 	}

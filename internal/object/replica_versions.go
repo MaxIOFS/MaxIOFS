@@ -32,11 +32,12 @@ func isReplicaCopy(ctx context.Context) bool {
 // ReplicatedAttributes is what a copy of a version carries besides its data,
 // headers and lock state.
 type ReplicatedAttributes struct {
-	ETag             string     `json:"etag,omitempty"`
-	Tags             *TagSet    `json:"tags,omitempty"`
-	ACL              *ACL       `json:"acl,omitempty"`
-	RestoreStatus    string     `json:"restore_status,omitempty"`
-	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"`
+	ETag             string             `json:"etag,omitempty"`
+	Tags             *TagSet            `json:"tags,omitempty"`
+	ACL              *ACL               `json:"acl,omitempty"`
+	RestoreStatus    string             `json:"restore_status,omitempty"`
+	RestoreExpiresAt *time.Time         `json:"restore_expires_at,omitempty"`
+	Parts            []metadata.PartRun `json:"parts,omitempty"`
 }
 
 // AttributesOf returns the attributes of obj a copy has to carry.
@@ -47,6 +48,7 @@ func AttributesOf(obj *Object) ReplicatedAttributes {
 		ACL:              obj.ACL,
 		RestoreStatus:    obj.RestoreStatus,
 		RestoreExpiresAt: obj.RestoreExpiresAt,
+		Parts:            obj.Parts,
 	}
 }
 
@@ -95,6 +97,7 @@ func applyReplicatedAttributes(ctx context.Context, obj *Object) {
 	obj.ACL = a.ACL
 	obj.RestoreStatus = a.RestoreStatus
 	obj.RestoreExpiresAt = a.RestoreExpiresAt
+	obj.Parts = a.Parts
 }
 
 // versionLanding is how a copy of a version from another node lands here.
@@ -110,7 +113,7 @@ type versionLanding struct {
 // rather than counted twice. Version IDs order writes within one second; a
 // current object without one, written while versioning was suspended, stays
 // current against a copy of the same second.
-func (om *objectManager) landReplicatedVersion(ctx context.Context, bucket, key, versionID string, modified time.Time, latest *metadata.ObjectMetadata) (versionLanding, error) {
+func (om *objectManager) landReplicatedVersion(ctx context.Context, bucket, key, versionID string, modified time.Time, written int64, latest *metadata.ObjectMetadata) (versionLanding, error) {
 	landing := versionLanding{latest: true}
 	existing, err := om.metadataStore.GetObject(ctx, bucket, key, versionID)
 	switch {
@@ -121,9 +124,14 @@ func (om *objectManager) landReplicatedVersion(ctx context.Context, bucket, key,
 		return landing, err
 	}
 	if latest != nil && latest.VersionID != versionID {
-		l, m := latest.LastModified.Unix(), modified.Unix()
-		newer := latest.VersionID == "" || latest.VersionID > versionID
-		landing.latest = !(l > m || (l == m && newer))
+		// Within one second the time each was written orders them; writes
+		// that carry none keep the older rule.
+		if c := CompareWrites(latest.LastModified.Unix(), latest.WrittenAt, modified.Unix(), written); c != 0 {
+			landing.latest = c < 0
+		} else {
+			newer := latest.VersionID == "" || latest.VersionID > versionID
+			landing.latest = !newer
+		}
 	}
 	return landing, nil
 }

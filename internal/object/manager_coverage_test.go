@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/stretchr/testify/assert"
@@ -539,4 +540,46 @@ func TestSetObjectRetention_RemoveRetention(t *testing.T) {
 	obj, err := om.GetObjectMetadata(ctx, bucket, key)
 	require.NoError(t, err)
 	assert.Nil(t, obj.Retention, "Retention should be nil")
+}
+
+// A retention in force only grows stricter: COMPLIANCE is kept or extended,
+// never shortened, removed or made GOVERNANCE, bypass or not; GOVERNANCE is
+// shortened or removed only bypassing it, and made COMPLIANCE freely.
+func TestARetentionInForceOnlyGrowsStricter(t *testing.T) {
+	ctx := context.Background()
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: "locked", TenantID: "tenant-1", OwnerID: "user-1"}))
+	bucket := "tenant-1/locked"
+	bypass := WithBypassGovernance(ctx)
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	retention := func(mode string, at time.Time) *RetentionConfig {
+		return &RetentionConfig{Mode: mode, RetainUntilDate: at}
+	}
+	put := func(key string, r *RetentionConfig) {
+		t.Helper()
+		_, err := om.PutObject(ctx, bucket, key, bytes.NewReader([]byte("data")), http.Header{})
+		require.NoError(t, err)
+		require.NoError(t, om.SetObjectRetention(ctx, bucket, key, r))
+	}
+
+	put("compliance", retention("COMPLIANCE", until))
+	for name, r := range map[string]*RetentionConfig{
+		"made GOVERNANCE": retention("GOVERNANCE", until),
+		"shortened":       retention("COMPLIANCE", until.Add(-time.Minute)),
+		"removed":         nil,
+	} {
+		assert.ErrorIs(t, om.SetObjectRetention(bypass, bucket, "compliance", r), ErrCannotShortenCompliance, name)
+	}
+	require.NoError(t, om.SetObjectRetention(ctx, bucket, "compliance", retention("COMPLIANCE", until.Add(time.Hour))), "extended")
+	obj, err := om.GetObjectMetadata(ctx, bucket, "compliance")
+	require.NoError(t, err)
+	assert.Equal(t, "COMPLIANCE", obj.Retention.Mode)
+
+	put("governance", retention("GOVERNANCE", until))
+	assert.ErrorIs(t, om.SetObjectRetention(ctx, bucket, "governance", retention("GOVERNANCE", until.Add(-time.Minute))), ErrCannotShortenGovernance)
+	assert.ErrorIs(t, om.SetObjectRetention(ctx, bucket, "governance", nil), ErrCannotShortenGovernance)
+	require.NoError(t, om.SetObjectRetention(bypass, bucket, "governance", retention("GOVERNANCE", until.Add(-time.Minute))), "shortened bypassing it")
+	require.NoError(t, om.SetObjectRetention(ctx, bucket, "governance", retention("COMPLIANCE", until)), "made COMPLIANCE")
+	assert.ErrorIs(t, om.SetObjectRetention(bypass, bucket, "governance", retention("GOVERNANCE", until)), ErrCannotShortenCompliance)
 }

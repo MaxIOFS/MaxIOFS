@@ -78,6 +78,9 @@ func (e *StorageError) Error() string {
 	return e.Message
 }
 
+// Unwrap is the error the storage error was caused by.
+func (e *StorageError) Unwrap() error { return e.Cause }
+
 // NewError creates a new storage error
 func NewError(code, message string) *StorageError {
 	return &StorageError{

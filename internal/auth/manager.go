@@ -1271,7 +1271,12 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			// Check if request has authentication headers
 			hasAuth := r.Header.Get("Authorization") != ""
 
-			// Try to validate request
+			// Try to validate request; a body sent in signed chunks takes the
+			// signing its chunks are checked by.
+			// The validation keeps what it resolves, a session's policies, in
+			// r itself, so r is what it is given.
+			holder := &chunkSigningHolder{}
+			*r = *r.WithContext(context.WithValue(r.Context(), chunkSigningHolderKey{}, holder))
 			user, err := am.ValidateS3Signature(r.Context(), r)
 			if err != nil {
 				// If there WAS an auth header but it's invalid, return error
@@ -1293,6 +1298,9 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 					case errors.Is(err, ErrAccessDenied):
 						am.observeAuth(r, "AccessDenied")
 						writeS3Error(w, r, "AccessDenied", "Access Denied.", http.StatusForbidden)
+					case errors.Is(err, ErrInvalidSignature):
+						am.observeAuth(r, "SignatureDoesNotMatch")
+						writeS3Error(w, r, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden)
 					default:
 						// 403, as AWS answers for a credential it does not
 						// know. 401 makes SDKs treat it as a challenge and
@@ -1314,6 +1322,13 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			}
 
 			am.observeAuth(r, "")
+			if holder.signing != nil {
+				r = r.WithContext(WithChunkSigning(r.Context(), holder.signing))
+			}
+			// The body has to be the one the request was signed with.
+			if declared := r.Header.Get("X-Amz-Content-Sha256"); isSHA256Hex(declared) && r.Body != nil && r.Body != http.NoBody {
+				r.Body = &signedPayloadBody{inner: r.Body, hasher: sha256.New(), expected: strings.ToLower(declared)}
+			}
 			ctx := context.WithValue(r.Context(), "user", user)
 			if set, ok := PolicySetFromContext(ctx); !ok || set.UserID != user.ID {
 				if set, err := am.ResolvePolicySet(ctx, user); err == nil {
@@ -1819,7 +1834,11 @@ func (am *authManager) verifyS3SignatureV4(r *http.Request, sig *S3SignatureV4, 
 		"service":        sig.Service,
 	}).Debug("SigV4 verification")
 
-	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
+	if !hmac.Equal([]byte(calculatedSig), []byte(sig.Signature)) {
+		return false
+	}
+	holdChunkSigning(r, sig, signingKeyV4(secretKey, sig.Date, sig.Region, sig.Service), calculatedSig)
+	return true
 }
 
 // verifyS3SignatureV2 verifies AWS Signature Version 2.
@@ -2059,28 +2078,23 @@ func (am *authManager) calculateSignatureV4(stringToSign, secretKey, date, regio
 	// AWS SigV4 signing key derivation
 	// Reference: https://docs.aws.amazon.com/general/latest/gr/signature-v4-examples.html
 
-	// Extract date in YYYYMMDD format
+	// Signature = HMAC-SHA256(SigningKey, StringToSign)
+	signature := hmacSHA256(signingKeyV4(secretKey, date, region, service), []byte(stringToSign))
+
+	return hex.EncodeToString(signature)
+}
+
+// signingKeyV4 is the SigV4 signing key of a secret for a date (YYYYMMDD, or
+// longer), region and service.
+func signingKeyV4(secretKey, date, region, service string) []byte {
 	dateStamp := date
 	if len(date) > 8 {
 		dateStamp = date[:8]
 	}
-
-	// Step 1: DateKey = HMAC-SHA256("AWS4" + Secret, Date)
 	dateKey := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateStamp))
-
-	// Step 2: DateRegionKey = HMAC-SHA256(DateKey, Region)
 	dateRegionKey := hmacSHA256(dateKey, []byte(region))
-
-	// Step 3: DateRegionServiceKey = HMAC-SHA256(DateRegionKey, Service)
 	dateRegionServiceKey := hmacSHA256(dateRegionKey, []byte(service))
-
-	// Step 4: SigningKey = HMAC-SHA256(DateRegionServiceKey, "aws4_request")
-	signingKey := hmacSHA256(dateRegionServiceKey, []byte("aws4_request"))
-
-	// Step 5: Signature = HMAC-SHA256(SigningKey, StringToSign)
-	signature := hmacSHA256(signingKey, []byte(stringToSign))
-
-	return hex.EncodeToString(signature)
+	return hmacSHA256(dateRegionServiceKey, []byte("aws4_request"))
 }
 
 // hmacSHA256 helper function

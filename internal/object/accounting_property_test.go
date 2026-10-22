@@ -103,3 +103,67 @@ func TestAccounting_AgreesAfterAnySequence_Versioned(t *testing.T) {
 		}
 	}
 }
+
+// The counters agree with a recount whatever the versioning goes through:
+// objects written before it, kept as null versions, replaced while it is
+// suspended, and deleted by their ID.
+func TestAccounting_AgreesAcrossVersioningStates(t *testing.T) {
+	ctx := context.Background()
+	om, store := setupAccountingManager(t)
+
+	const name = "acct-states"
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: name, OwnerID: "u"}))
+	rng := rand.New(rand.NewSource(3))
+	keys := []string{"a.txt", "b.txt"}
+	for i := 0; i < 80; i++ {
+		key := keys[rng.Intn(len(keys))]
+		switch rng.Intn(6) {
+		case 0:
+			meta, err := store.GetBucket(ctx, "", name)
+			require.NoError(t, err)
+			status := []string{"Enabled", "Suspended"}[rng.Intn(2)]
+			meta.Versioning = &metadata.VersioningMetadata{Status: status, Enabled: status == "Enabled"}
+			require.NoError(t, store.UpdateBucket(ctx, meta))
+		case 1, 2:
+			_, err := om.PutObject(ctx, name, key, strings.NewReader(strings.Repeat("z", rng.Intn(40)+1)), http.Header{})
+			require.NoError(t, err)
+		case 3:
+			_, _ = om.DeleteObject(ctx, name, key, false)
+		case 4:
+			_, _ = om.DeleteObject(ctx, name, key, false, metadata.NullVersionID)
+		case 5:
+			if versions, err := store.GetObjectVersions(ctx, name, key); err == nil && len(versions) > 0 {
+				_ = om.DeleteObjectVersion(ctx, name, key, versions[rng.Intn(len(versions))].VersionID)
+			}
+		}
+		assertAccountingAgrees(t, om, store, name)
+	}
+}
+
+// A write while versioning is suspended that replaces the null version kept
+// beside another version gives its bytes back.
+func TestAccounting_AReplacedNullVersionGivesItsBytesBack(t *testing.T) {
+	ctx := context.Background()
+	om, store := setupAccountingManager(t)
+
+	const name = "acct-null"
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: name, OwnerID: "u"}))
+	status := func(s string) {
+		t.Helper()
+		meta, err := store.GetBucket(ctx, "", name)
+		require.NoError(t, err)
+		meta.Versioning = &metadata.VersioningMetadata{Status: s, Enabled: s == "Enabled"}
+		require.NoError(t, store.UpdateBucket(ctx, meta))
+	}
+	put := func(size int) {
+		t.Helper()
+		_, err := om.PutObject(ctx, name, "k", strings.NewReader(strings.Repeat("n", size)), http.Header{})
+		require.NoError(t, err)
+		assertAccountingAgrees(t, om, store, name)
+	}
+	put(100)
+	status("Enabled")
+	put(10)
+	status("Suspended")
+	put(7)
+}

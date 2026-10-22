@@ -15,6 +15,7 @@ var (
 	ErrObjectExists        = errors.New("object already exists")
 	ErrBucketNotFound      = errors.New("bucket not found")
 	ErrInvalidObjectName   = errors.New("invalid object name")
+	ErrKeyTooLong          = fmt.Errorf("%w: longer than 1024 bytes", ErrInvalidObjectName)
 	ErrObjectLocked        = errors.New("object is locked")
 	ErrRetentionPeriod     = errors.New("object is in retention period")
 	ErrInvalidPath         = errors.New("invalid object path")

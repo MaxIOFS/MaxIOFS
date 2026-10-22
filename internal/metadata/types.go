@@ -35,6 +35,7 @@ type ObjectMetadata struct {
 	ContentEncoding    string `json:"content_encoding,omitempty"`
 	CacheControl       string `json:"cache_control,omitempty"`
 	ContentLanguage    string `json:"content_language,omitempty"`
+	Expires            string `json:"expires,omitempty"`
 
 	// Custom metadata (user-defined headers)
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -53,6 +54,11 @@ type ObjectMetadata struct {
 	ChecksumAlgorithm string `json:"checksum_algorithm,omitempty"` // CRC32, CRC32C, SHA1, SHA256
 	ChecksumValue     string `json:"checksum_value,omitempty"`     // base64-encoded checksum
 
+	// Parts are the parts an object written in parts was written in, in
+	// order, as runs of parts of one size; empty for one written whole or
+	// before.
+	Parts []PartRun `json:"parts,omitempty"`
+
 	// Restore (S3 Glacier restore status)
 	RestoreStatus    string     `json:"restore_status,omitempty"`     // "ongoing" | "restored"
 	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"` // when the restore copy expires
@@ -68,6 +74,12 @@ type ObjectMetadata struct {
 	TenantID  string    `json:"tenant_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PartRun is a run of parts of one size.
+type PartRun struct {
+	Size  int64 `json:"size"`
+	Count int   `json:"count"`
 }
 
 // BucketMetadata represents metadata for a bucket

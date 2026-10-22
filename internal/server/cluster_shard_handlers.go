@@ -41,7 +41,7 @@ func (s *Server) handleHAReceiveShard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := cluster.WithHAReplicaContext(r.Context())
-	if cluster.VersionDeleted(ctx, s.db, info.Bucket, info.Key, info.VersionID) ||
+	if cluster.VersionDeleted(ctx, s.db, info.Bucket, info.Key, info.VersionID, time.Unix(info.LastModified, 0)) ||
 		(info.VersionID == "" && cluster.KeyDeletedAfter(ctx, s.db, info.Bucket, info.Key, time.Unix(info.LastModified, 0))) {
 		w.WriteHeader(http.StatusNoContent)
 		return

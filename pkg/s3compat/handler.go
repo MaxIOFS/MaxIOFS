@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
@@ -30,6 +31,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
@@ -133,8 +135,8 @@ type Handler struct {
 	iamSTSEndpoint    func() string
 	tenantUsage       func(ctx context.Context, tenant *auth.Tenant) int64
 	clusterSpace      func(ctx context.Context) (capacity, available int64, ok bool)
-	dataDir           string             // For calculating disk capacity in SOSAPI
-	notifHTTPClient   *http.Client       // HTTP client for notification webhooks; defaults to SSRF-blocking client
+	dataDir           string       // For calculating disk capacity in SOSAPI
+	notifHTTPClient   *http.Client // HTTP client for notification webhooks; defaults to SSRF-blocking client
 	authRecorder      authRecorder
 	bandwidthManager  *bandwidth.Manager // Per-tenant aggregate transfer throttling; nil = disabled
 }
@@ -379,6 +381,106 @@ func (h *Handler) writeDataUnavailable(w http.ResponseWriter, r *http.Request, k
 	}
 	w.Header().Set("Retry-After", "1")
 	h.writeError(w, "ServiceUnavailable", "No node that holds the object's data answered; retry the request", key, r)
+	return true
+}
+
+// partBounds are the bytes of part n of obj and how many parts it has, 0 for
+// an object written whole, or before part sizes were kept, which is read as
+// its only part; ok is false when obj has no part n.
+func partBounds(obj *object.Object, n int) (start, end int64, count int, ok bool) {
+	if len(obj.Parts) == 0 {
+		return 0, obj.Size - 1, 0, n == 1
+	}
+	for _, run := range obj.Parts {
+		count += run.Count
+	}
+	before := n - 1
+	for _, run := range obj.Parts {
+		if before < run.Count {
+			start += int64(before) * run.Size
+			return start, start + run.Size - 1, count, true
+		}
+		start += int64(run.Count) * run.Size
+		before -= run.Count
+	}
+	return 0, 0, 0, false
+}
+
+// readPart decides a read of the part its partNumber names: the part's bytes
+// and how many parts obj has, or that the read was answered with an error.
+func (h *Handler) readPart(w http.ResponseWriter, r *http.Request, obj *object.Object, key string) (start, end int64, count int, refused bool) {
+	if r.Header.Get("Range") != "" {
+		h.writeError(w, "InvalidRequest", "Cannot specify both Range header and partNumber query parameter", key, r)
+		return 0, 0, 0, true
+	}
+	n, err := strconv.Atoi(r.URL.Query().Get("partNumber"))
+	if err != nil || n < 1 || n > 10000 {
+		h.writeError(w, "InvalidArgument", "Part number must be an integer between 1 and 10000, inclusive", key, r)
+		return 0, 0, 0, true
+	}
+	start, end, count, ok := partBounds(obj, n)
+	if !ok {
+		h.writeError(w, "InvalidPartNumber", "The requested partnumber is not satisfiable", key, r)
+		return 0, 0, 0, true
+	}
+	return start, end, count, false
+}
+
+// responseOverrides are the headers a read asks to be sent in its response-*
+// parameters, by header name.
+func responseOverrides(query url.Values) map[string]string {
+	overrides := make(map[string]string)
+	for _, name := range []string{"Content-Type", "Content-Language", "Expires", "Cache-Control", "Content-Disposition", "Content-Encoding"} {
+		if v := query.Get("response-" + strings.ToLower(name)); v != "" {
+			overrides[name] = v
+		}
+	}
+	return overrides
+}
+
+// maxUserMetadataSize is the most user metadata a write can give.
+const maxUserMetadataSize = 2048
+
+// userMetadataSize is the size S3 limits of the user metadata in headers: the
+// bytes of each name, without x-amz-meta-, and of each value.
+func userMetadataSize(headers http.Header) int {
+	size := 0
+	for name, values := range headers {
+		if lower := strings.ToLower(name); strings.HasPrefix(lower, "x-amz-meta-") {
+			size += len(lower) - len("x-amz-meta-")
+			for _, v := range values {
+				size += len(v)
+			}
+		}
+	}
+	return size
+}
+
+// writeHeadersRefused answers a write whose headers S3 refuses: a storage
+// class an object cannot be in or, when they give the object's user
+// metadata, more of it than 2 KB.
+func (h *Handler) writeHeadersRefused(w http.ResponseWriter, r *http.Request, key string, headers http.Header, givesMetadata bool) bool {
+	if class := headers.Get("x-amz-storage-class"); class != "" && !storageclass.Known(class) {
+		h.writeError(w, "InvalidStorageClass", "The storage class you specified is not valid", key, r)
+		return true
+	}
+	if givesMetadata && userMetadataSize(headers) > maxUserMetadataSize {
+		h.writeError(w, "MetadataTooLarge", "Your metadata headers exceed the maximum allowed metadata size", key, r)
+		return true
+	}
+	return false
+}
+
+// writeObjectNameError answers a request for a key no object can have.
+func (h *Handler) writeObjectNameError(w http.ResponseWriter, r *http.Request, key string, err error) bool {
+	switch {
+	case errors.Is(err, object.ErrKeyTooLong):
+		h.writeError(w, "KeyTooLongError", "Your key is too long", key, r)
+	case errors.Is(err, object.ErrInvalidObjectName):
+		h.writeError(w, "InvalidArgument", "The object key is not valid: it is empty, starts with '/' or has a '..' segment", key, r)
+	default:
+		return false
+	}
 	return true
 }
 
@@ -749,6 +851,10 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			h.writeError(w, errorCode, errorMsg, bucketName, r)
+			return
+		}
+		if errors.Is(err, bucket.ErrInvalidBucketName) {
+			h.writeError(w, "InvalidBucketName", "The specified bucket is not valid: "+err.Error(), bucketName, r)
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
@@ -1276,6 +1382,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, allowedByShare, shareTenantID, tenantID, bucketName, objectKey) {
 		return
 	}
+	overrides := responseOverrides(r.URL.Query())
+	if len(overrides) > 0 && !userExists && !allowedByPresignedURL {
+		h.writeError(w, "InvalidRequest", "Request specific response headers cannot be used for anonymous GET requests.", objectKey, r)
+		return
+	}
 
 	versionID := r.URL.Query().Get("versionId")
 	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
@@ -1284,10 +1395,14 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
 				return
 			}
+			if h.bucketMissing(r.Context(), bucketPath) {
+				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+				return
+			}
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
-		if h.writeDataUnavailable(w, r, objectKey, err) {
+		if h.writeDataUnavailable(w, r, objectKey, err) || h.writeObjectNameError(w, r, objectKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
@@ -1297,6 +1412,16 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
 		return
+	}
+
+	// A part asked for is read as the range it is.
+	partsCount := 0
+	var partStart, partEnd int64
+	if r.URL.Query().Has("partNumber") {
+		var refused bool
+		if partStart, partEnd, partsCount, refused = h.readPart(w, r, obj, objectKey); refused {
+			return
+		}
 	}
 
 	rangeHeader := r.Header.Get("Range")
@@ -1323,13 +1448,27 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 				"totalSize":  obj.Size,
 			}).Debug("GetObject: Range request detected")
 		}
+	} else if partsCount > 0 {
+		rangeStart, rangeEnd, isRangeRequest = partStart, partEnd, true
 	} else {
 		rangeStart = 0
 		rangeEnd = obj.Size - 1
 		isRangeRequest = false
 	}
 
-	h.setGetObjectResponseHeaders(w, obj)
+	h.setGetObjectResponseHeaders(w, obj, isRangeRequest)
+	for name, value := range overrides {
+		w.Header().Set(name, value)
+	}
+	if partsCount > 0 {
+		w.Header().Set("x-amz-mp-parts-count", strconv.Itoa(partsCount))
+		if rangeEnd < rangeStart {
+			// An empty part: no range names it.
+			w.Header().Set("Content-Length", "0")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
 
 	dlLimiter := h.tenantBandwidthLimiter(r.Context(), r, bucketName)
 
@@ -1395,6 +1534,9 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 			"bucketTenant": tenantID,
 		}).Warn("ACL permission denied for PutObject - cross-tenant access")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
+		return
+	}
+	if h.writeHeadersRefused(w, r, objectKey, r.Header, true) {
 		return
 	}
 	if !h.requireObjectLockHeaderActions(w, r, bucketName, objectKey) {
@@ -1630,6 +1772,9 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
+		if h.writeObjectNameError(w, r, objectKey, err) {
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
@@ -1639,8 +1784,29 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	partsCount := 0
+	var partStart, partEnd int64
+	if r.URL.Query().Has("partNumber") {
+		var refused bool
+		if partStart, partEnd, partsCount, refused = h.readPart(w, r, obj, objectKey); refused {
+			return
+		}
+	}
+
 	// Object exists - now check object-level ACLs for cross-tenant access
 	h.setHeadObjectResponseHeaders(w, obj)
+	for name, value := range responseOverrides(r.URL.Query()) {
+		w.Header().Set(name, value)
+	}
+	if partsCount > 0 {
+		w.Header().Set("x-amz-mp-parts-count", strconv.Itoa(partsCount))
+		w.Header().Set("Content-Length", strconv.FormatInt(partEnd-partStart+1, 10))
+		if partEnd >= partStart {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", partStart, partEnd, obj.Size))
+			w.WriteHeader(http.StatusPartialContent)
+			return
+		}
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -2025,7 +2191,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy",
 		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
-		"InvalidDigest", "InvalidStorageClass":
+		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":
@@ -2049,7 +2215,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		statusCode = http.StatusConflict
 	case "PreconditionFailed":
 		statusCode = http.StatusPreconditionFailed
-	case "InvalidRange":
+	case "InvalidRange", "InvalidPartNumber":
 		statusCode = http.StatusRequestedRangeNotSatisfiable
 	case "InternalError":
 		statusCode = http.StatusInternalServerError
@@ -2723,6 +2889,9 @@ func (h *Handler) handleDeleteObjectErrors(w http.ResponseWriter, r *http.Reques
 	if err == nil {
 		return false
 	}
+	if h.writeObjectNameError(w, r, objectKey, err) {
+		return true
+	}
 
 	if errors.Is(err, cluster.ErrClusterDegraded) {
 		w.Header().Set("Retry-After", "30")
@@ -2779,6 +2948,16 @@ func (h *Handler) setDeleteResponseHeaders(w http.ResponseWriter, deleteMarkerVe
 			w.Header().Set("x-amz-delete-marker", "true")
 		}
 	}
+}
+
+// bucketMissing reports whether the bucket bucketPath names is not there.
+func (h *Handler) bucketMissing(ctx context.Context, bucketPath string) bool {
+	tenantID, name := "", bucketPath
+	if i := strings.LastIndex(bucketPath, "/"); i >= 0 {
+		tenantID, name = bucketPath[:i], bucketPath[i+1:]
+	}
+	_, err := h.bucketManager.GetBucketInfo(ctx, tenantID, name)
+	return errors.Is(err, bucket.ErrBucketNotFound)
 }
 
 func (h *Handler) handleVersionedObjectNotFound(w http.ResponseWriter, r *http.Request, bucketPath, objectKey, versionID string) bool {
@@ -2853,24 +3032,42 @@ func parseS3TaggingHeader(raw string) (*object.TagSet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tagging header is not valid URL-encoded form data")
 	}
-	if len(values) > 10 {
-		return nil, fmt.Errorf("object cannot have more than 10 tags")
-	}
 	tags := &object.TagSet{Tags: make([]object.Tag, 0, len(values))}
 	for key, vals := range values {
-		if key == "" {
-			return nil, fmt.Errorf("tag key cannot be empty")
+		for _, value := range vals {
+			tags.Tags = append(tags.Tags, object.Tag{Key: key, Value: value})
 		}
-		if len(vals) > 1 {
-			return nil, fmt.Errorf("duplicate tag key %q", key)
+		if len(vals) == 0 {
+			tags.Tags = append(tags.Tags, object.Tag{Key: key})
 		}
-		value := ""
-		if len(vals) == 1 {
-			value = vals[0]
-		}
-		tags.Tags = append(tags.Tags, object.Tag{Key: key, Value: value})
+	}
+	if err := checkObjectTags(tags.Tags); err != nil {
+		return nil, err
 	}
 	return tags, nil
+}
+
+// checkObjectTags refuses tags S3 refuses on an object: more than 10, a key
+// empty, of more than 128 characters or given twice, a value of more than 256.
+func checkObjectTags(tags []object.Tag) error {
+	if len(tags) > 10 {
+		return fmt.Errorf("object tags cannot be greater than 10")
+	}
+	seen := make(map[string]bool, len(tags))
+	for _, tag := range tags {
+		switch {
+		case tag.Key == "":
+			return fmt.Errorf("tag key cannot be empty")
+		case utf8.RuneCountInString(tag.Key) > 128:
+			return fmt.Errorf("tag key %q is longer than 128 characters", tag.Key)
+		case utf8.RuneCountInString(tag.Value) > 256:
+			return fmt.Errorf("the value of tag %q is longer than 256 characters", tag.Key)
+		case seen[tag.Key]:
+			return fmt.Errorf("tag key %q is given more than once", tag.Key)
+		}
+		seen[tag.Key] = true
+	}
+	return nil
 }
 
 // handlePresignedURLError writes appropriate error response based on presigned URL validation error
@@ -3015,7 +3212,6 @@ func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
 }
 
-// setGetObjectResponseHeaders sets all response headers for GetObject operation
 // setUserMetadataHeaders writes x-amz-meta-* with the key as stored. Header.Set
 // would canonicalise it to X-Amz-Meta-Proyecto, and the client reads the case
 // back off the wire.
@@ -3025,7 +3221,10 @@ func setUserMetadataHeaders(w http.ResponseWriter, metadata map[string]string) {
 	}
 }
 
-func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
+// setGetObjectResponseHeaders sets all response headers for GetObject
+// operation. A range is sent without the object's checksum, which is not the
+// one of its bytes.
+func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object.Object, isRange bool) {
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("ETag", obj.ETag)
 	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
@@ -3045,6 +3244,9 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 	}
 	if obj.ContentLanguage != "" {
 		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.Expires != "" {
+		w.Header().Set("Expires", obj.Expires)
 	}
 
 	setUserMetadataHeaders(w, obj.Metadata)
@@ -3067,7 +3269,7 @@ func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object
 		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
 	}
 
-	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+	if !isRange && obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
 		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 	}
@@ -3190,35 +3392,20 @@ func (h *Handler) detectAndDecodeAwsChunked(
 	decodedContentLength string,
 ) io.Reader {
 	var bodyReader io.Reader = r.Body
-	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
-
-	// If not detected by headers, peek at first bytes to check for aws-chunked format
-	if !isAwsChunked {
-		buf := make([]byte, 100)
-		n, _ := io.ReadFull(r.Body, buf)
-		if n > 0 {
-			// Check if starts with hex digits followed by ";chunk-signature="
-			content := string(buf[:n])
-			if strings.Contains(content, ";chunk-signature=") {
-				isAwsChunked = true
-				logrus.WithFields(logrus.Fields{
-					"bucket": bucketName,
-					"object": objectKey,
-				}).Info("AWS chunked encoding detected by content inspection")
-			}
-			// Restore the buffer to the reader
-			bodyReader = io.MultiReader(bytes.NewReader(buf[:n]), r.Body)
-		}
-	}
-
-	if isAwsChunked {
+	// Only the headers say a body is aws-chunked: one that merely starts like
+	// a chunk is the object.
+	if isAwsChunked(r) {
 		logrus.WithFields(logrus.Fields{
 			"bucket":                 bucketName,
 			"object":                 objectKey,
 			"decoded-content-length": decodedContentLength,
 		}).Info("AWS chunked encoding detected - decoding")
 
-		bodyReader = NewAwsChunkedReader(bodyReader)
+		chunked := NewAwsChunkedReader(bodyReader).ChecksumTrailersInto(r.Header)
+		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {
+			chunked.VerifyingChunks(signing)
+		}
+		bodyReader = chunked
 
 		// Update Content-Length header for storage layer
 		if decodedContentLength != "" {
@@ -3246,8 +3433,21 @@ func (h *Handler) writeObjectWriteError(w http.ResponseWriter, r *http.Request, 
 		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 	case isQuotaExceeded(err):
 		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
-	case strings.HasPrefix(err.Error(), "BadDigest:"):
+	case errors.Is(err, object.ErrPreconditionFailed):
+		h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", objectKey, r)
+	case errors.Is(err, object.ErrObjectNotFound):
+		h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+	case h.writeObjectNameError(w, r, objectKey, err):
+	case errors.Is(err, object.ErrBadDigest):
 		h.writeError(w, "BadDigest", err.Error(), objectKey, r)
+	case errors.Is(err, object.ErrInvalidDigest):
+		h.writeError(w, "InvalidDigest", err.Error(), objectKey, r)
+	case errors.Is(err, object.ErrUnknownChecksum):
+		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+	case errors.Is(err, auth.ErrChunkSignatureMismatch):
+		h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided.", objectKey, r)
+	case errors.Is(err, auth.ErrContentSHA256Mismatch):
+		h.writeError(w, "XAmzContentSHA256Mismatch", "The provided 'x-amz-content-sha256' header does not match what was computed.", objectKey, r)
 	case isObjectLockRequestError(err):
 		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
 	default:
@@ -3407,6 +3607,9 @@ func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *objec
 	}
 	if obj.ContentLanguage != "" {
 		w.Header().Set("Content-Language", obj.ContentLanguage)
+	}
+	if obj.Expires != "" {
+		w.Header().Set("Expires", obj.Expires)
 	}
 
 	setUserMetadataHeaders(w, obj.Metadata)

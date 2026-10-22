@@ -87,7 +87,7 @@ func TestValidateObjectName_AllCases(t *testing.T) {
 			err := om.validateObjectName(tt.key)
 			if tt.wantError {
 				assert.Error(t, err, "Expected error for key: %s", tt.key)
-				assert.Equal(t, ErrInvalidObjectName, err)
+				assert.ErrorIs(t, err, ErrInvalidObjectName)
 			} else {
 				assert.NoError(t, err, "Expected no error for key: %s", tt.key)
 			}

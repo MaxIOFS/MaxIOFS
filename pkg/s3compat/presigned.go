@@ -917,6 +917,10 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.writeHeadersRefused(w, r, objectKey, syntheticHeaders, true) {
+		return
+	}
+
 	// Determine bucket path including tenant.
 	bucketPath := h.getBucketPath(r, bucketName)
 

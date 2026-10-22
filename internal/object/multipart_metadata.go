@@ -1,6 +1,9 @@
 package object
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // A multipart upload keeps, in one map until it completes, the object's storage
 // fields, the client's user metadata and internal state. User metadata keeps its
@@ -9,11 +12,12 @@ import "strings"
 const (
 	uploadUserMetaPrefix = "x-amz-meta-"
 	uploadCannedACL      = "acl:canned"
+	uploadTagging        = "tagging:query"
 )
 
 var uploadStorageKeys = map[string]bool{
 	"content-type": true, "content-disposition": true, "content-encoding": true,
-	"cache-control": true, "content-language": true, "storage-class": true,
+	"cache-control": true, "content-language": true, "expires": true, "storage-class": true,
 }
 
 // uploadMetadata builds the map an upload keeps.
@@ -57,6 +61,20 @@ func uploadStorageMetadata(m map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// uploadTags are the tags the upload was started with, in its x-amz-tagging;
+// nil when none.
+func uploadTags(m map[string]string) *TagSet {
+	values, err := url.ParseQuery(m[uploadTagging])
+	if err != nil || len(values) == 0 {
+		return nil
+	}
+	tags := &TagSet{Tags: make([]Tag, 0, len(values))}
+	for key, vals := range values {
+		tags.Tags = append(tags.Tags, Tag{Key: key, Value: vals[0]})
+	}
+	return tags
 }
 
 // UploadCannedACL is the canned ACL requested when the upload was created.

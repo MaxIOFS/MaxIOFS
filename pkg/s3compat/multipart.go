@@ -117,6 +117,13 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 	if !h.requireACLHeaderAllowed(w, r, bucketName, objectKey) {
 		return
 	}
+	if _, err := parseS3TaggingHeader(r.Header.Get("x-amz-tagging")); err != nil {
+		h.writeError(w, "InvalidTag", err.Error(), objectKey, r)
+		return
+	}
+	if h.writeHeadersRefused(w, r, objectKey, r.Header, true) {
+		return
+	}
 
 	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload
@@ -270,14 +277,11 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contentEncoding := r.Header.Get("Content-Encoding")
 	decodedContentLength := r.Header.Get("X-Amz-Decoded-Content-Length")
 
 	var bodyReader io.Reader = r.Body
 
-	isAwsChunked := strings.Contains(contentEncoding, "aws-chunked") || decodedContentLength != ""
-
-	if isAwsChunked {
+	if isAwsChunked(r) {
 		logrus.WithFields(logrus.Fields{
 			"bucket":     bucketName,
 			"object":     objectKey,
@@ -286,7 +290,11 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 			"decodedLen": decodedContentLength,
 		}).Info("AWS chunked encoding detected in UploadPart")
 
-		bodyReader = NewAwsChunkedReader(r.Body)
+		chunked := NewAwsChunkedReader(r.Body).ChecksumTrailersInto(r.Header)
+		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {
+			chunked.VerifyingChunks(signing)
+		}
+		bodyReader = chunked
 
 		if decodedContentLength != "" {
 			if size, err := strconv.ParseInt(decodedContentLength, 10, 64); err == nil {
@@ -298,6 +306,12 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
+	// The part is stored only when its bytes are those its digests name.
+	bodyReader, err = object.NewDigestCheckingReader(bodyReader, r.Header)
+	if err != nil {
+		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
+		return
+	}
 
 	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bodyReader)
 	if err != nil {
@@ -305,7 +319,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
 			return
 		}
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
 	}
 
@@ -560,6 +574,30 @@ func paginateMultipartParts(parts []object.Part, partNumberMarker, maxParts int)
 }
 
 // CompleteMultipartUpload completes a multipart upload
+// minPartSize is the least a part other than the last can hold.
+const minPartSize = 5 << 20
+
+// writePartTooSmall refuses the completion of an upload that names a part
+// other than the last of under 5 MB. A part not stored is left to the
+// completion to refuse.
+func (h *Handler) writePartTooSmall(w http.ResponseWriter, r *http.Request, uploadID, objectKey string, parts []object.Part) bool {
+	stored, err := h.objectManager.ListParts(r.Context(), uploadID)
+	if err != nil {
+		return false
+	}
+	sizes := make(map[int]int64, len(stored))
+	for _, p := range stored {
+		sizes[p.PartNumber] = p.Size
+	}
+	for _, p := range parts[:len(parts)-1] {
+		if size, ok := sizes[p.PartNumber]; ok && size < minPartSize {
+			h.writeError(w, "EntityTooSmall", "Your proposed upload is smaller than the minimum allowed object size.", objectKey, r)
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -610,6 +648,10 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 			PartNumber: part.PartNumber,
 			ETag:       part.ETag,
 		}
+	}
+
+	if h.writePartTooSmall(w, r, uploadID, objectKey, parts) {
+		return
 	}
 
 	bucketPath := h.getBucketPath(r, bucketName)

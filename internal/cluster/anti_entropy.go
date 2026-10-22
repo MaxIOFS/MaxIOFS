@@ -557,7 +557,11 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 	if err != nil {
 		return fmt.Errorf("read deletion log: %w", err)
 	}
-	var versions [][3]string
+	type versionDelete struct {
+		bucket, key, versionID string
+		deletedAt              int64
+	}
+	var versions []versionDelete
 	keys := make(map[string][]keyDelete)
 	for rows.Next() {
 		var entityType, entityID string
@@ -568,7 +572,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 		}
 		if entityType == EntityTypeObjectVersion {
 			if b, k, v, ok := DecodeObjectVersionTombstoneID(entityID); ok {
-				versions = append(versions, [3]string{b, k, v})
+				versions = append(versions, versionDelete{b, k, v, deletedAt})
 			}
 		} else if b, k, ok := DecodeObjectTombstoneID(entityID); ok {
 			keys[b] = append(keys[b], keyDelete{k, deletedAt})
@@ -581,7 +585,7 @@ func (s *AntiEntropyScrubber) replayDeletes(ctx context.Context, client *ProxyCl
 
 	var errs error
 	for _, v := range versions {
-		errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, v[0], v[1], v[2], "", time.Time{}))
+		errs = errors.Join(errs, sendHADelete(ctx, client, node, localID, v.bucket, v.key, v.versionID, "", time.Unix(v.deletedAt, 0)))
 	}
 	batch := s.cycleBatchSize(ctx)
 	for bucketPath, deletes := range keys {
@@ -1122,7 +1126,8 @@ func (s *AntiEntropyScrubber) pullObjectFromPeer(
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("GET object returned %d: %s", resp.StatusCode, string(b))
 	}
-	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, resp.Header.Get(HAObjectVersionHeader)) {
+	written, _ := HALastModifiedFromHeader(resp.Header)
+	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, resp.Header.Get(HAObjectVersionHeader), written) {
 		return nil
 	}
 
@@ -1159,7 +1164,7 @@ func (s *AntiEntropyScrubber) pullEntryFromPeer(
 	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
 		return fmt.Errorf("decode entry: %w", err)
 	}
-	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, entry.VersionID) ||
+	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, entry.VersionID, entry.LastModified) ||
 		(entry.VersionID == "" && KeyDeletedAfter(ctx, s.mgr.db, bucketPath, key, entry.LastModified)) {
 		return nil
 	}

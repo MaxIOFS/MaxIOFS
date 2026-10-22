@@ -1880,3 +1880,29 @@ func TestTheDegradedBannerFollowsTheNodes(t *testing.T) {
 		return cluster.ClusterDegradedReason(ctx, a.db) == ""
 	}, 5*time.Second, 10*time.Millisecond, "the node is back")
 }
+
+// A retention change made bypassing GOVERNANCE reaches the other nodes as it
+// was made there; COMPLIANCE is kept on every node.
+func TestARetentionChangeBypassingGovernanceReachesEveryNode(t *testing.T) {
+	c := newHACluster(t, 2, 2)
+	a, b := c.nodes[0], c.nodes[1]
+	ctx := context.Background()
+	require.NoError(t, a.bucketManager.CreateBucket(ctx, "", "locked", routingAdminID))
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	for _, key := range []string{"governance", "compliance"} {
+		_, err := a.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("locked"), Key: aws.String(key), Body: strings.NewReader("data")})
+		require.NoError(t, err)
+	}
+	require.NoError(t, a.objectManager.SetObjectRetention(ctx, "locked", "governance", &object.RetentionConfig{Mode: "GOVERNANCE", RetainUntilDate: until}))
+	require.NoError(t, a.objectManager.SetObjectRetention(ctx, "locked", "compliance", &object.RetentionConfig{Mode: "COMPLIANCE", RetainUntilDate: until}))
+
+	sooner := until.Add(-time.Minute)
+	require.NoError(t, a.objectManager.SetObjectRetention(object.WithBypassGovernance(ctx), "locked", "governance",
+		&object.RetentionConfig{Mode: "GOVERNANCE", RetainUntilDate: sooner}))
+	assert.True(t, b.entry(t, "locked", "governance").Retention.RetainUntilDate.Equal(sooner), "shortened on the other node")
+
+	err := a.objectManager.SetObjectRetention(object.WithBypassGovernance(ctx), "locked", "compliance",
+		&object.RetentionConfig{Mode: "GOVERNANCE", RetainUntilDate: until})
+	require.ErrorIs(t, err, object.ErrCannotShortenCompliance)
+	assert.Equal(t, "COMPLIANCE", b.entry(t, "locked", "compliance").Retention.Mode)
+}

@@ -1284,6 +1284,8 @@ func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName
 func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
 	apiRouter := mux.NewRouter()
+	// A key is any string: a//b and a/./b are keys, not paths to clean.
+	apiRouter.SkipClean(true)
 
 	// Prometheus metrics endpoint (no auth, no middleware)
 	// Wraps with a settings check so metrics.enabled can be toggled from the UI without restart.

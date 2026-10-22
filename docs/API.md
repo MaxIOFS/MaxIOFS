@@ -88,10 +88,11 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
 
-**Object key rules**: standard S3 keys up to 1024 characters. A key may not be
-empty, start with `/`, or contain a `..` path segment. Objects are stored under a
-digest of their key, so every other key is ordinary, including one ending in
-`.metadata`.
+**Object key rules**: standard S3 keys up to 1024 bytes (`400 KeyTooLongError`).
+A key may not be empty, start with `/`, or contain a `..` path segment
+(`400 InvalidArgument`). A key is taken as it is: `a//b` and `a/./b` are keys of
+their own. Objects are stored under a digest of their key, so every other key is
+ordinary, including one ending in `.metadata`.
 
 **Missing bucket**: `DeleteObject` and `DeleteMultipleObjects` on a bucket that
 does not exist answer `404 NoSuchBucket` for the whole request.
@@ -145,15 +146,19 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 ### Additional Features
 
 - **Presigned URLs** — GET/PUT with configurable expiration (S3-compatible paths)
-- **Range Requests** — Partial object downloads via `Range` header
+- **Range Requests** — Partial object downloads via `Range` header; a range is sent without the object's checksum. `partNumber` on GET and HEAD reads one part of an object written in parts (`206`, `Content-Range`, `x-amz-mp-parts-count`); an object written whole, or in parts by an earlier version, is its only part (`416 InvalidPartNumber` for another)
+- **Object headers** — `Cache-Control`, `Content-Disposition`, `Content-Encoding`, `Content-Language` and `Expires` are kept and given back, for an object written whole, in parts or copied; `x-amz-tagging` on CreateMultipartUpload tags the object written. `response-content-type`, `response-content-disposition`, `response-cache-control`, `response-content-language`, `response-content-encoding` and `response-expires` on GET and HEAD set the headers sent; an anonymous GET with them is refused (`400 InvalidRequest`)
+- **Limits** — user metadata up to 2 KB (`MetadataTooLarge`); 10 tags, keys up to 128 characters, values up to 256, each key once (`InvalidTag`); parts other than the last of 5 MB at least (`EntityTooSmall`); a copy of an object onto itself must change its metadata, class, tags or encryption (`InvalidRequest`)
 - **Conditional Requests** — `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`
-- **Conditional Writes** — `PutObject If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists (atomic create-if-absent)
+- **Versioning** — an object written before versioning was enabled, or while it is suspended, is the version `null`: kept when a version replaces it, read, copied and deleted with `versionId=null`, and listed by `ListObjectVersions`. While versioning is suspended a write replaces the null version and keeps the others, and a delete puts a null delete marker
+- **Conditional Writes** — `PutObject` with `If-None-Match: *` returns 412 `PreconditionFailed` if the object already exists; with `If-Match`, 412 if its ETag is another and 404 `NoSuchKey` if there is no object. Both are decided under the key's lock: of concurrent writes of a new key with `If-None-Match: *`, one is taken
+- **Integrity** — a write is checked against its `Content-MD5`, an `x-amz-checksum-*` checksum (CRC32, CRC32C, CRC64NVME, SHA1, SHA256) in a header or in the trailer of an aws-chunked body, the `x-amz-content-sha256` it was signed with, and the signature of each chunk and of the trailers of a body sent in signed chunks (`SignatureDoesNotMatch`); one that does not match is refused (`BadDigest`, `InvalidDigest`, `XAmzContentSHA256Mismatch`) and nothing is stored, on PUT and on each part. A checksum is kept and returned. Only the headers say a body is aws-chunked
 - **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted; `GetBucketEncryption` gives `AES256` for a bucket without a configuration of its own, as every object is encrypted
 - **PublicAccessBlock enforcement** — `IgnorePublicAcls` voids public ACLs and `RestrictPublicBuckets` public bucket policies for requests without credentials; `BlockPublicAcls` and `BlockPublicPolicy` refuse a request carrying a public ACL or a public policy (`403 AccessDenied`); configure via `PUT /{bucket}?publicAccessBlock`
 - **Bucket policies** — evaluated with the caller's IAM policies, AWS-style; principals `"*"`, `arn:aws:iam:::user/<name>` or a user ID; conditions on `aws:SourceIp` and `aws:SecureTransport`; a policy using anything else is refused with `MalformedPolicy` (see SECURITY.md)
 - **OwnershipControls** — default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
 - **Lifecycle** — `Expiration` (days, a date, or delete markers alone), `Transition` and `NoncurrentVersionTransition` to a colder storage class, `NoncurrentVersionExpiration` with `NewerNoncurrentVersions`, `AbortIncompleteMultipartUpload`; filters by prefix, tags (`Tag`, `And`) and size (`ObjectSizeGreaterThan`, `ObjectSizeLessThan`). A version is noncurrent from when the next one was written. A rule's prefix reads back in the form it was set, `Filter` or the rule's `Prefix`. A rule S3 would refuse is refused with its error: `MalformedXML`, `InvalidArgument`, `InvalidRequest` or `InvalidStorageClass`. In a cluster a transition moves the object to the nodes of its class (see CLUSTER.md)
-- **Storage classes** — `x-amz-storage-class` on PUT, CreateMultipartUpload and CopyObject (a copy without one is STANDARD); returned on GET, HEAD and listings
+- **Storage classes** — `x-amz-storage-class` on PUT, CreateMultipartUpload and CopyObject (a copy without one is STANDARD); returned on GET, HEAD and listings; a class S3 does not have is refused (`InvalidStorageClass`)
 - **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored
 - **SelectObjectContent** — SQL queries on object data streamed via Amazon Event Stream binary protocol (Records/Stats/End events, CRC32-framed); see section below
 - **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`

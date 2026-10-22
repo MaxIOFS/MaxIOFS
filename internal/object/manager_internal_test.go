@@ -40,7 +40,7 @@ func TestCreateDeleteMarker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create delete marker
-	versionID, err := om.createDeleteMarker(ctx, bucket, key)
+	versionID, err := om.createDeleteMarker(ctx, bucket, key, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, versionID, "Delete marker should have a version ID")
 

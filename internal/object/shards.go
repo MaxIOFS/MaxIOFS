@@ -77,18 +77,18 @@ func ShardOf(o *Object, index int, gen int64) ShardInfo {
 // isWriteOf reports whether s is a shard of the write entry is.
 func (s ShardInfo) isWriteOf(entry *metadata.ObjectMetadata) bool {
 	return s.ETag == entry.ETag && s.Size == entry.Size && s.LastModified == entry.LastModified.Unix() &&
-		s.WrittenAt == entry.WrittenAt && s.VersionID == entry.VersionID
+		s.WrittenAt == entry.WrittenAt && sameVersion(s.VersionID, entry.VersionID)
 }
 
 // sameWrite reports whether two entries are of one write.
 func sameWrite(a, b *metadata.ObjectMetadata) bool {
-	return a != nil && b != nil && a.VersionID == b.VersionID && a.ETag == b.ETag && a.Size == b.Size &&
+	return a != nil && b != nil && sameVersion(a.VersionID, b.VersionID) && a.ETag == b.ETag && a.Size == b.Size &&
 		a.LastModified.Unix() == b.LastModified.Unix() && a.WrittenAt == b.WrittenAt
 }
 
 // sameShard reports whether s and o name one shard: of one write, cut alike.
 func (s ShardInfo) sameShard(o ShardInfo) bool {
-	return s.Bucket == o.Bucket && s.Key == o.Key && s.VersionID == o.VersionID && s.Index == o.Index &&
+	return s.Bucket == o.Bucket && s.Key == o.Key && sameVersion(s.VersionID, o.VersionID) && s.Index == o.Index &&
 		s.ETag == o.ETag && s.Size == o.Size && s.LastModified == o.LastModified && s.WrittenAt == o.WrittenAt &&
 		s.Layout == o.Layout
 }

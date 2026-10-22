@@ -57,6 +57,14 @@ aws --endpoint-url=http://localhost:8080 s3 ls
 
 Access keys are generated via Web Console (Users → Access Keys) or API. The default `admin / admin` credentials are only for the initial Web Console login; no S3 access key is created by default.
 
+**The body is the one signed.** A SigV4 request whose `x-amz-content-sha256` is
+the hash of its body is refused (`XAmzContentSHA256Mismatch`) when the body
+is another. A body sent in signed chunks (`STREAMING-AWS4-HMAC-SHA256-PAYLOAD`,
+as minio-go sends over HTTP) is checked chunk by chunk, the last chunk and the
+signed trailers too, against the signatures chained from the request's: a
+mismatch is refused with `SignatureDoesNotMatch`. Either way nothing of the
+write is stored. `UNSIGNED-PAYLOAD` bodies are covered by TLS only.
+
 ### OAuth2/OIDC SSO
 
 SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC providers. Users are auto-provisioned based on group-to-role mappings.
@@ -470,6 +478,12 @@ Write-Once-Read-Many compliance for regulatory requirements.
 | **GOVERNANCE** | Prevents accidental deletion | Admin can override with special permission |
 | **COMPLIANCE** | Strict immutability | Cannot be deleted until retention period expires |
 
+A retention in force only grows stricter. A COMPLIANCE one is extended and
+nothing else: it is not shortened, removed or made GOVERNANCE, with
+`x-amz-bypass-governance-retention` or without. A GOVERNANCE one is extended or
+made COMPLIANCE freely, and shortened or removed only with that header and
+`s3:BypassGovernanceRetention`. In a cluster every node applies the same rules.
+
 **Legal Hold**: Independent of retention — can be applied/removed anytime, prevents deletion regardless of retention settings.
 
 **Protection from the first write**: retention and legal hold sent with a PUT
@@ -547,6 +561,8 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 An object ACL belongs to the version it was set on. The next object written at the key, by overwrite, as a new version or after a delete, starts `private`.
 
 A request without credentials reads, heads and lists a bucket whose ACL grants READ to everyone (`public-read`), unless its PublicAccessBlock ignores public ACLs or its bucket policy denies it; it needs no share link or presigned URL. A signed request is decided by its IAM policies and the bucket policy; the ACL plays no part.
+
+A read without credentials, a share link's included, cannot choose the headers it is sent: a GET with `response-content-type` or another `response-*` parameter is refused (`400 InvalidRequest`), as in S3, so a public object cannot be served as a page of another type.
 
 ---
 

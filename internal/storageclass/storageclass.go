@@ -32,6 +32,11 @@ func Colder(to, from string) bool {
 	return coldness[to] > coldness[from]
 }
 
+// Known reports whether class is one an object can be written in.
+func Known(class string) bool {
+	return class == Standard || class == ReducedRedundancy || Transitional(class)
+}
+
 // Transitional reports whether a lifecycle rule can move objects to class.
 func Transitional(class string) bool {
 	_, ok := coldness[class]

@@ -556,6 +556,9 @@ func wholeCopyHeaders(bucket string, obj *object.Object) http.Header {
 	if obj.ContentLanguage != "" {
 		h.Set("Content-Language", obj.ContentLanguage)
 	}
+	if obj.Expires != "" {
+		h.Set("Expires", obj.Expires)
+	}
 	if obj.StorageClass != "" {
 		h.Set("x-amz-storage-class", obj.StorageClass)
 	}
@@ -698,6 +701,11 @@ func sendHADelete(ctx context.Context, client *ProxyClient, n *Node, localID, bu
 	req.Header.Set(HABucketHeader, bucket)
 	if specificVersionID != "" {
 		req.Header.Set(HAObjectVersionHeader, specificVersionID)
+		// A delete of the null version says when it was made: the node keeps
+		// a null version written after it.
+		if specificVersionID == metadata.NullVersionID && !markedAt.IsZero() && markedAt.Unix() > 0 {
+			req.Header.Set(HALastModifiedHeader, strconv.FormatInt(markedAt.Unix(), 10))
+		}
 	}
 	if deleteMarkerVersionID != "" {
 		req.Header.Set(HADeleteMarkerVersionHeader, deleteMarkerVersionID)
@@ -756,6 +764,8 @@ type HAMetadataOp struct {
 	Key       string          `json:"key"`
 	VersionID string          `json:"version_id,omitempty"`
 	Data      json.RawMessage `json:"data,omitempty"`
+	// BypassGovernance carries a retention change made bypassing GOVERNANCE.
+	BypassGovernance bool `json:"bypass_governance,omitempty"`
 }
 
 // fanoutMetadata delivers a metadata-only change to every other live node
@@ -898,7 +908,8 @@ func (h *HAObjectManager) SetObjectRetention(ctx context.Context, bucket, key st
 		if err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).Warn("HA fanout: failed to marshal retention config, skipping replica sync")
 		} else {
-			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-retention", Key: key, VersionID: vid, Data: data})
+			h.fanoutMetadata(ctx, bucket, HAMetadataOp{Op: "set-retention", Key: key, VersionID: vid, Data: data,
+				BypassGovernance: object.BypassesGovernance(ctx)})
 		}
 	}
 	return nil

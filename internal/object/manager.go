@@ -4,14 +4,10 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rand"
-	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
-	"hash/crc32"
 	"io"
 	"net/http"
 	"os"
@@ -86,6 +82,7 @@ type Object struct {
 	ContentEncoding    string            `json:"content_encoding,omitempty"`
 	CacheControl       string            `json:"cache_control,omitempty"`
 	ContentLanguage    string            `json:"content_language,omitempty"`
+	Expires            string            `json:"expires,omitempty"`
 	Metadata           map[string]string `json:"metadata"`
 	StorageClass       string            `json:"storage_class"`
 	ChecksumAlgorithm  string            `json:"checksum_algorithm,omitempty"`
@@ -95,6 +92,9 @@ type Object struct {
 	// WrittenAt orders two writes of one second between nodes (unix
 	// nanoseconds); internal.
 	WrittenAt int64 `json:"-"`
+	// Parts are the parts it was written in, in order, as runs of parts of
+	// one size; empty for an object written whole or before; internal.
+	Parts []metadata.PartRun `json:"-"`
 	// Locations are the cluster nodes that hold the data; internal.
 	Locations []string `json:"-"`
 	// LocationsGen numbers the change that set Locations; internal.
@@ -265,6 +265,21 @@ func generateVersionID() string {
 }
 
 type replicatedVersionIDKey struct{}
+
+// bypassGovernanceKey marks a retention change made bypassing GOVERNANCE.
+type bypassGovernanceKey struct{}
+
+// WithBypassGovernance returns a context whose retention changes may shorten
+// or remove a GOVERNANCE retention in force.
+func WithBypassGovernance(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bypassGovernanceKey{}, true)
+}
+
+// BypassesGovernance reports whether ctx bypasses GOVERNANCE.
+func BypassesGovernance(ctx context.Context) bool {
+	v, _ := ctx.Value(bypassGovernanceKey{}).(bool)
+	return v
+}
 
 // bypassQuotaEnforcementKey is a context key that skips quota limit checks in PutObject.
 // HA replica writes set this to avoid double-enforcement: the primary already validated
@@ -584,6 +599,7 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 			ContentEncoding:    storageMetadata["content-encoding"],
 			CacheControl:       storageMetadata["cache-control"],
 			ContentLanguage:    storageMetadata["content-language"],
+			Expires:            storageMetadata["expires"],
 			Metadata:           nil, // User metadata not available in sidecar path
 			StorageClass:       StorageClassStandard,
 		}
@@ -721,6 +737,14 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 
 	defer om.lockKey(bucket, key)()
 
+	// A conditional write is decided under the key's lock: two writes cannot
+	// both find the key as they need it. A copy was decided where it was taken.
+	if !isReplicaCopy(ctx) {
+		if err := om.checkWriteConditions(ctx, bucket, key, headers); err != nil {
+			return nil, err
+		}
+	}
+
 	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
@@ -729,17 +753,10 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 	defer os.Remove(tempPath)
 	defer tempFile.Close()
 
-	checksumAlgo := strings.ToUpper(headers.Get("x-amz-checksum-algorithm"))
-	var checksumHasher hash.Hash
-	switch checksumAlgo {
-	case "CRC32":
-		checksumHasher = crc32.NewIEEE()
-	case "CRC32C":
-		checksumHasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-	case "SHA1":
-		checksumHasher = sha1.New()
-	case "SHA256":
-		checksumHasher = sha256.New()
+	checksumAlgo := ChecksumAlgorithm(headers)
+	checksumHasher := NewChecksumHasher(checksumAlgo)
+	if checksumAlgo != "" && checksumHasher == nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownChecksum, checksumAlgo)
 	}
 
 	hasher := md5.New()
@@ -755,18 +772,22 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 	}
 	tempFile.Close()
 
-	originalETag := hex.EncodeToString(hasher.Sum(nil))
+	md5Sum := hasher.Sum(nil)
+	originalETag := hex.EncodeToString(md5Sum)
 	if err := checkReplicaDigest(ctx, originalETag); err != nil {
+		return nil, err
+	}
+	if err := checkContentMD5(headers, md5Sum); err != nil {
 		return nil, err
 	}
 
 	var checksumValue string
 	if checksumHasher != nil {
-		checksumValue = base64.StdEncoding.EncodeToString(checksumHasher.Sum(nil))
-		clientChecksumHeader := "x-amz-checksum-" + strings.ToLower(checksumAlgo)
-		if clientValue := headers.Get(clientChecksumHeader); clientValue != "" && clientValue != checksumValue {
-			return nil, fmt.Errorf("BadDigest: checksum mismatch for %s: expected %s got %s", checksumAlgo, clientValue, checksumValue)
+		sum := checksumHasher.Sum(nil)
+		if err := checkChecksum(headers, checksumAlgo, sum); err != nil {
+			return nil, err
 		}
+		checksumValue = base64.StdEncoding.EncodeToString(sum)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -883,6 +904,7 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		ContentEncoding:    storageMetadata["content-encoding"],
 		CacheControl:       storageMetadata["cache-control"],
 		ContentLanguage:    storageMetadata["content-language"],
+		Expires:            storageMetadata["expires"],
 		Metadata:           userMetadata,
 		StorageClass:       storageClass,
 		VersionID:          versionID,
@@ -901,11 +923,14 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 	landing := versionLanding{latest: true}
 	_, replicated := replicatedVersionIDFromContext(ctx)
 	if versioningEnabled && replicated {
-		if landing, err = om.landReplicatedVersion(ctx, bucket, key, versionID, object.LastModified, existingObjBeforeSave); err != nil {
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, versionID, object.LastModified, object.WrittenAt, existingObjBeforeSave); err != nil {
 			return nil, err
 		}
 	}
 
+	// The null version a write without a version ID replaces, while another
+	// version is current: its bytes are given back.
+	var replacedNull *metadata.ObjectMetadata
 	if versioningEnabled {
 		version := &metadata.ObjectVersion{
 			VersionID:    versionID,
@@ -924,6 +949,7 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 			return nil, fmt.Errorf("failed to save object metadata: %w", err)
 		}
 	} else {
+		replacedNull = om.replacedNullVersion(ctx, bucket, key, versionID, existingObjBeforeSave)
 		metaObj := toMetadataObject(object)
 		if err := om.metadataStore.PutObject(ctx, metaObj); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
@@ -948,6 +974,7 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 
 	// Update tenant storage quota using helper function
 	om.updateTenantQuotaAfterPut(ctx, tenantID, key, size, versioningEnabled, existingObjBeforeSave)
+	om.freeReplacedNullVersion(ctx, bucket, replacedNull)
 
 	return object, nil
 }
@@ -1005,7 +1032,21 @@ func (om *objectManager) deleteObject(ctx context.Context, bucket, key string, b
 				return "", err
 			}
 		}
-		return om.createDeleteMarker(ctx, bucket, key)
+		copiedID, _ := replicatedVersionIDFromContext(ctx)
+		if (suspended && !markerCopy) || copiedID == metadata.NullVersionID {
+			// The null delete marker replaces the null version wherever it
+			// is; a copy does not replace a null version written after it.
+			if null, err := om.metadataStore.GetObject(ctx, bucket, key, metadata.NullVersionID); err == nil && !isMetadataDeleteMarker(null) {
+				if markedAt, ok := replicatedLastModifiedFromContext(ctx); ok && markedAt.Unix() <= null.LastModified.Unix() {
+					return metadata.NullVersionID, nil
+				}
+				if err := om.deleteSpecificVersion(ctx, bucket, key, metadata.NullVersionID, bypassGovernance); err != nil && !errors.Is(err, ErrObjectNotFound) {
+					return "", err
+				}
+			}
+			return om.createDeleteMarker(ctx, bucket, key, metadata.NullVersionID)
+		}
+		return om.createDeleteMarker(ctx, bucket, key, "")
 	} else {
 		// DELETE without versioning → Legacy behavior (permanent delete)
 		return "", om.deletePermanently(ctx, bucket, key, bypassGovernance)
@@ -1035,13 +1076,16 @@ func (om *objectManager) removeCurrentWithoutVersion(ctx context.Context, bucket
 }
 
 // createDeleteMarker creates a delete marker for a versioned object
-func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key string) (string, error) {
+func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key, versionID string) (string, error) {
 	defer om.lockKey(bucket, key)()
 	existingLatest, _ := om.metadataStore.GetObject(ctx, bucket, key)
 	wasVisible := existingLatest != nil && !isMetadataDeleteMarker(existingLatest)
 
-	// Generate delete marker versionID
-	deleteMarkerVersionID := generateVersionID()
+	// The marker's version ID: the one it is given, or a new one.
+	deleteMarkerVersionID := versionID
+	if deleteMarkerVersionID == "" {
+		deleteMarkerVersionID = generateVersionID()
+	}
 	markedAt := time.Now()
 	markerWrittenAt := writtenAt(ctx, markedAt)
 	landing := versionLanding{latest: true}
@@ -1054,7 +1098,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key str
 			markedAt = lm
 		}
 		var err error
-		if landing, err = om.landReplicatedVersion(ctx, bucket, key, deleteMarkerVersionID, markedAt, existingLatest); err != nil {
+		if landing, err = om.landReplicatedVersion(ctx, bucket, key, deleteMarkerVersionID, markedAt, markerWrittenAt, existingLatest); err != nil {
 			return "", err
 		}
 		if landing.replaced != nil {
@@ -1133,6 +1177,14 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		}
 	}
 
+	// The null version while it is current is no version entry.
+	if versionToDelete == nil && versionID == metadata.NullVersionID {
+		if current, err := om.metadataStore.GetObject(ctx, bucket, key); err == nil && current.VersionID == "" {
+			versionToDelete = &metadata.ObjectVersion{VersionID: versionID, IsLatest: true, Key: key,
+				Size: current.Size, ETag: current.ETag, LastModified: current.LastModified}
+			deletingLatest = true
+		}
+	}
 	if versionToDelete == nil {
 		return ErrObjectNotFound
 	}
@@ -1836,12 +1888,14 @@ func (om *objectManager) setObjectRetention(ctx context.Context, bucket, key str
 		}
 	}
 
-	if obj.Retention != nil {
-		retentionActive := obj.Retention.RetainUntilDate.After(time.Now())
-		if retentionActive && (config == nil || config.RetainUntilDate.Before(obj.Retention.RetainUntilDate)) {
-			if obj.Retention.Mode == "COMPLIANCE" {
-				return ErrCannotShortenCompliance
-			}
+	// A retention in force only grows stricter: COMPLIANCE is kept or
+	// extended; GOVERNANCE is shortened or removed only bypassing it.
+	if old := obj.Retention; old != nil && old.RetainUntilDate.After(time.Now()) {
+		weaker := config == nil || config.RetainUntilDate.Before(old.RetainUntilDate)
+		switch {
+		case old.Mode == "COMPLIANCE" && (weaker || config.Mode != "COMPLIANCE"):
+			return ErrCannotShortenCompliance
+		case old.Mode != "COMPLIANCE" && weaker && !BypassesGovernance(ctx):
 			return ErrCannotShortenGovernance
 		}
 	}
@@ -2087,6 +2141,9 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 	storageMetadata, userMetadata := om.extractMetadataFromHeaders(headers)
 	// The canned ACL is applied once the object is written.
 	metadata := uploadMetadata(storageMetadata, userMetadata, headers.Get("x-amz-acl"))
+	if tagging := headers.Get("x-amz-tagging"); tagging != "" {
+		metadata[uploadTagging] = tagging
+	}
 	if hasObjectLockHeaders(headers) {
 		bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
 		if err != nil {
@@ -2309,7 +2366,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	defer om.lockKey(multipart.Bucket, multipart.Key)()
 
 	// Validate parts list and calculate total size
-	totalSize, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
+	totalSize, partSizes, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
 	if err != nil {
 		return nil, err
 	}
@@ -2393,18 +2450,25 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		contentType = "application/octet-stream"
 	}
 	object := &Object{
-		Key:          multipart.Key,
-		Bucket:       multipart.Bucket,
-		Size:         originalSize,
-		LastModified: time.Unix(lastModified, 0),
-		WrittenAt:    writtenAt(ctx, time.Now()),
-		Locations:    locationsFromContext(ctx),
-		ETag:         multipartETag,
-		ContentType:  contentType,
-		Metadata:     uploadUserMetadata(multipart.Metadata),
-		StorageClass: multipart.StorageClass,
-		VersionID:    versionID,
-		SSEAlgorithm: "AES256",
+		Key:                multipart.Key,
+		Bucket:             multipart.Bucket,
+		Size:               originalSize,
+		LastModified:       time.Unix(lastModified, 0),
+		WrittenAt:          writtenAt(ctx, time.Now()),
+		Locations:          locationsFromContext(ctx),
+		ETag:               multipartETag,
+		ContentType:        contentType,
+		ContentDisposition: multipart.Metadata["content-disposition"],
+		ContentEncoding:    multipart.Metadata["content-encoding"],
+		CacheControl:       multipart.Metadata["cache-control"],
+		ContentLanguage:    multipart.Metadata["content-language"],
+		Expires:            multipart.Metadata["expires"],
+		Metadata:           uploadUserMetadata(multipart.Metadata),
+		Tags:               uploadTags(multipart.Metadata),
+		Parts:              partRuns(partSizes),
+		StorageClass:       multipart.StorageClass,
+		VersionID:          versionID,
+		SSEAlgorithm:       "AES256",
 	}
 
 	object.Retention, object.LegalHold, err = completedObjectLock(multipart.Metadata, bucketMeta)
@@ -2419,6 +2483,10 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	needsCombinedFileCleanup = false
 
 	metaObj := toMetadataObject(object)
+	var replacedNull *metadata.ObjectMetadata
+	if !versioningEnabled {
+		replacedNull = om.replacedNullVersion(ctx, multipart.Bucket, multipart.Key, "", existingObj)
+	}
 	if versioningEnabled {
 		version := &metadata.ObjectVersion{
 			VersionID:    versionID,
@@ -2459,6 +2527,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 
 	// Update bucket metrics and clean up multipart data
 	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts, versioningEnabled)
+	om.freeReplacedNullVersion(ctx, multipart.Bucket, replacedNull)
 
 	return object, nil
 }
@@ -2645,7 +2714,7 @@ func (om *objectManager) validateObjectName(key string) error {
 	}
 
 	if len(key) > 1024 {
-		return ErrInvalidObjectName
+		return ErrKeyTooLong
 	}
 
 	return nil
@@ -2676,7 +2745,52 @@ func (om *objectManager) objectRef(bucket, key string) storage.ObjectRef {
 }
 
 func (om *objectManager) versionRef(bucket, key, versionID string) storage.ObjectRef {
-	return storage.ObjectRef{Bucket: bucket, Key: key, VersionID: versionID}
+	return storage.ObjectRef{Bucket: bucket, Key: key, VersionID: dataVersionID(versionID)}
+}
+
+// dataVersionID is the version a version's data is stored under: the null
+// version keeps the data it had as the object without a version.
+func dataVersionID(versionID string) string {
+	if versionID == metadata.NullVersionID {
+		return ""
+	}
+	return versionID
+}
+
+// sameVersion reports whether two version IDs name one version, the null
+// version as the object without a version or by its ID.
+func sameVersion(a, b string) bool {
+	return dataVersionID(a) == dataVersionID(b)
+}
+
+// replacedNullVersion is the null version a write without a version ID
+// replaces while another version is current: its bytes are freed.
+func (om *objectManager) replacedNullVersion(ctx context.Context, bucket, key, versionID string, current *metadata.ObjectMetadata) *metadata.ObjectMetadata {
+	if versionID != "" || current == nil || current.VersionID == "" {
+		return nil
+	}
+	null, err := om.metadataStore.GetObject(ctx, bucket, key, metadata.NullVersionID)
+	if err != nil || null.VersionID != metadata.NullVersionID || isMetadataDeleteMarker(null) {
+		return nil
+	}
+	return null
+}
+
+// freeReplacedNullVersion gives back the bytes of the null version a write
+// replaced.
+func (om *objectManager) freeReplacedNullVersion(ctx context.Context, bucket string, null *metadata.ObjectMetadata) {
+	if null == nil || null.Size == 0 || om.bucketManager == nil {
+		return
+	}
+	tenantID, bucketName := om.parseBucketPath(bucket)
+	if err := om.bucketManager.AdjustBucketSize(ctx, tenantID, bucketName, -null.Size); err != nil {
+		logrus.WithError(err).Warn("Failed to give back the bytes of the replaced null version")
+	}
+	if om.authManager != nil && tenantID != "" {
+		if err := om.authManager.DecrementTenantStorage(ctx, tenantID, null.Size); err != nil {
+			logrus.WithError(err).Warn("Failed to give back the tenant bytes of the replaced null version")
+		}
+	}
 }
 
 func (om *objectManager) loadBucketMetadata(ctx context.Context, bucketName string) (*metadata.BucketMetadata, error) {
@@ -2821,7 +2935,7 @@ func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storag
 	}
 
 	// Extract S3 system response headers that must be stored and returned verbatim
-	for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language"} {
+	for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language", "Expires"} {
 		if v := headers.Get(h); v != "" {
 			storageMetadata[strings.ToLower(h)] = v
 		}
@@ -3092,42 +3206,59 @@ func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID
 // ========== CompleteMultipartUpload Helper Functions (Refactoring for Complexity Reduction) ==========
 
 // validateAndCalculatePartsSize validates parts list and calculates total size
-func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uploadID string, parts []Part) (int64, error) {
+// partRuns are sizes as runs of parts of one size.
+func partRuns(sizes []int64) []metadata.PartRun {
+	var runs []metadata.PartRun
+	for _, size := range sizes {
+		if n := len(runs); n > 0 && runs[n-1].Size == size {
+			runs[n-1].Count++
+			continue
+		}
+		runs = append(runs, metadata.PartRun{Size: size, Count: 1})
+	}
+	return runs
+}
+
+// validateAndCalculatePartsSize checks the parts an upload is completed with
+// and gives their total size and the size of each, in order.
+func (om *objectManager) validateAndCalculatePartsSize(ctx context.Context, uploadID string, parts []Part) (int64, []int64, error) {
 	if len(parts) == 0 {
-		return 0, fmt.Errorf("no parts provided")
+		return 0, nil, fmt.Errorf("no parts provided")
 	}
 
 	// Validate requested order, part metadata, ETags, and storage presence.
 	var totalSize int64
+	sizes := make([]int64, 0, len(parts))
 	previousPartNumber := 0
 	for _, part := range parts {
 		if part.PartNumber <= previousPartNumber {
-			return 0, ErrInvalidPartOrder
+			return 0, nil, ErrInvalidPartOrder
 		}
 		previousPartNumber = part.PartNumber
 
 		partMeta, err := om.metadataStore.GetPart(ctx, uploadID, part.PartNumber)
 		if err != nil {
 			if err == metadata.ErrPartNotFound {
-				return 0, ErrInvalidPart
+				return 0, nil, ErrInvalidPart
 			}
-			return 0, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
+			return 0, nil, fmt.Errorf("failed to get part %d metadata: %w", part.PartNumber, err)
 		}
 		if part.ETag != "" && strings.Trim(part.ETag, "\"") != strings.Trim(partMeta.ETag, "\"") {
-			return 0, ErrInvalidPart
+			return 0, nil, ErrInvalidPart
 		}
 
 		exists, err := om.storage.PartExists(ctx, uploadID, part.PartNumber)
 		if err != nil {
-			return 0, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
+			return 0, nil, fmt.Errorf("failed to check part %d existence: %w", part.PartNumber, err)
 		}
 		if !exists {
-			return 0, ErrInvalidPart
+			return 0, nil, ErrInvalidPart
 		}
 		totalSize += partMeta.Size
+		sizes = append(sizes, partMeta.Size)
 	}
 
-	return totalSize, nil
+	return totalSize, sizes, nil
 }
 
 // computeMultipartETag computes the S3-spec ETag for a completed multipart upload.
@@ -3214,4 +3345,43 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 	if err := om.storage.DeleteUpload(ctx, uploadID); err != nil {
 		logrus.WithError(err).WithField("uploadID", uploadID).Warn("Left the multipart upload directory behind")
 	}
+}
+
+// checkWriteConditions holds a write to its If-Match and If-None-Match: the
+// object it replaces has to be, or not be, as they say.
+func (om *objectManager) checkWriteConditions(ctx context.Context, bucket, key string, headers http.Header) error {
+	ifMatch, ifNoneMatch := headers.Get("If-Match"), headers.Get("If-None-Match")
+	if ifMatch == "" && ifNoneMatch == "" {
+		return nil
+	}
+	current, err := om.metadataStore.GetObject(ctx, bucket, key)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
+		return err
+	}
+	exists := err == nil && current != nil && !isMetadataDeleteMarker(current)
+	if ifNoneMatch != "" && exists && etagMatches(ifNoneMatch, current.ETag) {
+		return ErrPreconditionFailed
+	}
+	if ifMatch != "" {
+		if !exists {
+			return ErrObjectNotFound
+		}
+		if !etagMatches(ifMatch, current.ETag) {
+			return ErrPreconditionFailed
+		}
+	}
+	return nil
+}
+
+// etagMatches reports whether an If-Match or If-None-Match names etag: "*",
+// or one of its ETags, quoted or not.
+func etagMatches(condition, etag string) bool {
+	etag = strings.Trim(etag, `"`)
+	for _, candidate := range strings.Split(condition, ",") {
+		candidate = strings.Trim(strings.TrimPrefix(strings.TrimSpace(candidate), "W/"), `"`)
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
 }

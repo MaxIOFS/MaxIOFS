@@ -2,10 +2,12 @@ package metadata
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -470,4 +472,32 @@ func TestConcurrentObjectOperations(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 20, len(objs))
 	})
+}
+
+// A version kept latest beside a current null object, as entries written
+// before the null version was kept say, is listed as no longer the latest;
+// the current null object is listed as the null version.
+func TestAVersionBesideACurrentNullObjectIsNotTheLatest(t *testing.T) {
+	store, cleanup := setupObjectTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	pebbleStore := store.(*PebbleStore)
+	require.NoError(t, store.CreateBucket(ctx, &BucketMetadata{Name: "legacy", OwnerID: "u"}))
+	require.NoError(t, store.PutObject(ctx, &ObjectMetadata{Bucket: "legacy", Key: "k", VersionID: "v1", IsLatest: true, Size: 1, ETag: "a"}))
+	null, err := json.Marshal(&ObjectMetadata{Bucket: "legacy", Key: "k", Size: 2, ETag: "b", LastModified: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	require.NoError(t, pebbleStore.db.Set(objectKey("legacy", "k"), null, pebble.Sync))
+
+	versions, err := store.GetObjectVersions(ctx, "legacy", "k")
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+	assert.False(t, versions[0].IsLatest)
+
+	listed, err := store.ListAllObjectVersions(ctx, "legacy", "", 0)
+	require.NoError(t, err)
+	latest := map[string]bool{}
+	for _, v := range listed {
+		latest[v.VersionID] = v.IsLatest
+	}
+	assert.Equal(t, map[string]bool{"": true, "v1": false}, latest)
 }

@@ -61,6 +61,11 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) (err e
 					return fmt.Errorf("failed to delete old tag index: %w", err)
 				}
 			}
+			if obj.VersionID == "" || obj.IsLatest {
+				if err := replaceCurrent(batch, obj.Bucket, obj.Key, obj.VersionID, &existing); err != nil {
+					return err
+				}
+			}
 		}
 	} else if err != pebble.ErrNotFound {
 		return fmt.Errorf("failed to get existing object: %w", err)
@@ -100,10 +105,59 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) (err e
 	return nil
 }
 
+// replaceCurrent adds to batch what replacing current, the current entry of
+// key, with a write of versionID does to its versions, as S3 keeps them: a
+// null object a version replaces is kept as the null version; a null write
+// replaces the null version, and the version it replaces is no longer the
+// latest.
+func replaceCurrent(batch *pebble.Batch, bucket, key, versionID string, current *ObjectMetadata) error {
+	nullKey := objectVersionKey(bucket, key, NullVersionID)
+	switch {
+	case versionID != "" && versionID != NullVersionID && current.VersionID == "":
+		kept := *current
+		kept.VersionID, kept.IsLatest = NullVersionID, false
+		data, err := json.Marshal(&kept)
+		if err != nil {
+			return fmt.Errorf("failed to marshal the null version: %w", err)
+		}
+		if err := batch.Set(nullKey, data, nil); err != nil {
+			return fmt.Errorf("failed to keep the null version: %w", err)
+		}
+	case versionID == "" && current.VersionID != "":
+		if err := batch.Delete(nullKey, nil); err != nil {
+			return fmt.Errorf("failed to replace the null version: %w", err)
+		}
+		if current.VersionID == NullVersionID {
+			return nil
+		}
+		previous := *current
+		previous.IsLatest = false
+		data, err := json.Marshal(&previous)
+		if err != nil {
+			return fmt.Errorf("failed to marshal the previous version: %w", err)
+		}
+		if err := batch.Set(objectVersionKey(bucket, key, current.VersionID), data, nil); err != nil {
+			return fmt.Errorf("failed to mark the previous version: %w", err)
+		}
+	}
+	return nil
+}
+
 // GetObject retrieves object metadata; optionally retrieves a specific version.
+// The null version is the current entry while it has no version ID.
 func (s *PebbleStore) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*ObjectMetadata, error) {
 	if bucket == "" || key == "" {
 		return nil, ErrInvalidKey
+	}
+	if len(versionID) > 0 && versionID[0] == NullVersionID {
+		current, err := s.GetObject(ctx, bucket, key)
+		if err == nil && current.VersionID == "" {
+			return current, nil
+		}
+		if err != nil && err != ErrObjectNotFound {
+			return nil, err
+		}
+		return s.getObjectEntry(objectVersionKey(bucket, key, NullVersionID), bucket, key)
 	}
 
 	var objKey []byte
@@ -456,6 +510,16 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 	defer batch.Close() //nolint:errcheck
 
 	if version.IsLatest {
+		if currentData, err := s.pebbleGet(objectKey(obj.Bucket, obj.Key)); err == nil {
+			var current ObjectMetadata
+			if err := json.Unmarshal(currentData, &current); err == nil {
+				if err := replaceCurrent(batch, obj.Bucket, obj.Key, version.VersionID, &current); err != nil {
+					return err
+				}
+			}
+		} else if err != pebble.ErrNotFound {
+			return fmt.Errorf("failed to get the current object: %w", err)
+		}
 		// Read existing versions and mark them as not-latest
 		prefix := []byte(fmt.Sprintf("version:%s:%s:", obj.Bucket, obj.Key))
 		iter, err := s.pebbleIter(prefix)
@@ -565,6 +629,13 @@ func (s *PebbleStore) GetObjectVersions(ctx context.Context, bucket, key string)
 	if err := iter.Error(); err != nil {
 		return nil, fmt.Errorf("failed during version list: %w", err)
 	}
+	// While a null object is current no version is the latest, whatever an
+	// entry written before that was kept says.
+	if current, err := s.getObjectEntry(objectKey(bucket, key), bucket, key); err == nil && current.VersionID == "" {
+		for _, v := range versions {
+			v.IsLatest = false
+		}
+	}
 
 	sort.Slice(versions, func(i, j int) bool {
 		return versions[i].LastModified.After(versions[j].LastModified)
@@ -636,7 +707,9 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 				s.logger.WithError(err).Warn("Failed to unmarshal object")
 				continue
 			}
-			if keysWithVersions[obj.Key] {
+			// A key with versions is listed by them, but for a current null
+			// object, which is no version entry.
+			if keysWithVersions[obj.Key] && obj.VersionID != "" {
 				continue
 			}
 			if prefix != "" && !strings.HasPrefix(obj.Key, prefix) {
@@ -660,6 +733,19 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 		_ = oIter.Close()
 		if oIterErr != nil {
 			return nil, fmt.Errorf("failed iterating objects: %w", oIterErr)
+		}
+	}
+
+	// While a null object is current no version of its key is the latest.
+	nullCurrent := make(map[string]bool)
+	for _, v := range allVersions {
+		if v.VersionID == "" {
+			nullCurrent[v.Key] = true
+		}
+	}
+	for _, v := range allVersions {
+		if v.VersionID != "" && nullCurrent[v.Key] {
+			v.IsLatest = false
 		}
 	}
 
@@ -748,10 +834,22 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 	defer mu.Unlock()
 
 	versionKey := objectVersionKey(bucket, key, versionID)
-	if _, err := s.pebbleGet(versionKey); err == pebble.ErrNotFound {
-		return ErrVersionNotFound
-	} else if err != nil {
-		return fmt.Errorf("failed to get version: %w", err)
+	objKey := objectKey(bucket, key)
+	mainData, mainErr := s.pebbleGet(objKey)
+	if mainErr != nil && mainErr != pebble.ErrNotFound {
+		return fmt.Errorf("failed to read the main object entry: %w", mainErr)
+	}
+	var main ObjectMetadata
+	mainFound := mainErr == nil && json.Unmarshal(mainData, &main) == nil
+	// The null version while it is current is the main entry alone.
+	nullCurrent := versionID == NullVersionID && mainFound && main.VersionID == ""
+
+	if !nullCurrent {
+		if _, err := s.pebbleGet(versionKey); err == pebble.ErrNotFound {
+			return ErrVersionNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to get version: %w", err)
+		}
 	}
 
 	batch := s.db.NewBatch()
@@ -760,22 +858,17 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 	if err := batch.Delete(versionKey, nil); err != nil {
 		return fmt.Errorf("failed to delete version in batch: %w", err)
 	}
+	if nullCurrent {
+		for tagKey, tagValue := range main.Tags {
+			if err := batch.Delete(tagIndexKey(bucket, tagKey, tagValue, key), nil); err != nil {
+				return fmt.Errorf("failed to delete tag index: %w", err)
+			}
+		}
+	}
 
 	// Does the main entry describe the version being removed? If it describes a
 	// different one, it is already correct and must not be touched.
-	objKey := objectKey(bucket, key)
-	mainData, err := s.pebbleGet(objKey)
-	if err != nil && err != pebble.ErrNotFound {
-		return fmt.Errorf("failed to read the main object entry: %w", err)
-	}
-
-	mainPointsAtDeleted := false
-	if err == nil {
-		var main ObjectMetadata
-		if err := json.Unmarshal(mainData, &main); err == nil {
-			mainPointsAtDeleted = main.VersionID == versionID
-		}
-	}
+	mainPointsAtDeleted := nullCurrent || (mainFound && main.VersionID == versionID)
 
 	if mainPointsAtDeleted {
 		next, err := s.newestRemainingVersion(bucket, key, versionID)
@@ -1108,4 +1201,26 @@ func (s *PebbleStore) searchObjectsWithTags(ctx context.Context, bucket, prefix,
 		}
 	}
 	return objects, page.nextMarker(), nil
+}
+
+// getObjectEntry reads the entry stored at entryKey.
+func (s *PebbleStore) getObjectEntry(entryKey []byte, bucket, key string) (*ObjectMetadata, error) {
+	data, err := s.pebbleGet(entryKey)
+	if err == pebble.ErrNotFound {
+		return nil, ErrObjectNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object: %w", err)
+	}
+	var obj ObjectMetadata
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal object: %w", err)
+	}
+	if obj.Bucket == "" {
+		obj.Bucket = bucket
+	}
+	if obj.Key == "" {
+		obj.Key = key
+	}
+	return &obj, nil
 }

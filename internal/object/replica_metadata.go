@@ -141,7 +141,7 @@ func (om *objectManager) PutReplicaMetadata(ctx context.Context, meta *metadata.
 		if err := validateReplicatedVersionID(entry.VersionID); err != nil {
 			return err
 		}
-		landing, err := om.landReplicatedVersion(ctx, bucket, key, entry.VersionID, entry.LastModified, existing)
+		landing, err := om.landReplicatedVersion(ctx, bucket, key, entry.VersionID, entry.LastModified, entry.WrittenAt, existing)
 		if err != nil {
 			return err
 		}

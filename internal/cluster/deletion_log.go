@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
+	"github.com/maxiofs/maxiofs/internal/metadata"
 )
 
 // Entity type constants for the deletion log
@@ -213,9 +215,18 @@ func DeletionTime(ctx context.Context, db *sql.DB, entityType, entityID string) 
 }
 
 // VersionDeleted reports whether this node deleted the version or delete
-// marker of key. A copy of it from a node that missed the delete is not stored.
-func VersionDeleted(ctx context.Context, db *sql.DB, bucket, key, versionID string) bool {
-	return versionID != "" && DeletionTime(ctx, db, EntityTypeObjectVersion, ObjectVersionTombstoneID(bucket, key, versionID)) > 0
+// marker of key a copy written at written is of: a copy from a node that
+// missed the delete is not stored. The null version is written again under
+// the same ID, so its delete counts only for a copy written before it.
+func VersionDeleted(ctx context.Context, db *sql.DB, bucket, key, versionID string, written time.Time) bool {
+	if versionID == "" {
+		return false
+	}
+	deletedAt := DeletionTime(ctx, db, EntityTypeObjectVersion, ObjectVersionTombstoneID(bucket, key, versionID))
+	if versionID == metadata.NullVersionID {
+		return deletedAt > 0 && written.Unix() < deletedAt
+	}
+	return deletedAt > 0
 }
 
 // KeyDeletedAfter reports whether this node deleted a key after a write made

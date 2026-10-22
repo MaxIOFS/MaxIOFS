@@ -273,9 +273,12 @@ func signRequestV4(req *http.Request, accessKey, secretKey, region, service stri
 	req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
 	req.Header.Set("Host", req.Host)
 
-	// Calculate payload hash
-	var payloadHash string
-	if req.Body != nil {
+	// Calculate payload hash; a streaming or unsigned payload set by the
+	// caller is signed as it is.
+	payloadHash := req.Header.Get("X-Amz-Content-Sha256")
+	if strings.HasPrefix(payloadHash, "STREAMING-") || payloadHash == "UNSIGNED-PAYLOAD" || strings.HasPrefix(payloadHash, "forced:") {
+		payloadHash = strings.TrimPrefix(payloadHash, "forced:")
+	} else if req.Body != nil {
 		bodyBytes, _ := io.ReadAll(req.Body)
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		hash := sha256.Sum256(bodyBytes)
@@ -292,7 +295,8 @@ func signRequestV4(req *http.Request, accessKey, secretKey, region, service stri
 		canonicalURI = "/"
 	}
 
-	canonicalQueryString := req.URL.Query().Encode()
+	// SigV4 encodes a space as %20, not as a form does.
+	canonicalQueryString := strings.ReplaceAll(req.URL.Query().Encode(), "+", "%20")
 
 	// Canonical headers (sorted)
 	var headerNames []string
