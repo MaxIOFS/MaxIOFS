@@ -52,7 +52,7 @@
   "totalRequests": "Всего запросов",
   "sinceStartup": "С момента запуска",
   "totalErrors": "Всего ошибок",
-  "failedRequests": "Неудачных запросов",
+  "serverErrorsOnly": "Только 5xx · отклонено {{n}} (4xx)",
   "errorsCount": "{{n}} ошибок",
   "successRate": "Процент успеха",
   "requestSuccess": "Успешных запросов",

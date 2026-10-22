@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bufio"
+	"net"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -98,4 +102,39 @@ func TestEnableClusterTLSRejectsAfterShutdownStarts(t *testing.T) {
 	s.shuttingDown.Store(true)
 
 	require.ErrorIs(t, s.enableClusterTLS(), errServerShuttingDown)
+}
+
+// A shutdown ends the console's notification streams: a browser that keeps
+// one open does not hold the process.
+func TestAShutdownEndsTheNotificationStreams(t *testing.T) {
+	s := newClusterTestNode(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = s.consoleServer.Serve(ln) }()
+
+	admin := &auth.User{ID: "stream-admin", Username: "stream-admin", Status: auth.UserStatusActive,
+		Roles: []string{auth.RoleAdmin}, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+	require.NoError(t, s.authManager.CreateUser(t.Context(), admin))
+	token, err := s.authManager.GenerateJWT(t.Context(), admin)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodGet, "http://"+ln.Addr().String()+"/api/v1/notifications/stream", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	first, err := bufio.NewReader(resp.Body).ReadString('\n')
+	require.NoError(t, err)
+	require.Contains(t, first, "connected", "the stream is open")
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.shutdown()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the shutdown waits on the open stream")
+	}
 }

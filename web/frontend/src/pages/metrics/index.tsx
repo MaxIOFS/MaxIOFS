@@ -574,7 +574,7 @@ export default function MetricsPage() {
                   title={t('totalErrors')}
                   value={formatNumber(s3Metrics.totalErrors || 0)}
                   icon={XCircle}
-                  description={t('failedRequests')}
+                  description={t('serverErrorsOnly', { n: formatNumber(s3Metrics.totalRefused || 0) })}
                   color="error"
                 />
                 <MetricCard compact
@@ -698,7 +698,7 @@ export default function MetricsPage() {
                         title={t('totalErrors')}
                         value={formatNumber(s3Metrics.totalErrors || 0)}
                         icon={AlertCircle}
-                        description={t('failedRequests')}
+                        description={t('serverErrorsOnly', { n: formatNumber(s3Metrics.totalRefused || 0) })}
                         color="error"
                       />
                       <MetricCard compact

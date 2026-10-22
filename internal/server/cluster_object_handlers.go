@@ -1100,21 +1100,7 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 
 	// Forward all object metadata as headers so the receiver can reconstruct it.
 	w.Header().Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		w.Header().Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		w.Header().Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		w.Header().Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		w.Header().Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.Expires != "" {
-		w.Header().Set("Expires", obj.Expires)
-	}
+	obj.SetStoredHeaders(w.Header())
 	if obj.StorageClass != "" {
 		w.Header().Set("x-amz-storage-class", obj.StorageClass)
 	}

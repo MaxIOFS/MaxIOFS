@@ -8,9 +8,9 @@ import (
 // Where each Server field is released at shutdown. A stoppable field missing
 // here fails the test below.
 var lifecycleRelease = map[string]string{
-	"httpServer":     "shutdown(): httpServer.Shutdown",
-	"consoleServer":  "shutdown(): consoleServer.Shutdown",
-	"clusterServer":  "shutdown(): shutdownClusterServer under clusterServerMu",
+	"httpServer":     "shutdown(): stopHTTPServer",
+	"consoleServer":  "shutdown(): stopHTTPServer, its notification streams ended on shutdown",
+	"clusterServer":  "shutdown(): stopClusterServer under clusterServerMu",
 	"storageBackend": "shutdown(): storageBackend.Close",
 	"metadataStore":  "shutdown(): metadataStore.Close, last",
 	"db":             "owned by authManager, closed by its Close",

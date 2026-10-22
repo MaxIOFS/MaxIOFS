@@ -58,8 +58,9 @@ func TracingMiddleware(next http.Handler) http.Handler {
 		// Calculate duration
 		duration := time.Since(startTime)
 
-		// Determine success based on status code
-		success := wrapped.statusCode >= 200 && wrapped.statusCode < 400
+		// A refusal (4xx), a probe for a key that is not there among them, is
+		// the client's: only what the server failed (5xx) is an error.
+		success := wrapped.statusCode < 500
 
 		// Record latency and throughput in performance collector
 		if collector := metrics.GetGlobalPerformanceCollector(); collector != nil && operation != "" {

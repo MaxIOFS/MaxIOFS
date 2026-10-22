@@ -52,7 +52,7 @@
   "totalRequests": "Richieste totali",
   "sinceStartup": "Dall'avvio",
   "totalErrors": "Errori totali",
-  "failedRequests": "Richieste non riuscite",
+  "serverErrorsOnly": "Solo 5xx · {{n}} rifiutate (4xx)",
   "errorsCount": "{{n}} errori",
   "successRate": "Tasso di successo",
   "requestSuccess": "Richieste riuscite",

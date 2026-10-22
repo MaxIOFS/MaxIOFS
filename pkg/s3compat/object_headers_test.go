@@ -1,38 +1,21 @@
 package s3compat
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/xml"
-	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// uploadInParts writes path in a multipart upload started with headers, one
-// part for each of parts, and gives the answer to its completion.
-func (env *s3TestEnv) uploadInParts(t *testing.T, path string, headers map[string]string, parts ...[]byte) *httptest.ResponseRecorder {
-	t.Helper()
-	created := env.sendSigned("POST", path+"?uploads", nil, headers)
-	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
-	var upload InitiateMultipartUploadResult
-	require.NoError(t, xml.Unmarshal(created.Body.Bytes(), &upload))
-	var complete strings.Builder
-	complete.WriteString("<CompleteMultipartUpload>")
-	for i, data := range parts {
-		w := env.sendSigned("PUT", fmt.Sprintf("%s?partNumber=%d&uploadId=%s", path, i+1, upload.UploadId), data, nil)
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		fmt.Fprintf(&complete, "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>", i+1, w.Header().Get("ETag"))
-	}
-	complete.WriteString("</CompleteMultipartUpload>")
-	return env.sendSigned("POST", path+"?uploadId="+upload.UploadId, []byte(complete.String()), nil)
-}
 
 // An object gives back the headers it was written with, written whole, in
 // parts or copied; one written in parts keeps the tags it was started with.
@@ -136,4 +119,69 @@ func TestS3AReadIsSentWithTheHeadersItAsksFor(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "<Code>InvalidRequest</Code>")
 	assert.Equal(t, http.StatusOK, anonymousGet(acls.handler, "avatars", "09.png").Code, "an anonymous read that asks nothing is served")
+}
+
+// A read, GET or HEAD, tells how many tags the object has and whether it is
+// restored, in the headers SDKs read.
+func TestS3AReadTellsTheTagCountAndTheRestore(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "told", env.userID))
+	w := env.sendSigned("PUT", "/told/k", []byte("data"), map[string]string{"X-Amz-Tagging": "a=1&b=2"})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	expires := time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, env.objectManager.SetRestoreStatus(t.Context(), env.tenantID+"/told", "k", "restored", &expires))
+	for _, method := range []string{"GET", "HEAD"} {
+		got := env.sendSigned(method, "/told/k", nil, nil)
+		require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+		assert.Equal(t, "2", got.Header().Get("X-Amz-Tagging-Count"), method)
+		assert.Equal(t, `ongoing-request="false", expiry-date="Wed, 01 Jan 2031 00:00:00 GMT"`, got.Header().Get("X-Amz-Restore"), method)
+	}
+}
+
+// An ETag is sent between double quotes, as S3 and HTTP send it, in every
+// header and listing; it is kept without them, and a condition takes it
+// either way.
+func TestS3AnETagIsSentQuoted(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "quoted", env.userID))
+	data := []byte("data")
+	sum := md5.Sum(data)
+	quoted := `"` + hex.EncodeToString(sum[:]) + `"`
+
+	w := env.sendSigned("PUT", "/quoted/k", data, nil)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, quoted, w.Header().Get("ETag"), "PUT")
+	for _, method := range []string{"GET", "HEAD"} {
+		assert.Equal(t, quoted, env.sendSigned(method, "/quoted/k", nil, nil).Header().Get("ETag"), method)
+	}
+	stored, err := env.objectManager.GetObjectMetadata(t.Context(), env.tenantID+"/quoted", "k")
+	require.NoError(t, err)
+	assert.Equal(t, hex.EncodeToString(sum[:]), stored.ETag, "kept without quotes")
+
+	inXML := func(body string) {
+		t.Helper()
+		assert.Contains(t, body, "<ETag>&#34;"+hex.EncodeToString(sum[:])+"&#34;</ETag>")
+	}
+	inXML(env.sendSigned("GET", "/quoted/?list-type=2", nil, nil).Body.String())
+	inXML(env.sendSigned("GET", "/quoted/", nil, nil).Body.String())
+	inXML(env.sendSigned("GET", "/quoted?versions", nil, nil).Body.String())
+	inXML(env.sendSigned("PUT", "/quoted/copy", nil, map[string]string{"X-Amz-Copy-Source": "/quoted/k"}).Body.String())
+
+	created := env.sendSigned("POST", "/quoted/parts?uploads", nil, nil)
+	var upload InitiateMultipartUploadResult
+	require.NoError(t, xml.Unmarshal(created.Body.Bytes(), &upload))
+	part := env.sendSigned("PUT", "/quoted/parts?partNumber=1&uploadId="+upload.UploadId, data, nil)
+	assert.Equal(t, quoted, part.Header().Get("ETag"), "UploadPart")
+	inXML(env.sendSigned("GET", "/quoted/parts?uploadId="+upload.UploadId, nil, nil).Body.String())
+	done := env.sendSigned("POST", "/quoted/parts?uploadId="+upload.UploadId,
+		[]byte("<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"+quoted+"</ETag></Part></CompleteMultipartUpload>"), nil)
+	require.NotContains(t, done.Body.String(), "<Error>")
+	assert.Contains(t, done.Body.String(), "<ETag>&#34;", "CompleteMultipartUpload")
+
+	for _, condition := range []string{quoted, hex.EncodeToString(sum[:])} {
+		got := env.sendSigned("GET", "/quoted/k", nil, map[string]string{"If-None-Match": condition})
+		assert.Equal(t, http.StatusNotModified, got.Code, condition)
+	}
 }

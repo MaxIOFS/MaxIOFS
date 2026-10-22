@@ -15,10 +15,15 @@ const (
 	uploadTagging        = "tagging:query"
 )
 
-var uploadStorageKeys = map[string]bool{
-	"content-type": true, "content-disposition": true, "content-encoding": true,
-	"cache-control": true, "content-language": true, "expires": true, "storage-class": true,
-}
+// uploadStorageKeys are the storage fields an upload keeps: its content type,
+// its class and the headers an object keeps.
+var uploadStorageKeys = func() map[string]bool {
+	keys := map[string]bool{"content-type": true, "storage-class": true}
+	for _, h := range StoredHeaders {
+		keys[strings.ToLower(h)] = true
+	}
+	return keys
+}()
 
 // uploadMetadata builds the map an upload keeps.
 func uploadMetadata(storage, user map[string]string, cannedACL string) map[string]string {

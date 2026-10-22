@@ -40,6 +40,7 @@ func sdkClient(t *testing.T, s *Server) *s3.Client {
 	})
 }
 
+// readAll is the body of a read whose headers are checked too.
 func readAll(t *testing.T, out *s3.GetObjectOutput, err error) string {
 	t.Helper()
 	require.NoError(t, err)
@@ -87,8 +88,7 @@ func TestAKeyIsTheBytesItIs(t *testing.T) {
 		require.NoError(t, err, key)
 	}
 	for _, key := range keys {
-		got, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("keys"), Key: aws.String(key)})
-		assert.Equal(t, "data of "+key, readAll(t, got, err), key)
+		assert.Equal(t, "data of "+key, getBody(t, c, "keys", key), key)
 	}
 	listed, err := c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("keys")})
 	require.NoError(t, err)
@@ -107,4 +107,72 @@ func TestAKeyIsTheBytesItIs(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, s3Status(err), "%.20s: %v", key, err)
 		assert.ErrorContains(t, err, code, "%.20s", key)
 	}
+}
+
+// A key with an empty segment is kept and read on every node, in whole
+// copies or in shards: it is not another key between nodes.
+func TestAKeyIsTheBytesItIsOnEveryNode(t *testing.T) {
+	for _, setup := range []struct {
+		name  string
+		build func(t *testing.T) *haCluster
+	}{
+		{"copies", func(t *testing.T) *haCluster {
+			c := newHACluster(t, 2, 2)
+			require.NoError(t, c.nodes[0].bucketManager.CreateBucket(context.Background(), "", "keys", routingAdminID))
+			return c
+		}},
+		{"shards", func(t *testing.T) *haCluster { return newParityCluster(t, 3, "keys") }},
+	} {
+		t.Run(setup.name, func(t *testing.T) {
+			c := setup.build(t)
+			ctx := context.Background()
+			keys := []string{"a//double", "a/double", "trailing//", "con espacios.txt", "ñandú/acción.txt", "emoji-😀.txt",
+				"plus+sign", "percent%20literal", "hash#tag", "question?mark", "amp&eq=x", "colon:semi;comma,",
+				"trailing-space ", "tilde~star*", "brackets[1](2){3}", "quote'apos"}
+			for _, key := range keys {
+				_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("keys"), Key: aws.String(key),
+					Body: bytes.NewReader(append(payload(300<<10), key...))})
+				require.NoError(t, err, key)
+			}
+			for _, n := range c.nodes {
+				for _, key := range keys {
+					assert.True(t, bytes.Equal(append(payload(300<<10), key...), getBytes(t, n.s3, "keys", key)), "%s on %s", key, n.id)
+				}
+			}
+		})
+	}
+}
+
+// The console reaches a key with an empty segment: a delete of a//b deletes
+// it, not a/b.
+func TestTheConsoleReachesAKeyWithAnEmptySegment(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("keys")})
+	require.NoError(t, err)
+	for _, key := range []string{"a//double", "a/double"} {
+		_, err := c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("keys"), Key: aws.String(key), Body: strings.NewReader(key)})
+		require.NoError(t, err)
+	}
+	admin := &auth.User{ID: "console-admin", Username: "console-admin", Status: auth.UserStatusActive,
+		Roles: []string{auth.RoleAdmin}, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+	require.NoError(t, s.authManager.CreateUser(ctx, admin))
+	token, err := s.authManager.GenerateJWT(ctx, admin)
+	require.NoError(t, err)
+	console := httptest.NewServer(s.consoleServer.Handler)
+	t.Cleanup(console.Close)
+
+	req, err := http.NewRequest(http.MethodDelete, console.URL+"/api/v1/buckets/keys/objects/a%2F%2Fdouble", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Less(t, resp.StatusCode, 300, "the delete is answered, not redirected")
+
+	_, err = c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String("keys"), Key: aws.String("a//double")})
+	assert.Equal(t, http.StatusNotFound, s3Status(err), "a//double is deleted")
+	_, err = c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String("keys"), Key: aws.String("a/double")})
+	assert.NoError(t, err, "a/double is kept")
 }

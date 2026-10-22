@@ -74,3 +74,39 @@ func TestBucketUsageLeavesTheConfigurationDate(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, after.UpdatedAt.Equal(before.UpdatedAt))
 }
+
+// A change made here is later than the version it replaces, whatever this
+// node's clock says: two changes within one tick of a coarse clock, or a
+// version from a node whose clock is ahead, would else leave a change that no
+// other node takes.
+func TestABucketChangeIsLaterThanTheVersionItReplaces(t *testing.T) {
+	s, cleanup := setupPebbleTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	ahead := time.Now().Add(time.Hour)
+	applied, err := s.ApplyBucketReplica(ctx, &BucketMetadata{Name: "b", CreatedAt: ahead, UpdatedAt: ahead})
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	previous := ahead
+	for range 3 {
+		b, err := s.GetBucket(ctx, "", "b")
+		require.NoError(t, err)
+		b.Versioning = &VersioningMetadata{Status: "Enabled"}
+		require.NoError(t, s.UpdateBucket(ctx, b))
+		got, err := s.GetBucket(ctx, "", "b")
+		require.NoError(t, err)
+		require.True(t, got.UpdatedAt.After(previous), "%v is not after %v", got.UpdatedAt, previous)
+		previous = got.UpdatedAt
+	}
+
+	other, otherCleanup := setupPebbleTestStore(t)
+	defer otherCleanup()
+	got, err := s.GetBucket(ctx, "", "b")
+	require.NoError(t, err)
+	_, err = other.ApplyBucketReplica(ctx, &BucketMetadata{Name: "b", CreatedAt: ahead, UpdatedAt: ahead})
+	require.NoError(t, err)
+	applied, err = other.ApplyBucketReplica(ctx, got)
+	require.NoError(t, err)
+	assert.True(t, applied, "the other node takes the change")
+}

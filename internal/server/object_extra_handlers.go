@@ -84,45 +84,18 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Reconstruct the original HTTP headers so PutObject preserves all metadata
-	headers := make(http.Header)
-	ct := srcObj.ContentType
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	headers.Set("Content-Type", ct)
-	headers.Set("Content-Length", strconv.FormatInt(srcObj.Size, 10))
-	if srcObj.ContentDisposition != "" {
-		headers.Set("Content-Disposition", srcObj.ContentDisposition)
-	}
-	if srcObj.ContentEncoding != "" {
-		headers.Set("Content-Encoding", srcObj.ContentEncoding)
-	}
-	if srcObj.CacheControl != "" {
-		headers.Set("Cache-Control", srcObj.CacheControl)
-	}
-	if srcObj.ContentLanguage != "" {
-		headers.Set("Content-Language", srcObj.ContentLanguage)
-	}
-	if srcObj.Expires != "" {
-		headers.Set("Expires", srcObj.Expires)
-	}
-	for k, v := range srcObj.Metadata {
-		headers.Set("X-Amz-Meta-"+k, v)
-	}
-
-	// 4. Write to the new key
-	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, req.NewKey, reader, headers); err != nil {
+	// 3. Write to the new key
+	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, req.NewKey, reader, rewriteHeaders(srcObj)); err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to write object at new key: %v", err), writeErrorStatus(err))
 		return
 	}
 
-	// 5. Copy tags (best-effort; failure does not abort the rename)
+	// 4. Copy tags (best-effort; failure does not abort the rename)
 	if tags, tagErr := s.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey); tagErr == nil && tags != nil && len(tags.Tags) > 0 {
 		_ = s.objectManager.SetObjectTagging(r.Context(), bucketPath, req.NewKey, tags)
 	}
 
-	// 6. Delete the source key
+	// 5. Delete the source key
 	if _, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, false); err != nil {
 		// Data is already at the new key; log but do not return an error to the client
 		logrus.WithError(err).WithField("key", objectKey).Warn("rename: failed to delete source object after successful copy")
@@ -454,33 +427,7 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	}
 	defer reader.Close()
 
-	headers := make(http.Header)
-	ct := srcObj.ContentType
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	headers.Set("Content-Type", ct)
-	headers.Set("Content-Length", strconv.FormatInt(srcObj.Size, 10))
-	if srcObj.ContentDisposition != "" {
-		headers.Set("Content-Disposition", srcObj.ContentDisposition)
-	}
-	if srcObj.ContentEncoding != "" {
-		headers.Set("Content-Encoding", srcObj.ContentEncoding)
-	}
-	if srcObj.CacheControl != "" {
-		headers.Set("Cache-Control", srcObj.CacheControl)
-	}
-	if srcObj.ContentLanguage != "" {
-		headers.Set("Content-Language", srcObj.ContentLanguage)
-	}
-	if srcObj.Expires != "" {
-		headers.Set("Expires", srcObj.Expires)
-	}
-	for k, v := range srcObj.Metadata {
-		headers.Set("X-Amz-Meta-"+k, v)
-	}
-
-	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, objectKey, reader, headers); err != nil {
+	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, objectKey, reader, rewriteHeaders(srcObj)); err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to restore version: %v", err), writeErrorStatus(err))
 		return
 	}
@@ -526,6 +473,23 @@ func buildBucketPath(tenantID, bucketName string) string {
 		return tenantID + "/" + bucketName
 	}
 	return bucketName
+}
+
+// rewriteHeaders are the headers that write srcObj again as it is: its
+// content type, size, stored headers and user metadata.
+func rewriteHeaders(srcObj *object.Object) http.Header {
+	headers := make(http.Header)
+	ct := srcObj.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	headers.Set("Content-Type", ct)
+	headers.Set("Content-Length", strconv.FormatInt(srcObj.Size, 10))
+	srcObj.SetStoredHeaders(headers)
+	for k, v := range srcObj.Metadata {
+		headers.Set("X-Amz-Meta-"+k, v)
+	}
+	return headers
 }
 
 // isQuotaExceeded reports a write refused by a bucket or tenant quota. A

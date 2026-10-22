@@ -589,20 +589,16 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 		lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
 
 		object = &Object{
-			Key:                key,
-			Bucket:             bucket,
-			Size:               size,
-			LastModified:       time.Unix(lastModified, 0),
-			ETag:               etag,
-			ContentType:        storageMetadata["content-type"],
-			ContentDisposition: storageMetadata["content-disposition"],
-			ContentEncoding:    storageMetadata["content-encoding"],
-			CacheControl:       storageMetadata["cache-control"],
-			ContentLanguage:    storageMetadata["content-language"],
-			Expires:            storageMetadata["expires"],
-			Metadata:           nil, // User metadata not available in sidecar path
-			StorageClass:       StorageClassStandard,
+			Key:          key,
+			Bucket:       bucket,
+			Size:         size,
+			LastModified: time.Unix(lastModified, 0),
+			ETag:         etag,
+			ContentType:  storageMetadata["content-type"],
+			Metadata:     nil, // User metadata not available in sidecar path
+			StorageClass: StorageClassStandard,
 		}
+		object.takeStoredHeaders(storageMetadata)
 	}
 
 	var recorded *Object
@@ -891,28 +887,24 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 	}
 
 	object := &Object{
-		Key:                key,
-		Bucket:             bucket,
-		Size:               size,
-		LastModified:       modTime,
-		WrittenAt:          writtenAt(ctx, time.Now()),
-		Locations:          locations,
-		LocationsGen:       locationsGen,
-		ETag:               originalETag,
-		ContentType:        finalStorageMetadata["content-type"],
-		ContentDisposition: storageMetadata["content-disposition"],
-		ContentEncoding:    storageMetadata["content-encoding"],
-		CacheControl:       storageMetadata["cache-control"],
-		ContentLanguage:    storageMetadata["content-language"],
-		Expires:            storageMetadata["expires"],
-		Metadata:           userMetadata,
-		StorageClass:       storageClass,
-		VersionID:          versionID,
-		ChecksumAlgorithm:  checksumAlgo,
-		ChecksumValue:      checksumValue,
-		Retention:          retention,
-		LegalHold:          legalHold,
+		Key:               key,
+		Bucket:            bucket,
+		Size:              size,
+		LastModified:      modTime,
+		WrittenAt:         writtenAt(ctx, time.Now()),
+		Locations:         locations,
+		LocationsGen:      locationsGen,
+		ETag:              originalETag,
+		ContentType:       finalStorageMetadata["content-type"],
+		Metadata:          userMetadata,
+		StorageClass:      storageClass,
+		VersionID:         versionID,
+		ChecksumAlgorithm: checksumAlgo,
+		ChecksumValue:     checksumValue,
+		Retention:         retention,
+		LegalHold:         legalHold,
 	}
+	object.takeStoredHeaders(storageMetadata)
 	if !isFolderMarker {
 		object.SSEAlgorithm = "AES256"
 	}
@@ -2450,26 +2442,22 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		contentType = "application/octet-stream"
 	}
 	object := &Object{
-		Key:                multipart.Key,
-		Bucket:             multipart.Bucket,
-		Size:               originalSize,
-		LastModified:       time.Unix(lastModified, 0),
-		WrittenAt:          writtenAt(ctx, time.Now()),
-		Locations:          locationsFromContext(ctx),
-		ETag:               multipartETag,
-		ContentType:        contentType,
-		ContentDisposition: multipart.Metadata["content-disposition"],
-		ContentEncoding:    multipart.Metadata["content-encoding"],
-		CacheControl:       multipart.Metadata["cache-control"],
-		ContentLanguage:    multipart.Metadata["content-language"],
-		Expires:            multipart.Metadata["expires"],
-		Metadata:           uploadUserMetadata(multipart.Metadata),
-		Tags:               uploadTags(multipart.Metadata),
-		Parts:              partRuns(partSizes),
-		StorageClass:       multipart.StorageClass,
-		VersionID:          versionID,
-		SSEAlgorithm:       "AES256",
+		Key:          multipart.Key,
+		Bucket:       multipart.Bucket,
+		Size:         originalSize,
+		LastModified: time.Unix(lastModified, 0),
+		WrittenAt:    writtenAt(ctx, time.Now()),
+		Locations:    locationsFromContext(ctx),
+		ETag:         multipartETag,
+		ContentType:  contentType,
+		Metadata:     uploadUserMetadata(multipart.Metadata),
+		Tags:         uploadTags(multipart.Metadata),
+		Parts:        partRuns(partSizes),
+		StorageClass: multipart.StorageClass,
+		VersionID:    versionID,
+		SSEAlgorithm: "AES256",
 	}
+	object.takeStoredHeaders(multipart.Metadata)
 
 	object.Retention, object.LegalHold, err = completedObjectLock(multipart.Metadata, bucketMeta)
 	if err != nil {
@@ -2935,7 +2923,7 @@ func (om *objectManager) extractMetadataFromHeaders(headers http.Header) (storag
 	}
 
 	// Extract S3 system response headers that must be stored and returned verbatim
-	for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language", "Expires"} {
+	for _, h := range StoredHeaders {
 		if v := headers.Get(h); v != "" {
 			storageMetadata[strings.ToLower(h)] = v
 		}

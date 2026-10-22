@@ -52,7 +52,7 @@
   "totalRequests": "Anfragen gesamt",
   "sinceStartup": "Seit dem Start",
   "totalErrors": "Fehler gesamt",
-  "failedRequests": "Fehlgeschlagene Anfragen",
+  "serverErrorsOnly": "Nur 5xx · {{n}} abgelehnt (4xx)",
   "errorsCount": "{{n}} Fehler",
   "successRate": "Erfolgsrate",
   "requestSuccess": "Anfrageerfolg",

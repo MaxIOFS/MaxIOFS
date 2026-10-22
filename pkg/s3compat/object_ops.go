@@ -870,7 +870,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Preserve S3 system response headers from request if provided
-		for _, h := range []string{"Content-Disposition", "Content-Encoding", "Cache-Control", "Content-Language", "Expires"} {
+		for _, h := range object.StoredHeaders {
 			if v := r.Header.Get(h); v != "" {
 				headers.Set(h, v)
 			}
@@ -878,22 +878,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// COPY — preserve source object metadata.
 		headers.Set("Content-Type", sourceObj.ContentType)
-		// Propagate S3 system response headers
-		if sourceObj.ContentDisposition != "" {
-			headers.Set("Content-Disposition", sourceObj.ContentDisposition)
-		}
-		if sourceObj.ContentEncoding != "" {
-			headers.Set("Content-Encoding", sourceObj.ContentEncoding)
-		}
-		if sourceObj.CacheControl != "" {
-			headers.Set("Cache-Control", sourceObj.CacheControl)
-		}
-		if sourceObj.ContentLanguage != "" {
-			headers.Set("Content-Language", sourceObj.ContentLanguage)
-		}
-		if sourceObj.Expires != "" {
-			headers.Set("Expires", sourceObj.Expires)
-		}
+		sourceObj.SetStoredHeaders(headers)
 		for k, v := range sourceObj.Metadata {
 			headers.Set("X-Amz-Meta-"+k, v)
 		}
@@ -956,7 +941,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 
 	result := CopyObjectResult{
 		LastModified: destObj.LastModified,
-		ETag:         destObj.ETag,
+		ETag:         quoteETag(destObj.ETag),
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)

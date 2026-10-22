@@ -544,21 +544,7 @@ func wholeCopyHeaders(bucket string, obj *object.Object) http.Header {
 	SetHAAttributes(h, obj)
 	SetHALocations(h, obj)
 	h.Set("Content-Type", obj.ContentType)
-	if obj.ContentDisposition != "" {
-		h.Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		h.Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		h.Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		h.Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.Expires != "" {
-		h.Set("Expires", obj.Expires)
-	}
+	obj.SetStoredHeaders(h)
 	if obj.StorageClass != "" {
 		h.Set("x-amz-storage-class", obj.StorageClass)
 	}

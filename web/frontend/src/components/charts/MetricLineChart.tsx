@@ -12,6 +12,7 @@ import {
   TooltipProps,
 } from 'recharts';
 import { Card } from '@/components/ui/Card';
+import { timeTickLabel, timeTicks } from './timeRanges';
 
 interface DataPoint {
   [key: string]: string | number | null;
@@ -127,14 +128,12 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = React.memo(({
     return result;
   }, [processedData, timeRange, xAxisKey, dataKeys]);
 
-  // Format timestamp for display
-  const formatXAxis = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleTimeString(activeLocale(), {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  // Ticks on round times of the range, which move with it
+  const xAxisTicks = React.useMemo(
+    () => (timeRange ? timeTicks(timeRange.start, timeRange.end) : undefined),
+    [timeRange],
+  );
+  const formatXAxis = (timestamp: number) => timeTickLabel(timestamp, xAxisTicks?.step ?? 60, activeLocale());
 
   // Determine X axis domain (fixed to requested time range)
   const xAxisDomain = React.useMemo(() => {
@@ -157,7 +156,7 @@ export const MetricLineChart: React.FC<MetricLineChartProps> = React.memo(({
               className="text-xs text-muted-foreground"
               domain={xAxisDomain}
               type="number"
-              scale="time"
+              ticks={xAxisTicks?.ticks}
             />
             <YAxis
               tickFormatter={formatYAxis}

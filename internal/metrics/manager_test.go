@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,53 +155,98 @@ func TestARequestWithoutARouteNameIsUnknown(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// An error is counted by its S3 error code; a HEAD answer has no body and is
-// counted by its status.
-func TestS3ErrorsAreCountedByErrorCode(t *testing.T) {
+// A refusal (4xx), such as a backup tool's probe for a key it does not have,
+// is counted apart from an error (5xx), each by its S3 error code; a HEAD
+// answer has no body and is counted by its status.
+func TestS3RefusalsAreNotErrors(t *testing.T) {
 	m := newTestManager(t)
+	status, code := http.StatusNotFound, "NoSuchKey"
 	router := s3Router(m, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(status)
 		if r.Method != http.MethodHead {
-			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>`)
+			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>`+code+`</Code><Message>m</Message></Error>`)
 		}
 	})
 	serve(router, "GET", "/media/missing", true)
 	serve(router, "HEAD", "/media/missing", true)
+	status, code = http.StatusInternalServerError, "InternalError"
+	serve(router, "GET", "/media/broken", true)
 
-	count, _ := sample(t, m, "maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "NoSuchKey"})
-	assert.EqualValues(t, 1, count)
-	count, _ = sample(t, m, "maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "404"})
-	assert.EqualValues(t, 1, count)
-	count, _ = sample(t, m, "maxiofs_s3_operations_total", map[string]string{"operation": "GetObject", "bucket": "media", "status": "failure"})
-	assert.EqualValues(t, 2, count)
-	count, _ = sample(t, m, "maxiofs_http_requests_total", map[string]string{"method": "HEAD", "operation": "GetObject", "status": "404"})
-	assert.EqualValues(t, 1, count)
+	for _, c := range []struct {
+		name   string
+		labels map[string]string
+		want   float64
+	}{
+		{"maxiofs_s3_refused_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "NoSuchKey"}, 1},
+		{"maxiofs_s3_refused_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "404"}, 1},
+		{"maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "InternalError"}, 1},
+		{"maxiofs_s3_operations_total", map[string]string{"operation": "GetObject", "bucket": "media", "status": "refused"}, 2},
+		{"maxiofs_s3_operations_total", map[string]string{"operation": "GetObject", "bucket": "media", "status": "error"}, 1},
+		{"maxiofs_http_requests_total", map[string]string{"method": "HEAD", "operation": "GetObject", "status": "404"}, 1},
+	} {
+		count, _ := sample(t, m, c.name, c.labels)
+		assert.EqualValues(t, c.want, count, "%s%v", c.name, c.labels)
+	}
+	_, ok := sample(t, m, "maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "media", "error_type": "NoSuchKey"})
+	assert.False(t, ok, "a refusal is no error")
+}
+
+// The counters kept from before refusals were counted apart are restored but
+// their errors: that total mixed refusals in and cannot be split. The ones
+// kept since are restored whole.
+func TestAKeptErrorTotalThatMixedRefusalsInIsNotRestored(t *testing.T) {
+	store := createTestPebbleStore(t)
+	before := `{"total_requests":100,"total_errors":40,"total_latency_ms":500,"latency_count":100,"server_start_time":"2026-01-01T00:00:00Z"}`
+	require.NoError(t, store.PutRaw(context.Background(), "metrics:persisted_state", []byte(before)))
+	restored := func() map[string]interface{} {
+		t.Helper()
+		m, ok := NewManagerWithStore(config.MetricsConfig{Enable: true, Interval: 10}, "", store).(*metricsManager)
+		require.True(t, ok)
+		snapshot, err := m.GetS3MetricsSnapshot()
+		require.NoError(t, err)
+		snapshot["manager"] = m
+		return snapshot
+	}
+
+	snapshot := restored()
+	assert.EqualValues(t, 100, snapshot["totalRequests"])
+	assert.EqualValues(t, 0, snapshot["totalErrors"])
+
+	m := snapshot["manager"].(*metricsManager)
+	atomic.StoreUint64(&m.totalErrors, 3)
+	atomic.StoreUint64(&m.totalRefused, 7)
+	require.NoError(t, m.persistCounters())
+	snapshot = restored()
+	assert.EqualValues(t, 3, snapshot["totalErrors"])
+	assert.EqualValues(t, 7, snapshot["totalRefused"])
 }
 
 // A refused request does not name its bucket: anyone can send any name, and
 // each would be a new series.
 func TestARefusedRequestDoesNotNameItsBucket(t *testing.T) {
 	m := newTestManager(t)
-	code := "AccessDenied"
+	status, code := http.StatusForbidden, "AccessDenied"
 	router := s3Router(m, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
+		w.WriteHeader(status)
 		_, _ = io.WriteString(w, "<Error><Code>"+code+"</Code></Error>")
 	})
 	serve(router, "GET", "/guessed-name-1/key", false)
 	serve(router, "GET", "/guessed-name-2/key", true)
 	code = "NoSuchBucket"
 	serve(router, "GET", "/guessed-name-3", true)
-	code = "InternalError"
+	status, code = http.StatusInternalServerError, "InternalError"
 	serve(router, "GET", "/guessed-name-4/key", false)
 	serve(router, "GET", "/existing/key", true)
 
-	for _, value := range labelValues(t, m, "maxiofs_s3_errors_total") {
-		assert.NotContains(t, value, "guessed")
+	for _, family := range []string{"maxiofs_s3_errors_total", "maxiofs_s3_refused_total"} {
+		for _, value := range labelValues(t, m, family) {
+			assert.NotContains(t, value, "guessed", family)
+		}
 	}
 	count, _ := sample(t, m, "maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "existing", "error_type": "InternalError"})
 	assert.EqualValues(t, 1, count, "a signed request that failed past authentication names its bucket")
-	count, _ = sample(t, m, "maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "", "error_type": "AccessDenied"})
+	count, _ = sample(t, m, "maxiofs_s3_refused_total", map[string]string{"operation": "GetObject", "bucket": "", "error_type": "AccessDenied"})
 	assert.EqualValues(t, 2, count)
 }
 
@@ -313,17 +359,22 @@ func TestGetMetricsSnapshot(t *testing.T) {
 func TestGetS3MetricsSnapshot(t *testing.T) {
 	m := newTestManager(t)
 	router := s3Router(m, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "missing") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "missing"):
 			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "broken"):
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	})
 	serve(router, "GET", "/media/key", true)
 	serve(router, "GET", "/media/missing", true)
+	serve(router, "GET", "/media/broken", true)
 
 	snapshot, err := m.GetS3MetricsSnapshot()
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, snapshot["totalRequests"])
-	assert.EqualValues(t, 1, snapshot["totalErrors"])
+	assert.EqualValues(t, 3, snapshot["totalRequests"])
+	assert.EqualValues(t, 1, snapshot["totalErrors"], "a refusal (4xx) is no error")
+	assert.EqualValues(t, 1, snapshot["totalRefused"])
 	assert.Contains(t, snapshot, "avgLatency")
 	assert.Contains(t, snapshot, "requestsPerSec")
 }

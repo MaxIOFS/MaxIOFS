@@ -52,7 +52,7 @@
   "totalRequests": "Total Requests",
   "sinceStartup": "Since startup",
   "totalErrors": "Total Errors",
-  "failedRequests": "Failed requests",
+  "serverErrorsOnly": "5xx only · {{n}} refused (4xx)",
   "errorsCount": "{{n}} errors",
   "successRate": "Success Rate",
   "requestSuccess": "Request success",

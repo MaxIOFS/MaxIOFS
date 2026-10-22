@@ -1,8 +1,36 @@
 package object
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/maxiofs/maxiofs/internal/metadata"
 )
+
+// StoredHeaders are the headers an object keeps from its write and is read
+// with.
+var StoredHeaders = []string{"Cache-Control", "Content-Disposition", "Content-Encoding", "Content-Language", "Expires"}
+
+// storedHeaderFields are o's fields of StoredHeaders, in their order.
+func (o *Object) storedHeaderFields() []*string {
+	return []*string{&o.CacheControl, &o.ContentDisposition, &o.ContentEncoding, &o.ContentLanguage, &o.Expires}
+}
+
+// SetStoredHeaders sets in h the headers o keeps.
+func (o *Object) SetStoredHeaders(h http.Header) {
+	for i, field := range o.storedHeaderFields() {
+		if *field != "" {
+			h.Set(StoredHeaders[i], *field)
+		}
+	}
+}
+
+// takeStoredHeaders gives o the headers m holds under their lowercase names.
+func (o *Object) takeStoredHeaders(m map[string]string) {
+	for i, field := range o.storedHeaderFields() {
+		*field = m[strings.ToLower(StoredHeaders[i])]
+	}
+}
 
 // toMetadataObject converts an object.Object to metadata.ObjectMetadata
 func toMetadataObject(o *Object) *metadata.ObjectMetadata {

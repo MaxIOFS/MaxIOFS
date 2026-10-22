@@ -639,6 +639,8 @@ func New(cfg *config.Config) (*Server, error) {
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	// A notification stream never ends of itself: a shutdown ends them.
+	consoleServer.RegisterOnShutdown(notificationHub.CloseStreams)
 
 	clusterListen := cfg.ClusterListen
 	if clusterListen == "" {
@@ -1165,7 +1167,7 @@ func (s *Server) enableClusterTLS() error {
 		IdleTimeout:       120 * time.Second,
 	}
 	// Re-register cluster routes on the new server.
-	clusterRouter := mux.NewRouter()
+	clusterRouter := newRouter()
 	s.setupClusterRoutes(clusterRouter)
 	clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
 
@@ -1194,23 +1196,9 @@ func (s *Server) shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Shutdown API server
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		logrus.WithError(err).Error("Failed to shutdown API server")
-		_ = s.httpServer.Shutdown(context.Background())
-	}
-
-	// Shutdown console server
-	if err := s.consoleServer.Shutdown(ctx); err != nil {
-		logrus.WithError(err).Error("Failed to shutdown console server")
-		_ = s.consoleServer.Shutdown(context.Background())
-	}
-
-	// Shutdown cluster server
-	if err := s.shutdownClusterServer(ctx); err != nil {
-		logrus.WithError(err).Error("Failed to shutdown cluster server")
-		_ = s.shutdownClusterServer(context.Background())
-	}
+	stopHTTPServer(ctx, "API server", s.httpServer)
+	stopHTTPServer(ctx, "console server", s.consoleServer)
+	s.stopClusterServer(ctx)
 
 	if s.reg != nil {
 		s.reg.stopAll()
@@ -1263,13 +1251,21 @@ func (s *Server) shutdown() error {
 	return nil
 }
 
-func (s *Server) shutdownClusterServer(ctx context.Context) error {
+// stopHTTPServer lets srv's requests finish until ctx ends, then closes the
+// connections still open: one that does not end must not hold the shutdown.
+func stopHTTPServer(ctx context.Context, name string, srv *http.Server) {
+	if err := srv.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Errorf("The %s did not finish its requests in time; closing their connections", name)
+		_ = srv.Close()
+	}
+}
+
+func (s *Server) stopClusterServer(ctx context.Context) {
 	s.clusterServerMu.Lock()
 	defer s.clusterServerMu.Unlock()
-	if s.clusterServer == nil {
-		return nil
+	if s.clusterServer != nil {
+		stopHTTPServer(ctx, "cluster server", s.clusterServer)
 	}
-	return s.clusterServer.Shutdown(ctx)
 }
 
 // shareManagerAdapter adapts share.Manager to the interface expected by api.NewHandler
@@ -1281,11 +1277,15 @@ func (sma *shareManagerAdapter) GetShareByObject(ctx context.Context, bucketName
 	return sma.mgr.GetShareByObject(ctx, bucketName, objectKey, tenantID)
 }
 
+// newRouter is a router that takes paths as they come: a key is any string,
+// a//b and a/./b among them, not a path to clean into another.
+func newRouter() *mux.Router {
+	return mux.NewRouter().SkipClean(true)
+}
+
 func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
-	apiRouter := mux.NewRouter()
-	// A key is any string: a//b and a/./b are keys, not paths to clean.
-	apiRouter.SkipClean(true)
+	apiRouter := newRouter()
 
 	// Prometheus metrics endpoint (no auth, no middleware)
 	// Wraps with a settings check so metrics.enabled can be toggled from the UI without restart.
@@ -1473,7 +1473,7 @@ func (s *Server) setupRoutes() error {
 	))
 
 	// Setup console routes (Web UI)
-	consoleRouter := mux.NewRouter()
+	consoleRouter := newRouter()
 	s.setupConsoleRoutes(consoleRouter)
 	s.consoleRouter = consoleRouter
 
@@ -1498,7 +1498,7 @@ func (s *Server) setupRoutes() error {
 
 	// Setup cluster inter-node routes (dedicated port, not exposed to clients)
 	if s.clusterServer != nil {
-		clusterRouter := mux.NewRouter()
+		clusterRouter := newRouter()
 		s.setupClusterRoutes(clusterRouter)
 		s.clusterServer.Handler = handlers.RecoveryHandler()(clusterRouter)
 	}

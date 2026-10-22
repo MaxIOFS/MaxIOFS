@@ -109,6 +109,7 @@ type metricsManager struct {
 	s3OperationsTotal   *prometheus.CounterVec
 	s3OperationDuration *prometheus.HistogramVec
 	s3ErrorsTotal       *prometheus.CounterVec
+	s3RefusedTotal      *prometheus.CounterVec
 
 	// Storage Metrics
 	storageOperationsTotal   *prometheus.CounterVec
@@ -162,6 +163,7 @@ type metricsManager struct {
 	// Aggregate tracking for quick access
 	totalRequests     uint64
 	totalErrors       uint64
+	totalRefused      uint64
 	totalLatencyMs    uint64
 	latencyCount      uint64
 	requestsStartTime time.Time
@@ -328,7 +330,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "operations_total",
-			Help:      "S3 operations, by bucket and outcome (success below HTTP 400)",
+			Help:      "S3 operations, by bucket and outcome: success below HTTP 400, refused 4xx, error 5xx",
 		},
 		[]string{"operation", "bucket", "status"},
 	)
@@ -349,7 +351,17 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "errors_total",
-			Help:      "S3 errors, by S3 error code",
+			Help:      "S3 requests the server failed (5xx), by S3 error code",
+		},
+		[]string{"operation", "bucket", "error_type"},
+	)
+
+	m.s3RefusedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: "s3",
+			Name:      "refused_total",
+			Help:      "S3 requests refused as the client's (4xx), by S3 error code: a key that is not there, an access denied, a bad signature",
 		},
 		[]string{"operation", "bucket", "error_type"},
 	)
@@ -684,6 +696,7 @@ func (m *metricsManager) registerMetrics() {
 		m.s3OperationsTotal,
 		m.s3OperationDuration,
 		m.s3ErrorsTotal,
+		m.s3RefusedTotal,
 
 		// Storage
 		m.storageOperationsTotal,
@@ -757,11 +770,18 @@ func (m *metricsManager) recordS3Request(r *http.Request, rec *responseRecorder,
 		code = rec.errorCode()
 	}
 	bucket := bucketLabel(r, status, code)
+	// A refusal (4xx), a probe for a key that is not there among them, is
+	// the client's: only what the server failed (5xx) is an error.
 	outcome := "success"
-	if status >= 400 {
-		outcome = "failure"
+	switch {
+	case status >= 500:
+		outcome = "error"
 		m.s3ErrorsTotal.WithLabelValues(operation, bucket, code).Inc()
 		atomic.AddUint64(&m.totalErrors, 1)
+	case status >= 400:
+		outcome = "refused"
+		m.s3RefusedTotal.WithLabelValues(operation, bucket, code).Inc()
+		atomic.AddUint64(&m.totalRefused, 1)
 	}
 	m.s3OperationsTotal.WithLabelValues(operation, bucket, outcome).Inc()
 	m.s3OperationDuration.WithLabelValues(operation).Observe(duration.Seconds())
@@ -995,6 +1015,7 @@ func (m *metricsManager) GetS3MetricsSnapshot() (map[string]interface{}, error) 
 	snapshot := map[string]interface{}{
 		"totalRequests":  totalReqs,
 		"totalErrors":    totalErrs,
+		"totalRefused":   atomic.LoadUint64(&m.totalRefused),
 		"avgLatency":     avgLatency,
 		"requestsPerSec": requestsPerSec,
 		"timestamp":      time.Now().Unix(),
@@ -1040,6 +1061,18 @@ func (m *metricsManager) Middleware() func(http.Handler) http.Handler {
 
 // Lifecycle Implementation
 
+// persistedCounters are the counters kept across restarts. ServerErrorsOnly
+// marks a TotalErrors that counts server errors (5xx) alone.
+type persistedCounters struct {
+	TotalRequests    uint64    `json:"total_requests"`
+	TotalErrors      uint64    `json:"total_errors"`
+	TotalRefused     uint64    `json:"total_refused"`
+	ServerErrorsOnly bool      `json:"server_errors_only"`
+	TotalLatencyMs   uint64    `json:"total_latency_ms"`
+	LatencyCount     uint64    `json:"latency_count"`
+	ServerStartTime  time.Time `json:"server_start_time"`
+}
+
 // restorePersistedCounters loads persisted counter values from the kvStore.
 func (m *metricsManager) restorePersistedCounters() error {
 	if m.historyStore == nil {
@@ -1051,13 +1084,7 @@ func (m *metricsManager) restorePersistedCounters() error {
 		return fmt.Errorf("history store is not a BadgerHistoryStore")
 	}
 
-	var persistedState struct {
-		TotalRequests   uint64    `json:"total_requests"`
-		TotalErrors     uint64    `json:"total_errors"`
-		TotalLatencyMs  uint64    `json:"total_latency_ms"`
-		LatencyCount    uint64    `json:"latency_count"`
-		ServerStartTime time.Time `json:"server_start_time"`
-	}
+	var persistedState persistedCounters
 
 	data, err := badgerHistory.kvStore.GetRaw(context.Background(), "metrics:persisted_state")
 	if err == metadata.ErrNotFound {
@@ -1072,8 +1099,13 @@ func (m *metricsManager) restorePersistedCounters() error {
 		return fmt.Errorf("failed to unmarshal persisted state: %w", err)
 	}
 
+	if !persistedState.ServerErrorsOnly {
+		// Kept before refusals were counted apart: the total mixed them in.
+		persistedState.TotalErrors = 0
+	}
 	atomic.StoreUint64(&m.totalRequests, persistedState.TotalRequests)
 	atomic.StoreUint64(&m.totalErrors, persistedState.TotalErrors)
+	atomic.StoreUint64(&m.totalRefused, persistedState.TotalRefused)
 	atomic.StoreUint64(&m.totalLatencyMs, persistedState.TotalLatencyMs)
 	atomic.StoreUint64(&m.latencyCount, persistedState.LatencyCount)
 	m.serverStartTime = persistedState.ServerStartTime
@@ -1098,18 +1130,14 @@ func (m *metricsManager) persistCounters() error {
 		return nil
 	}
 
-	persistedState := struct {
-		TotalRequests   uint64    `json:"total_requests"`
-		TotalErrors     uint64    `json:"total_errors"`
-		TotalLatencyMs  uint64    `json:"total_latency_ms"`
-		LatencyCount    uint64    `json:"latency_count"`
-		ServerStartTime time.Time `json:"server_start_time"`
-	}{
-		TotalRequests:   atomic.LoadUint64(&m.totalRequests),
-		TotalErrors:     atomic.LoadUint64(&m.totalErrors),
-		TotalLatencyMs:  atomic.LoadUint64(&m.totalLatencyMs),
-		LatencyCount:    atomic.LoadUint64(&m.latencyCount),
-		ServerStartTime: m.serverStartTime,
+	persistedState := persistedCounters{
+		TotalRequests:    atomic.LoadUint64(&m.totalRequests),
+		TotalErrors:      atomic.LoadUint64(&m.totalErrors),
+		TotalRefused:     atomic.LoadUint64(&m.totalRefused),
+		ServerErrorsOnly: true,
+		TotalLatencyMs:   atomic.LoadUint64(&m.totalLatencyMs),
+		LatencyCount:     atomic.LoadUint64(&m.latencyCount),
+		ServerStartTime:  m.serverStartTime,
 	}
 
 	data, err := json.Marshal(persistedState)
@@ -1470,6 +1498,7 @@ func (n *noopManager) GetS3MetricsSnapshot() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"totalRequests":  0,
 		"totalErrors":    0,
+		"totalRefused":   0,
 		"avgLatency":     0.0,
 		"requestsPerSec": 0.0,
 		"timestamp":      time.Now().Unix(),

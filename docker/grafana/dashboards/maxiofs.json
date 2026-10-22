@@ -299,7 +299,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\", status=\"failure\"}[$__rate_interval])) / sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\", status=\"error\"}[$__rate_interval])) / sum(rate(maxiofs_s3_operations_total{instance=~\"$instance\"}[$__rate_interval]))",
           "refId": "A",
           "datasource": "Prometheus"
         }
@@ -519,13 +519,13 @@
     },
     {
       "type": "timeseries",
-      "title": "Errors by S3 code",
+      "title": "Server errors (5xx) by S3 code",
       "description": "A HEAD error has no body and is shown by its HTTP status.",
       "id": 11,
       "datasource": "Prometheus",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 6,
         "x": 0,
         "y": 14
       },
@@ -580,6 +580,75 @@
       "targets": [
         {
           "expr": "sum by (error_type) (rate(maxiofs_s3_errors_total{instance=~\"$instance\"}[$__rate_interval]))",
+          "refId": "A",
+          "datasource": "Prometheus",
+          "legendFormat": "{{error_type}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Refused (4xx) by S3 code",
+      "description": "A HEAD error has no body and is shown by its HTTP status.",
+      "id": 50,
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (error_type) (rate(maxiofs_s3_refused_total{instance=~\"$instance\"}[$__rate_interval]))",
           "refId": "A",
           "datasource": "Prometheus",
           "legendFormat": "{{error_type}}"

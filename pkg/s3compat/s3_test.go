@@ -380,6 +380,39 @@ func (env *s3TestEnv) makeS3Request(method, path string, body []byte) (*http.Req
 	return req, w
 }
 
+// sendSigned sends a request signed with the environment's key, with headers
+// set before it is signed.
+func (env *s3TestEnv) sendSigned(method, path string, body []byte, headers map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req.Host = "localhost"
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	signRequestV4(req, env.accessKey, env.secretKey, "us-east-1", "s3")
+	w := httptest.NewRecorder()
+	env.router.ServeHTTP(w, req)
+	return w
+}
+
+// uploadInParts writes path in a multipart upload started with headers, one
+// part for each of parts, and gives the answer to its completion.
+func (env *s3TestEnv) uploadInParts(t *testing.T, path string, headers map[string]string, parts ...[]byte) *httptest.ResponseRecorder {
+	t.Helper()
+	created := env.sendSigned("POST", path+"?uploads", nil, headers)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var upload InitiateMultipartUploadResult
+	require.NoError(t, xml.Unmarshal(created.Body.Bytes(), &upload))
+	var complete strings.Builder
+	complete.WriteString("<CompleteMultipartUpload>")
+	for i, data := range parts {
+		w := env.sendSigned("PUT", fmt.Sprintf("%s?partNumber=%d&uploadId=%s", path, i+1, upload.UploadId), data, nil)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		fmt.Fprintf(&complete, "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>", i+1, w.Header().Get("ETag"))
+	}
+	complete.WriteString("</CompleteMultipartUpload>")
+	return env.sendSigned("POST", path+"?uploadId="+upload.UploadId, []byte(complete.String()), nil)
+}
+
 func makeSignedS3Request(method, path string, body []byte, accessKey, secretKey string) (*http.Request, *httptest.ResponseRecorder) {
 	var reqBody io.Reader
 	if body != nil {

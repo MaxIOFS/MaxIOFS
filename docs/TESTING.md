@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **363 Go test files**, **15 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **359 Go test files**, **15 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -315,7 +315,7 @@ npx vitest run --coverage
 | File | Description |
 |------|-------------|
 | `bucket_concurrency_test.go` | A bucket configuration update does not lose concurrent metric increments |
-| `bucket_replica_test.go` | A bucket from another node is stored with its times when newer, keeping this node's usage; an older or equal version changes nothing; a name another tenant holds is refused. Usage does not change `UpdatedAt` |
+| `bucket_replica_test.go` | A bucket from another node is stored with its times when newer, keeping this node's usage; an older or equal version changes nothing; a name another tenant holds is refused. Usage does not change `UpdatedAt`; a change here is later than the version it replaces, from a node whose clock is ahead too |
 | `close_idempotent_test.go` | `Close` is idempotent |
 | `delete_bucket_if_empty_test.go` | A bucket holding a folder-marker object is not empty |
 | `lastmodified_test.go` | `PutObject` keeps a caller-provided `LastModified` and stamps the current time only when it is unset |
@@ -339,7 +339,7 @@ npx vitest run --coverage
 |------|-------------|
 | `badger_history_test.go` | Metrics history stored in Pebble (via RawKVStore) |
 | `history_test.go` | Metrics history aggregation |
-| `manager_test.go` | S3 requests counted by operation, not path; errors by S3 code; a refused request names no bucket; bucket usage, cache and retention read and replaced; sign-ins and every recorder |
+| `manager_test.go` | S3 requests counted by operation, not path; server errors (5xx) and refusals (4xx) apart, each by S3 code; a refused request names no bucket; an error total kept from before refusals were apart is not restored; bucket usage, cache and retention read and replaced; sign-ins and every recorder |
 | `performance_test.go` | Performance metrics tracking |
 | `system_metrics_test.go` | System resource metrics (CPU, memory, disk) |
 
@@ -350,7 +350,7 @@ npx vitest run --coverage
 | `body_digest_test.go` | A verified request body passes declared content through and rejects substituted, truncated, or unknown-algorithm content |
 | `cluster_auth_test.go` | HMAC inter-node authentication middleware |
 | `middleware_test.go` | Auth, CORS, rate limit middleware chain |
-| `tracing_test.go` | Request tracing and request ID propagation |
+| `tracing_test.go` | Request tracing and request ID propagation; an operation's errors are its 5xx answers, not its refusals |
 
 ### `internal/notifications/` — 2 test files
 
@@ -518,7 +518,7 @@ npx vitest run --coverage
 | `repair_rerun_test.go` | A factor changed while a repair runs is acted on once that repair ends |
 | `request_facts_test.go` | Bucket policy conditions see the client address and TLS; a trusted proxy's `X-Forwarded-For` and `X-Forwarded-Proto` count, a client's do not |
 | `route_ordering_test.go` | Route priority and matching order |
-| `s3_sdk_test.go` | Through the S3 router with the AWS SDK's defaults: a range of an object written with a checksum is read; `a//b` and `a/./b` are keys of their own; a key starting with `/`, with a `..` segment or too long is a `400` |
+| `s3_sdk_test.go` | Through the S3 router with the AWS SDK's defaults: a range of an object written with a checksum is sent without it; `a//b` and `a/./b` are keys of their own, on every node in copies or shards and in the console; a key starting with `/`, with a `..` segment or too long is a `400` |
 | `search_api_test.go` | Object search API endpoints |
 | `server_test.go` | Server startup, shutdown, configuration; the console keeps the lifecycle rules it does not send |
 | `sts_aws_api_test.go` | AWS STS XML actions: missing/unknown action, `GetSessionToken` signature and credential issuance |
@@ -571,7 +571,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 51 test files
+### `pkg/s3compat/` — 47 test files
 
 | File | Description |
 |------|-------------|
@@ -587,13 +587,12 @@ npx vitest run --coverage
 | `bucket_replication_test.go` | PutBucketReplication answers `NotImplemented` and names where replication rules are set; GetBucketReplication finds no configuration |
 | `bucket_limit_test.go` | A tenant's bucket limit counts every bucket the tenant has, including those its users created through the S3 API |
 | `bucket_listing_test.go` | `ListBuckets` shows exactly what the caller's policies grant, no more and no less |
-| `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256) |
-| `chunk_signature_test.go` | A body in signed chunks is checked chunk by chunk: a changed chunk, a body cut short with a last chunk not signed for it, or a changed signed trailer (as AWS documents it and as minio-go writes it) is refused with `SignatureDoesNotMatch`, and nothing is stored, as an object or a part |
-| `conditional_headers_test.go` | `If-Match`/`If-None-Match` ETag comparison |
+| `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256); a write and a part are checked against the digests they carry (Content-MD5, a checksum in a header or an aws-chunked trailer, CRC64NVME, the signed payload hash) and nothing is stored on a mismatch; a checksum is kept and returned, not with a range; a body that only looks aws-chunked is stored as it is; a body in signed chunks is checked chunk by chunk and its trailers too (as AWS documents them and as minio-go writes them) |
+| `conditional_headers_test.go` | `If-Match`/`If-None-Match` ETag comparison; a PUT with `If-Match` of another ETag or of no object is refused, of its own replaces it; of concurrent writes of a new key with `If-None-Match: *` one is taken |
 | `copy_source_test.go` | Copy source parsing, version IDs, and encoded source keys |
 | `delete_bucket_compat_test.go` | Bucket deletion allows only implicit folder markers to remain |
 | `folder_conflict_test.go` | A folder marker over a same-named object succeeds (layout v2) |
-| `governance_bypass_test.go` | Object Lock governance bypass is decided by policy, refused anonymously, and on the delete path |
+| `governance_bypass_test.go` | Object Lock governance bypass is decided by policy, refused anonymously, and on the delete path; a retention in force changes as S3 lets it: COMPLIANCE never made GOVERNANCE or shortened, GOVERNANCE shortened only bypassing it |
 | `handler_coverage_test.go` | S3 handler comprehensive coverage |
 | `iam_authorization_test.go` | An IAM read policy does not authorize a write or delete; version actions are resource-scoped |
 | `inventory_test.go` | S3 inventory API compatibility |
@@ -602,11 +601,8 @@ npx vitest run --coverage
 | `multipart_ownership_test.go` | A foreign multipart upload is refused; the owner's own upload keeps working |
 | `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
 | `multipart_retention_test.go` | Default retention applied to an S3 multipart completion |
-| `conditional_write_test.go` | `If-Match` of another ETag or of no object refused, of its own replaces it; of concurrent writes of a new key with `If-None-Match: *` one is taken |
-| `integrity_test.go` | A write and a part are checked against the digests they carry: Content-MD5, a checksum in a header or an aws-chunked trailer, CRC64NVME, the signed payload hash; nothing is stored on a mismatch and the replaced part is kept; a checksum is kept and returned, not with a range; a body that only looks aws-chunked is stored as it is |
 | `null_version_test.go` | The null version through the S3 API: kept, read and listed with `versionId=null`, replaced while suspended, a suspended delete answered `x-amz-version-id: null`, deleted by its ID |
-| `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused |
-| `object_retention_test.go` | A retention in force changes as S3 lets it: COMPLIANCE never made GOVERNANCE or shortened, bypass or not; GOVERNANCE shortened only bypassing it |
+| `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused; an ETag is sent quoted in every header and listing and kept without quotes |
 | `notifications_test.go` | Bucket notification webhook dispatch |
 | `object_lock_permissions_test.go` | Object Lock headers on PUT, CreateMultipartUpload and CopyObject need `s3:PutObjectRetention` / `s3:PutObjectLegalHold`; the bucket default needs neither; a copy carries the retention it asked for |
 | `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously |
@@ -880,7 +876,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Object | 55 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
 | Server | 63 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 42 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
-| S3 Compat | 45 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
+| S3 Compat | 41 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
@@ -896,6 +892,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 26 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **363** | |
+| **Total Go** | **359** | |
 | Frontend | 15 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, storage classes, lifecycle rules |
 | Performance | 4 | Upload, download, mixed, common |

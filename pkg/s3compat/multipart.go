@@ -324,7 +324,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return ETag in response header
-	w.Header().Set("ETag", part.ETag)
+	w.Header().Set("ETag", quoteETag(part.ETag))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -560,7 +560,7 @@ func paginateMultipartParts(parts []object.Part, partNumberMarker, maxParts int)
 		filteredParts = append(filteredParts, Part{
 			PartNumber:   part.PartNumber,
 			LastModified: part.LastModified,
-			ETag:         part.ETag,
+			ETag:         quoteETag(part.ETag),
 			Size:         part.Size,
 		})
 	}
@@ -764,7 +764,7 @@ done:
 		Location: h.buildLocationURL(r, bucketName, objectKey),
 		Bucket:   bucketName,
 		Key:      objectKey,
-		ETag:     res.obj.ETag,
+		ETag:     quoteETag(res.obj.ETag),
 	}
 	if err := xml.NewEncoder(w).Encode(result); err != nil {
 		logrus.WithError(err).Error("Failed to encode CompleteMultipartUpload response")
@@ -960,7 +960,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 
 	result := CopyPartResult{
 		LastModified: time.Now(),
-		ETag:         part.ETag,
+		ETag:         quoteETag(part.ETag),
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)

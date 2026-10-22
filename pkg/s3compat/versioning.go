@@ -216,7 +216,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 				VersionId:    item.versionID,
 				IsLatest:     item.isLatest,
 				LastModified: item.lastModified,
-				ETag:         item.etag,
+				ETag:         quoteETag(item.etag),
 				Size:         item.size,
 				Owner: Owner{
 					ID:          "maxiofs",

@@ -98,6 +98,17 @@ func (h *NotificationHub) run() {
 	}
 }
 
+// CloseStreams ends every notification stream open: a stream never ends of
+// itself and would hold a shutdown.
+func (h *NotificationHub) CloseStreams() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, client := range h.clients {
+		delete(h.clients, id)
+		close(client.messages)
+	}
+}
+
 // shouldReceiveNotification determines if a user should receive a notification
 func (h *NotificationHub) shouldReceiveNotification(user *auth.User, notif *Notification) bool {
 	// Only admins receive blocked user notifications

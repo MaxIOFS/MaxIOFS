@@ -1107,7 +1107,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		result.Contents[i] = ObjectInfo{
 			Key:          encodeStr(obj.Key),
 			LastModified: obj.LastModified,
-			ETag:         obj.ETag,
+			ETag:         quoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
 			Owner: &Owner{
@@ -1270,7 +1270,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 		info := ObjectInfo{
 			Key:          encodeStrV2(obj.Key),
 			LastModified: obj.LastModified,
-			ETag:         obj.ETag,
+			ETag:         quoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
 		}
@@ -1456,10 +1456,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		isRangeRequest = false
 	}
 
-	h.setGetObjectResponseHeaders(w, obj, isRangeRequest)
-	for name, value := range overrides {
-		w.Header().Set(name, value)
-	}
+	h.setObjectHeaders(w, r, obj, isRangeRequest)
 	if partsCount > 0 {
 		w.Header().Set("x-amz-mp-parts-count", strconv.Itoa(partsCount))
 		if rangeEnd < rangeStart {
@@ -1793,11 +1790,8 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Object exists - now check object-level ACLs for cross-tenant access
-	h.setHeadObjectResponseHeaders(w, obj)
-	for name, value := range responseOverrides(r.URL.Query()) {
-		w.Header().Set(name, value)
-	}
+	h.setObjectHeaders(w, r, obj, partsCount > 0)
+	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	if partsCount > 0 {
 		w.Header().Set("x-amz-mp-parts-count", strconv.Itoa(partsCount))
 		w.Header().Set("Content-Length", strconv.FormatInt(partEnd-partStart+1, 10))
@@ -3212,6 +3206,15 @@ func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
 }
 
+// quoteETag is an ETag as S3 and HTTP send it, between double quotes; it is
+// kept without them.
+func quoteETag(etag string) string {
+	if etag == "" {
+		return ""
+	}
+	return `"` + normalizeETag(etag) + `"`
+}
+
 // setUserMetadataHeaders writes x-amz-meta-* with the key as stored. Header.Set
 // would canonicalise it to X-Amz-Meta-Proyecto, and the client reads the case
 // back off the wire.
@@ -3221,61 +3224,54 @@ func setUserMetadataHeaders(w http.ResponseWriter, metadata map[string]string) {
 	}
 }
 
-// setGetObjectResponseHeaders sets all response headers for GetObject
-// operation. A range is sent without the object's checksum, which is not the
-// one of its bytes.
-func (h *Handler) setGetObjectResponseHeaders(w http.ResponseWriter, obj *object.Object, isRange bool) {
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	w.Header().Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
-
-	// S3 system response headers stored at upload time
-	if obj.ContentDisposition != "" {
-		w.Header().Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		w.Header().Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		w.Header().Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		w.Header().Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.Expires != "" {
-		w.Header().Set("Expires", obj.Expires)
-	}
-
+// setObjectHeaders sets the headers a read of obj is sent, GET or HEAD, and
+// those its response-* parameters ask for. A range or a part is sent without
+// the object's checksum, which is not the one of its bytes.
+func (h *Handler) setObjectHeaders(w http.ResponseWriter, r *http.Request, obj *object.Object, isRange bool) {
+	hdr := w.Header()
+	hdr.Set("Content-Type", obj.ContentType)
+	hdr.Set("ETag", quoteETag(obj.ETag))
+	hdr.Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	hdr.Set("Accept-Ranges", "bytes")
+	hdr.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	hdr.Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
+	obj.SetStoredHeaders(hdr)
 	setUserMetadataHeaders(w, obj.Metadata)
 
-	// Tag count — returned when object has tags
 	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
-		w.Header().Set("x-amz-tag-count", strconv.Itoa(len(obj.Tags.Tags)))
+		hdr.Set("x-amz-tagging-count", strconv.Itoa(len(obj.Tags.Tags)))
 	}
-
 	if obj.VersionID != "" {
-		w.Header().Set("x-amz-version-id", obj.VersionID)
+		hdr.Set("x-amz-version-id", obj.VersionID)
 	}
 
+	// Object Lock headers (Veeam compatibility)
 	if obj.Retention != nil {
-		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
-		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
+		hdr.Set("x-amz-object-lock-mode", obj.Retention.Mode)
+		hdr.Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
 	}
-
 	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
-		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
+		hdr.Set("x-amz-object-lock-legal-hold", "ON")
 	}
 
 	if !isRange && obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
-		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
-		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+		hdr.Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
+		hdr.Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
+	}
+	if obj.SSEAlgorithm != "" {
+		hdr.Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
 	}
 
-	if obj.SSEAlgorithm != "" {
-		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
+	// Restore status (S3 Glacier restore)
+	if obj.RestoreStatus == "ongoing" {
+		hdr.Set("x-amz-restore", `ongoing-request="true"`)
+	} else if obj.RestoreStatus == "restored" && obj.RestoreExpiresAt != nil {
+		hdr.Set("x-amz-restore",
+			fmt.Sprintf(`ongoing-request="false", expiry-date="%s"`, obj.RestoreExpiresAt.UTC().Format(http.TimeFormat)))
+	}
+
+	for name, value := range responseOverrides(r.URL.Query()) {
+		hdr.Set(name, value)
 	}
 }
 
@@ -3521,7 +3517,7 @@ func (h *Handler) applyObjectCannedACLHeader(ctx context.Context, bucketPath, ob
 
 // setPutObjectResponseHeaders sets response headers for PutObject operation
 func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
-	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("ETag", quoteETag(obj.ETag))
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	if obj.VersionID != "" {
@@ -3585,70 +3581,6 @@ func (h *Handler) validateHeadBucketReadPermission(
 	}).Warn("ACL permission denied for HeadObject - cross-tenant access (bucket-level)")
 	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 	return false
-}
-
-// setHeadObjectResponseHeaders sets all response headers for HeadObject operation (metadata only, no body)
-func (h *Handler) setHeadObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
-	w.Header().Set("Content-Type", obj.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
-	w.Header().Set("ETag", obj.ETag)
-	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-	w.Header().Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
-
-	// S3 system response headers stored at upload time
-	if obj.ContentDisposition != "" {
-		w.Header().Set("Content-Disposition", obj.ContentDisposition)
-	}
-	if obj.ContentEncoding != "" {
-		w.Header().Set("Content-Encoding", obj.ContentEncoding)
-	}
-	if obj.CacheControl != "" {
-		w.Header().Set("Cache-Control", obj.CacheControl)
-	}
-	if obj.ContentLanguage != "" {
-		w.Header().Set("Content-Language", obj.ContentLanguage)
-	}
-	if obj.Expires != "" {
-		w.Header().Set("Expires", obj.Expires)
-	}
-
-	setUserMetadataHeaders(w, obj.Metadata)
-
-	// Tag count — returned when object has tags
-	if obj.Tags != nil && len(obj.Tags.Tags) > 0 {
-		w.Header().Set("x-amz-tag-count", strconv.Itoa(len(obj.Tags.Tags)))
-	}
-
-	if obj.VersionID != "" {
-		w.Header().Set("x-amz-version-id", obj.VersionID)
-	}
-
-	// Object Lock headers (Veeam compatibility)
-	if obj.Retention != nil {
-		w.Header().Set("x-amz-object-lock-mode", obj.Retention.Mode)
-		w.Header().Set("x-amz-object-lock-retain-until-date", obj.Retention.RetainUntilDate.UTC().Format(time.RFC3339))
-	}
-
-	if obj.LegalHold != nil && obj.LegalHold.Status == "ON" {
-		w.Header().Set("x-amz-object-lock-legal-hold", "ON")
-	}
-
-	if obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
-		w.Header().Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
-		w.Header().Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
-	}
-
-	if obj.SSEAlgorithm != "" {
-		w.Header().Set("x-amz-server-side-encryption", obj.SSEAlgorithm)
-	}
-
-	// Restore status (S3 Glacier restore)
-	if obj.RestoreStatus == "ongoing" {
-		w.Header().Set("x-amz-restore", `ongoing-request="true"`)
-	} else if obj.RestoreStatus == "restored" && obj.RestoreExpiresAt != nil {
-		w.Header().Set("x-amz-restore",
-			fmt.Sprintf(`ongoing-request="false", expiry-date="%s"`, obj.RestoreExpiresAt.UTC().Format(http.TimeFormat)))
-	}
 }
 
 // parseObjectLockConfigXML reads and parses Object Lock configuration XML from request body

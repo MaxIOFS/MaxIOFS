@@ -52,7 +52,7 @@
   "totalRequests": "リクエスト総数",
   "sinceStartup": "起動時から",
   "totalErrors": "エラー総数",
-  "failedRequests": "失敗したリクエスト",
+  "serverErrorsOnly": "5xx のみ · 拒否 {{n}} 件 (4xx)",
   "errorsCount": "{{n}}件のエラー",
   "successRate": "成功率",
   "requestSuccess": "リクエスト成功",

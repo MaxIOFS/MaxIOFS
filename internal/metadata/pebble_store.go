@@ -331,7 +331,13 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 		bucket.TotalSize = current.TotalSize
 	}
 
+	// A change is later than the version it replaces, though two fall in one
+	// tick of a coarse clock or the version came from a node whose clock is
+	// ahead: another node takes only a later one.
 	bucket.UpdatedAt = time.Now()
+	if !bucket.UpdatedAt.After(current.UpdatedAt) {
+		bucket.UpdatedAt = current.UpdatedAt.Add(time.Nanosecond)
+	}
 	data, err := json.Marshal(bucket)
 	if err != nil {
 		return fmt.Errorf("failed to marshal bucket: %w", err)

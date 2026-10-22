@@ -52,7 +52,7 @@
   "totalRequests": "总请求数",
   "sinceStartup": "自启动以来",
   "totalErrors": "总错误数",
-  "failedRequests": "失败请求",
+  "serverErrorsOnly": "仅 5xx · 已拒绝 {{n}} (4xx)",
   "errorsCount": "{{n}} 个错误",
   "successRate": "成功率",
   "requestSuccess": "请求成功",

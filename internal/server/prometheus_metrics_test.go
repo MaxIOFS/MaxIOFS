@@ -32,6 +32,7 @@ var exportedFamilies = []string{
 	"maxiofs_s3_operations_total",
 	"maxiofs_s3_operation_duration_seconds",
 	"maxiofs_s3_errors_total",
+	"maxiofs_s3_refused_total",
 	"maxiofs_storage_operations_total",
 	"maxiofs_storage_operation_duration_seconds",
 	"maxiofs_object_operations_total",
@@ -168,6 +169,12 @@ func TestPrometheusExportsWhatTheServerDoes(t *testing.T) {
 	_, err = c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String("metered"), Key: aws.String("reports/secret-name.csv")})
 	require.NoError(t, err)
 
+	// A write in maintenance mode is a server error (503).
+	require.NoError(t, s.settingsManager.Set("system.maintenance_mode", "true"))
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("metered"), Key: aws.String("in-maintenance"), Body: bytes.NewReader([]byte("x"))})
+	require.Error(t, err)
+	require.NoError(t, s.settingsManager.Set("system.maintenance_mode", "false"))
+
 	s.notificationHub.SendNotification(&Notification{Type: "disk_warning"})
 	s.runTask(ctx, "stats_reconciler", func() error { return s.reconcileBucketStats(ctx) })
 
@@ -192,7 +199,7 @@ func TestPrometheusExportsWhatTheServerDoes(t *testing.T) {
 		{"maxiofs_http_requests_total", map[string]string{"method": "GET", "operation": "ListObjectsV2", "status": "403"}},
 		{"maxiofs_auth_attempts_total", map[string]string{"method": "s3_presigned", "status": "success"}},
 		{"maxiofs_s3_operations_total", map[string]string{"operation": "GetObject", "bucket": "metered", "status": "success"}},
-		{"maxiofs_s3_errors_total", map[string]string{"operation": "GetObject", "bucket": "metered", "error_type": "NoSuchKey"}},
+		{"maxiofs_s3_refused_total", map[string]string{"operation": "GetObject", "bucket": "metered", "error_type": "NoSuchKey"}},
 		{"maxiofs_storage_operations_total", map[string]string{"operation": "Put", "status": "success"}},
 		{"maxiofs_object_operations_total", map[string]string{"operation": "PutObject", "bucket": "metered"}},
 		{"maxiofs_auth_attempts_total", map[string]string{"method": "s3_sigv4", "status": "success"}},

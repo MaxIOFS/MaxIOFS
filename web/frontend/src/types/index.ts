@@ -694,6 +694,7 @@ export interface SystemMetrics {
 export interface S3Metrics {
   totalRequests: number;
   totalErrors: number;
+  totalRefused?: number;
   avgLatency: number;
   requestsPerSec: number;
   timestamp: number;

@@ -747,6 +747,51 @@ func TestHandleDeleteObject(t *testing.T) {
 	})
 }
 
+// A rename and a restore of a version in the console write the object again
+// as it is: its content type, the headers it keeps and its user metadata.
+func TestTheConsoleRewritesAnObjectAsItIs(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "console-rewrite"
+	cleanupTestData(t, "", bucketName)
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, "", bucketName, ""))
+	require.NoError(t, server.bucketManager.SetVersioning(ctx, "", bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+	written := http.Header{}
+	written.Set("Content-Type", "text/x-kept")
+	written.Set("Cache-Control", "max-age=60")
+	written.Set("Expires", "Tue, 01 Jan 2030 00:00:00 GMT")
+	written.Set("X-Amz-Meta-A", "1")
+	first, err := server.objectManager.PutObject(ctx, bucketName, "k", strings.NewReader("first"), written)
+	require.NoError(t, err)
+	_, err = server.objectManager.PutObject(ctx, bucketName, "k", strings.NewReader("second"), http.Header{})
+	require.NoError(t, err)
+	keeps := func(key string) {
+		t.Helper()
+		obj, err := server.objectManager.GetObjectMetadata(ctx, bucketName, key)
+		require.NoError(t, err, key)
+		assert.Equal(t, "text/x-kept", obj.ContentType, key)
+		assert.Equal(t, "max-age=60", obj.CacheControl, key)
+		assert.Equal(t, "Tue, 01 Jan 2030 00:00:00 GMT", obj.Expires, key)
+		assert.Equal(t, map[string]string{"a": "1"}, obj.Metadata, key)
+	}
+
+	req := createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/objects/k/restore",
+		strings.NewReader(`{"versionId":"`+first.VersionID+`"}`), "", "admin", true)
+	req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": "k"})
+	rr := httptest.NewRecorder()
+	server.handleRestoreObjectVersion(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	keeps("k")
+
+	req = createAuthenticatedRequest("POST", "/api/v1/buckets/"+bucketName+"/objects/k/rename",
+		strings.NewReader(`{"newKey":"renamed"}`), "", "admin", true)
+	req = mux.SetURLVars(req, map[string]string{"bucket": bucketName, "object": "k"})
+	rr = httptest.NewRecorder()
+	server.handleRenameObject(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	keeps("renamed")
+}
+
 // TestHandleGetSystemMetrics tests the handleGetSystemMetrics handler
 func TestHandleGetSystemMetrics(t *testing.T) {
 	server := getSharedServer()

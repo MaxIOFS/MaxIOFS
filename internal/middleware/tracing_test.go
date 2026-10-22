@@ -85,39 +85,45 @@ func TestTracingMiddleware_LatencyRecording(t *testing.T) {
 	}
 }
 
+// An operation's errors are the answers the server failed (5xx): a refusal
+// (4xx), such as a probe for a key that is not there, is none.
 func TestTracingMiddleware_StatusCodeCapture(t *testing.T) {
-	// Initialize performance collector
 	metrics.InitGlobalPerformanceCollector(100, 1*time.Hour)
+	collector := metrics.GetGlobalPerformanceCollector()
 
 	tests := []struct {
-		name            string
-		statusCode      int
-		expectedSuccess bool
+		name       string
+		statusCode int
+		isError    bool
 	}{
-		{"200 OK", http.StatusOK, true},
-		{"201 Created", http.StatusCreated, true},
-		{"204 No Content", http.StatusNoContent, true},
+		{"200 OK", http.StatusOK, false},
+		{"204 No Content", http.StatusNoContent, false},
+		{"304 Not Modified", http.StatusNotModified, false},
 		{"400 Bad Request", http.StatusBadRequest, false},
-		{"401 Unauthorized", http.StatusUnauthorized, false},
+		{"403 Forbidden", http.StatusForbidden, false},
 		{"404 Not Found", http.StatusNotFound, false},
-		{"500 Internal Server Error", http.StatusInternalServerError, false},
+		{"500 Internal Server Error", http.StatusInternalServerError, true},
+		{"503 Service Unavailable", http.StatusServiceUnavailable, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			collector.Reset()
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 			})
-
-			wrappedHandler := TracingMiddleware(handler)
-
-			req := httptest.NewRequest("GET", "/test", nil)
 			rr := httptest.NewRecorder()
-
-			wrappedHandler.ServeHTTP(rr, req)
-
+			TracingMiddleware(handler).ServeHTTP(rr, httptest.NewRequest("GET", "/bucket/key", nil))
 			if rr.Code != tt.statusCode {
 				t.Errorf("Expected status %d, got %d", tt.statusCode, rr.Code)
+			}
+
+			var errors int64
+			for _, stats := range collector.GetAllLatencyStats() {
+				errors += stats.ErrorCount
+			}
+			if got := errors == 1; got != tt.isError {
+				t.Errorf("status %d counted as an error: %v, want %v", tt.statusCode, got, tt.isError)
 			}
 		})
 	}
