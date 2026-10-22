@@ -277,6 +277,9 @@ func (m *Manager) performHealthCheck(endpoint string) *HealthCheckResult {
 func (m *Manager) StartHealthChecker(ctx context.Context) {
 	m.log.WithField("interval", m.healthCheckInterval).Info("Starting health checker")
 
+	// The nodes are checked at once: a node that joins holds the others as
+	// unknown, and one that restarts holds them as they were.
+	m.performHealthChecks(ctx)
 	ticker := time.NewTicker(m.healthCheckInterval)
 	defer ticker.Stop()
 
@@ -321,6 +324,28 @@ func (m *Manager) performHealthChecks(ctx context.Context) {
 			}).Warn("Health check failed")
 		}
 
+		cancel()
+	}
+}
+
+// CheckUnknownNodes checks now the nodes whose health this node has not
+// checked, as those it learned from another node or when it joined: until it
+// knows, it gives them no data and reads none of their copies or shards, and
+// the periodic check can be half a minute away.
+func (m *Manager) CheckUnknownNodes(ctx context.Context) {
+	nodes, err := m.ListNodes(ctx)
+	if err != nil {
+		m.log.WithError(err).Warn("Failed to list nodes to check the unknown ones")
+		return
+	}
+	for _, node := range nodes {
+		if node.HealthStatus != HealthStatusUnknown {
+			continue
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if _, err := m.CheckNodeHealth(checkCtx, node.ID); err != nil {
+			m.log.WithError(err).WithField("node_id", node.ID).Warn("Health check of a node not checked yet failed")
+		}
 		cancel()
 	}
 }

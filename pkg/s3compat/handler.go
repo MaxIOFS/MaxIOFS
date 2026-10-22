@@ -430,7 +430,7 @@ func (h *Handler) readPart(w http.ResponseWriter, r *http.Request, obj *object.O
 // parameters, by header name.
 func responseOverrides(query url.Values) map[string]string {
 	overrides := make(map[string]string)
-	for _, name := range []string{"Content-Type", "Content-Language", "Expires", "Cache-Control", "Content-Disposition", "Content-Encoding"} {
+	for _, name := range append([]string{"Content-Type"}, object.StoredHeaders...) {
 		if v := query.Get("response-" + strings.ToLower(name)); v != "" {
 			overrides[name] = v
 		}

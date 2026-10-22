@@ -375,15 +375,11 @@ func objectFromSidecar(path, bucketPath, key, versionID string, sidecar map[stri
 	obj := &metadata.ObjectMetadata{
 		Bucket: bucketPath, Key: key, VersionID: versionID,
 		Size: size, ETag: etag, LastModified: lastModified,
-		ContentType:        contentType,
-		ContentDisposition: sidecar["content-disposition"],
-		ContentEncoding:    sidecar["content-encoding"],
-		CacheControl:       sidecar["cache-control"],
-		ContentLanguage:    sidecar["content-language"],
-		Expires:            sidecar["expires"],
-		StorageClass:       sidecar["storage-class"],
-		LegalHold:          sidecar[storage.MetadataLegalHoldField] == "ON",
+		ContentType:  contentType,
+		StorageClass: sidecar["storage-class"],
+		LegalHold:    sidecar[storage.MetadataLegalHoldField] == "ON",
 	}
+	obj.TakeStoredHeaders(sidecar)
 	if mode := sidecar[storage.MetadataLockModeField]; mode != "" {
 		if until, err := time.Parse(time.RFC3339Nano, sidecar[storage.MetadataLockUntilField]); err == nil {
 			obj.Retention = &metadata.RetentionMetadata{Mode: mode, RetainUntilDate: until}

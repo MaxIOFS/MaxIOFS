@@ -25,6 +25,17 @@ import (
 // buildTestDeployment creates a realistic data dir with the REAL components:
 // global bucket, tenant bucket, versioned bucket, envelope-encrypted objects,
 // and exports the recovery bundle. Returns dataDir, bundlePath, passphrase.
+// keptHeaders are headers an object keeps from its write.
+func keptHeaders() http.Header {
+	h := http.Header{}
+	h.Set("Cache-Control", "max-age=60")
+	h.Set("Content-Disposition", "inline")
+	h.Set("Content-Encoding", "identity")
+	h.Set("Content-Language", "es")
+	h.Set("Expires", "Tue, 01 Jan 2030 00:00:00 GMT")
+	return h
+}
+
 func buildTestDeployment(t *testing.T) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -67,7 +78,7 @@ func buildTestDeployment(t *testing.T) (string, string, string) {
 
 	// Global bucket with two objects (one nested key).
 	require.NoError(t, bucketMgr.CreateBucket(ctx, "", "global-bucket", "admin"))
-	_, err = objMgr.PutObject(ctx, "global-bucket", "hello.txt", bytes.NewReader([]byte("global object content")), http.Header{})
+	_, err = objMgr.PutObject(ctx, "global-bucket", "hello.txt", bytes.NewReader([]byte("global object content")), keptHeaders())
 	require.NoError(t, err)
 	_, err = objMgr.PutObject(ctx, "global-bucket", "docs/nested/file.bin", bytes.NewReader(bytes.Repeat([]byte("nested "), 2000)), http.Header{})
 	require.NoError(t, err)
@@ -162,6 +173,9 @@ func TestRecovery_FullRebuild(t *testing.T) {
 	obj, err := store.GetObject(ctx, "global-bucket", "hello.txt")
 	require.NoError(t, err)
 	assert.Equal(t, int64(len("global object content")), obj.Size)
+	assert.Equal(t, [5]string{"max-age=60", "inline", "identity", "es", "Tue, 01 Jan 2030 00:00:00 GMT"},
+		[5]string{obj.CacheControl, obj.ContentDisposition, obj.ContentEncoding, obj.ContentLanguage, obj.Expires},
+		"the headers the object kept are recovered")
 
 	_, _, sidecar := objectSidecar(t, dataDir, "global-bucket", "hello.txt")
 	sidecarLM, err := strconv.ParseInt(sidecar["last_modified"], 10, 64)

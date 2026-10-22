@@ -1,6 +1,9 @@
 package metadata
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ObjectMetadata represents metadata for a stored object
 type ObjectMetadata struct {
@@ -74,6 +77,22 @@ type ObjectMetadata struct {
 	TenantID  string    `json:"tenant_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// StoredHeaders are the headers an object keeps from its write and is read
+// with.
+var StoredHeaders = []string{"Cache-Control", "Content-Disposition", "Content-Encoding", "Content-Language", "Expires"}
+
+// storedHeaderFields are o's fields of StoredHeaders, in their order.
+func (o *ObjectMetadata) storedHeaderFields() []*string {
+	return []*string{&o.CacheControl, &o.ContentDisposition, &o.ContentEncoding, &o.ContentLanguage, &o.Expires}
+}
+
+// TakeStoredHeaders gives o the headers m holds under their lowercase names.
+func (o *ObjectMetadata) TakeStoredHeaders(m map[string]string) {
+	for i, field := range o.storedHeaderFields() {
+		*field = m[strings.ToLower(StoredHeaders[i])]
+	}
 }
 
 // PartRun is a run of parts of one size.

@@ -356,6 +356,34 @@ func TestStartHealthChecker_PeriodicExecution(t *testing.T) {
 	assert.GreaterOrEqual(t, historyCount, 2, "Expected at least 2 health checks")
 }
 
+// The health checker checks the nodes when it starts, as when this node
+// joins a cluster or restarts: the nodes it holds as unknown take no data and
+// none of their shards is read, and its first periodic check is a whole
+// interval away.
+func TestStartHealthChecker_ChecksTheNodesWhenItStarts(t *testing.T) {
+	db, cleanup := setupHealthTestDB(t)
+	defer cleanup()
+	manager := createTestHealthManager(t, db)
+	manager.healthCheckInterval = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	node := &Node{Name: "joined", Endpoint: server.URL, NodeToken: "test-token"}
+	require.NoError(t, manager.AddNode(ctx, node))
+	stored, err := manager.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, HealthStatusUnknown, stored.HealthStatus)
+
+	go manager.StartHealthChecker(ctx)
+	assert.Eventually(t, func() bool {
+		n, err := manager.GetNode(ctx, node.ID)
+		return err == nil && n.InService()
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
 // TestStartHealthChecker_StopsOnContextCancel tests that health checker stops when context is cancelled
 func TestStartHealthChecker_StopsOnContextCancel(t *testing.T) {
 	db, cleanup := setupHealthTestDB(t)

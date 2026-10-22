@@ -99,6 +99,7 @@ func (s *Server) handleReceiveNodeListSync(w http.ResponseWriter, r *http.Reques
 	if len(drained) > 0 && s.deadNodeReconciler != nil {
 		s.goWorker("apply drained nodes", func() { s.deadNodeReconciler.ApplyDrains(s.backgroundContext()) })
 	}
+	s.goWorker("check new nodes", func() { s.clusterManager.CheckUnknownNodes(s.backgroundContext()) })
 
 	logrus.WithFields(logrus.Fields{
 		"source_node_id": sourceNodeID,

@@ -9,7 +9,7 @@ import (
 
 // StoredHeaders are the headers an object keeps from its write and is read
 // with.
-var StoredHeaders = []string{"Cache-Control", "Content-Disposition", "Content-Encoding", "Content-Language", "Expires"}
+var StoredHeaders = metadata.StoredHeaders
 
 // storedHeaderFields are o's fields of StoredHeaders, in their order.
 func (o *Object) storedHeaderFields() []*string {

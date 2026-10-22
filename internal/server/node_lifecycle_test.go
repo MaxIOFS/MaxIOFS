@@ -70,6 +70,31 @@ func TestARemovedNodeIsRemovedEverywhere(t *testing.T) {
 	assert.False(t, holdsNode(p.a, "gone"))
 }
 
+// A node learned from another node's membership is checked at once: until its
+// health is known it is given no data and none of its shards is read, and the
+// periodic check can be half a minute away.
+func TestANodeLearnedFromTheMembershipIsCheckedAtOnce(t *testing.T) {
+	p := newHAPair(t)
+	alive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(alive.Close)
+
+	w := httptest.NewRecorder()
+	p.a.handleReceiveNodeListSync(w, fromPeer(t, http.MethodPost, "/api/internal/cluster/node-list-sync", cluster.NodeList{
+		Nodes: []*cluster.JoinPackageNode{{ID: "joined", Name: "joined", Endpoint: alive.URL, NodeToken: "tok", Priority: 100, ChangedAt: time.Now().Unix()}},
+	}))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Eventually(t, func() bool {
+		n, err := p.a.clusterManager.GetNode(context.Background(), "joined")
+		return err == nil && n.InService()
+	}, 5*time.Second, 20*time.Millisecond, "the node is in service before the next periodic check")
+}
+
 // A node removed while it runs leaves the cluster the next time it reaches
 // a node that removed it.
 func TestARemovedNodeLeavesTheCluster(t *testing.T) {

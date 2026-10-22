@@ -191,7 +191,7 @@ npx vitest run --coverage
 | `ha_quorum_test.go` | HA write quorum behavior |
 | `ha_rollback_lock_test.go` | A write that misses HA quorum (factor 3, both peers failing) removes its local version even under COMPLIANCE retention and a legal hold |
 | `ha_url_test.go` | Cluster HA endpoint URL handling |
-| `health_test.go` | Node health checks (30s intervals) |
+| `health_test.go` | Node health checks (30s intervals); the nodes are checked when the checker starts |
 | `idp_provider_sync_test.go` | IDP provider configuration sync |
 | `leader_test.go` | Leader lease granted when free, refused while held, a stale term is fenced; a node without the lease does not name itself the coordinator |
 | `manager_test.go` | Cluster manager core operations |
@@ -432,7 +432,7 @@ npx vitest run --coverage
 | `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off |
 | `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk; a shard is passed over by reconcile and the offline rebuild |
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
-| `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone |
+| `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone, with the headers each object kept |
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
 | `review_faultcheck_test.go` | Reconcile takes the same per-key lock as a live overwrite and does not race it; a same-size same-second overwrite is still detected |
 
@@ -505,7 +505,7 @@ npx vitest run --coverage
 | `leader_gate_test.go` | Reads, sign-in (on the router's real paths) and cluster traffic are never blocked by the leader gate; two-factor settings are; a bucket's settings and objects need no coordinator, its permissions do |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
-| `node_lifecycle_test.go` | A removed node is removed on every node and not added back, and leaves when told; a leaving node is removed from the others; a drain reaches every node, which takes the node out of service once it says it holds no data; a cluster joined at runtime replicates writes; outside a cluster objects are only stored; only a node without data joins a cluster, every kind of data refusing it with what it holds |
+| `node_lifecycle_test.go` | A removed node is removed on every node and not added back, and leaves when told; a leaving node is removed from the others; a drain reaches every node, which takes the node out of service once it says it holds no data; a cluster joined at runtime replicates writes; outside a cluster objects are only stored; only a node without data joins a cluster, every kind of data refusing it with what it holds; a node learned from another node's membership is checked at once |
 | `oauth_code_any_node_test.go` | The code of an OAuth sign-in is exchanged on another node of the cluster, once |
 | `oauth_two_factor_test.go` | An OAuth sign-in of a user with two-factor authentication: the exchanged code carries the second step's token, not a session, and the user's code signs it in; without 2FA the exchange gives the session |
 | `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not. A console upload's Object Lock headers need their own permission; a tenant without a storage limit can upload |
