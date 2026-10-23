@@ -46,6 +46,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/settings"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/maxiofs/maxiofs/pkg/s3compat"
 	"github.com/sirupsen/logrus"
 )
 
@@ -1571,6 +1572,11 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 		return
 	}
 
+	// Routes match the path as sent, a key's "/" sent as %2F: x%2Ftags is the
+	// object x/tags, not the tags of x. Set before the subrouters, which copy it.
+	router.UseEncodedPath()
+	router.Use(unescapeRouteVars)
+
 	router.HandleFunc("/api/v1", s.handleAPIRoot).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/v1/", s.handleAPIRoot).Methods("GET", "OPTIONS")
 
@@ -1581,6 +1587,20 @@ func (s *Server) setupConsoleRoutes(router *mux.Router) {
 	s.RegisterProfilingRoutes(router)
 
 	router.PathPrefix("/").Handler(frontendHandler)
+}
+
+// unescapeRouteVars decodes the variables of a route matched on the path as
+// sent.
+func unescapeRouteVars(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		for name, value := range vars {
+			if unescaped, err := url.PathUnescape(value); err == nil {
+				vars[name] = unescaped
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // logS3APIRequests writes one line per request to the S3 API: what was asked,
@@ -1647,38 +1667,38 @@ func accessKeyOfRequest(r *http.Request) string {
 	return strings.SplitN(credential, "/", 2)[0]
 }
 
+// publicHost is the host name, without its port, of a public URL.
+func publicHost(publicURL string) string {
+	if parsed, err := url.Parse(publicURL); err == nil {
+		return parsed.Hostname()
+	}
+	return ""
+}
+
+// requestHost is the host name a request is sent to, without its port.
+func requestHost(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+		return host
+	}
+	return r.Host
+}
+
+// hostBucket is the bucket of a host "{bucket}.{base}", periods in it too, or
+// "" for a host not under base.
+func hostBucket(host, base string) string {
+	if base == "" || !strings.HasSuffix(host, "."+base) {
+		return ""
+	}
+	return strings.TrimSuffix(host, "."+base)
+}
+
 // virtualHostedStyleMiddleware rewrites virtual-hosted-style S3 requests to path-style
 func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.Handler {
-	// Extract the S3 API hostname (without port) from the configured public URL.
-	s3Host := ""
-	if publicAPIURL != "" {
-		if parsed, err := url.Parse(publicAPIURL); err == nil {
-			s3Host = parsed.Hostname()
-		}
-	}
+	s3Host := publicHost(publicAPIURL)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s3Host == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Extract just the hostname (without port) from the incoming request.
-		reqHost := r.Host
-		if host, _, err := net.SplitHostPort(reqHost); err == nil {
-			reqHost = host
-		}
-
-		// Virtual-hosted-style requests have the form "{bucket}.{s3Host}".
-		suffix := "." + s3Host
-		if !strings.HasSuffix(reqHost, suffix) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		bucketName := strings.TrimSuffix(reqHost, suffix)
-		if bucketName == "" || strings.Contains(bucketName, ".") {
-			// Not a valid single-label bucket subdomain.
+		bucketName := hostBucket(requestHost(r), s3Host)
+		if bucketName == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1711,25 +1731,15 @@ func virtualHostedStyleMiddleware(next http.Handler, publicAPIURL string) http.H
 func websiteServingMiddleware(s *Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		websiteHostname := s.config.WebsiteHostname
-		if websiteHostname == "" {
+		reqHost := requestHost(r)
+		bucketName := hostBucket(reqHost, websiteHostname)
+		if bucketName == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		// Extract hostname (strip port if present).
-		reqHost := r.Host
-		if host, _, err := net.SplitHostPort(reqHost); err == nil {
-			reqHost = host
-		}
-
-		suffix := "." + websiteHostname
-		if !strings.HasSuffix(reqHost, suffix) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		bucketName := strings.TrimSuffix(reqHost, suffix)
-		if bucketName == "" || strings.Contains(bucketName, ".") {
+		// The S3 host under the website host is the S3 API's, its buckets too.
+		if s3Host := publicHost(s.config.PublicAPIURL); len(s3Host) > len(websiteHostname) &&
+			(reqHost == s3Host || hostBucket(reqHost, s3Host) != "") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1809,7 +1819,7 @@ func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bu
 	// Resolve the requested URL path to an object key.
 	urlPath := path.Clean("/" + r.URL.Path)
 	if urlPath == "/" || strings.HasSuffix(r.URL.Path, "/") {
-		urlPath = urlPath + "/" + website.IndexDocument
+		urlPath = path.Join(urlPath, website.IndexDocument)
 	}
 	objectKey := strings.TrimPrefix(urlPath, "/")
 
@@ -1864,7 +1874,7 @@ func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bu
 
 		w.Header().Set("Content-Type", contentType)
 		if obj.ETag != "" {
-			w.Header().Set("ETag", `"`+obj.ETag+`"`)
+			w.Header().Set("ETag", s3compat.QuoteETag(obj.ETag))
 		}
 		w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))

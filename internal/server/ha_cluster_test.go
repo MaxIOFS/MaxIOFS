@@ -59,6 +59,9 @@ type haNode struct {
 	refuseCopies  atomic.Bool
 	refuseEntries atomic.Bool
 	shardReads    atomic.Int32
+	// refuseMetadataOps makes its cluster port fail the metadata changes it is
+	// sent, as a node that did not take one in time.
+	refuseMetadataOps atomic.Bool
 }
 
 // haCluster is n complete nodes of one cluster with a replication factor,
@@ -105,6 +108,10 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 					return
 				}
 				node.shards.Add(1)
+			}
+			if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/ha/metadata-op") && node.refuseMetadataOps.Load() {
+				http.Error(w, "refused", http.StatusInternalServerError)
+				return
 			}
 			if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/ha/object-entry") && node.refuseEntries.Load() {
 				http.Error(w, "refused", http.StatusInternalServerError)

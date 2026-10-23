@@ -99,6 +99,46 @@ func TestTurningParityOnAndOffCutsAndJoinsTheWrites(t *testing.T) {
 	}
 }
 
+// A node that missed the change of a write's placement reads the write: the
+// nodes of the new placement dropped the data its entry names, and it takes
+// the placement from them.
+func TestANodeThatMissedAPlacementReadsTheWrite(t *testing.T) {
+	c := newHACluster(t, 3, 2)
+	ctx := context.Background()
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "missed", routingAdminID))
+	data := payload(400000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("missed"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	holders := c.nodes[0].entry(t, "missed", "k").Locations
+	require.Len(t, holders, 2)
+	var reader *haNode
+	for _, n := range c.nodes {
+		if !slices.Contains(holders, n.id) {
+			reader = n
+		}
+	}
+	require.NotNil(t, reader)
+
+	reader.refuseMetadataOps.Store(true)
+	for _, n := range c.nodes {
+		require.NoError(t, n.clusterManager.SetParity(ctx, true))
+	}
+	c.repairAll(t)
+	require.Eventually(t, func() bool {
+		for _, id := range holders {
+			if c.byID(id).entry(t, "missed", "k").ECData == 0 {
+				return false
+			}
+		}
+		return true
+	}, 20*time.Second, 100*time.Millisecond)
+	require.Zero(t, reader.entry(t, "missed", "k").ECData, "the reader missed the placement")
+	reader.refuseMetadataOps.Store(false)
+
+	assert.True(t, bytes.Equal(data, getBytes(t, reader.s3, "missed", "k")))
+	assert.NotZero(t, reader.entry(t, "missed", "k").ECData, "and took it")
+}
+
 // fourWithASpare is four nodes with parity and a write cut over three of
 // them, the fourth drained while it was made (it took the entry only), then
 // taking data again.

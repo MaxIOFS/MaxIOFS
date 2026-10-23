@@ -14,25 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// uriEncode encodes a URI path according to AWS SigV4 requirements (RFC 3986).
-// It encodes all characters except: A-Z, a-z, 0-9, hyphen (-), underscore (_), period (.), tilde (~), and forward slash (/).
-func uriEncode(path string) string {
-	if path == "" {
-		return "/"
-	}
-	var encoded strings.Builder
-	for i := 0; i < len(path); i++ {
-		c := path[i]
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '-' || c == '_' || c == '.' || c == '~' || c == '/' {
-			encoded.WriteByte(c)
-		} else {
-			encoded.WriteString(fmt.Sprintf("%%%02X", c))
-		}
-	}
-	return encoded.String()
-}
-
 // ValidatePresignedURL validates a presigned URL from an HTTP request
 // Returns true if valid, false otherwise
 func ValidatePresignedURL(r *http.Request, secretAccessKey string) (bool, error) {
@@ -110,7 +91,7 @@ func ValidatePresignedURL(r *http.Request, secretAccessKey string) (bool, error)
 	}
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\nUNSIGNED-PAYLOAD",
 		r.Method,
-		uriEncode(pathForSigning),
+		auth.URIEncode(pathForSigning),
 		canonicalQuery,
 		canonicalHeaders,
 		signedHeaders,

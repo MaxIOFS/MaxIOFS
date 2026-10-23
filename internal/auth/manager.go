@@ -1853,25 +1853,20 @@ func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, 
 	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
 }
 
-// uriEncode encodes a URI path according to AWS SigV4 requirements (RFC 3986)
-// It encodes all characters except: A-Z, a-z, 0-9, hyphen (-), underscore (_), period (.), tilde (~), and forward slash (/)
-func uriEncode(path string) string {
+// URIEncode is a path escaped as SigV4 escapes it (RFC 3986): every byte but
+// A-Z, a-z, 0-9, "-", "_", ".", "~" and "/" as %XX. An empty path is "/".
+func URIEncode(path string) string {
 	if path == "" {
 		return "/"
 	}
-
-	// AWS SigV4 requires double encoding for some scenarios, but for the canonical URI
-
 	var encoded strings.Builder
 	for i := 0; i < len(path); i++ {
 		c := path[i]
-		// Check if character should not be encoded
 		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
 			c == '-' || c == '_' || c == '.' || c == '~' || c == '/' {
 			encoded.WriteByte(c)
 		} else {
-			// Encode the character as %XX
-			encoded.WriteString(fmt.Sprintf("%%%02X", c))
+			fmt.Fprintf(&encoded, "%%%02X", c)
 		}
 	}
 	return encoded.String()
@@ -1896,7 +1891,7 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 	if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
 		pathForSigning = origPath
 	}
-	uri := uriEncode(pathForSigning)
+	uri := URIEncode(pathForSigning)
 	if uri == "" {
 		uri = "/"
 	}

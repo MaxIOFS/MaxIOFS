@@ -78,9 +78,9 @@ func TestUriEncode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := uriEncode(tt.input)
+			result := URIEncode(tt.input)
 			if result != tt.expected {
-				t.Errorf("uriEncode(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("URIEncode(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

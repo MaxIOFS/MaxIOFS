@@ -134,19 +134,25 @@ func nodeIDs(nodes []*Node) []string {
 }
 
 // shardSource opens the shards of obj: this node's from its disk, the others'
-// from the nodes in service holding them.
-func (h *HAObjectManager) shardSource(ctx context.Context, client *ProxyClient, obj *object.Object, localID string) (erasure.Source, error) {
+// from the nodes holding them that admit takes. left reports whether admit
+// left out a holder that is not dead.
+func (h *HAObjectManager) shardSource(ctx context.Context, client *ProxyClient, obj *object.Object, localID string, admit func(*Node) bool) (source erasure.Source, left bool, err error) {
 	store, ok := ShardStoreOf(h.Manager)
 	if !ok {
-		return nil, fmt.Errorf("this node keeps no shards")
+		return nil, false, fmt.Errorf("this node keeps no shards")
 	}
 	nodes := make([]*Node, len(obj.Locations))
 	for i, id := range obj.Locations {
 		if id == localID {
 			continue
 		}
-		if n, err := h.mgr.GetNode(ctx, id); err == nil && n.InService() {
+		n, err := h.mgr.GetNode(ctx, id)
+		switch {
+		case err != nil:
+		case admit(n):
 			nodes[i] = n
+		case n.HealthStatus != HealthStatusDead:
+			left = true
 		}
 	}
 	return func(index int, offset int64) (io.ReadCloser, error) {
@@ -161,10 +167,15 @@ func (h *HAObjectManager) shardSource(ctx context.Context, client *ProxyClient, 
 			return nil, fmt.Errorf("node %s holding shard %d is not in service", obj.Locations[index], index)
 		}
 		return readShardFrom(ctx, client, nodes[index], localID, info, offset)
-	}, nil
+	}, left, nil
 }
 
-// openShards reads obj from its shards. Too few of them answering is
+// notDead takes every holder but a dead one: this node's view of a holder's
+// health can be behind it.
+func notDead(n *Node) bool { return n.HealthStatus != HealthStatusDead }
+
+// openShards reads obj from its shards, on the holders in service and, when
+// they are too few, on every holder not dead. Too few of them answering is
 // object.ErrDataUnavailable, before a byte is read.
 func (h *HAObjectManager) openShards(ctx context.Context, obj *object.Object) (io.ReadCloser, error) {
 	layout, _ := obj.Erasure()
@@ -172,21 +183,28 @@ func (h *HAObjectManager) openShards(ctx context.Context, obj *object.Object) (i
 	if err != nil {
 		return nil, err
 	}
-	source, err := h.shardSource(ctx, NewProxyClient(h.mgr.GetTLSConfig()), obj, localID)
-	if err != nil {
-		return nil, err
-	}
-	r := erasure.NewReader(layout, obj.Size, source)
-	if err := r.Ready(); err != nil {
+	client := NewProxyClient(h.mgr.GetTLSConfig())
+	for _, admit := range []func(*Node) bool{(*Node).InService, notDead} {
+		source, left, err := h.shardSource(ctx, client, obj, localID, admit)
+		if err != nil {
+			return nil, err
+		}
+		r := erasure.NewReader(layout, obj.Size, source)
+		err = r.Ready()
+		if err == nil {
+			return r, nil
+		}
 		r.Close()
-		if errors.Is(err, erasure.ErrTooFewShards) {
+		if !errors.Is(err, erasure.ErrTooFewShards) {
+			return nil, err
+		}
+		if !left {
 			logrus.WithError(err).WithFields(logrus.Fields{"bucket": obj.Bucket, "key": obj.Key}).
 				Warn("HA: too few shards of an object answered")
 			return nil, object.ErrDataUnavailable
 		}
-		return nil, err
 	}
-	return r, nil
+	return nil, object.ErrDataUnavailable
 }
 
 // shardSink stores one shard on its node, its bytes written to w.
@@ -266,7 +284,7 @@ func (h *HAObjectManager) stageShards(ctx context.Context, client *ProxyClient, 
 func (h *HAObjectManager) rebuildShards(ctx context.Context, client *ProxyClient, obj *object.Object, want map[int]*Node, gen int64, localID string) map[int]error {
 	errs := make(map[int]error, len(want))
 	layout, _ := obj.Erasure()
-	source, err := h.shardSource(ctx, client, obj, localID)
+	source, _, err := h.shardSource(ctx, client, obj, localID, (*Node).InService)
 	if err != nil {
 		for i := range want {
 			errs[i] = err

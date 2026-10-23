@@ -13,15 +13,19 @@ const (
 )
 
 var (
-	// Valid bucket name regex (S3 compatible)
-	validBucketNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$`)
+	// Lowercase letters, numbers, periods and hyphens, from and to a letter or
+	// a number.
+	validBucketNameRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*[a-z0-9]$`)
 
-	// Invalid patterns
-	invalidConsecutiveDashes = regexp.MustCompile(`--`)
-	ipAddressPattern         = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
+	ipAddressPattern = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
+
+	// Names S3 keeps for itself.
+	reservedBucketPrefixes = []string{"xn--", "sthree-", "amzn-s3-demo-"}
+	reservedBucketSuffixes = []string{"-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3"}
 )
 
-// ValidateBucketName validates bucket name according to S3 rules
+// ValidateBucketName validates a bucket name by the rules S3 names general
+// purpose buckets by.
 func ValidateBucketName(name string) error {
 	if name == "" {
 		return ErrInvalidBucketName
@@ -33,15 +37,13 @@ func ValidateBucketName(name string) error {
 			ErrInvalidBucketName, MinBucketNameLength, MaxBucketNameLength)
 	}
 
-	// Must start and end with alphanumeric
 	if !validBucketNameRegex.MatchString(name) {
-		return fmt.Errorf("%w: name must start and end with alphanumeric characters and contain only lowercase letters, numbers, and hyphens",
+		return fmt.Errorf("%w: name must start and end with a letter or a number and contain only lowercase letters, numbers, periods and hyphens",
 			ErrInvalidBucketName)
 	}
 
-	// Cannot contain consecutive dashes
-	if invalidConsecutiveDashes.MatchString(name) {
-		return fmt.Errorf("%w: name cannot contain consecutive dashes", ErrInvalidBucketName)
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("%w: name cannot contain two adjacent periods", ErrInvalidBucketName)
 	}
 
 	// Cannot be formatted as IP address
@@ -49,14 +51,15 @@ func ValidateBucketName(name string) error {
 		return fmt.Errorf("%w: name cannot be formatted as IP address", ErrInvalidBucketName)
 	}
 
-	// Cannot start with "xn--" (reserved for internationalized domains)
-	if strings.HasPrefix(name, "xn--") {
-		return fmt.Errorf("%w: name cannot start with 'xn--'", ErrInvalidBucketName)
+	for _, prefix := range reservedBucketPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return fmt.Errorf("%w: name cannot start with '%s'", ErrInvalidBucketName, prefix)
+		}
 	}
-
-	// Cannot end with "-s3alias" (reserved by AWS)
-	if strings.HasSuffix(name, "-s3alias") {
-		return fmt.Errorf("%w: name cannot end with '-s3alias'", ErrInvalidBucketName)
+	for _, suffix := range reservedBucketSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return fmt.Errorf("%w: name cannot end with '%s'", ErrInvalidBucketName, suffix)
+		}
 	}
 
 	return nil

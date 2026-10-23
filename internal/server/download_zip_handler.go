@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -23,6 +24,35 @@ type zipEntry struct {
 	key      string
 	size     int64
 	modified time.Time
+}
+
+// zipEntryName is the name in a ZIP of an object named name inside its folder:
+// a relative path of "/"-separated segments, as the ZIP format names a file.
+// Empty and "." segments are dropped; "..", and a drive letter first, are
+// written percent-encoded, so no entry is extracted out of its folder.
+func zipEntryName(name string) string {
+	var segments []string
+	for _, segment := range strings.Split(strings.ReplaceAll(name, `\`, "/"), "/") {
+		switch {
+		case segment == "" || segment == ".":
+			continue
+		case segment == "..":
+			segment = "%2E%2E"
+		case len(segments) == 0 && hasDriveLetter(segment):
+			segment = segment[:1] + "%3A" + segment[2:]
+		}
+		segments = append(segments, segment)
+	}
+	return strings.Join(segments, "/")
+}
+
+// hasDriveLetter reports whether a path segment starts as "C:" does.
+func hasDriveLetter(segment string) bool {
+	if len(segment) < 2 || segment[1] != ':' {
+		return false
+	}
+	c := segment[0]
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
 
 // handleDownloadZip streams all objects under a given prefix as a ZIP archive.
@@ -105,16 +135,14 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Derive a friendly filename from the last path segment ─────────────────
-	zipName := bucketName
-	if prefix != "" {
-		trimmed := strings.TrimSuffix(prefix, "/")
-		parts := strings.Split(trimmed, "/")
-		zipName = parts[len(parts)-1]
+	zipName := path.Base(zipEntryName(prefix))
+	if zipName == "." {
+		zipName = bucketName
 	}
 
 	// ── Phase 2: stream the ZIP ───────────────────────────────────────────────
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, zipName))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeFilename(zipName+".zip")))
 	w.WriteHeader(http.StatusOK)
 
 	flusher, canFlush := w.(http.Flusher)
@@ -130,11 +158,7 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Path inside the ZIP is relative to the requested prefix
-		entryName := entry.key
-		if prefix != "" {
-			entryName = strings.TrimPrefix(entry.key, prefix)
-		}
-		entryName = strings.TrimPrefix(entryName, "/")
+		entryName := zipEntryName(strings.TrimPrefix(entry.key, prefix))
 		if entryName == "" {
 			continue
 		}

@@ -144,6 +144,24 @@ func TestAWriteWithParityIsReadWithANodeDown(t *testing.T) {
 	assert.NoError(t, err, "the entry still answers")
 }
 
+// A write with parity is read from a holder the reading node holds out of
+// service when the others are too few: its view of a node's health can be
+// behind, as after a health check that timed out on a busy node.
+func TestAWriteWithParityIsReadFromAHolderThoughtOutOfService(t *testing.T) {
+	c := newParityCluster(t, 3, "parity")
+	ctx := context.Background()
+	data := payload(700000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("parity"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	locations := assertSharded(t, c, "parity", "k", "", erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock})
+
+	reader, behind := c.byID(locations[2]), c.byID(locations[1])
+	c.byID(locations[0]).down.Store(true)
+	_, err = reader.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusUnavailable, behind.id)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(data, getBytes(t, reader.s3, "parity", "k")))
+}
+
 // From five nodes a write with parity has two parity shards and is read with
 // any two nodes down.
 func TestAWriteWithParityOnFiveNodesSurvivesTwo(t *testing.T) {

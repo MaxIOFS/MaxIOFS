@@ -43,32 +43,32 @@ func TestValidateObjectName_AllCases(t *testing.T) {
 		{
 			name:      "Key with parent directory reference 1",
 			key:       "folder/../file.txt",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Key with parent directory reference 2",
 			key:       "folder/subfolder/..",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Key with parent directory reference 3",
 			key:       "../file.txt",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Key with parent directory reference 4",
 			key:       "folder/../../file.txt",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Absolute path",
 			key:       "/absolute/path.txt",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Absolute path 2",
 			key:       "/file.txt",
-			wantError: true,
+			wantError: false,
 		},
 		{
 			name:      "Key exceeding max length (1024)",

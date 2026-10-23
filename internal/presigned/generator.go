@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/maxiofs/maxiofs/internal/auth"
 )
 
 const (
@@ -71,8 +73,9 @@ func GeneratePresignedURL(params PresignedURLParams) (string, error) {
 	credentialScope := fmt.Sprintf("%s/%s/%s/%s", dateStamp, params.Region, service, requestType)
 	credential := fmt.Sprintf("%s/%s", params.AccessKeyID, credentialScope)
 
-	// Build URL path - bucket names are globally unique, no need for tenant prefix
-	urlPath := fmt.Sprintf("/%s/%s", params.Bucket, params.Key)
+	// Build URL path - bucket names are globally unique, no need for tenant prefix.
+	// The key is sent and signed escaped, as the server reads it.
+	urlPath := auth.URIEncode("/" + params.Bucket + "/" + params.Key)
 
 	// Build canonical query string
 	queryParams := make(map[string]string)

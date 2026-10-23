@@ -72,6 +72,16 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | DeleteBucketOwnershipControls | DELETE | `/{bucket}?ownershipControls` |
 | ListMultipartUploads | GET | `/{bucket}?uploads` |
 
+**Bucket name rules**: as S3 names general purpose buckets, 3 to 63 characters
+of lowercase letters, numbers, periods and hyphens, from and to a letter or a
+number; not two periods in a row, not an IP address, not starting with `xn--`,
+`sthree-` or `amzn-s3-demo-`, not ending with `-s3alias`, `--ol-s3`, `.mrap`,
+`--x-s3` or `--table-s3` (`400 InvalidBucketName`). A bucket is reached
+path-style or by its host, periods in it too: `{bucket}.{host of public_api_url}`,
+and `{bucket}.{website_hostname}` as a website. With one host under the other,
+the longer is the one a request is for. Over HTTPS a wildcard certificate covers
+one label, so a bucket with periods is sent path-style.
+
 ### Object Operations
 
 | Operation | Method | Path / Query |
@@ -88,11 +98,12 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | ListObjectsV2 | GET | `/{bucket}?list-type=2` |
 | DeleteMultipleObjects | POST | `/{bucket}?delete` |
 
-**Object key rules**: standard S3 keys up to 1024 bytes (`400 KeyTooLongError`).
-A key may not be empty, start with `/`, or contain a `..` path segment
-(`400 InvalidArgument`). A key is taken as it is: `a//b` and `a/./b` are keys of
-their own. Objects are stored under a digest of their key, so every other key is
-ordinary, including one ending in `.metadata`.
+**Object key rules**: any key S3 takes, up to 1024 bytes (`400 KeyTooLongError`);
+an empty key is `400 InvalidArgument`. A key is taken as it is: `a//b`, `a/./b`,
+`/a` and `a/../b` are keys of their own. Objects are stored under a digest of
+their key, so no key names a file, including one ending in `.metadata`. A client
+sends a `..` segment as it is only if it does not normalize the path: botocore
+(aws-cli, boto3) and the Go SDK do not, browsers do.
 
 **Missing bucket**: `DeleteObject` and `DeleteMultipleObjects` on a bucket that
 does not exist answer `404 NoSuchBucket` for the whole request.
@@ -514,7 +525,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | GET | `/api/v1/buckets/{name}/versions` | All object versions and delete markers (`?prefix=`, `?maxKeys=`) |
 | GET | `/api/v1/buckets/{name}/folder-size?prefix={prefix}` | Total size (bytes) and object count under a prefix |
 | POST | `/api/v1/buckets/{name}/download-zip-token` | Mint a download token for a folder archive |
-| GET | `/api/v1/buckets/{name}/download-zip?prefix={prefix}` | Stream objects under a prefix as a ZIP archive (max 10,000 objects / 10 GB); accepts `?downloadToken=` |
+| GET | `/api/v1/buckets/{name}/download-zip?prefix={prefix}` | Stream objects under a prefix as a ZIP archive (max 10,000 objects / 10 GB); accepts `?downloadToken=`. An entry is the key after the prefix, as a relative path: empty and `.` segments dropped, `..` and a leading drive letter percent-encoded (`%2E%2E`, `C%3A`) |
 | POST | `/api/v1/buckets/{name}/recalculate-stats` | Recalculate object count and size (admin only) |
 | POST | `/api/v1/buckets/{name}/verify-integrity` | Verify object integrity (global admin only, rate-limited) |
 | GET | `/api/v1/buckets/{name}/integrity-status` | Last integrity scan results, newest first |
@@ -583,7 +594,7 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/buckets/{bucket}/objects` | List objects |
-| GET | `/api/v1/buckets/{bucket}/objects/search` | Search objects (filters) |
+| GET | `/api/v1/buckets/{bucket}/search` | Search objects (filters) |
 | POST | `/api/v1/buckets/{bucket}/objects/{key+}/download-token` | Mint a download token for one object (valid 120 s) |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}` | Download object; accepts `?downloadToken=` |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}` | Upload object |
@@ -597,6 +608,9 @@ only while the IAM surface is enabled and `PublicAPIURL` is configured.
 | POST | `/api/v1/buckets/{bucket}/objects/{key+}/rename` | Rename object — body `{"newKey":"..."}`. Blocked for COMPLIANCE retention or active Legal Hold. |
 | GET | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Get object tags |
 | PUT | `/api/v1/buckets/{bucket}/objects/{key+}/tags` | Set object tags — body `{"tags":[{"key":"...","value":"..."}]}` |
+
+`{key+}` is the key with each `/` sent as `%2F`: routes match the path as sent,
+so `objects/x%2Ftags` is the object `x/tags` and `objects/x/tags` its tags.
 
 A download token is bound to one object or one folder archive and is not a
 session: it opens only the resource it was minted for.

@@ -65,7 +65,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("should require authentication", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/buckets/"+bucketName+"/objects/search", nil)
+		req := httptest.NewRequest("GET", "/api/v1/buckets/"+bucketName+"/search", nil)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -74,7 +74,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	})
 
 	t.Run("should return all objects without filters", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/objects/search", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/search", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -93,7 +93,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	})
 
 	t.Run("should filter by content_type", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/objects/search?content_type=image/", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/search?content_type=image/", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -111,7 +111,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	})
 
 	t.Run("should filter by min_size", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/objects/search?min_size=100", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/search?min_size=100", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	})
 
 	t.Run("should handle non-existent bucket", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/nonexistent/objects/search", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/nonexistent/search", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": "nonexistent"})
 
 		rr := httptest.NewRecorder()
@@ -139,7 +139,7 @@ func TestHandleSearchObjects(t *testing.T) {
 	})
 
 	t.Run("should combine content_type and size filters", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/objects/search?content_type=image/&min_size=20", nil, tenantID, "user-1", false)
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/search?content_type=image/&min_size=20", nil, tenantID, "user-1", false)
 		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
 
 		rr := httptest.NewRecorder()

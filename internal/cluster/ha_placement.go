@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
@@ -320,6 +321,36 @@ func (h *HAObjectManager) sendEntry(ctx context.Context, client *ProxyClient, p 
 	wg.Wait()
 }
 
+// entryOn is n's entry of a write of key, the version versionID or, without
+// one, the current object; nil when n has none.
+func entryOn(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key, versionID string) (*metadata.ObjectMetadata, error) {
+	target := fmt.Sprintf("%s/api/internal/cluster/ha/object-entry?bucket=%s&key=%s", n.Endpoint, url.QueryEscape(bucket), url.QueryEscape(key))
+	if versionID != "" {
+		target += "&versionId=" + url.QueryEscape(versionID)
+	}
+	req, err := client.CreateAuthenticatedRequest(ctx, http.MethodGet, target, nil, localID, n.NodeToken)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.DoAuthenticatedRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("GET entry returned %d: %s", resp.StatusCode, b)
+	}
+	var entry metadata.ObjectMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return nil, fmt.Errorf("decode entry: %w", err)
+	}
+	return &entry, nil
+}
+
 // sendObjectEntry sends n the entry of an object whose data it does not hold.
 func sendObjectEntry(ctx context.Context, client *ProxyClient, n *Node, localID, bucket string, body []byte) error {
 	target := fmt.Sprintf("%s/api/internal/cluster/ha/object-entry", n.Endpoint)
@@ -341,8 +372,15 @@ func sendObjectEntry(ctx context.Context, client *ProxyClient, n *Node, localID,
 }
 
 // GetObject reads an object. One whose data other nodes hold is read from
-// them, from the part asked for; one cut in shards from its shards.
+// them, from the part asked for; one cut in shards from its shards. A node
+// that missed a change of the write's placement takes it from the others and
+// reads by it: the nodes of the new placement dropped the data its entry
+// names.
 func (h *HAObjectManager) GetObject(ctx context.Context, bucket, key string, versionID ...string) (*object.Object, io.ReadCloser, error) {
+	return h.getObject(ctx, bucket, key, true, versionID...)
+}
+
+func (h *HAObjectManager) getObject(ctx context.Context, bucket, key string, takeLater bool, versionID ...string) (*object.Object, io.ReadCloser, error) {
 	obj, reader, err := h.Manager.GetObject(ctx, bucket, key, versionID...)
 	var elsewhere *object.DataElsewhereError
 	if !errors.As(err, &elsewhere) || isHAReplica(ctx) {
@@ -351,18 +389,79 @@ func (h *HAObjectManager) GetObject(ctx context.Context, bucket, key string, ver
 	if !h.mgr.IsClusterEnabled() {
 		return nil, nil, object.ErrObjectNotFound
 	}
+	var data io.ReadCloser
 	if _, sharded := elsewhere.Object.Erasure(); sharded {
-		shards, err := h.openShards(ctx, elsewhere.Object)
-		if err != nil {
-			return nil, nil, err
-		}
-		return elsewhere.Object, shards, nil
+		data, err = h.openShards(ctx, elsewhere.Object)
+	} else {
+		data, err = h.openRemote(ctx, bucket, key, elsewhere.Object, elsewhere.Locations)
 	}
-	remote, err := h.openRemote(ctx, bucket, key, elsewhere.Object, elsewhere.Locations)
+	if errors.Is(err, object.ErrDataUnavailable) && takeLater && h.takeLaterPlacement(ctx, bucket, key, elsewhere.Object) {
+		return h.getObject(ctx, bucket, key, false, versionID...)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	return elsewhere.Object, remote, nil
+	return elsewhere.Object, data, nil
+}
+
+// placementAskTimeout bounds the asks of a read for a later placement.
+const placementAskTimeout = 5 * time.Second
+
+// takeLaterPlacement asks the other nodes in service for their entry of the
+// write obj is, and takes the latest placement of it they hold, as a change of
+// its locations sent to this node. It reports whether it took one.
+func (h *HAObjectManager) takeLaterPlacement(ctx context.Context, bucket, key string, obj *object.Object) bool {
+	writer, ok := ReplicaWriter(h.Manager)
+	if !ok {
+		return false
+	}
+	localID, err := h.mgr.GetLocalNodeID(ctx)
+	if err != nil {
+		return false
+	}
+	nodes, err := h.mgr.ListNodes(ctx)
+	if err != nil {
+		return false
+	}
+	askCtx, cancel := context.WithTimeout(ctx, placementAskTimeout)
+	defer cancel()
+	client := NewProxyClient(h.mgr.GetTLSConfig())
+	var mu sync.Mutex
+	var latest *metadata.ObjectMetadata
+	var wg sync.WaitGroup
+	for _, n := range nodes {
+		if n.ID == localID || !n.InService() {
+			continue
+		}
+		wg.Go(func() {
+			entry, err := entryOn(askCtx, client, n, localID, bucket, key, obj.VersionID)
+			if err != nil || entry == nil || entry.VersionID != obj.VersionID || entry.ETag != obj.ETag ||
+				entry.LastModified.Unix() != obj.LastModified.Unix() || entry.WrittenAt != obj.WrittenAt {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if latest == nil || entry.LocationsGen > latest.LocationsGen {
+				latest = entry
+			}
+		})
+	}
+	wg.Wait()
+	if latest == nil || latest.LocationsGen <= obj.LocationsGen {
+		return false
+	}
+	layout, _ := object.ErasureLayout(latest)
+	if err := writer.SetLocations(ctx, bucket, key, object.LocationsChange{
+		VersionID: latest.VersionID, ETag: latest.ETag, LastModified: latest.LastModified.Unix(), WrittenAt: latest.WrittenAt,
+		Locations: latest.Locations, Gen: latest.LocationsGen, Layout: layout, Class: latest.StorageClass,
+	}); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucket, "key": key}).
+			Warn("HA: a later placement of a write was not taken")
+		return false
+	}
+	logrus.WithFields(logrus.Fields{"bucket": bucket, "key": key, "gen": latest.LocationsGen}).
+		Info("HA: took a later placement of a write this node missed")
+	return true
 }
 
 // openRemote opens the data of obj on the first of the nodes holding it that

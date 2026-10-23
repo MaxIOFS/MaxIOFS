@@ -29,6 +29,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/settings"
+	"github.com/maxiofs/maxiofs/pkg/s3compat"
 	"github.com/sirupsen/logrus"
 )
 
@@ -392,7 +393,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/objects/{object:.*}/legal-hold", s.handlePutObjectLegalHold).Methods("PUT", "OPTIONS")
 
 	// Object search endpoint (advanced filtering)
-	router.HandleFunc("/buckets/{bucket}/objects/search", s.handleSearchObjects).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/search", s.handleSearchObjects).Methods("GET", "OPTIONS")
 
 	// Object endpoints
 	router.HandleFunc("/buckets/{bucket}/objects", s.handleListObjects).Methods("GET", "OPTIONS")
@@ -1926,7 +1927,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", obj.ContentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeFilename(filepath.Base(objectKey))))
-	w.Header().Set("ETag", obj.ETag)
+	w.Header().Set("ETag", s3compat.QuoteETag(obj.ETag))
 	w.Header().Set("Last-Modified", obj.LastModified.Format(http.TimeFormat))
 
 	// Copy the object content to response
@@ -2069,22 +2070,6 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, response)
 }
 
-// s3EncodePath percent-encodes an S3 object key / bucket path for safe
-func s3EncodePath(s string) string {
-	const keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if strings.IndexByte(keep, c) >= 0 {
-			b.WriteByte(c)
-		} else {
-			fmt.Fprintf(&b, "%%%02X", c)
-		}
-	}
-	return b.String()
-}
-
 func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -2146,7 +2131,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		// Generate clean S3 URL (bucket names are global; no tenant in path)
 		var s3URL string
 		if s.config.PublicAPIURL != "" {
-			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, s3EncodePath(bucketName), s3EncodePath(objectKey))
+			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 		} else {
 			protocol := "http"
 			if r.TLS != nil {
@@ -2158,7 +2143,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			if !strings.Contains(host, ":") {
 				host = strings.Split(r.Host, ":")[0] + s.config.Listen
 			}
-			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, s3EncodePath(bucketName), s3EncodePath(objectKey))
+			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -2243,7 +2228,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 	// Bucket names are globally unique; URL is always /bucket/object (no tenant in path).
 	var s3URL string
 	if s.config.PublicAPIURL != "" {
-		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, s3EncodePath(bucketName), s3EncodePath(objectKey))
+		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 	} else {
 		protocol := "http"
 		if r.TLS != nil {
@@ -2255,7 +2240,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(host, ":") {
 			host = strings.Split(r.Host, ":")[0] + s.config.Listen
 		}
-		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, s3EncodePath(bucketName), s3EncodePath(objectKey))
+		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 	}
 
 	logrus.WithFields(logrus.Fields{

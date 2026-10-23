@@ -477,7 +477,7 @@ func (h *Handler) writeObjectNameError(w http.ResponseWriter, r *http.Request, k
 	case errors.Is(err, object.ErrKeyTooLong):
 		h.writeError(w, "KeyTooLongError", "Your key is too long", key, r)
 	case errors.Is(err, object.ErrInvalidObjectName):
-		h.writeError(w, "InvalidArgument", "The object key is not valid: it is empty, starts with '/' or has a '..' segment", key, r)
+		h.writeError(w, "InvalidArgument", "The object key is not valid: it is empty", key, r)
 	default:
 		return false
 	}
@@ -1107,7 +1107,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		result.Contents[i] = ObjectInfo{
 			Key:          encodeStr(obj.Key),
 			LastModified: obj.LastModified,
-			ETag:         quoteETag(obj.ETag),
+			ETag:         QuoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
 			Owner: &Owner{
@@ -1270,7 +1270,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 		info := ObjectInfo{
 			Key:          encodeStrV2(obj.Key),
 			LastModified: obj.LastModified,
-			ETag:         quoteETag(obj.ETag),
+			ETag:         QuoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
 		}
@@ -3206,9 +3206,9 @@ func normalizeETag(etag string) string {
 	return strings.Trim(etag, "\"")
 }
 
-// quoteETag is an ETag as S3 and HTTP send it, between double quotes; it is
+// QuoteETag is an ETag as S3 and HTTP send it, between double quotes; it is
 // kept without them.
-func quoteETag(etag string) string {
+func QuoteETag(etag string) string {
 	if etag == "" {
 		return ""
 	}
@@ -3230,7 +3230,7 @@ func setUserMetadataHeaders(w http.ResponseWriter, metadata map[string]string) {
 func (h *Handler) setObjectHeaders(w http.ResponseWriter, r *http.Request, obj *object.Object, isRange bool) {
 	hdr := w.Header()
 	hdr.Set("Content-Type", obj.ContentType)
-	hdr.Set("ETag", quoteETag(obj.ETag))
+	hdr.Set("ETag", QuoteETag(obj.ETag))
 	hdr.Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 	hdr.Set("Accept-Ranges", "bytes")
 	hdr.Set("Date", time.Now().UTC().Format(http.TimeFormat))
@@ -3517,7 +3517,7 @@ func (h *Handler) applyObjectCannedACLHeader(ctx context.Context, bucketPath, ob
 
 // setPutObjectResponseHeaders sets response headers for PutObject operation
 func (h *Handler) setPutObjectResponseHeaders(w http.ResponseWriter, obj *object.Object) {
-	w.Header().Set("ETag", quoteETag(obj.ETag))
+	w.Header().Set("ETag", QuoteETag(obj.ETag))
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 
 	if obj.VersionID != "" {

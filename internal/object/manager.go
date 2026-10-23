@@ -2684,21 +2684,12 @@ func (om *objectManager) HasActiveComplianceRetention(ctx context.Context, bucke
 	return om.metadataStore.HasActiveComplianceRetention(ctx, bucket)
 }
 
+// validateObjectName takes any key S3 takes: one not empty, of 1024 bytes at
+// most. A key never names a file: the storage keeps an object under a digest
+// of it, so "/" at its start and ".." segments are bytes of the key.
 func (om *objectManager) validateObjectName(key string) error {
 	if key == "" {
 		return ErrInvalidObjectName
-	}
-
-	if strings.HasPrefix(key, "/") {
-		return ErrInvalidObjectName
-	}
-
-	// LOW-01: reject any path segment that is ".." to prevent directory traversal.
-	// path.Clean is NOT used here because it resolves traversal instead of detecting it.
-	for _, segment := range strings.Split(key, "/") {
-		if segment == ".." {
-			return ErrInvalidObjectName
-		}
 	}
 
 	if len(key) > 1024 {

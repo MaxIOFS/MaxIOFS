@@ -965,17 +965,17 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 			Key      string `xml:"Key"`
 			ETag     string `xml:"ETag"`
 		}
-		w.Header().Set("ETag", quoteETag(result.ETag))
+		w.Header().Set("ETag", QuoteETag(result.ETag))
 		h.writeXMLResponse(w, http.StatusCreated, postResponse{
 			Location: fmt.Sprintf("%s/%s/%s", h.publicAPIURL, bucketName, objectKey),
 			Bucket:   bucketName,
 			Key:      objectKey,
-			ETag:     quoteETag(result.ETag),
+			ETag:     QuoteETag(result.ETag),
 		})
 		return
 	}
 
-	w.Header().Set("ETag", quoteETag(result.ETag))
+	w.Header().Set("ETag", QuoteETag(result.ETag))
 	w.WriteHeader(statusCode)
 }
 

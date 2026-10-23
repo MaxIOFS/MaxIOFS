@@ -11,7 +11,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -1143,26 +1142,9 @@ func (s *AntiEntropyScrubber) pullEntryFromPeer(
 	peer *Node,
 	localID, bucketPath, key string,
 ) error {
-	target := fmt.Sprintf("%s/api/internal/cluster/ha/object-entry?bucket=%s&key=%s", peer.Endpoint, url.QueryEscape(bucketPath), url.QueryEscape(key))
-	req, err := client.CreateAuthenticatedRequest(ctx, http.MethodGet, target, nil, localID, peer.NodeToken)
-	if err != nil {
+	entry, err := entryOn(ctx, client, peer, localID, bucketPath, key, "")
+	if err != nil || entry == nil {
 		return err
-	}
-	resp, err := client.DoAuthenticatedRequest(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("GET entry returned %d: %s", resp.StatusCode, b)
-	}
-	var entry metadata.ObjectMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
-		return fmt.Errorf("decode entry: %w", err)
 	}
 	if VersionDeleted(ctx, s.mgr.db, bucketPath, key, entry.VersionID, entry.LastModified) ||
 		(entry.VersionID == "" && KeyDeletedAfter(ctx, s.mgr.db, bucketPath, key, entry.LastModified)) {
@@ -1173,7 +1155,7 @@ func (s *AntiEntropyScrubber) pullEntryFromPeer(
 		return fmt.Errorf("this node keeps no entries")
 	}
 	entry.Bucket, entry.Key = bucketPath, key
-	return writer.PutReplicaMetadata(WithHAReplicaContext(ctx), &entry)
+	return writer.PutReplicaMetadata(WithHAReplicaContext(ctx), entry)
 }
 
 // urlEscapeBucket escapes only `?` and `&` and `#` so the bucket query value

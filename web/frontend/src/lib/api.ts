@@ -843,7 +843,7 @@ export class APIClient {
     }
 
     const response = await apiClient.get<APIResponse<ListObjectsResponse>>(
-      `/buckets/${request.bucket}/objects/search?${params.toString()}`
+      `/buckets/${request.bucket}/search?${params.toString()}`
     );
     const data = response.data.data!;
     return {
@@ -1183,7 +1183,8 @@ export class APIClient {
   }
 
   static getObjectUrl(bucket: string, key: string): string {
-    return `${s3Client.defaults.baseURL}/${bucket}/${key}`;
+    const path = key.split('/').map(encodeURIComponent).join('/');
+    return `${s3Client.defaults.baseURL}/${bucket}/${path}`;
   }
 
   // User Permissions

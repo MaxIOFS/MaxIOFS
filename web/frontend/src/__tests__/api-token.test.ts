@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeJWTPayload, extractTokenPair, unwrapAPIData } from '@/lib/api';
+import { APIClient, decodeJWTPayload, extractTokenPair, unwrapAPIData } from '@/lib/api';
 
 function base64url(value: string): string {
   return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -109,5 +109,15 @@ describe('API response normalization', () => {
 
     expect(rename.newKey).toBe('archive/report.txt');
     expect(folderSize).toEqual({ size: 4096, count: 2 });
+  });
+});
+
+describe('Object URL', () => {
+  it('escapes each segment of the key and keeps its slashes', () => {
+    APIClient.updateS3BaseUrl('http://s3.test:8080');
+    expect(APIClient.getObjectUrl('my.bucket', 'a b/question?mark#hash%25')).toBe(
+      'http://s3.test:8080/my.bucket/a%20b/question%3Fmark%23hash%2525',
+    );
+    expect(APIClient.getObjectUrl('my.bucket', '/leading//double')).toBe('http://s3.test:8080/my.bucket//leading//double');
   });
 });

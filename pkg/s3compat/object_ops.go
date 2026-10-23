@@ -941,7 +941,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 
 	result := CopyObjectResult{
 		LastModified: destObj.LastModified,
-		ETag:         quoteETag(destObj.ETag),
+		ETag:         QuoteETag(destObj.ETag),
 	}
 
 	h.writeXMLResponse(w, http.StatusOK, result)

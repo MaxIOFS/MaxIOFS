@@ -1,8 +1,14 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -112,4 +118,53 @@ func TestDownloadResource_CannotBeSpelledTwoWays(t *testing.T) {
 		downloadResource("", "backups", "folder/", ""),
 		downloadZipResource("", "backups", "folder/"),
 		"reading one object is not archiving everything under a prefix")
+}
+
+// A folder downloaded as a ZIP names each entry with a path no extractor takes
+// out of its folder, whatever the key: "..", a leading "/", a backslash or a
+// drive letter. The archive is named by the folder, or by the bucket.
+func TestAZipNamesNoEntryOutOfItsFolder(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	bucketName := "zip-names"
+	cleanupTestData(t, "", bucketName)
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, "", bucketName, ""))
+	keys := []string{"ok/file.txt", "/abs.txt", "a/../../evil.txt", `..\..\win.txt`, "./dot.txt", "C:/drive.txt", `q"uote/x.txt`}
+	for _, key := range keys {
+		_, err := server.objectManager.PutObject(ctx, bucketName, key, strings.NewReader(key), http.Header{})
+		require.NoError(t, err, key)
+	}
+
+	for _, download := range []struct {
+		prefix, file string
+		names        []string
+	}{
+		{"", "zip-names.zip", []string{"ok/file.txt", "abs.txt", "a/%2E%2E/%2E%2E/evil.txt", "%2E%2E/%2E%2E/win.txt", "dot.txt",
+			"C%3A/drive.txt", `q"uote/x.txt`}},
+		{"/", "zip-names.zip", []string{"abs.txt"}},
+		{`q"uote/`, "quote.zip", []string{"x.txt"}},
+	} {
+		req := createAuthenticatedRequest("GET", "/api/v1/buckets/"+bucketName+"/download-zip?prefix="+url.QueryEscape(download.prefix),
+			nil, "", "admin", true)
+		req = mux.SetURLVars(req, map[string]string{"bucket": bucketName})
+		w := httptest.NewRecorder()
+		server.handleDownloadZip(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		_, params, err := mime.ParseMediaType(w.Header().Get("Content-Disposition"))
+		require.NoError(t, err, w.Header().Get("Content-Disposition"))
+		assert.Equal(t, download.file, params["filename"], download.prefix)
+
+		archive, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+		require.NoError(t, err)
+		var names []string
+		for _, f := range archive.File {
+			names = append(names, f.Name)
+			assert.False(t, strings.HasPrefix(f.Name, "/"), f.Name)
+			assert.NotContains(t, f.Name, `\`, f.Name)
+			for _, segment := range strings.Split(f.Name, "/") {
+				assert.NotContains(t, []string{"", ".", ".."}, segment, f.Name)
+			}
+		}
+		assert.ElementsMatch(t, download.names, names, download.prefix)
+	}
 }
