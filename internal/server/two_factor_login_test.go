@@ -184,3 +184,30 @@ func TestTwoFactorSignIn(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, status, out)
 	})
 }
+
+// Two-factor authentication is a field of the user: enabled by the user on
+// one node, it reaches the other nodes with the user, as a new password does.
+func TestTwoFactorReachesEveryNodeOfACluster(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	require.NoError(t, p.a.authManager.CreateUser(ctx, &auth.User{ID: "tfa-user", Username: "tfa-user", Password: "Secret123!",
+		Roles: []string{"admin"}, Status: auth.UserStatusActive}))
+	require.Eventually(t, func() bool {
+		_, err := p.b.authManager.GetUser(ctx, "tfa-user")
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond, "the user reaches b")
+
+	setup, err := auth.Generate2FASecret("tfa-user", "MaxIOFS")
+	require.NoError(t, err)
+	code, err := totp.GenerateCode(setup.Secret, time.Now())
+	require.NoError(t, err)
+	_, err = p.a.authManager.Enable2FA(ctx, "tfa-user", code, setup.Secret)
+	require.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		code, err := totp.GenerateCode(setup.Secret, time.Now())
+		require.NoError(t, err)
+		ok, err := p.b.authManager.Verify2FACode(ctx, "tfa-user", code)
+		return err == nil && ok
+	}, 10*time.Second, 20*time.Millisecond, "b asks for the user's code and takes it")
+}

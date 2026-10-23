@@ -727,6 +727,8 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Connect user locked callback to send SSE notifications
 	logrus.Info("Setting up user locked callback for SSE notifications")
+	// A change of a user is sent to the other nodes at once, in the background.
+	authManager.SetUsersChangedCallback(func() { userSyncMgr.TriggerSync(context.Background()) })
 	authManager.SetUserLockedCallback(func(user *auth.User) {
 		// Send notification to SSE clients
 		notification := &Notification{

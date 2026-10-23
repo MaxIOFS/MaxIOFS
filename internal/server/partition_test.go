@@ -46,10 +46,9 @@ func TestALongPartitionConverges(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, rowCount(t, p.b, "shares", share.ID))
 	now := time.Now().Unix()
-	for _, s := range both {
-		require.NoError(t, s.authManager.CreateUser(ctx, &auth.User{ID: "juan", Username: "juan", Status: auth.UserStatusActive,
-			Roles: []string{auth.RoleUser}, CreatedAt: now, UpdatedAt: now}))
-	}
+	require.NoError(t, p.a.authManager.CreateUser(ctx, &auth.User{ID: "juan", Username: "juan", Status: auth.UserStatusActive,
+		Roles: []string{auth.RoleUser}, CreatedAt: now, UpdatedAt: now}))
+	require.Eventually(t, func() bool { return holdsUser(p.b, "juan") }, 5*time.Second, 20*time.Millisecond, "the user reaches b")
 
 	time.Sleep(1100 * time.Millisecond) // what follows comes after all of it
 	p.aDown.Store(true)

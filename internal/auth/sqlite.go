@@ -407,7 +407,7 @@ func (s *SQLiteStore) UpdateUser(user *User) error {
 
 	_, err = tx.Exec(`
 		UPDATE users
-		SET display_name = ?, email = ?, status = ?, tenant_id = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, must_change_password = ?, updated_at = ?
+		SET display_name = ?, email = ?, status = ?, tenant_id = ?, roles = ?, policies = ?, metadata = ?, password_hash = ?, must_change_password = ?, updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`, user.DisplayName, user.Email, user.Status, nullString(user.TenantID), string(rolesJSON), string(policiesJSON), string(metadataJSON), user.Password, user.MustChangePassword, user.UpdatedAt, user.ID)
 
@@ -429,7 +429,7 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 	// Setting a password satisfies any pending obligation to change it.
 	_, err = tx.Exec(`
 		UPDATE users
-		SET password_hash = ?, must_change_password = 0, updated_at = ?
+		SET password_hash = ?, must_change_password = 0, updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`, passwordHash, time.Now().Unix(), userID)
 
@@ -445,7 +445,7 @@ func (s *SQLiteStore) UpdateUserPassword(userID, passwordHash string) error {
 func (s *SQLiteStore) SetMustChangePassword(userID string, must bool) error {
 	res, err := s.db.Exec(`
 		UPDATE users
-		SET must_change_password = ?, updated_at = ?
+		SET must_change_password = ?, updated_at = MAX(?, updated_at + 1)
 		WHERE id = ? AND status != 'deleted'
 	`, must, time.Now().Unix(), userID)
 	if err != nil {
@@ -471,7 +471,7 @@ func (s *SQLiteStore) UpdateUserPreferences(userID, themePreference, languagePre
 
 	_, err = tx.Exec(`
 		UPDATE users
-		SET theme_preference = ?, language_preference = ?, updated_at = ?
+		SET theme_preference = ?, language_preference = ?, updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`, themePreference, languagePreference, time.Now().Unix(), userID)
 
@@ -828,7 +828,7 @@ func (s *SQLiteStore) ClearAccountLock(userID string) error {
 		UPDATE users
 		SET failed_login_attempts = 0,
 		    locked_until = 0,
-		    updated_at = ?
+		    updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`, time.Now().Unix(), userID)
 	return err
@@ -888,7 +888,7 @@ func (s *SQLiteStore) Enable2FA(ctx context.Context, userID string, secret strin
 			two_factor_setup_at = ?,
 			backup_codes = ?,
 			backup_codes_used = '[]',
-			updated_at = ?
+			updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`
 
@@ -910,7 +910,7 @@ func (s *SQLiteStore) Disable2FA(ctx context.Context, userID string) error {
 			two_factor_setup_at = NULL,
 			backup_codes = NULL,
 			backup_codes_used = NULL,
-			updated_at = ?
+			updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`
 
@@ -1020,7 +1020,7 @@ func (s *SQLiteStore) MarkBackupCodeUsed(ctx context.Context, userID string, cod
 	query := `
 		UPDATE users
 		SET backup_codes_used = ?,
-			updated_at = ?
+			updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`
 
@@ -1044,7 +1044,7 @@ func (s *SQLiteStore) UpdateBackupCodes(ctx context.Context, userID string, back
 		UPDATE users
 		SET backup_codes = ?,
 			backup_codes_used = '[]',
-			updated_at = ?
+			updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
 	`
 

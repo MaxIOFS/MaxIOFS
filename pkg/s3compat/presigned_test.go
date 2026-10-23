@@ -207,6 +207,7 @@ func (m *mockAuthManager) RecordSuccessfulLogin(ctx context.Context, userID stri
 	return fmt.Errorf("not implemented")
 }
 func (m *mockAuthManager) SetUserLockedCallback(callback func(*auth.User)) {}
+func (m *mockAuthManager) SetUsersChangedCallback(callback func())         {}
 func (m *mockAuthManager) Setup2FA(ctx context.Context, userID string) (*auth.TOTPSetup, error) {
 	return nil, fmt.Errorf("not implemented")
 }

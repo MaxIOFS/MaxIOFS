@@ -213,7 +213,7 @@ npx vitest run --coverage
 | `storage_pressure_test.go` | Storage-pressure health state; a node under storage pressure stays in service, takes no new data and misses no write, and is caught up when it answers again under pressure; a slow node is in service and takes data, counts for writes, dead marking and the degraded state, a slow and full one is under pressure; a drained node's health check notes the end of its drain, and a later one clears it |
 | `task_observer_test.go` | The cluster's background tasks are told to the observer set on the manager |
 | `tenant_sync_test.go` | Tenant sync across nodes, with timestamps as the tenants table stores them; usage is not part of the checksum |
-| `user_sync_test.go` | User sync across nodes |
+| `user_sync_test.go` | User sync across nodes, two-factor authentication with the user |
 | `written_at_test.go` | Two writes of an object are ordered by second, then within one second by the time each was written; a write is ordered against a deletion of its second, and one without a write time counts as made after |
 
 ### `internal/clusterauth/` — 1 test file
@@ -463,7 +463,7 @@ npx vitest run --coverage
 
 | File | Description |
 |------|-------------|
-| `account_unlock_test.go` | An administrator's unlock, served by the coordinator, unlocks the account on the node where failed sign-ins locked it |
+| `account_unlock_test.go` | An administrator's unlock, served by the coordinator, unlocks the account on the node where failed sign-ins locked it; a change of a user reaches the other node at once, a new password made within the second the user was made with it |
 | `block_public_acls_test.go` | The console refuses a public bucket or object ACL while the bucket's Block Public Access blocks public ACLs; a private one is set |
 | `bucket_aggregation_test.go` | Multi-node bucket aggregation API |
 | `bucket_policy_console_test.go` | The console decides with the bucket policy: a Deny wins over the user's permissions and over the global administrator, an Allow grants a user without permissions; saving validates the policy and applies `BlockPublicPolicy` |
@@ -482,7 +482,7 @@ npx vitest run --coverage
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth; the coordinator sees the user's address and TLS |
 | `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups; a deletion from the log removes the copy of every kind of entity with what goes with it; a revoked session reaches the other node with its time |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for; a folder ZIP names no entry out of its folder (`..`, a leading `/`, a backslash, a drive letter) and names the archive by the folder or the bucket |
-| `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints |
+| `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints; in a cluster every node shows the download, and a rotation asks every node for a new bundle |
 | `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |
 | `encryption_worker_test.go` | Background encryption pass, its manual-run endpoint, and shutdown tracking |
 | `forced_password_change_test.go` | A user under a forced password change can replace it, lifting the obligation |
@@ -505,7 +505,7 @@ npx vitest run --coverage
 | `leader_gate_test.go` | Reads, sign-in (on the router's real paths) and cluster traffic are never blocked by the leader gate; two-factor settings are; a bucket's settings and objects need no coordinator, its permissions do |
 | `lifecycle_coverage_test.go` | Shutdown releases every lifecycle field; no stale entry survives it |
 | `multipart_sweep_test.go` | The startup sweep discards parts whose upload record is already gone |
-| `node_lifecycle_test.go` | A removed node is removed on every node and not added back, and leaves when told; a leaving node is removed from the others; a drain reaches every node, which takes the node out of service once it says it holds no data; a cluster joined at runtime replicates writes; outside a cluster objects are only stored; only a node without data joins a cluster, every kind of data refusing it with what it holds; a node learned from another node's membership is checked at once |
+| `node_lifecycle_test.go` | A removed node is removed on every node and not added back, and leaves when told; a leaving node is removed from the others; a drain reaches every node, which takes the node out of service once it says it holds no data; a cluster joined at runtime replicates writes; outside a cluster objects are only stored; only a node without data joins a cluster, every kind of data refusing it with what it holds; a node learned from another node's membership is checked at once; the list of nodes names the coordinator, and none while the nodes elect one |
 | `oauth_code_any_node_test.go` | The code of an OAuth sign-in is exchanged on another node of the cluster, once |
 | `oauth_two_factor_test.go` | An OAuth sign-in of a user with two-factor authentication: the exchanged code carries the second step's token, not a session, and the user's code signs it in; without 2FA the exchange gives the session |
 | `object_extra_handlers_status_test.go` | A console write refused by a quota answers 403; a failure to check the quota does not. A console upload's Object Lock headers need their own permission; a tenant without a storage limit can upload |
@@ -524,7 +524,7 @@ npx vitest run --coverage
 | `sts_aws_api_test.go` | AWS STS XML actions: missing/unknown action, `GetSessionToken` signature and credential issuance |
 | `sts_federation_test.go` | STS federation disabled by default; requires a provider ID; rejects a malformed body |
 | `tenant_usage_test.go` | Tenant synchronisation keeps each node's usage; the bucket limit and the console count the tenant's buckets on every node; the statistics pass corrects the tenant's storage; an overwrite, smaller or larger, keeps the tenant's storage equal to its bucket's; a tenant deletion from another node keeps a tenant changed after it |
-| `two_factor_login_test.go` | A two-factor code alone signs no one in; the first step's token is not a session and a session token is not one; a user disabled between the steps, the account locked after the configured number of wrong codes, the limit per address; the sign-in is audited |
+| `two_factor_login_test.go` | A two-factor code alone signs no one in; the first step's token is not a session and a session token is not one; a user disabled between the steps, the account locked after the configured number of wrong codes, the limit per address; the sign-in is audited; in a cluster a user's two-factor authentication reaches the other node with the user |
 | `worker_shutdown_test.go` | `goWorker` shutdown waits for every tracked worker and refuses new ones once shutdown starts |
 
 ### `internal/settings/` — 1 test file
@@ -648,6 +648,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
 | `ClusterHA.test.tsx` | The HA page shows the layout of a write with parity, turns parity on and off, and needs three nodes for it; with other storage classes it counts the nodes of STANDARD and names each node's class |
+| `ClusterNodes.test.tsx` | The Nodes page names the coordinator and the members, and says the nodes are electing one when none holds it |
 | `lifecycleRules.test.ts` | The lifecycle of the bucket settings: noncurrent versions and lone delete markers expired, objects and noncurrent versions moved to a colder class, a move off or of no class left out, the moves of a stored rule read back; the rule of the console found by its ID among the others, its values or the defaults asked |
 | `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |

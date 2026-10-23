@@ -2857,11 +2857,6 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The account may be locked on another node.
-	if s.userSyncMgr != nil {
-		s.userSyncMgr.TriggerSync(r.Context())
-	}
-
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
 		"message": "Account unlocked successfully",
@@ -3866,12 +3861,6 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Trigger immediate cluster sync so other nodes see the new preferences
-	// without waiting for the 30-second periodic sync.
-	if s.userSyncMgr != nil {
-		s.userSyncMgr.TriggerSync(r.Context())
 	}
 
 	// Get updated user to return in response

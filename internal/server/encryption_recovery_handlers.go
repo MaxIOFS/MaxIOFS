@@ -2,13 +2,16 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/sirupsen/logrus"
 )
@@ -73,7 +76,7 @@ func (s *Server) handleEncryptionRecoveryStatus(w http.ResponseWriter, r *http.R
 	}
 
 	_, kekVersion := s.kekStore.CurrentKEK()
-	downloadedAt, err := s.kekStore.BundleDownloadedAt()
+	downloadedAt, err := s.bundleDownloadedAt(r.Context())
 	if err != nil {
 		logrus.WithError(err).Error("Failed to read recovery bundle download status")
 		s.writeError(w, "Failed to read recovery status", http.StatusInternalServerError)
@@ -88,6 +91,43 @@ func (s *Server) handleEncryptionRecoveryStatus(w http.ResponseWriter, r *http.R
 		resp["downloadedAt"] = time.Unix(downloadedAt, 0).UTC().Format(time.RFC3339)
 	}
 	s.writeJSON(w, resp)
+}
+
+// recoveryBundleKey keeps, in a cluster, when the recovery bundle of the
+// cluster's keys was last downloaded, through whichever node served it; 0
+// after a rotation of the key.
+const recoveryBundleKey = "encryption.recovery_bundle_downloaded_at"
+
+// bundleDownloadedAt is when the recovery bundle was last downloaded: the
+// cluster's in a cluster, this node's otherwise.
+func (s *Server) bundleDownloadedAt(ctx context.Context) (int64, error) {
+	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		return s.kekStore.BundleDownloadedAt()
+	}
+	value, err := cluster.GetGlobalConfig(ctx, s.db, recoveryBundleKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	at, _ := strconv.ParseInt(value, 10, 64)
+	return at, nil
+}
+
+// noteRecoveryBundle records, in a cluster, when the recovery bundle was
+// downloaded, or 0, and sends it to the other nodes.
+func (s *Server) noteRecoveryBundle(ctx context.Context, at int64) {
+	if s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
+		return
+	}
+	if err := cluster.SetGlobalConfig(ctx, s.db, recoveryBundleKey, strconv.FormatInt(at, 10)); err != nil {
+		logrus.WithError(err).Warn("Failed to record the recovery bundle for the cluster")
+		return
+	}
+	if s.globalConfigSyncMgr != nil {
+		s.goWorker("send the recovery bundle state", func() { s.globalConfigSyncMgr.SyncNow(s.backgroundContext()) })
+	}
 }
 
 // handleRotateKEK creates a new current KEK version.
@@ -118,6 +158,8 @@ func (s *Server) handleRotateKEK(w http.ResponseWriter, r *http.Request) {
 	if clusterEnabled && s.globalConfigSyncMgr != nil {
 		s.globalConfigSyncMgr.SyncKEKs(syncCtx)
 	}
+	// The bundle downloaded before lacks the new key, on every node.
+	s.noteRecoveryBundle(r.Context(), 0)
 
 	// Kick the worker so existing DEKs start re-wrapping immediately.
 	bg := s.serverCtx
@@ -170,6 +212,7 @@ func (s *Server) handleDownloadRecoveryBundle(w http.ResponseWriter, r *http.Req
 		// the banner stays visible.
 		logrus.WithError(err).Warn("Failed to record recovery bundle download")
 	}
+	s.noteRecoveryBundle(r.Context(), time.Now().Unix())
 
 	logrus.WithField("user", user.Username).Info("Encryption recovery bundle downloaded")
 

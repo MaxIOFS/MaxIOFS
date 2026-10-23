@@ -54,7 +54,12 @@ func TestUserSyncManager_ListLocalUsers(t *testing.T) {
 			auth_provider TEXT NOT NULL DEFAULT 'local',
 			external_id TEXT,
 			created_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL
+			updated_at INTEGER NOT NULL,
+			two_factor_enabled BOOLEAN DEFAULT 0,
+			two_factor_secret TEXT,
+			two_factor_setup_at INTEGER,
+			backup_codes TEXT,
+			backup_codes_used TEXT
 		)
 	`)
 	require.NoError(t, err)
@@ -410,7 +415,12 @@ func TestUserSyncManager_SyncLoop(t *testing.T) {
 			auth_provider TEXT NOT NULL DEFAULT 'local',
 			external_id TEXT,
 			created_at INTEGER,
-			updated_at INTEGER
+			updated_at INTEGER,
+			two_factor_enabled BOOLEAN DEFAULT 0,
+			two_factor_secret TEXT,
+			two_factor_setup_at INTEGER,
+			backup_codes TEXT,
+			backup_codes_used TEXT
 		)
 	`)
 	require.NoError(t, err)

@@ -306,3 +306,40 @@ func TestOnlyANodeWithoutDataJoinsACluster(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.True(t, b.clusterManager.IsClusterEnabled())
 }
+
+// The list of nodes names the coordinator as the answering node knows it: the
+// holder of the live lease, and none while the nodes elect one.
+func TestTheNodesListNamesTheCoordinator(t *testing.T) {
+	p := newHAPair(t)
+	require.NoError(t, p.a.leaderMgr.EnsureSchema())
+	coordinators := func() map[string]bool {
+		w := httptest.NewRecorder()
+		p.a.handleListClusterNodes(w, createAuthenticatedRequest(http.MethodGet, "/api/v1/cluster/nodes", nil, "", "admin", true))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var out struct {
+			Data struct {
+				Nodes []struct {
+					ID            string `json:"id"`
+					IsCoordinator bool   `json:"is_coordinator"`
+				} `json:"nodes"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		roles := map[string]bool{}
+		for _, n := range out.Data.Nodes {
+			roles[n.ID] = n.IsCoordinator
+		}
+		return roles
+	}
+	lease := func(holder string, expiresAt time.Time) {
+		_, err := p.a.db.Exec(`INSERT INTO cluster_leader (id, leader_id, term, granted_at, expires_at) VALUES (1, ?, 1, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET leader_id = excluded.leader_id, expires_at = excluded.expires_at`,
+			holder, time.Now().Unix(), expiresAt.Unix())
+		require.NoError(t, err)
+	}
+
+	lease(p.bID, time.Now().Add(time.Minute))
+	assert.Equal(t, map[string]bool{p.aID: false, p.bID: true}, coordinators())
+	lease(p.bID, time.Now().Add(-time.Second))
+	assert.Equal(t, map[string]bool{p.aID: false, p.bID: false}, coordinators(), "none while the nodes elect one")
+}

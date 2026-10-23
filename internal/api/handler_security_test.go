@@ -829,6 +829,8 @@ func (m *MockAuthManager) SetUserLockedCallback(callback func(*auth.User)) {
 	m.Called(callback)
 }
 
+func (m *MockAuthManager) SetUsersChangedCallback(callback func()) {}
+
 func (m *MockAuthManager) Setup2FA(ctx context.Context, userID string) (*auth.TOTPSetup, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {

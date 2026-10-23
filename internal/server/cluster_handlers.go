@@ -299,6 +299,9 @@ func (s *Server) handleGetClusterConfig(w http.ResponseWriter, r *http.Request) 
 type clusterNodeResponse struct {
 	cluster.Node
 	IsLocal bool `json:"is_local"`
+	// IsCoordinator tells whether the node holds the coordinator's lease, as
+	// this node knows it; none does while the nodes elect one.
+	IsCoordinator bool `json:"is_coordinator"`
 	// EncryptionSecretMatches tells whether the node holds this node's
 	// encryption secret; absent when the node could not be asked.
 	EncryptionSecretMatches *bool `json:"encryption_secret_matches,omitempty"`
@@ -316,10 +319,14 @@ func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	localNodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+	coordinator := ""
+	if s.leaderMgr != nil {
+		coordinator = s.leaderMgr.LiveLeaseHolder(r.Context())
+	}
 
 	enriched := make([]clusterNodeResponse, 0, len(nodes))
 	for _, n := range nodes {
-		entry := clusterNodeResponse{Node: *n, IsLocal: n.ID == localNodeID}
+		entry := clusterNodeResponse{Node: *n, IsLocal: n.ID == localNodeID, IsCoordinator: coordinator != "" && n.ID == coordinator}
 		if entry.IsLocal {
 			// Replace DB capacity (starts at zero) with live OS disk stats
 			if diskStats, diskErr := s.systemMetrics.GetDiskUsage(); diskErr == nil && diskStats != nil {

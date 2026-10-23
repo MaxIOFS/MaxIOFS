@@ -20,10 +20,6 @@ func TestAnUnlockReachesTheNodeWhereTheAccountLocked(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, p.a.authManager.CreateUser(ctx, &auth.User{ID: "unlock-admin", Username: "unlock-admin", Roles: []string{"admin"}, Status: auth.UserStatusActive}))
 	require.NoError(t, p.a.authManager.CreateUser(ctx, &auth.User{ID: "locked-on-b", Username: "locked-on-b", Roles: []string{"user"}, Status: auth.UserStatusActive}))
-	// The user last changed a minute ago; the user sync keeps the copy changed last.
-	_, err := p.a.db.ExecContext(ctx, `UPDATE users SET updated_at = updated_at - 60 WHERE id = 'locked-on-b'`)
-	require.NoError(t, err)
-	p.a.userSyncMgr.TriggerSync(ctx)
 	require.Eventually(t, func() bool {
 		_, err := p.b.authManager.GetUser(ctx, "locked-on-b")
 		return err == nil
@@ -48,4 +44,30 @@ func TestAnUnlockReachesTheNodeWhereTheAccountLocked(t *testing.T) {
 		locked, _, err := p.b.authManager.IsAccountLocked(ctx, "locked-on-b")
 		return err == nil && !locked
 	}, 10*time.Second, 20*time.Millisecond, "unlocked on b")
+}
+
+// A change of a user reaches the other nodes at once, without waiting for the
+// periodic sync: a user made on a signs in on b, and after a new password the
+// old one is refused on b.
+func TestAChangeOfAUserReachesTheOtherNodesAtOnce(t *testing.T) {
+	p := newHAPair(t)
+	ctx := context.Background()
+	user := &auth.User{ID: "pushed", Username: "pushed", Password: "Old-Secret-1!", Roles: []string{"user"}, Status: auth.UserStatusActive}
+	require.NoError(t, p.a.authManager.CreateUser(ctx, user))
+	require.Eventually(t, func() bool {
+		_, err := p.b.authManager.ValidateConsoleCredentials(ctx, "pushed", "Old-Secret-1!")
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the user signs in on b")
+
+	changed, err := p.a.authManager.GetUser(ctx, "pushed")
+	require.NoError(t, err)
+	changed.Password, err = auth.HashPassword("New-Secret-2!")
+	require.NoError(t, err)
+	require.NoError(t, p.a.authManager.UpdateUser(ctx, changed))
+	assert.Eventually(t, func() bool {
+		_, err := p.b.authManager.ValidateConsoleCredentials(ctx, "pushed", "New-Secret-2!")
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the new password signs in on b")
+	_, err = p.b.authManager.ValidateConsoleCredentials(ctx, "pushed", "Old-Secret-1!")
+	assert.Error(t, err, "the old one is refused on b")
 }

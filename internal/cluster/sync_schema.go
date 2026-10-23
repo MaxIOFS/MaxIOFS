@@ -516,13 +516,24 @@ func GetGlobalConfig(ctx context.Context, db *sql.DB, key string) (string, error
 	return value, nil
 }
 
-// SetGlobalConfig sets a global configuration value in the cluster config table.
+// SetGlobalConfig sets a global configuration value in the cluster config
+// table. The change is stamped later than the value it replaces, in the whole
+// seconds the other nodes compare: two changes within one second both reach
+// them.
 func SetGlobalConfig(ctx context.Context, db *sql.DB, key, value string) error {
 	now := time.Now()
+	at := now.Unix()
+	var raw interface{}
+	if err := db.QueryRowContext(ctx, `SELECT updated_at FROM cluster_global_config WHERE key = ?`, key).Scan(&raw); err == nil {
+		if previous, ok := SQLiteTimestampUnix(raw); ok && previous >= at {
+			at = previous + 1
+		}
+	}
+	stamp := time.Unix(at, 0)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO cluster_global_config (key, value, created_at, updated_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
-	`, key, value, now, now, value, now)
+	`, key, value, now, stamp, value, stamp)
 	return err
 }

@@ -103,6 +103,7 @@ func (am *authManager) CreateIAMUser(ctx context.Context, username, path, tenant
 		Status:       audit.StatusSuccess,
 		Details:      map[string]interface{}{"created_via": "iam"},
 	})
+	am.usersChanged()
 	return user, nil
 }
 
@@ -134,6 +135,7 @@ func (am *authManager) DeleteIAMUser(ctx context.Context, username string) error
 		Action:       audit.ActionDelete,
 		Status:       audit.StatusSuccess,
 	})
+	am.usersChanged()
 	return nil
 }
 

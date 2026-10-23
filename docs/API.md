@@ -713,7 +713,7 @@ session: it opens only the resource it was minted for.
 | GET | `/api/v1/cluster/status` | Get cluster status |
 | GET | `/api/v1/cluster/config` | Get this node's cluster configuration |
 | GET | `/api/v1/cluster/token` | Get the cluster token (global admin only) |
-| GET | `/api/v1/cluster/nodes` | List all nodes |
+| GET | `/api/v1/cluster/nodes` | List all nodes; `is_coordinator` marks the coordinator as the answering node knows it, none while the nodes elect one |
 | POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster; `409` when that node holds data |
 | GET | `/api/v1/cluster/nodes/{id}` | Get node details |
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |

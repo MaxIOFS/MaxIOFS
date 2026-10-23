@@ -1129,6 +1129,9 @@ export interface ClusterNode {
   created_at: string;
   updated_at: string;
   is_local?: boolean; // true only for the node that handled this response
+  // The node holds the coordinator's lease, as the answering node knows it;
+  // none does while the nodes elect one.
+  is_coordinator?: boolean;
   encryption_secret_matches?: boolean; // absent when the node could not be asked
   drained?: boolean; // being drained, or drained once dead
 }

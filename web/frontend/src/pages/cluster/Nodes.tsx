@@ -43,10 +43,13 @@ export default function ClusterNodes() {
 const [localNodeId, setLocalNodeId] = useState<string | null>(null);
   const [_availableNodes, setAvailableNodes] = useState<ClusterNode[]>([]);
 
-  const loadNodes = useCallback(async () => {
+  // A silent load refreshes the list in place and keeps it when it fails.
+  const loadNodes = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       const clusterConfig = await APIClient.getClusterConfig();
       setLocalNodeId(clusterConfig.node_id);
       const data = await APIClient.listClusterNodes();
@@ -54,14 +57,18 @@ const [localNodeId, setLocalNodeId] = useState<string | null>(null);
       const remoteNodes = data.filter(node => node.id !== clusterConfig.node_id);
       setAvailableNodes(remoteNodes);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t('failedToLoadNodes')));
+      if (!silent) setError(getErrorMessage(err, t('failedToLoadNodes')));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [t]);
 
+  // The list is read again every 10 s: the coordinator changes when it stops
+  // answering and the nodes elect another.
   useEffect(() => {
     loadNodes();
+    const refresh = setInterval(() => loadNodes(true), 10000);
+    return () => clearInterval(refresh);
   }, [loadNodes]);
 
   const handleAddNode = async (request: AddNodeRequest) => {
@@ -185,7 +192,7 @@ const getHealthIcon = (status: HealthStatus) => {
           <p className="text-sm text-muted-foreground">{t('manageNodesDesc')}</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={loadNodes} className="bg-card">
+          <Button variant="outline" onClick={() => loadNodes()} className="bg-card">
             <RefreshCw className="h-4 w-4" />
             {t('refresh')}
           </Button>
@@ -195,6 +202,16 @@ const getHealthIcon = (status: HealthStatus) => {
           </Button>
         </div>
       </div>
+
+      {nodes.length > 1 && !nodes.some((node) => node.is_coordinator) && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+          <AlertTriangle className="h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{t('electingCoordinator')}</p>
+            <p className="text-sm text-amber-700 dark:text-amber-300">{t('electingCoordinatorHint')}</p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-card rounded-xl border border-border shadow-md overflow-hidden">
         <div className="px-6 py-5 border-b border-border">
@@ -236,6 +253,11 @@ const getHealthIcon = (status: HealthStatus) => {
                             {node.id === localNodeId && (
                               <span className="ml-2 text-xs font-normal text-muted-foreground">{t('thisNode')}</span>
                             )}
+                            <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded-full ${node.is_coordinator
+                              ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-800 dark:text-brand-200'
+                              : 'bg-gray-100 dark:bg-gray-700 text-muted-foreground'}`}>
+                              {node.is_coordinator ? t('coordinator') : t('member')}
+                            </span>
                           </div>
                           {getHealthIcon(node.health_status)}
                         </div>

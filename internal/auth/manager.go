@@ -120,6 +120,7 @@ type Manager interface {
 	RecordFailedLogin(ctx context.Context, userID, ip string) error
 	RecordSuccessfulLogin(ctx context.Context, userID string) error
 	SetUserLockedCallback(callback func(*User))
+	SetUsersChangedCallback(callback func())
 	SetStorageQuotaAlertCallback(callback func(tenantID string, currentBytes, maxBytes int64))
 
 	// Two-Factor Authentication
@@ -254,6 +255,7 @@ type authManager struct {
 	auditManager              *audit.Manager
 	userLockedCallback        func(*User)
 	authObserver              func(method string, success bool, reason string)
+	usersChangedCallback      func()
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
 	bgwork.Worker
@@ -969,6 +971,7 @@ func (am *authManager) CreateUser(ctx context.Context, user *User) error {
 		},
 	})
 
+	am.usersChanged()
 	return nil
 }
 
@@ -1009,6 +1012,7 @@ func (am *authManager) UpdateUser(ctx context.Context, user *User) error {
 		},
 	})
 
+	am.usersChanged()
 	return nil
 }
 
@@ -1057,11 +1061,16 @@ func (am *authManager) UpdateUserPreferences(ctx context.Context, userID, themeP
 		},
 	})
 
+	am.usersChanged()
 	return nil
 }
 
 func (am *authManager) SetMustChangePassword(ctx context.Context, userID string, must bool) error {
-	return am.store.SetMustChangePassword(userID, must)
+	if err := am.store.SetMustChangePassword(userID, must); err != nil {
+		return err
+	}
+	am.usersChanged()
+	return nil
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
@@ -1119,6 +1128,7 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 		},
 	})
 
+	am.usersChanged()
 	return nil
 }
 
@@ -1359,6 +1369,19 @@ func (am *authManager) SetAuditManager(auditMgr *audit.Manager) {
 // SetUserLockedCallback sets the callback to be called when a user is locked
 func (am *authManager) SetUserLockedCallback(callback func(*User)) {
 	am.userLockedCallback = callback
+}
+
+// SetUsersChangedCallback sets the callback to be called after a change of a
+// user, for the cluster to send the users to the other nodes. Failed and
+// successful sign-ins are not changes: each node counts its own.
+func (am *authManager) SetUsersChangedCallback(callback func()) {
+	am.usersChangedCallback = callback
+}
+
+func (am *authManager) usersChanged() {
+	if am.usersChangedCallback != nil {
+		am.usersChangedCallback()
+	}
 }
 
 // SetAuthObserver sets where the S3 middleware counts signed requests: their
@@ -2291,6 +2314,7 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 		})
 	}
 
+	am.usersChanged()
 	return nil
 }
 
@@ -2345,6 +2369,7 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 		},
 	})
 
+	am.usersChanged()
 	return nil
 }
 
@@ -2552,6 +2577,7 @@ func (m *authManager) Enable2FA(ctx context.Context, userID, code string, secret
 		})
 	}
 
+	m.usersChanged()
 	return backupCodes, nil
 }
 
@@ -2596,6 +2622,7 @@ func (m *authManager) Disable2FA(ctx context.Context, userID, requestingUserID s
 		Details:      details,
 	})
 
+	m.usersChanged()
 	return nil
 }
 
@@ -2629,6 +2656,7 @@ func (m *authManager) Verify2FACode(ctx context.Context, userID, code string) (b
 				if err != nil {
 					return false, fmt.Errorf("failed to mark backup code as used: %w", err)
 				}
+				m.usersChanged()
 
 				return true, nil
 			}
@@ -2664,6 +2692,7 @@ func (m *authManager) RegenerateBackupCodes(ctx context.Context, userID string) 
 		return nil, fmt.Errorf("failed to update backup codes: %w", err)
 	}
 
+	m.usersChanged()
 	return backupCodes, nil
 }
 

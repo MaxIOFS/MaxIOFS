@@ -38,6 +38,11 @@ type UserData struct {
 	ExternalID          string `json:"external_id"`
 	CreatedAt           int64  `json:"created_at"`
 	UpdatedAt           int64  `json:"updated_at"`
+	TwoFactorEnabled    bool   `json:"two_factor_enabled"`
+	TwoFactorSecret     string `json:"two_factor_secret"`
+	TwoFactorSetupAt    int64  `json:"two_factor_setup_at"`
+	BackupCodes         string `json:"backup_codes"`
+	BackupCodesUsed     string `json:"backup_codes_used"`
 	// CapabilityOverrides carries per-user capability overrides along with the user record.
 	CapabilityOverrides []CapabilityOverrideData `json:"capability_overrides,omitempty"`
 }
@@ -272,7 +277,9 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 		       COALESCE(metadata, ''), failed_login_attempts, locked_until,
 		       last_failed_login, theme_preference, language_preference,
 		       COALESCE(auth_provider, 'local'), COALESCE(external_id, ''),
-		       created_at, updated_at
+		       created_at, updated_at,
+		       COALESCE(two_factor_enabled, 0), COALESCE(two_factor_secret, ''), COALESCE(two_factor_setup_at, 0),
+		       COALESCE(backup_codes, ''), COALESCE(backup_codes_used, '')
 		FROM users
 		WHERE status != 'deleted'
 	`
@@ -306,6 +313,11 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 			&user.ExternalID,
 			&user.CreatedAt,
 			&user.UpdatedAt,
+			&user.TwoFactorEnabled,
+			&user.TwoFactorSecret,
+			&user.TwoFactorSetupAt,
+			&user.BackupCodes,
+			&user.BackupCodesUsed,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
@@ -347,7 +359,7 @@ func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
 		}
 		overrideSig += fmt.Sprintf("%s:%d,", o.Capability, g)
 	}
-	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s|%d|%s",
+	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s|%d|%s|%t|%s|%d|%s|%s",
 		user.Username,
 		user.PasswordHash,
 		user.DisplayName,
@@ -365,6 +377,11 @@ func (m *UserSyncManager) computeUserChecksum(user *UserData) string {
 		user.ExternalID,
 		user.UpdatedAt,
 		overrideSig,
+		user.TwoFactorEnabled,
+		user.TwoFactorSecret,
+		user.TwoFactorSetupAt,
+		user.BackupCodes,
+		user.BackupCodesUsed,
 	)
 
 	hash := sha256.Sum256([]byte(data))

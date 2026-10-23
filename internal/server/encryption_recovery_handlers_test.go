@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/stretchr/testify/assert"
@@ -91,4 +92,38 @@ func TestDownloadRecoveryBundle(t *testing.T) {
 	w = httptest.NewRecorder()
 	server.handleDownloadRecoveryBundle(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// The recovery bundle is the cluster's: downloaded through the node that
+// serves the download, every node reports it downloaded, and a rotation of the
+// key asks every node for a new one.
+func TestARecoveryBundleDownloadIsTheClusters(t *testing.T) {
+	p := newHAPair(t)
+	downloaded := func(n *Server) bool {
+		w := httptest.NewRecorder()
+		n.handleEncryptionRecoveryStatus(w, createAuthenticatedRequest("GET", "/api/v1/settings/encryption/recovery-status", nil, "", "admin-user", true))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var resp struct {
+			Data struct {
+				BundleDownloaded bool `json:"bundleDownloaded"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		return resp.Data.BundleDownloaded
+	}
+	require.False(t, downloaded(p.a))
+	require.False(t, downloaded(p.b))
+
+	w := httptest.NewRecorder()
+	p.a.handleDownloadRecoveryBundle(w, createAuthenticatedRequest("POST", "/api/v1/settings/encryption/recovery-bundle",
+		bytes.NewBufferString(`{"passphrase":"a-strong-recovery-passphrase"}`), "", "admin-user", true))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.True(t, downloaded(p.a))
+	assert.Eventually(t, func() bool { return downloaded(p.b) }, 10*time.Second, 20*time.Millisecond, "b reports it downloaded")
+
+	w = httptest.NewRecorder()
+	p.a.handleRotateKEK(w, createAuthenticatedRequest("POST", "/api/v1/settings/encryption/rotate", nil, "", "admin-user", true))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.False(t, downloaded(p.a))
+	assert.Eventually(t, func() bool { return !downloaded(p.b) }, 10*time.Second, 20*time.Millisecond, "b asks for a new one")
 }

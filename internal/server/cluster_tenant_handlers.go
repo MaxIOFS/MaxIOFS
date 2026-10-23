@@ -234,28 +234,7 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse user data from request body
-	var userData struct {
-		ID                  string                           `json:"id"`
-		Username            string                           `json:"username"`
-		PasswordHash        string                           `json:"password_hash"`
-		DisplayName         string                           `json:"display_name"`
-		Email               string                           `json:"email"`
-		Status              string                           `json:"status"`
-		TenantID            string                           `json:"tenant_id"`
-		Roles               string                           `json:"roles"`
-		Policies            string                           `json:"policies"`
-		Metadata            string                           `json:"metadata"`
-		FailedLoginAttempts int                              `json:"failed_login_attempts"`
-		LockedUntil         int64                            `json:"locked_until"`
-		LastFailedLogin     int64                            `json:"last_failed_login"`
-		ThemePreference     string                           `json:"theme_preference"`
-		LanguagePreference  string                           `json:"language_preference"`
-		AuthProvider        string                           `json:"auth_provider"`
-		ExternalID          string                           `json:"external_id"`
-		CreatedAt           int64                            `json:"created_at"`
-		UpdatedAt           int64                            `json:"updated_at"`
-		CapabilityOverrides []cluster.CapabilityOverrideData `json:"capability_overrides,omitempty"`
-	}
+	var userData cluster.UserData
 
 	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
 		logrus.WithError(err).Error("Failed to decode user data")
@@ -298,28 +277,7 @@ func (s *Server) handleReceiveUserSync(w http.ResponseWriter, r *http.Request) {
 }
 
 // upsertUser creates or updates a user in the local database
-func (s *Server) upsertUser(ctx context.Context, user *struct {
-	ID                  string                           `json:"id"`
-	Username            string                           `json:"username"`
-	PasswordHash        string                           `json:"password_hash"`
-	DisplayName         string                           `json:"display_name"`
-	Email               string                           `json:"email"`
-	Status              string                           `json:"status"`
-	TenantID            string                           `json:"tenant_id"`
-	Roles               string                           `json:"roles"`
-	Policies            string                           `json:"policies"`
-	Metadata            string                           `json:"metadata"`
-	FailedLoginAttempts int                              `json:"failed_login_attempts"`
-	LockedUntil         int64                            `json:"locked_until"`
-	LastFailedLogin     int64                            `json:"last_failed_login"`
-	ThemePreference     string                           `json:"theme_preference"`
-	LanguagePreference  string                           `json:"language_preference"`
-	AuthProvider        string                           `json:"auth_provider"`
-	ExternalID          string                           `json:"external_id"`
-	CreatedAt           int64                            `json:"created_at"`
-	UpdatedAt           int64                            `json:"updated_at"`
-	CapabilityOverrides []cluster.CapabilityOverrideData `json:"capability_overrides,omitempty"`
-}) error {
+func (s *Server) upsertUser(ctx context.Context, user *cluster.UserData) error {
 	// Handle NULL values for tenant_id
 	var tenantID sql.NullString
 	if user.TenantID != "" {
@@ -363,6 +321,11 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 				language_preference = ?,
 				auth_provider = ?,
 				external_id = ?,
+				two_factor_enabled = ?,
+				two_factor_secret = ?,
+				two_factor_setup_at = ?,
+				backup_codes = ?,
+				backup_codes_used = ?,
 				updated_at = ?
 			WHERE id = ?
 		`,
@@ -382,6 +345,11 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.LanguagePreference,
 			user.AuthProvider,
 			user.ExternalID,
+			user.TwoFactorEnabled,
+			nullableString(user.TwoFactorSecret),
+			sql.NullInt64{Int64: user.TwoFactorSetupAt, Valid: user.TwoFactorSetupAt != 0},
+			nullableString(user.BackupCodes),
+			nullableString(user.BackupCodesUsed),
 			user.UpdatedAt,
 			user.ID,
 		)
@@ -397,8 +365,9 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 				id, username, password_hash, display_name, email, status, tenant_id,
 				roles, policies, metadata, failed_login_attempts, locked_until,
 				last_failed_login, theme_preference, language_preference,
-				auth_provider, external_id, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				auth_provider, external_id, two_factor_enabled, two_factor_secret, two_factor_setup_at,
+				backup_codes, backup_codes_used, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			user.ID,
 			user.Username,
@@ -417,6 +386,11 @@ func (s *Server) upsertUser(ctx context.Context, user *struct {
 			user.LanguagePreference,
 			user.AuthProvider,
 			user.ExternalID,
+			user.TwoFactorEnabled,
+			nullableString(user.TwoFactorSecret),
+			sql.NullInt64{Int64: user.TwoFactorSetupAt, Valid: user.TwoFactorSetupAt != 0},
+			nullableString(user.BackupCodes),
+			nullableString(user.BackupCodesUsed),
 			user.CreatedAt,
 			user.UpdatedAt,
 		)
