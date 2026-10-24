@@ -116,6 +116,7 @@ Ceph cluster.
 - Object search & filters — content-type, size range, date range, tags
 - AWS IAM and STS protocols on the S3 endpoint — `aws iam` and `aws sts` work with `--endpoint-url`
 - Works with `aws s3`, `aws s3api`, the `mc` client, and the S3 SDKs
+- Hadoop and Spark through S3A — *nightly builds only, not in v1.8.0:* checked with the hadoop-aws integration and scale tests of Hadoop 3.4.3, and with Spark 3.5 (AWS SDK v1) and 4.1 (AWS SDK v2) writing and reading Parquet through the file and magic committers on a cluster
 
 </details>
 

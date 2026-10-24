@@ -12,10 +12,6 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 - [ ] Test OAuth against a real identity provider.
 - [ ] Validate errors when LDAP/OAuth are configured but unavailable.
 
-## S3
-
-- [ ] Review compatibility with Hadoop/Spark S3A.
-
 ## Encryption
 
 - [ ] Implement SSE-C.

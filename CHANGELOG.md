@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lifecycle `Transition` and `NoncurrentVersionTransition`, by days or by date, move objects to a colder storage class: in a cluster to the nodes of that class, copied there before the other nodes drop theirs; outside a cluster the object takes the class only. An object due to expire is not moved.
 - Lifecycle filters by tags (`Tag`, `And`) and size (`ObjectSizeGreaterThan`, `ObjectSizeLessThan`), and `NewerNoncurrentVersions`.
 - Console: the lifecycle rules of a bucket move objects and noncurrent versions to a storage class the cluster keeps; the HA page names the class of each node.
+- Hadoop and Spark through S3A. Checked with the hadoop-aws integration and scale tests of Hadoop 3.4.3, and with Spark 3.5 (AWS SDK v1) and 4.1 (AWS SDK v2) writing Parquet through one node of a cluster and reading it through another, with the file and magic committers, over a replication factor and over parity. The tests left failing check AWS endpoints, a read of a GLACIER object without a restore, and the requests of the delete-markers mode.
 
 ### Changed
 - An ETag is sent between double quotes, as S3 and HTTP send it, in every header and in the XML of listings, copies, parts and multipart uploads; it was sent without them. It is kept without them, and `If-Match`, `If-None-Match`, copy conditions and completed parts take it either way. A client that kept ETags without quotes and compares them as they are sees them change once.
