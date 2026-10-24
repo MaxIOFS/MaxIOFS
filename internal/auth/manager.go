@@ -770,16 +770,16 @@ func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request)
 		return nil, ErrMissingSignature
 	}
 
-	logrus.WithField("auth_header", authHeader).Debug("ValidateS3Signature called")
+	logrus.WithField("auth_header", authHeader).Info("ValidateS3Signature called")
 
 	// Check if it's SigV4 (from Authorization header or query param)
 	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
-		logrus.Debug("Delegating to ValidateS3SignatureV4")
+		logrus.Info("Delegating to ValidateS3SignatureV4")
 		return am.ValidateS3SignatureV4(ctx, r)
 	}
 
 	// Otherwise assume SigV2
-	logrus.Debug("Delegating to ValidateS3SignatureV2")
+	logrus.Info("Delegating to ValidateS3SignatureV2")
 	return am.ValidateS3SignatureV2(ctx, r)
 }
 
@@ -1547,7 +1547,7 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 		"additionalBytes": additionalBytes,
 		"projectedTotal":  currentStorage + additionalBytes,
 		"wouldExceed":     currentStorage+additionalBytes > tenant.MaxStorageBytes,
-	}).Debug("CheckTenantStorageQuota: validating quota")
+	}).Info("CheckTenantStorageQuota: validating quota")
 
 	// Check if adding these bytes would exceed quota
 	newTotal := currentStorage + additionalBytes
@@ -1816,7 +1816,7 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 		"service":        sig.Service,
 		"signed_headers": sig.SignedHeaders,
 		"credential":     sig.Credential,
-	}).Debug("Parsed SigV4 signature")
+	}).Info("Parsed SigV4 signature")
 
 	return sig, nil
 }
@@ -1993,10 +1993,10 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		"method":            method,
 		"uri":               uri,
 		"query":             queryString,
-		"canonical_headers": strings.ReplaceAll(canonicalHeaders, "\n", "\\n"),
+		"canonical_headers": strings.Split(strings.TrimSuffix(canonicalHeaders, "\n"), "\n"),
 		"signed_headers":    signedHeaders,
 		"payload_hash":      payloadHash,
-	}).Debug("Canonical request components")
+	}).Info("Canonical request components")
 
 	return canonicalRequest
 }
@@ -2162,6 +2162,9 @@ func IsAdminUser(ctx context.Context) bool {
 func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, statusCode int) {
 	// Generate S3-compatible tracing headers before WriteHeader so clients see them.
 	w.Header().Set("Content-Type", "application/xml")
+	if r != nil {
+		NoteError(r.Context(), code, message)
+	}
 	requestID := generateS3RequestID()
 	w.Header().Set("X-Amz-Request-Id", requestID)
 	hostID := generateS3AmzId2()

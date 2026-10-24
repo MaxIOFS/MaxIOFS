@@ -47,6 +47,49 @@ func TestAccountBoundary_EnforcedByTheEngine(t *testing.T) {
 	}
 }
 
+func TestARefusalSaysWhy(t *testing.T) {
+	allowAll := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+	s3Only := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+	denyPut := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:PutObject","Resource":"*"}]}`
+	readOnly := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+	put := func(owner ResourceOwner) AccessRequest {
+		return AccessRequest{Action: ActionPutObject, Resource: "arn:aws:s3:::b/k", Owner: owner}
+	}
+	cases := []struct {
+		name      string
+		tenant    string
+		documents []string
+		req       AccessRequest
+		want      string
+	}{
+		{"allowed", "t1", []string{allowAll}, put(OwnedBy("t1")), ""},
+		{"an unstated owner", "t1", []string{allowAll}, put(ResourceOwner{}), "the tenant of the bucket is not known"},
+		{"a tenant in the shared namespace", "t1", []string{allowAll}, put(OwnedBy("")), "the bucket belongs to no tenant and the caller to tenant t1"},
+		{"a tenant in another", "t1", []string{allowAll}, put(OwnedBy("t2")), "the bucket belongs to tenant t2 and the caller to tenant t1"},
+		{"a global user in a tenant", "", []string{s3Only}, put(OwnedBy("t2")), "the bucket belongs to tenant t2"},
+		{"a super administrator writing in a tenant", "", []string{allowAll}, put(OwnedBy("t2")), "the bucket belongs to tenant t2: a global administrator only reads it"},
+		{"a policy that denies", "t1", []string{allowAll, denyPut}, put(OwnedBy("t1")), "a policy of the caller denies it"},
+		{"no policy that allows", "t1", []string{readOnly}, put(OwnedBy("t1")), "no policy of the caller or of the bucket allows it"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			set := &PolicySet{UserID: "u", TenantID: tc.tenant, Documents: tc.documents}
+			if got := set.Refusal(tc.req); got != tc.want {
+				t.Fatalf("refusal = %q, want %q", got, tc.want)
+			}
+			if set.Allows(tc.req) != (tc.want == "") {
+				t.Fatalf("Allows disagrees with the refusal %q", tc.want)
+			}
+		})
+	}
+
+	deniedByBucket := put(OwnedBy("t1"))
+	deniedByBucket.BucketPolicy = BucketPolicyDeny
+	if got := (&PolicySet{TenantID: "t1", Documents: []string{allowAll}}).Refusal(deniedByBucket); got != "the bucket policy denies it" {
+		t.Fatalf("refusal = %q", got)
+	}
+}
+
 // A super administrator audits another account, and only reads it.
 func TestAccountBoundary_SuperAdminReadsAcrossAndWritesNowhere(t *testing.T) {
 	set := &PolicySet{

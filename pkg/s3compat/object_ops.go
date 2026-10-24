@@ -819,7 +819,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"dest_key":      destKey,
 		"source_size":   sourceObj.Size,
 		"source_etag":   sourceObj.ETag,
-	}).Debug("CopyObject: Starting copy operation")
+	}).Info("CopyObject: Starting copy operation")
 
 	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
 		return

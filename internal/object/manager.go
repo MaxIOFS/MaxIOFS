@@ -268,6 +268,20 @@ func generateVersionID() string {
 
 type replicatedVersionIDKey struct{}
 
+type versionNoticeKey struct{}
+
+// WithVersionNotice has a multipart completion made with ctx tell notice its
+// version as soon as it names it, before the object is assembled.
+func WithVersionNotice(ctx context.Context, notice func(versionID string)) context.Context {
+	return context.WithValue(ctx, versionNoticeKey{}, notice)
+}
+
+func noticeVersion(ctx context.Context, versionID string) {
+	if notice, ok := ctx.Value(versionNoticeKey{}).(func(string)); ok {
+		notice(versionID)
+	}
+}
+
 // bypassGovernanceKey marks a retention change made bypassing GOVERNANCE.
 type bypassGovernanceKey struct{}
 
@@ -1128,7 +1142,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key, ve
 		"bucket":    bucket,
 		"key":       key,
 		"versionID": deleteMarkerVersionID,
-	}).Debug("Created delete marker")
+	}).Info("Created delete marker")
 
 	return deleteMarkerVersionID, nil
 }
@@ -1284,7 +1298,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		"bucket":    bucket,
 		"key":       key,
 		"versionID": versionID,
-	}).Debug("Permanently deleted version")
+	}).Info("Permanently deleted version")
 
 	return nil
 }
@@ -2378,6 +2392,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	if versioningEnabled {
 		versionID = generateVersionID()
 		objectRef = om.versionRef(multipart.Bucket, multipart.Key, versionID)
+		noticeVersion(ctx, versionID)
 	} else {
 		objectRef = om.objectRef(multipart.Bucket, multipart.Key)
 	}
@@ -2494,11 +2509,18 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		om.dropStaleShards(ctx, metaObj, objectRef)
 	}
 
-	logrus.WithFields(logrus.Fields{
+	fields := logrus.Fields{
+		"bucket":   multipart.Bucket,
+		"key":      multipart.Key,
+		"parts":    len(parts),
 		"uploadID": uploadID,
 		"size":     originalSize,
 		"etag":     originalETag,
-	}).Debug("Multipart upload completed successfully")
+	}
+	if versionID != "" {
+		fields["versionID"] = versionID
+	}
+	logrus.WithFields(fields).Info("Multipart upload completed successfully")
 
 	releaseQuota()
 

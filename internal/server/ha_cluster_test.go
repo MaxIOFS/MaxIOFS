@@ -139,6 +139,7 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 	}
 
 	var token string
+	now := time.Now().Unix()
 	for i, node := range c.nodes {
 		created, err := node.clusterManager.InitializeCluster(ctx, fmt.Sprintf("node-%d", i), "us-east-1", clusterURLs[i])
 		require.NoError(t, err)
@@ -152,9 +153,23 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 		require.NoError(t, err)
 		_, err = node.db.ExecContext(ctx, `UPDATE cluster_nodes SET node_token = ?, api_url = ? WHERE id = ?`, token, apiURLs[i], node.id)
 		require.NoError(t, err)
+
+		// Made before the node knows its peers, which a user is sent to.
+		require.NoError(t, node.authManager.CreateUser(ctx, &auth.User{ID: routingAdminID, Username: routingAdminID,
+			Status: auth.UserStatusActive, Roles: []string{auth.RoleAdmin}, CreatedAt: now, UpdatedAt: now}))
+		key, err := node.authManager.GenerateAccessKey(ctx, routingAdminID)
+		require.NoError(t, err)
+		node.s3 = s3.New(s3.Options{
+			BaseEndpoint:               aws.String(apiURLs[i]),
+			Region:                     "us-east-1",
+			UsePathStyle:               true,
+			Credentials:                credentials.NewStaticCredentialsProvider(key.AccessKeyID, key.SecretAccessKey, ""),
+			RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
+			ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
+			RetryMaxAttempts:           1,
+		})
 	}
 
-	now := time.Now().Unix()
 	for i, node := range c.nodes {
 		for j, peer := range c.nodes {
 			if i == j {
@@ -178,20 +193,6 @@ func newHACluster(t *testing.T, n, factor int) *haCluster {
 		// put them under storage pressure.
 		require.NoError(t, cluster.SetGlobalConfig(ctx, node.db, "ha.storage_pressure_threshold_percent", "100"))
 		require.NoError(t, cluster.SetGlobalConfig(ctx, node.db, "ha.storage_pressure_release_percent", "99"))
-
-		require.NoError(t, node.authManager.CreateUser(ctx, &auth.User{ID: routingAdminID, Username: routingAdminID,
-			Status: auth.UserStatusActive, Roles: []string{auth.RoleAdmin}, CreatedAt: now, UpdatedAt: now}))
-		key, err := node.authManager.GenerateAccessKey(ctx, routingAdminID)
-		require.NoError(t, err)
-		node.s3 = s3.New(s3.Options{
-			BaseEndpoint:               aws.String(apiURLs[i]),
-			Region:                     "us-east-1",
-			UsePathStyle:               true,
-			Credentials:                credentials.NewStaticCredentialsProvider(key.AccessKeyID, key.SecretAccessKey, ""),
-			RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
-			ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
-			RetryMaxAttempts:           1,
-		})
 	}
 	return c
 }

@@ -117,7 +117,8 @@ func (m *Manager) Reconfigure() {
 
 	if format == "json" {
 		m.logger.SetFormatter(&logrus.JSONFormatter{
-			TimestampFormat: time.RFC3339Nano,
+			TimestampFormat:   time.RFC3339Nano,
+			DisableHTMLEscape: true,
 			FieldMap: logrus.FieldMap{
 				logrus.FieldKeyTime:  "timestamp",
 				logrus.FieldKeyLevel: "level",

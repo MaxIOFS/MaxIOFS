@@ -125,7 +125,7 @@ npx vitest run --coverage
 | `iam_role_test.go` | IAM roles: trust policy parsing and evaluation, `AssumeRole` checks (session name, duration, tenant), role-session permissions, immediate revocation, ARN parsing |
 | `iam_test.go` | IAM policies: parsing and size budget, evaluation (explicit `Deny` wins), version lifecycle, built-ins, inline policies, IAM user create/delete rules |
 | `manager_jwt_secret_test.go` | JWT secret rotation and validation; a stored secret is encrypted with the current JWT secret, its key derived once per secret |
-| `manager_s3sig_test.go` | S3 Signature V4 verification |
+| `manager_s3sig_test.go` | S3 Signature V4 verification; the canonical headers are logged one by one |
 | `manager_simple_test.go` | Basic auth manager operations (CRUD users, keys) |
 | `manager_tenant_test.go` | Tenant-scoped auth operations; storage usage does not touch `updated_at` |
 | `permissions_screen_test.go` | Saving a user's permissions stores real grants without baking in inherited ones |
@@ -133,7 +133,7 @@ npx vitest run --coverage
 | `policy_bootstrap_test.go` | First-boot conversion to IAM policies: administrators and ordinary users keep console access; an unconverted database is healed; idempotent |
 | `policy_equivalence_test.go` | The unified policy set reaches the same verdict as the legacy role, bucket-permission and capability model over every combination |
 | `policy_orphan_test.go` | Deleting a user, group or tenant removes its policies; a reused identifier inherits nothing |
-| `policy_set_test.go` | The policy engine enforces the account boundary; a super administrator reads across accounts and writes nowhere; an unstated owner is refused |
+| `policy_set_test.go` | The policy engine enforces the account boundary; a super administrator reads across accounts and writes nowhere; an unstated owner is refused; a refusal says why: the account, the bucket policy or the caller's policies |
 | `rate_limiter_test.go` | Login rate limiting, account lockout |
 | `s3_subresources_test.go` | S3 action resolution for bucket subresources, action precedence and trailing slashes |
 | `s3auth_test.go` | S3 authentication flow end-to-end |
@@ -308,7 +308,7 @@ npx vitest run --coverage
 |------|-------------|
 | `helpers_test.go` | Logging helper functions |
 | `http_test.go` | HTTP log target delivery with WaitGroup-tracked goroutines |
-| `manager_test.go` | Log manager routing, multi-target dispatch |
+| `manager_test.go` | Log manager routing, multi-target dispatch; JSON lines keep `&`, `<` and `>` |
 | `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
@@ -390,7 +390,7 @@ npx vitest run --coverage
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
 | `multipart_cleanup_test.go` | Abort/complete leave no upload directory behind; the record survives when parts can't be removed |
 | `multipart_complete_rollback_test.go` | A multipart completion that fails after publishing the assembled object restores the previous one |
-| `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing |
+| `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing; a completion is logged with its bucket, key, parts and version |
 | `multipart_lock_test.go` | Independent parts upload concurrently; conflicting operations exclude each other |
 | `multipart_part_race_test.go` | A part cannot be replaced while completion is assembling it |
 | `multipart_part_replace_test.go` | Replacing an acknowledged part retains it until the new one commits, and restores it on failure |
@@ -463,7 +463,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 63 test files
+### `internal/server/` — 64 test files
 
 | File | Description |
 |------|-------------|
@@ -522,6 +522,7 @@ npx vitest run --coverage
 | `repair_rerun_test.go` | A factor changed while a repair runs is acted on once that repair ends |
 | `request_facts_test.go` | Bucket policy conditions see the client address and TLS; a trusted proxy's `X-Forwarded-For` and `X-Forwarded-Proto` count, a client's do not |
 | `route_ordering_test.go` | Route priority and matching order |
+| `s3_request_log_test.go` | A refused request (403) is logged as a warning with the user, the action, the resource and why; another error at Info with its code and message, without a refusal that did not answer it; a request gives the bytes it received and the version and ETag of its answer |
 | `s3_sdk_test.go` | Through the S3 router with the AWS SDK's defaults: a range of an object written with a checksum is sent without it; `a//b`, `a/./b`, `/a` and `a/../b` are keys of their own, on every node in copies or shards and in the console; a key too long is a `400`; bucket names with periods and `--` are taken and reached by their host, on the S3 API and as a website, with either host under the other; a presigned URL reads any key; the console reaches a key named as one of its routes (`x/tags`, `search`) and sends a quoted ETag |
 | `search_api_test.go` | Object search API endpoints |
 | `server_test.go` | Server startup, shutdown, configuration; the console keeps the lifecycle rules it does not send |
@@ -601,7 +602,7 @@ npx vitest run --coverage
 | `iam_authorization_test.go` | An IAM read policy does not authorize a write or delete; version actions are resource-scoped |
 | `inventory_test.go` | S3 inventory API compatibility |
 | `multipart_faultcheck_test.go` | Concurrent part uploads to different/the same part number over real HTTP; abort during a disconnected upload |
-| `multipart_finish_test.go` | A completion or an abort sent again once the upload is finished is answered as AWS answers it; a completion is held to `If-Match` and `If-None-Match` with `412` or `NoSuchKey` before anything is written |
+| `multipart_finish_test.go` | A completion or an abort sent again once the upload is finished is answered as AWS answers it; a completion is held to `If-Match` and `If-None-Match` with `412` or `NoSuchKey` before anything is written; a quick completion is answered with its version or its error's status, a long one kept open with spaces and its version |
 | `multipart_object_lock_test.go` | `CreateMultipartUpload` refuses Object Lock headers it cannot honour with `InvalidRequest`; a canned ACL comes from `x-amz-acl` only, never from user metadata |
 | `multipart_ownership_test.go` | A foreign multipart upload is refused; the owner's own upload keeps working |
 | `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
@@ -610,7 +611,7 @@ npx vitest run --coverage
 | `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused; an ETag is sent quoted in every header and listing and kept without quotes; HEAD and GET name the storage class of every class but STANDARD |
 | `notifications_test.go` | Bucket notification webhook dispatch |
 | `object_lock_permissions_test.go` | Object Lock headers on PUT, CreateMultipartUpload and CopyObject need `s3:PutObjectRetention` / `s3:PutObjectLegalHold`; the bucket default needs neither; a copy carries the retention it asked for |
-| `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously |
+| `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously; read with or without the S3 namespace, answered with it |
 | `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
 | `quota_over_limit_test.go` | A bucket or tenant over its quota refuses writes that grow usage, allows deletes, batch deletes and shrinking overwrites, and admits a write that fits once under the limit |
 | `quota_write_errors_test.go` | A tenant quota refusal inside a PUT and a bucket quota refusal on CopyObject answer 403 `QuotaExceeded`; a failure to check the quota is not a refusal |
@@ -622,7 +623,7 @@ npx vitest run --coverage
 | `select_streaming_test.go` | `SelectObjectContent` loaders don't scale memory with input size; schema can grow mid-stream |
 | `select_test.go` | `SelectObjectContent` — event stream encoding, CSV/JSON loaders, SQL queries, batch flushing |
 | `sts_compound_test.go` | Compound operations within one STS session |
-| `tenant_boundary_test.go` | The tenant boundary holds in both directions; a super-admin crosses it read-only |
+| `tenant_boundary_test.go` | The tenant boundary holds in both directions; a super-admin crosses it read-only; a refused upload notes who asked for what and why |
 | `tenant_isolation_test.go` | Tenant membership is not itself a permission — another tenant, even a member, is refused |
 | `version_lookup_cost_test.go` | `FindExactObjectVersion` reads only the versions of the key it was asked for |
 | `version_permission_test.go` | A grant on the current object does not reach a version; a version grant still works |
@@ -880,7 +881,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Area | Files | Key Packages |
 |------|-------|-------------|
 | Object | 55 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 63 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Server | 64 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
 | S3 Compat | 41 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
@@ -898,6 +899,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 26 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **360** | |
+| **Total Go** | **361** | |
 | Frontend | 15 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, storage classes, lifecycle rules |
 | Performance | 4 | Upload, download, mixed, common |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,6 +49,37 @@ func TestObjectLockConfiguration_NeedsThePermission(t *testing.T) {
 	config, err := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, "worm")
 	require.NoError(t, err)
 	assert.Nil(t, config.Rule, "and nothing was written")
+}
+
+func TestObjectLockConfiguration_IsReadWithOrWithoutTheS3Namespace(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "worm-ns", env.userID))
+	require.NoError(t, env.bucketManager.SetObjectLockConfig(ctx, env.tenantID, "worm-ns",
+		&bucket.ObjectLockConfig{ObjectLockEnabled: true}))
+	tenantAdmin := &auth.User{ID: "tenant-admin", TenantID: env.tenantID, Roles: []string{auth.RoleTenantAdmin}}
+
+	for days, namespace := range map[int]string{3: "", 5: objectLockNS} {
+		w := putObjectLockConfig(env, tenantAdmin, "worm-ns",
+			`<ObjectLockConfiguration`+namespace+`><ObjectLockEnabled>Enabled</ObjectLockEnabled>`+
+				`<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>`+strconv.Itoa(days)+`</Days></DefaultRetention></Rule>`+
+				`</ObjectLockConfiguration>`)
+		require.Equal(t, http.StatusOK, w.Code, "namespace %q: %s", namespace, w.Body.String())
+		config, err := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, "worm-ns")
+		require.NoError(t, err)
+		require.NotNil(t, config.Rule)
+		require.NotNil(t, config.Rule.DefaultRetention.Days)
+		assert.Equal(t, days, *config.Rule.DefaultRetention.Days, "namespace %q", namespace)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/worm-ns?object-lock", nil)
+	req = mux.SetURLVars(req, map[string]string{"bucket": "worm-ns"})
+	req = req.WithContext(setUserInContext(req.Context(), tenantAdmin))
+	w := httptest.NewRecorder()
+	env.handler.GetObjectLockConfiguration(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `<ObjectLockConfiguration`+objectLockNS+`>`)
 }
 
 func TestObjectLockConfiguration_AnonymousIsRefused(t *testing.T) {

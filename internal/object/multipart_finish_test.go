@@ -7,9 +7,48 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestACompletionIsLoggedWithItsObject(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "logged", OwnerID: "u",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"}}))
+	upload, err := om.CreateMultipartUpload(ctx, "logged", "big.zip", http.Header{})
+	require.NoError(t, err)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader([]byte("data")))
+	require.NoError(t, err)
+
+	logger := logrus.StandardLogger()
+	hook := new(logtest.Hook)
+	formerHooks, formerLevel := logger.ReplaceHooks(logrus.LevelHooks{}), logger.GetLevel()
+	logger.AddHook(hook)
+	logger.SetLevel(logrus.InfoLevel)
+	defer func() {
+		logger.ReplaceHooks(formerHooks)
+		logger.SetLevel(formerLevel)
+	}()
+	obj, err := om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{{PartNumber: 1, ETag: part.ETag}})
+	require.NoError(t, err)
+
+	var logged *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Message == "Multipart upload completed successfully" {
+			logged = e
+		}
+	}
+	require.NotNil(t, logged)
+	assert.Equal(t, logrus.InfoLevel, logged.Level)
+	assert.Equal(t, "logged", logged.Data["bucket"])
+	assert.Equal(t, "big.zip", logged.Data["key"])
+	assert.Equal(t, 1, logged.Data["parts"])
+	assert.Equal(t, obj.VersionID, logged.Data["versionID"])
+}
 
 // A completion's If-Match and If-None-Match are decided under the key's lock,
 // whatever was checked before: a refused completion writes nothing and leaves

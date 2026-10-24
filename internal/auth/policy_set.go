@@ -74,27 +74,35 @@ func OwnedBy(tenantID string) ResourceOwner {
 // Deny in either refuses, an Allow in either grants. The account boundary and a
 // session policy bound both.
 func (p *PolicySet) Allows(req AccessRequest) bool {
+	return p.Refusal(req) == ""
+}
+
+// Refusal is why the set refuses the request; empty when it permits it.
+func (p *PolicySet) Refusal(req AccessRequest) string {
 	if p == nil {
-		return false
+		return "the caller's permissions were not resolved"
 	}
 	// An owner nobody resolved is not a resource anybody may reach.
 	if !req.Owner.stated {
-		return false
+		return "the tenant of the bucket is not known"
 	}
-	if !p.mayReachAccount(req) {
-		return false
+	if refusal := p.accountRefusal(req); refusal != "" {
+		return refusal
 	}
 	if req.BucketPolicy == BucketPolicyDeny {
-		return false
+		return "the bucket policy denies it"
 	}
 	if !EvaluateSessionPolicy(p.SessionPolicy, req.Action, req.Resource) {
-		return false
+		return "the session policy does not allow it"
 	}
 	allowed, denied := evaluateIAMDocuments(p.Documents, req.Action, req.Resource)
 	if denied {
-		return false
+		return "a policy of the caller denies it"
 	}
-	return allowed || req.BucketPolicy == BucketPolicyAllow
+	if !allowed && req.BucketPolicy != BucketPolicyAllow {
+		return "no policy of the caller or of the bucket allows it"
+	}
+	return ""
 }
 
 // AllowsOwnAccount answers for a resource that belongs to no tenant — the
@@ -106,29 +114,33 @@ func (p *PolicySet) AllowsOwnAccount(action, resource string) bool {
 	return p.Allows(AccessRequest{Action: action, Resource: resource, Owner: OwnedBy(p.TenantID)})
 }
 
-// mayReachAccount decides whether the principal may touch the resource's
-// account at all, before any policy is consulted.
+// accountRefusal is why the principal may not touch the resource's account at
+// all, before any policy is consulted; empty when it may.
 //
 // Same account: yes. The shared namespace belongs only to tenant-less
 // principals. Otherwise only a super administrator, and only to read — the audit
 // view of another tenant.
-func (p *PolicySet) mayReachAccount(req AccessRequest) bool {
-	if p.TenantID == req.Owner.tenantID {
-		return true
+func (p *PolicySet) accountRefusal(req AccessRequest) string {
+	owner := req.Owner.tenantID
+	if p.TenantID == owner {
+		return ""
 	}
-	if req.Owner.tenantID == "" {
-		return false
+	if owner == "" {
+		return "the bucket belongs to no tenant and the caller to tenant " + p.TenantID
 	}
 	// A principal that belongs to an account never leaves it, whatever its own
 	// policies say. Reaching into another account is not something an identity
 	// policy can grant itself — that is what makes the boundary a boundary.
 	if p.TenantID != "" {
-		return false
+		return "the bucket belongs to tenant " + owner + " and the caller to tenant " + p.TenantID
+	}
+	if !EvaluateIAMDocuments(p.Documents, ActionSuperAdmin, "*") {
+		return "the bucket belongs to tenant " + owner
 	}
 	if !ReadOnlyAuditAction(req.Action) {
-		return false
+		return "the bucket belongs to tenant " + owner + ": a global administrator only reads it"
 	}
-	return EvaluateIAMDocuments(p.Documents, ActionSuperAdmin, "*")
+	return ""
 }
 
 // AllowsAnywhere reports whether the set permits an action on any resource at

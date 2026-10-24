@@ -1579,7 +1579,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"bucket":     bucketName,
 		"object":     objectKey,
 		"bucketPath": bucketPath,
-	}).Debug("PutObject: Using bucketPath")
+	}).Info("PutObject: Using bucketPath")
 
 	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, bodyReader, r.Header)
 	if err != nil {
@@ -2181,7 +2181,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	switch code {
 	// 400 Bad Request (AWS S3 standard)
 	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy",
-		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart",
+		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart", "InvalidPartOrder",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
 		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge":
 		statusCode = http.StatusBadRequest
@@ -2223,6 +2223,9 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// 503 Service Unavailable
 	case "ServiceUnavailable", "SlowDown":
 		statusCode = http.StatusServiceUnavailable
+	}
+	if r != nil {
+		auth.NoteError(r.Context(), code, message)
 	}
 
 	// Generate IDs for both headers and XML body BEFORE WriteHeader
@@ -2786,7 +2789,7 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 		"bucket":   s.BucketName,
 		"object":   s.ObjectKey,
 		"tenantID": shareTenantID,
-	}).Debug("Shared object access - bypassing authentication")
+	}).Info("Shared object access - bypassing authentication")
 
 	return s.BucketName, s.ObjectKey, shareTenantID, nil
 }
@@ -3110,14 +3113,6 @@ func (h *Handler) validateBucketReadPermission(
 		if h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, action, objectARN(bucketName, objectKey)) {
 			return true
 		}
-
-		logrus.WithFields(logrus.Fields{
-			"bucket":       bucketName,
-			"object":       objectKey,
-			"userID":       user.ID,
-			"userTenantID": user.TenantID,
-			"bucketTenant": tenantID,
-		}).Warn("ACL permission denied for GetObject - cross-tenant access (bucket-level)")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return false
 	}
@@ -3332,7 +3327,7 @@ func (h *Handler) validateTenantQuota(
 	logrus.WithFields(logrus.Fields{
 		"tenantID":      user.TenantID,
 		"sizeIncrement": sizeIncrement,
-	}).Debug("Checking tenant storage quota")
+	}).Info("Checking tenant storage quota")
 
 	if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -3352,7 +3347,7 @@ func (h *Handler) validateTenantQuota(
 		return err
 	}
 
-	logrus.Debug("Quota check passed")
+	logrus.Info("Quota check passed")
 	return nil
 }
 
@@ -3396,7 +3391,7 @@ func (h *Handler) detectAndDecodeAwsChunked(
 			"bucket":                 bucketName,
 			"object":                 objectKey,
 			"decoded-content-length": decodedContentLength,
-		}).Debug("AWS chunked encoding detected - decoding")
+		}).Info("AWS chunked encoding detected - decoding")
 
 		chunked := NewAwsChunkedReader(bodyReader).ChecksumTrailersInto(r.Header)
 		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {
@@ -3571,14 +3566,6 @@ func (h *Handler) validateHeadBucketReadPermission(
 
 	// No ACL cascade for an authenticated caller — see validateBucketReadPermission.
 	// ACLs and public access decide anonymous requests, in the branch above.
-
-	logrus.WithFields(logrus.Fields{
-		"bucket":       bucketName,
-		"object":       objectKey,
-		"userID":       user.ID,
-		"userTenantID": user.TenantID,
-		"bucketTenant": tenantID,
-	}).Warn("ACL permission denied for HeadObject - cross-tenant access (bucket-level)")
 	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 	return false
 }
@@ -3597,14 +3584,19 @@ func (h *Handler) parseObjectLockConfigXML(
 	}
 	defer r.Body.Close()
 
-	var config ObjectLockConfiguration
-	if err := xml.Unmarshal(body, &config); err != nil {
+	// Read in any namespace: ObjectLockConfiguration's own name is written in S3's.
+	var request struct {
+		XMLName           xml.Name        `xml:"ObjectLockConfiguration"`
+		ObjectLockEnabled string          `xml:"ObjectLockEnabled"`
+		Rule              *ObjectLockRule `xml:"Rule,omitempty"`
+	}
+	if err := xml.Unmarshal(body, &request); err != nil {
 		logrus.WithError(err).Error("PutObjectLockConfiguration - Failed to unmarshal XML")
 		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed", bucketName, r)
 		return nil, false
 	}
 
-	return &config, true
+	return &ObjectLockConfiguration{ObjectLockEnabled: request.ObjectLockEnabled, Rule: request.Rule}, true
 }
 
 // calculateRetentionDays converts years/days to total days
@@ -3940,13 +3932,21 @@ func (h *Handler) userCanPerformS3ActionAnywhere(ctx context.Context, user *auth
 }
 
 func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth.User, bucketTenantID, action, resource string) bool {
-	return h.policySetFor(ctx, user).Allows(auth.AccessRequest{
+	refusal := h.policySetFor(ctx, user).Refusal(auth.AccessRequest{
 		Action:   action,
 		Resource: resource,
 		Owner:    auth.OwnedBy(bucketTenantID),
 		BucketPolicy: bucket.DecideBucketPolicy(ctx, h.bucketManager, bucketTenantID, action, resource,
 			bucket.PolicyPrincipals(user)),
 	})
+	if refusal != "" {
+		name := user.Username
+		if name == "" {
+			name = user.ID
+		}
+		auth.NoteRefusal(ctx, name, action, resource, refusal)
+	}
+	return refusal == ""
 }
 
 // anonymousAllowed decides a request without credentials: a bucket policy
@@ -3955,9 +3955,14 @@ func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth
 func (h *Handler) anonymousAllowed(ctx context.Context, tenantID, action, resource string, aclAllows func() bool) bool {
 	switch bucket.DecideAnonymousBucketPolicy(ctx, h.bucketManager, tenantID, action, resource) {
 	case auth.BucketPolicyDeny:
+		auth.NoteRefusal(ctx, "anonymous", action, resource, "the bucket policy denies it")
 		return false
 	case auth.BucketPolicyAllow:
 		return true
 	}
-	return aclAllows()
+	if !aclAllows() {
+		auth.NoteRefusal(ctx, "anonymous", action, resource, "neither the bucket policy nor an ACL allows it")
+		return false
+	}
+	return true
 }

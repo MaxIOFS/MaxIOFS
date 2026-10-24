@@ -87,6 +87,34 @@ func TestTenantBoundary_SuperAdminCrossesReadOnly(t *testing.T) {
 		"a super administrator must not change tenant bucket configuration")
 }
 
+func TestARefusedUploadNotesWhy(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(context.Background(), env.tenantID, "tenant-upload", env.userID))
+	writer, ok := env.authManager.(interface {
+		PutIAMInlinePolicy(ctx context.Context, targetType, targetID, name, document string) error
+	})
+	require.True(t, ok)
+	require.NoError(t, writer.PutIAMInlinePolicy(context.Background(), auth.IAMTargetUser, env.userID, "super",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["*"],"Resource":["*"]}]}`))
+
+	super := &auth.User{ID: env.userID, Username: "admin", TenantID: "", Roles: []string{auth.RoleAdmin}}
+	req := httptest.NewRequest(http.MethodPost, "/tenant-upload/big.zip?uploads=", nil)
+	req = mux.SetURLVars(req, map[string]string{"bucket": "tenant-upload", "object": "big.zip"})
+	req = req.WithContext(setUserInContext(auth.WithOutcome(req.Context()), super))
+	w := httptest.NewRecorder()
+
+	env.handler.CreateMultipartUpload(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	outcome := auth.OutcomeOf(req.Context())
+	assert.Equal(t, "AccessDenied", outcome.Code)
+	assert.Equal(t, "admin", outcome.User)
+	assert.Equal(t, auth.ActionPutObject, outcome.Action)
+	assert.Equal(t, objectARN("tenant-upload", "big.zip"), outcome.Resource)
+	assert.Equal(t, "the bucket belongs to tenant "+env.tenantID+": a global administrator only reads it", outcome.Reason)
+}
+
 func TestSubresourceAuthorization_SuperAdminCannotPutBucketPolicy(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

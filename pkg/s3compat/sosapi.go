@@ -171,7 +171,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"quota_bytes": totalCapacity,
 					"used_bytes":  used,
 					"free_bytes":  availableCapacity,
-				}).Debug("SOSAPI capacity calculated from bucket quota")
+				}).Info("SOSAPI capacity calculated from bucket quota")
 			}
 		}
 
@@ -197,7 +197,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"quota_bytes": totalCapacity,
 					"used_bytes":  usedCapacity,
 					"free_bytes":  availableCapacity,
-				}).Debug("SOSAPI capacity calculated from tenant quota")
+				}).Info("SOSAPI capacity calculated from tenant quota")
 			}
 		}
 
@@ -209,7 +209,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 				logrus.WithFields(logrus.Fields{
 					"total_bytes": totalCapacity,
 					"free_bytes":  availableCapacity,
-				}).Debug("SOSAPI capacity calculated from the cluster")
+				}).Info("SOSAPI capacity calculated from the cluster")
 			}
 		}
 
@@ -226,7 +226,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"free_bytes":  availableCapacity,
 					"used_bytes":  int64(diskInfo.Used),
 					"data_dir":    h.dataDir,
-				}).Debug("SOSAPI capacity calculated from disk")
+				}).Info("SOSAPI capacity calculated from disk")
 			}
 		}
 

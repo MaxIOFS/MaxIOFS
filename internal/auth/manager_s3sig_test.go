@@ -12,6 +12,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ========================================
@@ -211,6 +216,40 @@ func TestCalculateSignatureV4(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTheCanonicalHeadersAreLoggedOneByOne(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+	logger := logrus.StandardLogger()
+	hook := new(logtest.Hook)
+	formerHooks, formerLevel := logger.ReplaceHooks(logrus.LevelHooks{}), logger.GetLevel()
+	logger.AddHook(hook)
+	logger.SetLevel(logrus.InfoLevel)
+	defer func() {
+		logger.ReplaceHooks(formerHooks)
+		logger.SetLevel(formerLevel)
+	}()
+
+	req, _ := http.NewRequest("GET", "/bucket/?delimiter=%2F&max-keys=1000", nil)
+	req.Host = "localhost:8080"
+	req.Header.Set("X-Amz-Content-Sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	req.Header.Set("X-Amz-Date", "20261024T224352Z")
+	manager.createCanonicalRequest(req, "host;x-amz-content-sha256;x-amz-date")
+
+	var logged *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Message == "Canonical request components" {
+			logged = e
+		}
+	}
+	require.NotNil(t, logged)
+	assert.Equal(t, []string{
+		"host:localhost:8080",
+		"x-amz-content-sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"x-amz-date:20261024T224352Z",
+	}, logged.Data["canonical_headers"])
 }
 
 func TestCreateCanonicalRequest(t *testing.T) {

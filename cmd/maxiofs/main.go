@@ -121,7 +121,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 func setupLogging(level string) {
 	logrus.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: time.RFC3339,
+		TimestampFormat:   time.RFC3339,
+		DisableHTMLEscape: true,
 	})
 
 	switch level {

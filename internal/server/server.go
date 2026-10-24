@@ -1606,11 +1606,18 @@ func unescapeRouteVars(next http.Handler) http.Handler {
 
 // logS3APIRequests writes one line per request to the S3 API: what was asked,
 // who asked it, how it ended and how long it took. Everything needed to follow
-// a client through the log, and nothing repeated from the request itself.
+// a client through the log, and nothing repeated from the request itself. A
+// request refused (403) is a warning that says why.
 func logS3APIRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		recorder := &s3StatusRecorder{ResponseWriter: w, status: http.StatusOK}
+		r = r.WithContext(auth.WithOutcome(r.Context()))
+		var received *countedBody
+		if r.Body != nil && r.Body != http.NoBody {
+			received = &countedBody{ReadCloser: r.Body}
+			r.Body = received
+		}
 		next.ServeHTTP(recorder, r)
 
 		fields := logrus.Fields{
@@ -1628,8 +1635,40 @@ func logS3APIRequests(next http.Handler) http.Handler {
 		if key := accessKeyOfRequest(r); key != "" {
 			fields["access_key"] = key
 		}
-		logrus.WithFields(fields).Info("S3 request")
+		if received != nil && received.n.Load() > 0 {
+			fields["received"] = received.n.Load()
+		}
+		if version := recorder.Header().Get("x-amz-version-id"); version != "" {
+			fields["version_id"] = version
+		}
+		if etag := recorder.Header().Get("ETag"); etag != "" {
+			fields["etag"] = etag
+		}
+		outcome := auth.OutcomeOf(r.Context())
+		if outcome.Code != "" {
+			fields["error"], fields["error_message"] = outcome.Code, outcome.Message
+		}
+		if recorder.status != http.StatusForbidden {
+			logrus.WithFields(fields).Info("S3 request")
+			return
+		}
+		if outcome.Code == "AccessDenied" && outcome.Reason != "" {
+			fields["user"], fields["action"], fields["resource"], fields["reason"] = outcome.User, outcome.Action, outcome.Resource, outcome.Reason
+		}
+		logrus.WithFields(fields).Warn("S3 request")
 	})
+}
+
+// countedBody counts the bytes a request's body gave.
+type countedBody struct {
+	io.ReadCloser
+	n atomic.Int64
+}
+
+func (b *countedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n.Add(int64(n))
+	return n, err
 }
 
 // s3StatusRecorder remembers what was answered, which the handler knows and the

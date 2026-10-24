@@ -2,12 +2,16 @@ package s3compat
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,6 +61,60 @@ func TestMultipartFinishSentAgain(t *testing.T) {
 
 	noSuchUpload(env.sendSigned("DELETE", "/again/never?uploadId=no-such-upload", nil, nil), "abort of an unknown upload")
 	noSuchUpload(env.sendSigned("POST", "/again/never?uploadId=no-such-upload", []byte(complete), nil), "completion of an unknown upload")
+}
+
+func TestACompletionIsAnsweredWithItsVersionAndItsStatus(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "versioned", env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(t.Context(), env.tenantID, "versioned", &bucket.VersioningConfig{Status: "Enabled"}))
+
+	id, complete := env.startUploadInParts(t, "/versioned/k", nil, []byte("data"))
+	w := env.sendSigned("POST", "/versioned/k?uploadId="+id, []byte(complete), nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	version := w.Header().Get("x-amz-version-id")
+	require.NotEmpty(t, version)
+	assert.Equal(t, version, env.sendSigned("HEAD", "/versioned/k", nil, nil).Header().Get("x-amz-version-id"))
+
+	id, _ = env.startUploadInParts(t, "/versioned/other", nil, []byte("data"))
+	wrongPart := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"0123456789abcdef0123456789abcdef"</ETag></Part></CompleteMultipartUpload>`
+	w = env.sendSigned("POST", "/versioned/other?uploadId="+id, []byte(wrongPart), nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "<Code>InvalidPart</Code>")
+}
+
+type slowCompletion struct{ object.Manager }
+
+func (s slowCompletion) CompleteMultipartUpload(ctx context.Context, uploadID string, parts []object.Part) (*object.Object, error) {
+	obj, err := s.Manager.CompleteMultipartUpload(ctx, uploadID, parts)
+	time.Sleep(100 * time.Millisecond)
+	return obj, err
+}
+
+func TestALongCompletionIsKeptAliveAndAnswered(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	former := completionKeepalive
+	completionKeepalive = 10 * time.Millisecond
+	defer func() { completionKeepalive = former }()
+	env.handler.objectManager = slowCompletion{env.handler.objectManager}
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "slow", env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(t.Context(), env.tenantID, "slow", &bucket.VersioningConfig{Status: "Enabled"}))
+
+	id, complete := env.startUploadInParts(t, "/slow/k", nil, []byte("data"))
+	w := env.sendSigned("POST", "/slow/k?uploadId="+id, []byte(complete), nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, strings.HasPrefix(w.Body.String(), " "), "kept alive")
+	assert.Equal(t, "slow", completionResult(t, w).Bucket)
+	version := w.Header().Get("x-amz-version-id")
+	require.NotEmpty(t, version)
+	assert.Equal(t, version, env.sendSigned("HEAD", "/slow/k", nil, nil).Header().Get("x-amz-version-id"))
+
+	id, _ = env.startUploadInParts(t, "/slow/other", nil, []byte("data"))
+	wrongPart := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"0123456789abcdef0123456789abcdef"</ETag></Part></CompleteMultipartUpload>`
+	w = env.sendSigned("POST", "/slow/other?uploadId="+id, []byte(wrongPart), nil)
+	assert.Equal(t, http.StatusOK, w.Code, "answered before it ended")
+	assert.Contains(t, w.Body.String(), "<Code>InvalidPart</Code>")
 }
 
 // A completion is held to If-Match and If-None-Match as a PUT is: refused with

@@ -102,6 +102,20 @@ func TestReconfigureLogFormat(t *testing.T) {
 	}
 }
 
+func TestJSONLogLinesKeepAmpersandsAndBrackets(t *testing.T) {
+	logger := logrus.New()
+	NewManager(logger).SetSettingsManager(&mockSettingsManager{settings: map[string]string{
+		"logging.format": "json", "logging.level": "info", "logging.include_caller": "false",
+	}})
+	entry := logrus.NewEntry(logger).WithField("query", "delimiter=%2F&max-keys=1000")
+	entry.Message = "expected element <ObjectLockConfiguration>"
+
+	line, err := logger.Formatter.Format(entry)
+	require.NoError(t, err)
+	assert.Contains(t, string(line), `"query":"delimiter=%2F&max-keys=1000"`)
+	assert.Contains(t, string(line), `"message":"expected element <ObjectLockConfiguration>"`)
+}
+
 func TestReconfigureLogLevel(t *testing.T) {
 	logger := logrus.New()
 	manager := NewManager(logger)

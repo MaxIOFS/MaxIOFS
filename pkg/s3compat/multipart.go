@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -288,7 +290,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 			"uploadId":   uploadID,
 			"partNumber": partNumber,
 			"decodedLen": decodedContentLength,
-		}).Debug("AWS chunked encoding detected in UploadPart")
+		}).Info("AWS chunked encoding detected in UploadPart")
 
 		chunked := NewAwsChunkedReader(r.Body).ChecksumTrailersInto(r.Header)
 		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {
@@ -718,7 +720,9 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		err error
 	}
 	resultCh := make(chan completionResult, 1)
-	bgCtx := h.backgroundJobContext(object.WithWriteConditions(r.Context(), r.Header))
+	var versionID atomic.Pointer[string]
+	bgCtx := h.backgroundJobContext(object.WithVersionNotice(object.WithWriteConditions(r.Context(), r.Header),
+		func(id string) { versionID.Store(&id) }))
 	if !h.runBackground("S3 complete multipart upload", func() {
 		obj, err := h.objectManager.CompleteMultipartUpload(bgCtx, uploadID, parts)
 		resultCh <- completionResult{obj, err}
@@ -727,17 +731,48 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	ticker := time.NewTicker(completionKeepalive)
+	defer ticker.Stop()
+
+	// A completion that ends before the first keepalive is answered whole: its
+	// headers name its version, and a refusal has its own status.
+	var res completionResult
+	select {
+	case res = <-resultCh:
+		if res.err != nil {
+			h.writeError(w, completionErrorCode(res.err), res.err.Error(), objectKey, r)
+			return
+		}
+		if storedCannedACL != "" {
+			h.applyObjectCannedACLHeader(bgCtx, bucketPath, objectKey, storedCannedACL)
+		}
+		if res.obj.VersionID != "" {
+			w.Header().Set("x-amz-version-id", res.obj.VersionID)
+		}
+		h.writeXMLResponse(w, http.StatusOK, CompleteMultipartUploadResult{
+			Location: h.buildLocationURL(r, bucketName, objectKey),
+			Bucket:   bucketName,
+			Key:      objectKey,
+			ETag:     QuoteETag(res.obj.ETag),
+		})
+		h.notifyCompletion(bgCtx, r, bucketName, objectKey, res.obj)
+		return
+	case <-ticker.C:
+	case <-r.Context().Done():
+		return
+	}
+
+	if id := versionID.Load(); id != nil {
+		w.Header().Set("x-amz-version-id", *id)
+	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(" ")) //nolint:errcheck
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
 
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	var res completionResult
 	for {
 		select {
 		case res = <-resultCh:
@@ -758,22 +793,7 @@ done:
 	if res.err != nil {
 		// We already committed 200 OK, so embed the error in the body.
 		// AWS S3 uses this same pattern; compliant clients parse the body.
-		code := "InternalError"
-		if res.err == object.ErrInvalidUploadID || res.err == object.ErrUploadNotFound {
-			code = "NoSuchUpload"
-		} else if res.err == object.ErrInvalidPart {
-			code = "InvalidPart"
-		} else if res.err == object.ErrInvalidPartOrder {
-			code = "InvalidPartOrder"
-		} else if errors.Is(res.err, object.ErrPreconditionFailed) {
-			code = "PreconditionFailed"
-		} else if errors.Is(res.err, object.ErrObjectNotFound) {
-			code = "NoSuchKey"
-		} else if errors.Is(res.err, cluster.ErrClusterDegraded) {
-			code = "ServiceUnavailable"
-		} else if isQuotaExceeded(res.err) {
-			code = "QuotaExceeded"
-		}
+		code := completionErrorCode(res.err)
 		logrus.WithFields(logrus.Fields{
 			"bucket":   bucketName,
 			"object":   objectKey,
@@ -798,8 +818,7 @@ done:
 		return
 	}
 
-	// Return version ID if versioning is enabled
-	if res.obj.VersionID != "" {
+	if res.obj.VersionID != "" && versionID.Load() == nil {
 		// Headers already sent; version ID can only be delivered in a trailer,
 		// which most S3 clients don't support. Log it and move on.
 		logrus.WithField("versionID", res.obj.VersionID).Debug("CompleteMultipartUpload: version ID set after early 200, cannot set header")
@@ -822,9 +841,37 @@ done:
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	h.notifyCompletion(bgCtx, r, bucketName, objectKey, res.obj)
+}
 
+// completionKeepalive is how often a completion still being assembled is sent
+// a space, which keeps its connection open.
+var completionKeepalive = 10 * time.Second
+
+// completionErrorCode is the S3 error of a completion that failed.
+func completionErrorCode(err error) string {
+	switch {
+	case err == object.ErrInvalidUploadID || err == object.ErrUploadNotFound:
+		return "NoSuchUpload"
+	case err == object.ErrInvalidPart:
+		return "InvalidPart"
+	case err == object.ErrInvalidPartOrder:
+		return "InvalidPartOrder"
+	case errors.Is(err, object.ErrPreconditionFailed):
+		return "PreconditionFailed"
+	case errors.Is(err, object.ErrObjectNotFound):
+		return "NoSuchKey"
+	case errors.Is(err, cluster.ErrClusterDegraded):
+		return "ServiceUnavailable"
+	case isQuotaExceeded(err):
+		return "QuotaExceeded"
+	}
+	return "InternalError"
+}
+
+func (h *Handler) notifyCompletion(ctx context.Context, r *http.Request, bucketName, objectKey string, obj *object.Object) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
-	h.fireNotifications(bgCtx, bucketName, tenantID, objectKey, "s3:ObjectCreated:CompleteMultipartUpload", res.obj.ETag, res.obj.Size)
+	h.fireNotifications(ctx, bucketName, tenantID, objectKey, "s3:ObjectCreated:CompleteMultipartUpload", obj.ETag, obj.Size)
 }
 
 func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
@@ -893,7 +940,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 		"sourceBucket": sourceBucket,
 		"sourceKey":    sourceKey,
 		"sourceRange":  copySourceRange,
-	}).Debug("UploadPartCopy: Processing copy part")
+	}).Info("UploadPartCopy: Processing copy part")
 
 	user, userExists := auth.GetUserFromContext(r.Context())
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
