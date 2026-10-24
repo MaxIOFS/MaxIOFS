@@ -14,9 +14,9 @@ import (
 // mockObjectMgrWithMultipart extends mockObjectMgr with multipart support for abort tests.
 type mockObjectMgrWithMultipart struct {
 	mockObjectMgr
-	uploads     []object.MultipartUpload
-	abortedIDs  []string
-	abortErr    error
+	uploads    []object.MultipartUpload
+	abortedIDs []string
+	abortErr   error
 }
 
 func (m *mockObjectMgrWithMultipart) ListMultipartUploads(ctx context.Context, bucketPath string) ([]object.MultipartUpload, error) {
@@ -30,7 +30,6 @@ func (m *mockObjectMgrWithMultipart) AbortMultipartUpload(ctx context.Context, u
 	m.abortedIDs = append(m.abortedIDs, uploadID)
 	return nil
 }
-
 
 // TestProcessObjectExpiration_DeletesExpiredByDays verifies that objects older than
 // the configured Days are deleted.
@@ -71,7 +70,7 @@ func TestProcessObjectExpiration_DeletesByDate(t *testing.T) {
 	cutoffDate := time.Now().UTC().AddDate(0, 0, -1) // yesterday
 
 	old := time.Now().UTC().AddDate(0, 0, -10) // 10 days ago — before cutoff
-	fresh := time.Now().UTC().AddDate(0, 0, 1)  // tomorrow — after cutoff
+	fresh := time.Now().UTC().AddDate(0, 0, 1) // tomorrow — after cutoff
 
 	objMgr := &mockObjectMgr{
 		listResult: &object.ListObjectsResult{
@@ -181,8 +180,8 @@ func TestProcessObjectExpiration_ListError(t *testing.T) {
 	ctx := context.Background()
 
 	rule := bucket.LifecycleRule{
-		ID:     "expire-30-days",
-		Status: "Enabled",
+		ID:         "expire-30-days",
+		Status:     "Enabled",
 		Expiration: &bucket.LifecycleExpiration{Days: &days},
 	}
 
@@ -193,11 +192,10 @@ func TestProcessObjectExpiration_ListError(t *testing.T) {
 	assert.Equal(t, 0, objMgr.deleteCount, "No deletions when listing fails")
 }
 
-
 // TestAbortIncompleteMultipart_AbortsOldUploads verifies stale uploads are aborted.
 func TestAbortIncompleteMultipart_AbortsOldUploads(t *testing.T) {
-	stale := time.Now().UTC().AddDate(0, 0, -8)  // 8 days ago — should be aborted (threshold = 7)
-	fresh := time.Now().UTC().AddDate(0, 0, -1)  // 1 day ago — should NOT be aborted
+	stale := time.Now().UTC().AddDate(0, 0, -8) // 8 days ago — should be aborted (threshold = 7)
+	fresh := time.Now().UTC().AddDate(0, 0, -1) // 1 day ago — should NOT be aborted
 
 	objMgr := &mockObjectMgrWithMultipart{
 		uploads: []object.MultipartUpload{
@@ -274,7 +272,6 @@ func TestAbortIncompleteMultipart_AllFresh(t *testing.T) {
 	worker.processAbortIncompleteMultipartUploads(ctx, "test-bucket", rule)
 	assert.Empty(t, objMgr.abortedIDs, "Fresh uploads should not be aborted")
 }
-
 
 // TestProcessLifecycleRule_ExpirationAndAbort tests that a rule with both
 // expiration and abort incomplete multipart triggers both handlers.

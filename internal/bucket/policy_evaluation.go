@@ -9,12 +9,12 @@ import (
 
 // PolicyEvaluationRequest contains the context for policy evaluation
 type PolicyEvaluationRequest struct {
-	Principal      string            // User ARN or canonical user ID
-	Action         string            // S3 action (e.g., "s3:GetObject", "s3:PutObject")
-	Resource       string            // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
-	Bucket         string            // Bucket name
-	SourceIP       string            // Client IP address (for aws:SourceIp conditions)
-	SecureTransport bool             // Whether the request uses TLS (for aws:SecureTransport conditions)
+	Principal       string            // User ARN or canonical user ID
+	Action          string            // S3 action (e.g., "s3:GetObject", "s3:PutObject")
+	Resource        string            // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
+	Bucket          string            // Bucket name
+	SourceIP        string            // Client IP address (for aws:SourceIp conditions)
+	SecureTransport bool              // Whether the request uses TLS (for aws:SecureTransport conditions)
 	RequestContext  map[string]string // Additional condition context keys (e.g., "s3:prefix")
 }
 
@@ -582,4 +582,3 @@ func IsActionAllowed(ctx context.Context, policy *Policy, request PolicyEvaluati
 	decision := EvaluatePolicy(ctx, policy, request)
 	return decision == DecisionAllow
 }
-

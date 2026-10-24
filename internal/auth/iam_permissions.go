@@ -339,7 +339,6 @@ func sortedKeys(set map[string]bool) []string {
 	return out
 }
 
-
 // ListPermissionCatalog returns every assignable permission, grouped.
 func (am *authManager) ListPermissionCatalog() ([]PermissionGroup, error) {
 	return am.store.ListPermissionCatalog()

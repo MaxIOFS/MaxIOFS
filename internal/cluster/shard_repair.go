@@ -30,7 +30,7 @@ func isSharded(v object.ObjectVersion) bool {
 
 // shardNodes are the nodes the shards of a write of class go to: the nodes
 // that take data in the class, then those of other classes; this node first
-// among those it is in, then the most free space first.
+// among those it is in, then the least full first.
 func (r *placementRepair) shardNodes(class string) []*Node {
 	var nodes []*Node
 	if n, ok := r.nodes[r.localID]; ok && n.TakesData() {

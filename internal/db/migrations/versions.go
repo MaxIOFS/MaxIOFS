@@ -206,7 +206,6 @@ func migration18_v160_IAMSTS() Migration {
 					updated_at INTEGER NOT NULL
 				)`,
 				`CREATE INDEX IF NOT EXISTS idx_iam_roles_tenant ON iam_roles(tenant_id)`,
-
 			}
 			for _, stmt := range stmts {
 				if _, err := tx.Exec(stmt); err != nil {

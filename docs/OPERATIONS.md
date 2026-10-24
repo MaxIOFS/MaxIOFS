@@ -203,7 +203,7 @@ This section covers how to add, remove, and handle nodes in a cluster.
    - Wait for a grace period (e.g., 5–10 minutes) to allow in‑flight requests to finish.
 
 2. **Drain the node** (Cluster → HA → Drain)
-   - The node takes no new data and its objects are moved to the nodes with the most free space, with any replication factor. It serves reads while they move.
+   - The node takes no new data and its objects are moved to the least full nodes, with any replication factor. It serves reads while they move.
    - The HA page shows it **Draining**, with the objects and bytes moved and the expected end, then **Drained** once it holds no data. A drained node answers no S3 request (`503`, `/health` included).
    - Multipart uploads open on it are lost when it is removed: let them finish first.
 

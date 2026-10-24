@@ -14,7 +14,9 @@ import (
 // cannot be listed.
 func TestALifecyclePassIsObserved(t *testing.T) {
 	var runs []string
-	observe := func(task string, _ time.Duration, failed bool) { runs = append(runs, fmt.Sprintf("%s:%v", task, failed)) }
+	observe := func(task string, _ time.Duration, failed bool) {
+		runs = append(runs, fmt.Sprintf("%s:%v", task, failed))
+	}
 
 	worker := NewWorker(&mockBucketMgr{}, &mockObjectMgr{}, &mockMetaStore{})
 	worker.SetTaskObserver(observe)

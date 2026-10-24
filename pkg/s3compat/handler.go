@@ -790,7 +790,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	if isVeeam {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
-		}).Info("Veeam normal bucket creation - allowing")
+		}).Debug("Veeam normal bucket creation - allowing")
 	}
 
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -1328,7 +1328,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			}
 		}(),
 		"hasAuth": r.Header.Get("Authorization") != "",
-	}).Info("GetObject: User authentication status")
+	}).Debug("GetObject: User authentication status")
 
 	// Track if access is allowed via presigned URL
 	allowedByPresignedURL := false
@@ -1353,7 +1353,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 				"bucket":      bucketName,
 				"object":      objectKey,
 				"accessKeyID": accessKeyID,
-			}).Info("Presigned URL access allowed")
+			}).Debug("Presigned URL access allowed")
 		}
 	}
 
@@ -1379,7 +1379,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"bucketPath":    bucketPath,
 		"shareTenantID": shareTenantID,
 		"tenantID":      tenantID,
-	}).Info("GetObject: Using bucketPath")
+	}).Debug("GetObject: Using bucketPath")
 
 	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, allowedByShare, shareTenantID, tenantID, bucketName, objectKey) {
 		return
@@ -1579,7 +1579,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"bucket":     bucketName,
 		"object":     objectKey,
 		"bucketPath": bucketPath,
-	}).Info("PutObject: Using bucketPath")
+	}).Debug("PutObject: Using bucketPath")
 
 	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, bodyReader, r.Header)
 	if err != nil {
@@ -1731,7 +1731,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
 			"object": objectKey,
-		}).Info("HeadObject for VEEAM SOSAPI virtual object")
+		}).Debug("HeadObject for VEEAM SOSAPI virtual object")
 
 		data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), bucketName, tenantID, objectKey)
 		if err != nil {
@@ -1858,7 +1858,7 @@ func (h *Handler) GetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 		"status": versioningStatus,
-	}).Info("GetBucketVersioning - returning status")
+	}).Debug("GetBucketVersioning - returning status")
 
 	var statusXML string
 	if versioningStatus == "" {
@@ -1945,7 +1945,7 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
-	}).Info("S3 API: GetObjectLockConfiguration - START")
+	}).Debug("S3 API: GetObjectLockConfiguration - START")
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketObjectLockConfiguration) {
 		return
@@ -1955,7 +1955,7 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	// back made every tenant comparison compare a value with itself.
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	logrus.Info("GetObjectLockConfiguration - About to call GetBucketInfo")
+	logrus.Debug("GetObjectLockConfiguration - About to call GetBucketInfo")
 
 	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 
@@ -1964,11 +1964,11 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"tenantID": tenantID,
 		"err":      err,
 		"bkt_nil":  bkt == nil,
-	}).Info("GetObjectLockConfiguration - Called GetBucketInfo")
+	}).Debug("GetObjectLockConfiguration - Called GetBucketInfo")
 
 	if err != nil {
 		if err == bucket.ErrBucketNotFound {
-			logrus.Info("GetObjectLockConfiguration - Bucket not found")
+			logrus.Debug("GetObjectLockConfiguration - Bucket not found")
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
 		}
@@ -1991,7 +1991,7 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 				return false
 			}
 		}(),
-	}).Info("GetObjectLockConfiguration - Checking ObjectLock status")
+	}).Debug("GetObjectLockConfiguration - Checking ObjectLock status")
 
 	if bkt.ObjectLock == nil || !bkt.ObjectLock.ObjectLockEnabled {
 		h.writeError(w, "ObjectLockConfigurationNotFoundError",
@@ -2022,7 +2022,7 @@ func (h *Handler) GetObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		"bucket":  bucketName,
 		"enabled": config.ObjectLockEnabled,
 		"hasRule": config.Rule != nil,
-	}).Info("Returning Object Lock configuration")
+	}).Debug("Returning Object Lock configuration")
 
 	h.writeXMLResponse(w, http.StatusOK, config)
 }
@@ -2040,7 +2040,7 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	bucketName := mux.Vars(r)["bucket"]
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
-	}).Info("S3 API: PutObjectLockConfiguration - START")
+	}).Debug("S3 API: PutObjectLockConfiguration - START")
 
 	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration) {
 		return
@@ -2051,12 +2051,12 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	logrus.WithFields(logrus.Fields{
 		"tenantID": tenantID,
 		"bucket":   bucketName,
-	}).Info("PutObjectLockConfiguration - Got tenantID")
+	}).Debug("PutObjectLockConfiguration - Got tenantID")
 
 	bucketInfo, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
 		if err.Error() == "bucket not found" || err == bucket.ErrBucketNotFound {
-			logrus.Info("PutObjectLockConfiguration - Bucket not found")
+			logrus.Debug("PutObjectLockConfiguration - Bucket not found")
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 			return
 		}
@@ -2679,7 +2679,7 @@ func (h *Handler) validatePresignedURLAccess(r *http.Request, objectKey string) 
 
 	logrus.WithFields(logrus.Fields{
 		"accessKeyID": accessKeyID,
-	}).Info("Presigned URL validated successfully")
+	}).Debug("Presigned URL validated successfully")
 
 	return accessKeyID, true, nil
 }
@@ -2705,7 +2705,7 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 		"object": objectKey,
-	}).Info("Serving VEEAM SOSAPI virtual object (authenticated)")
+	}).Debug("Serving VEEAM SOSAPI virtual object (authenticated)")
 
 	data, contentType, err := h.getSOSAPIVirtualObject(r.Context(), bucketName, tenantID, objectKey)
 	if err != nil {
@@ -2786,7 +2786,7 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 		"bucket":   s.BucketName,
 		"object":   s.ObjectKey,
 		"tenantID": shareTenantID,
-	}).Info("Shared object access - bypassing authentication")
+	}).Debug("Shared object access - bypassing authentication")
 
 	return s.BucketName, s.ObjectKey, shareTenantID, nil
 }
@@ -3332,7 +3332,7 @@ func (h *Handler) validateTenantQuota(
 	logrus.WithFields(logrus.Fields{
 		"tenantID":      user.TenantID,
 		"sizeIncrement": sizeIncrement,
-	}).Info("Checking tenant storage quota")
+	}).Debug("Checking tenant storage quota")
 
 	if err := h.authManager.CheckTenantStorageQuota(r.Context(), user.TenantID, sizeIncrement); err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -3352,7 +3352,7 @@ func (h *Handler) validateTenantQuota(
 		return err
 	}
 
-	logrus.Info("Quota check passed")
+	logrus.Debug("Quota check passed")
 	return nil
 }
 
@@ -3396,7 +3396,7 @@ func (h *Handler) detectAndDecodeAwsChunked(
 			"bucket":                 bucketName,
 			"object":                 objectKey,
 			"decoded-content-length": decodedContentLength,
-		}).Info("AWS chunked encoding detected - decoding")
+		}).Debug("AWS chunked encoding detected - decoding")
 
 		chunked := NewAwsChunkedReader(bodyReader).ChecksumTrailersInto(r.Header)
 		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {

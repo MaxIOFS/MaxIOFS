@@ -109,7 +109,7 @@ func (c *Client) SearchUsers(conn *ldap.Conn, query string, limit int) ([]*ldap.
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		limit,
-		0,    // no time limit
+		0, // no time limit
 		false,
 		filter,
 		attrs,

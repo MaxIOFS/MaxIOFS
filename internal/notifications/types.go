@@ -7,10 +7,10 @@ type EventType string
 
 const (
 	// Object creation events
-	EventObjectCreated         EventType = "s3:ObjectCreated:*"
-	EventObjectCreatedPut      EventType = "s3:ObjectCreated:Put"
-	EventObjectCreatedPost     EventType = "s3:ObjectCreated:Post"
-	EventObjectCreatedCopy     EventType = "s3:ObjectCreated:Copy"
+	EventObjectCreated          EventType = "s3:ObjectCreated:*"
+	EventObjectCreatedPut       EventType = "s3:ObjectCreated:Put"
+	EventObjectCreatedPost      EventType = "s3:ObjectCreated:Post"
+	EventObjectCreatedCopy      EventType = "s3:ObjectCreated:Copy"
 	EventObjectCreatedMultipart EventType = "s3:ObjectCreated:CompleteMultipartUpload"
 
 	// Object removal events
@@ -23,21 +23,21 @@ const (
 
 // NotificationConfiguration represents the bucket notification configuration
 type NotificationConfiguration struct {
-	BucketName string              `json:"bucketName"`
-	TenantID   string              `json:"tenantId,omitempty"`
-	Rules      []NotificationRule  `json:"rules"`
-	UpdatedAt  time.Time           `json:"updatedAt"`
-	UpdatedBy  string              `json:"updatedBy"`
+	BucketName string             `json:"bucketName"`
+	TenantID   string             `json:"tenantId,omitempty"`
+	Rules      []NotificationRule `json:"rules"`
+	UpdatedAt  time.Time          `json:"updatedAt"`
+	UpdatedBy  string             `json:"updatedBy"`
 }
 
 // NotificationRule represents a single notification rule
 type NotificationRule struct {
-	ID            string       `json:"id"`
-	Enabled       bool         `json:"enabled"`
-	WebhookURL    string       `json:"webhookUrl"`
-	Events        []EventType  `json:"events"`
-	FilterPrefix  string       `json:"filterPrefix,omitempty"`
-	FilterSuffix  string       `json:"filterSuffix,omitempty"`
+	ID            string            `json:"id"`
+	Enabled       bool              `json:"enabled"`
+	WebhookURL    string            `json:"webhookUrl"`
+	Events        []EventType       `json:"events"`
+	FilterPrefix  string            `json:"filterPrefix,omitempty"`
+	FilterSuffix  string            `json:"filterSuffix,omitempty"`
 	CustomHeaders map[string]string `json:"customHeaders,omitempty"`
 }
 

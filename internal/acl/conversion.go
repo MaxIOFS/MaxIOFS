@@ -4,8 +4,8 @@ import "encoding/xml"
 
 // S3AccessControlPolicy represents the S3 XML format for ACLs
 type S3AccessControlPolicy struct {
-	XMLName           xml.Name          `xml:"AccessControlPolicy"`
-	Owner             S3Owner           `xml:"Owner"`
+	XMLName           xml.Name            `xml:"AccessControlPolicy"`
+	Owner             S3Owner             `xml:"Owner"`
 	AccessControlList S3AccessControlList `xml:"AccessControlList"`
 }
 
@@ -22,8 +22,8 @@ type S3AccessControlList struct {
 
 // S3Grant represents a single grant in S3 XML format
 type S3Grant struct {
-	Grantee    S3Grantee  `xml:"Grantee"`
-	Permission string     `xml:"Permission"`
+	Grantee    S3Grantee `xml:"Grantee"`
+	Permission string    `xml:"Permission"`
 }
 
 // S3Grantee represents a grantee in S3 XML format

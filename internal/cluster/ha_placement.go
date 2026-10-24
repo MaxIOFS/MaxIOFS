@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -47,7 +48,7 @@ const HAETagHeader = "X-HA-ETag"
 
 // placement is where a write made here goes: the nodes that hold its data,
 // this node first, and the other healthy nodes, which hold its entry, those of
-// the write's class first, then most free space first.
+// the write's class first, then least full first.
 type placement struct {
 	localID string
 	factor  int
@@ -71,9 +72,9 @@ type placement struct {
 }
 
 // place chooses the nodes of a write of storage class sc made here in a
-// cluster: this node and the healthy nodes of the write's class with the most
-// free space hold its data, up to the factor, and nodes of other classes when
-// the class has too few; the other healthy nodes hold its entry. A node
+// cluster: this node and the least full healthy nodes of the write's class
+// hold its data, up to the factor, and nodes of other classes when the class
+// has too few; the other healthy nodes hold its entry. A node
 // neither healthy nor dead misses the write and is caught up when it is
 // back. This node, under storage pressure, drained or in another class, then
 // passes its copy on (see relieve).
@@ -105,12 +106,7 @@ func (h *HAObjectManager) place(ctx context.Context, sc string) (*placement, boo
 			entriesOnly = append(entriesOnly, n)
 		}
 	}
-	slices.SortStableFunc(others, func(a, b *Node) int {
-		if c := cmp.Compare(freeSpace(b), freeSpace(a)); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.ID, b.ID)
-	})
+	slices.SortStableFunc(others, h.mgr.leastFull)
 	view.sortForClass(others, class)
 	p := &placement{localID: localID, factor: factor, holders: []string{localID}, parity: protection.Parity, class: class, view: view}
 	local, err := h.mgr.GetNode(ctx, localID)
@@ -207,6 +203,37 @@ func freeSpace(n *Node) int64 {
 	return n.CapacityTotal - n.CapacityUsed
 }
 
+func (m *Manager) noteRooms(rooms map[string]int64) {
+	for id, room := range rooms {
+		m.rooms.Store(id, room)
+	}
+}
+
+// fill is how full node n is: of its room as last counted, or of its disk
+// before a count. A node of unknown free space is the fullest.
+func (m *Manager) fill(n *Node) float64 {
+	free := freeSpace(n)
+	if free < 0 {
+		return math.Inf(1)
+	}
+	room := n.CapacityTotal
+	if r, ok := m.rooms.Load(n.ID); ok {
+		room = r.(int64)
+	}
+	if room <= 0 {
+		return math.Inf(1)
+	}
+	return 1 - float64(free)/float64(room)
+}
+
+// leastFull orders nodes least full first, then by ID.
+func (m *Manager) leastFull(a, b *Node) int {
+	if c := cmp.Compare(m.fill(a), m.fill(b)); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.ID, b.ID)
+}
+
 // replicate sends a write made here to the nodes of p: its data to the nodes
 // that hold it, then, once enough copies hold it, its entry to the others. A
 // node that fails is unavailable from then on and is caught up when it is
@@ -230,7 +257,7 @@ func (h *HAObjectManager) replicate(ctx context.Context, p *placement, bucket, k
 // relieve passes this node's copy of a write, when this node is under storage
 // pressure, drained or in another class, to the first node that takes data
 // among those that hold its entry only: those of the write's class first,
-// most free space first; of the write's class only when this node is just in
+// least full first; of the write's class only when this node is just in
 // another. The copy stays here when none takes it. Each copy names its node
 // with a number of its own, and every node is then told the holders with a
 // higher one.

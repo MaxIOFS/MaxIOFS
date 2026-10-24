@@ -416,11 +416,11 @@ func TestProcessExpiredDeleteMarkers_DeletesWithVersionID(t *testing.T) {
 	markerVersionID := "dm-marker-abc123"
 	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
 		{
-			Key:      "deleted-file.txt",
+			Key:       "deleted-file.txt",
 			VersionID: markerVersionID,
-			IsLatest: true,
-			Size:     0,
-			ETag:     "",
+			IsLatest:  true,
+			Size:      0,
+			ETag:      "",
 		},
 	}}
 
@@ -453,11 +453,11 @@ func TestProcessExpiredDeleteMarkers_IdempotentOnAlreadyDeleted(t *testing.T) {
 	objMgr := &mockObjectMgr{deleteErr: object.ErrObjectNotFound}
 	metaStore := &mockMetaStore{versions: []*metadata.ObjectVersion{
 		{
-			Key:      "deleted-file.txt",
+			Key:       "deleted-file.txt",
 			VersionID: "dm-already-gone",
-			IsLatest: true,
-			Size:     0,
-			ETag:     "",
+			IsLatest:  true,
+			Size:      0,
+			ETag:      "",
 		},
 	}}
 

@@ -97,7 +97,7 @@ func TestSearchObjects_WithDelimiter(t *testing.T) {
 	// Search with delimiter
 	result, err := om.SearchObjects(ctx, bucket, "", "/", "", 100, nil)
 	require.NoError(t, err)
-	assert.Len(t, result.Objects, 1) // root.txt
+	assert.Len(t, result.Objects, 1)        // root.txt
 	assert.Len(t, result.CommonPrefixes, 2) // images/, docs/
 }
 

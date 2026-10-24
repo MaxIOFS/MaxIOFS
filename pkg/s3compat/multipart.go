@@ -271,7 +271,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 			"partNumber":  partNumber,
 			"copySource":  copySource,
 			"sourceRange": copySourceRange,
-		}).Info("S3 API: UploadPartCopy detected")
+		}).Debug("S3 API: UploadPartCopy detected")
 
 		h.UploadPartCopy(w, r, uploadID, partNumber, copySource, copySourceRange)
 		return
@@ -288,7 +288,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 			"uploadId":   uploadID,
 			"partNumber": partNumber,
 			"decodedLen": decodedContentLength,
-		}).Info("AWS chunked encoding detected in UploadPart")
+		}).Debug("AWS chunked encoding detected in UploadPart")
 
 		chunked := NewAwsChunkedReader(r.Body).ChecksumTrailersInto(r.Header)
 		if signing, ok := auth.ChunkSigningFrom(r.Context()); ok {
@@ -893,7 +893,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 		"sourceBucket": sourceBucket,
 		"sourceKey":    sourceKey,
 		"sourceRange":  copySourceRange,
-	}).Info("UploadPartCopy: Processing copy part")
+	}).Debug("UploadPartCopy: Processing copy part")
 
 	user, userExists := auth.GetUserFromContext(r.Context())
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
@@ -969,7 +969,7 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 			"rangeStart": rangeStart,
 			"rangeEnd":   rangeEnd,
 			"rangeSize":  rangeSize,
-		}).Info("UploadPartCopy: Using range")
+		}).Debug("UploadPartCopy: Using range")
 
 		// Skip to start position if needed
 		if rangeStart > 0 {

@@ -16,7 +16,9 @@ func TestClusterTasksAreObserved(t *testing.T) {
 	assert.NoError(t, m.observeTask("anti_entropy", func() error { return nil }))
 
 	var runs []string
-	m.SetTaskObserver(func(task string, _ time.Duration, failed bool) { runs = append(runs, fmt.Sprintf("%s:%v", task, failed)) })
+	m.SetTaskObserver(func(task string, _ time.Duration, failed bool) {
+		runs = append(runs, fmt.Sprintf("%s:%v", task, failed))
+	})
 	_ = m.observeTask("anti_entropy", func() error { return nil })
 	_ = m.observeTask("dead_node_check", func() error { return errors.New("store closed") })
 

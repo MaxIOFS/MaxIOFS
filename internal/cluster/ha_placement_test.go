@@ -16,6 +16,7 @@ import (
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +38,47 @@ func answering(t *testing.T, status int, hits *atomic.Int32) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func setCapacity(t *testing.T, db *sql.DB, nodeID string, total, used int64) {
+	t.Helper()
+	_, err := db.Exec(`UPDATE cluster_nodes SET capacity_total = ?, capacity_used = ? WHERE id = ?`, total, used, nodeID)
+	require.NoError(t, err)
+}
+
+func TestAWriteGoesToTheLeastFullNodes(t *testing.T) {
+	ctx := context.Background()
+	local := newLocalNode(t)
+	mgr, db, nodes := newClusterWithPeers(t, 2, answering(t, http.StatusNoContent, nil), answering(t, http.StatusNoContent, nil))
+	big, small := nodes[0], nodes[1]
+	setCapacity(t, db, big.ID, 2000, 1000)
+	setCapacity(t, db, small.ID, 500, 100)
+	h := &HAObjectManager{Manager: local.objects, mgr: mgr}
+
+	p, ok := h.place(ctx, storageclass.Standard)
+	require.True(t, ok)
+	assert.Equal(t, []string{p.localID, small.ID}, p.holders, "a disk 20% full, not the one 50% full with more free space")
+
+	mgr.noteRooms(map[string]int64{big.ID: 1100, small.ID: 500})
+	p, ok = h.place(ctx, storageclass.Standard)
+	require.True(t, ok)
+	assert.Equal(t, []string{p.localID, big.ID}, p.holders, "1000 free of a room of 1100, against 400 of 500")
+}
+
+func TestARepairCopiesToAndKeepsTheLeastFullNodes(t *testing.T) {
+	ctx := context.Background()
+	local := newLocalNode(t)
+	mgr, db, nodes := newClusterWithPeers(t, 2, answering(t, http.StatusNoContent, nil), answering(t, http.StatusNoContent, nil))
+	big, small := nodes[0], nodes[1]
+	setCapacity(t, db, big.ID, 2000, 1000)
+	setCapacity(t, db, small.ID, 500, 100)
+	h := &HAObjectManager{Manager: local.objects, mgr: mgr}
+
+	r, err := h.placementRepair(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, []string{small.ID, big.ID}, nodeIDs(r.candidates))
+	assert.Equal(t, []string{r.localID, small.ID}, r.keep([]string{big.ID, small.ID, r.localID}, 2, storageclass.Standard))
 }
 
 // A write whose copies fail is not sent to the nodes that were to hold its

@@ -321,7 +321,6 @@ func TestRevokeBucketAccess(t *testing.T) {
 	}
 }
 
-
 // TestRevokeBucketAccess_NonExistent tests revoking non-existent permission
 func TestRevokeBucketAccess_NonExistent(t *testing.T) {
 	store, tmpDir := setupTestStore(t)

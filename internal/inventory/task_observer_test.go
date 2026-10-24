@@ -16,7 +16,9 @@ func TestAnInventoryPassIsObserved(t *testing.T) {
 	defer db.Close()
 	worker := NewWorker(NewManager(db), new(MockBucketManager), new(MockMetadataStore), new(MockObjectWriter))
 	var runs []string
-	worker.SetTaskObserver(func(task string, _ time.Duration, failed bool) { runs = append(runs, fmt.Sprintf("%s:%v", task, failed)) })
+	worker.SetTaskObserver(func(task string, _ time.Duration, failed bool) {
+		runs = append(runs, fmt.Sprintf("%s:%v", task, failed))
+	})
 
 	worker.runPass(context.Background())
 	worker.SetRunGate(func() bool { return false })

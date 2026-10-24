@@ -4,9 +4,9 @@ import "errors"
 
 // Common ACL errors
 var (
-	ErrACLNotFound     = errors.New("acl not found")
-	ErrInvalidACL      = errors.New("invalid acl")
-	ErrInvalidGrantee  = errors.New("invalid grantee")
+	ErrACLNotFound      = errors.New("acl not found")
+	ErrInvalidACL       = errors.New("invalid acl")
+	ErrInvalidGrantee   = errors.New("invalid grantee")
 	ErrInvalidCannedACL = errors.New("invalid canned acl")
 )
 
@@ -53,9 +53,9 @@ const (
 type GranteeType string
 
 const (
-	GranteeTypeCanonicalUser     GranteeType = "CanonicalUser"
-	GranteeTypeAmazonCustomer    GranteeType = "AmazonCustomerByEmail"
-	GranteeTypeGroup             GranteeType = "Group"
+	GranteeTypeCanonicalUser  GranteeType = "CanonicalUser"
+	GranteeTypeAmazonCustomer GranteeType = "AmazonCustomerByEmail"
+	GranteeTypeGroup          GranteeType = "Group"
 )
 
 // Canned ACL constants

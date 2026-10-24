@@ -126,7 +126,7 @@ func ValidatePresignedURL(r *http.Request, secretAccessKey string) (bool, error)
 		"method":      r.Method,
 		"path":        r.URL.Path,
 		"expiresIn":   expiresIn,
-	}).Info("Presigned URL validated successfully")
+	}).Debug("Presigned URL validated successfully")
 
 	return true, nil
 }

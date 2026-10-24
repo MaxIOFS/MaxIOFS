@@ -111,16 +111,16 @@ type s3EventRecord struct {
 }
 
 type s3EventS3Detail struct {
-	S3SchemaVersion string          `json:"s3SchemaVersion"`
-	ConfigurationID string          `json:"configurationId"`
-	Bucket          s3EventBucket   `json:"bucket"`
-	Object          s3EventObject   `json:"object"`
+	S3SchemaVersion string        `json:"s3SchemaVersion"`
+	ConfigurationID string        `json:"configurationId"`
+	Bucket          s3EventBucket `json:"bucket"`
+	Object          s3EventObject `json:"object"`
 }
 
 type s3EventBucket struct {
-	Name          string                `json:"name"`
-	OwnerIdentity s3EventOwnerIdentity  `json:"ownerIdentity"`
-	ARN           string                `json:"arn"`
+	Name          string               `json:"name"`
+	OwnerIdentity s3EventOwnerIdentity `json:"ownerIdentity"`
+	ARN           string               `json:"arn"`
 }
 
 type s3EventOwnerIdentity struct {

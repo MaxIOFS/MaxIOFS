@@ -1365,7 +1365,6 @@ func (s *Server) setupRoutes() error {
 	// VERBOSE LOGGING - logs EVERY request with full details
 	s3Router.Use(middleware.VerboseLogging())
 	s3Router.Use(middleware.CORS())
-	s3Router.Use(middleware.Logging())
 	s3Router.Use(middleware.TracingMiddleware) // Add tracing for performance metrics
 	s3Router.Use(apiHandler.BucketCORSMiddleware)
 	s3Router.Use(apiHandler.S3ClientMiddleware)

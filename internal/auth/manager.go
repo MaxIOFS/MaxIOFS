@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -250,6 +251,7 @@ type AccessKey struct {
 type authManager struct {
 	config                    config.AuthConfig
 	jwtSecretMu               sync.RWMutex // protects config.JWTSecret for concurrent reads/writes
+	storageKey                atomic.Pointer[derivedKey]
 	store                     *SQLiteStore
 	rateLimiter               *LoginRateLimiter
 	auditManager              *audit.Manager
@@ -768,16 +770,16 @@ func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request)
 		return nil, ErrMissingSignature
 	}
 
-	logrus.WithField("auth_header", authHeader).Info("ValidateS3Signature called")
+	logrus.WithField("auth_header", authHeader).Debug("ValidateS3Signature called")
 
 	// Check if it's SigV4 (from Authorization header or query param)
 	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
-		logrus.Info("Delegating to ValidateS3SignatureV4")
+		logrus.Debug("Delegating to ValidateS3SignatureV4")
 		return am.ValidateS3SignatureV4(ctx, r)
 	}
 
 	// Otherwise assume SigV2
-	logrus.Info("Delegating to ValidateS3SignatureV2")
+	logrus.Debug("Delegating to ValidateS3SignatureV2")
 	return am.ValidateS3SignatureV2(ctx, r)
 }
 
@@ -1545,7 +1547,7 @@ func (am *authManager) CheckTenantStorageQuota(ctx context.Context, tenantID str
 		"additionalBytes": additionalBytes,
 		"projectedTotal":  currentStorage + additionalBytes,
 		"wouldExceed":     currentStorage+additionalBytes > tenant.MaxStorageBytes,
-	}).Info("CheckTenantStorageQuota: validating quota")
+	}).Debug("CheckTenantStorageQuota: validating quota")
 
 	// Check if adding these bytes would exceed quota
 	newTotal := currentStorage + additionalBytes
@@ -1664,13 +1666,23 @@ func (am *authManager) generateSecretAccessKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
+type derivedKey struct {
+	secret string
+	key    []byte
+}
+
 // deriveStorageKey derives a 32-byte AES-256 key from the JWT secret for
-// encrypting S3 secret access keys at rest. Uses PBKDF2-SHA256.
+// encrypting S3 secret access keys at rest. Uses PBKDF2-SHA256, once per secret.
 func (am *authManager) deriveStorageKey() []byte {
 	am.jwtSecretMu.RLock()
 	jwtSec := am.config.JWTSecret
 	am.jwtSecretMu.RUnlock()
-	return pbkdf2.Key([]byte(jwtSec), []byte("maxiofs-key-enc-v1"), 310000, 32, sha256.New)
+	if d := am.storageKey.Load(); d != nil && d.secret == jwtSec {
+		return d.key
+	}
+	key := pbkdf2.Key([]byte(jwtSec), []byte("maxiofs-key-enc-v1"), 310000, 32, sha256.New)
+	am.storageKey.Store(&derivedKey{secret: jwtSec, key: key})
+	return key
 }
 
 // encryptSecret encrypts a plaintext S3 secret for storage.
@@ -1804,7 +1816,7 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 		"service":        sig.Service,
 		"signed_headers": sig.SignedHeaders,
 		"credential":     sig.Credential,
-	}).Info("Parsed SigV4 signature")
+	}).Debug("Parsed SigV4 signature")
 
 	return sig, nil
 }
@@ -1984,7 +1996,7 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		"canonical_headers": strings.ReplaceAll(canonicalHeaders, "\n", "\\n"),
 		"signed_headers":    signedHeaders,
 		"payload_hash":      payloadHash,
-	}).Info("Canonical request components")
+	}).Debug("Canonical request components")
 
 	return canonicalRequest
 }

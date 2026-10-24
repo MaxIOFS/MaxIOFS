@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/stretchr/testify/assert"
@@ -124,6 +125,41 @@ func TestJWTSecretPersistence_SetJWTSecret(t *testing.T) {
 	require.NotNil(t, manager3)
 	am3 := manager3.(*authManager)
 	assert.Equal(t, "new-cluster-secret", am3.config.JWTSecret)
+}
+
+func TestAStoredSecretIsEncryptedWithTheCurrentJWTSecret(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "maxiofs-jwt-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+	am := NewManager(config.AuthConfig{EnableAuth: true, JWTSecret: "original-secret"}, tmpDir).(*authManager)
+
+	before, err := am.encryptSecret("s3cret")
+	require.NoError(t, err)
+	am.SetJWTSecret("new-cluster-secret")
+	_, err = am.decryptSecret(before)
+	assert.Error(t, err)
+
+	after, err := am.encryptSecret("s3cret")
+	require.NoError(t, err)
+	plain, err := am.decryptSecret(after)
+	require.NoError(t, err)
+	assert.Equal(t, "s3cret", plain)
+}
+
+func TestAStoredSecretIsDecryptedWithoutDerivingTheKeyAgain(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "maxiofs-jwt-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+	am := NewManager(config.AuthConfig{EnableAuth: true, JWTSecret: "original-secret"}, tmpDir).(*authManager)
+	stored, err := am.encryptSecret("s3cret")
+	require.NoError(t, err)
+
+	start := time.Now()
+	for range 100 {
+		_, err := am.decryptSecret(stored)
+		require.NoError(t, err)
+	}
+	assert.Less(t, time.Since(start), time.Second)
 }
 
 // TestJWTSecretPersistence_EmptyDB verifies first-time behavior

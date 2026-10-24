@@ -7,16 +7,16 @@ import (
 
 // Share represents a shared object with a presigned URL
 type Share struct {
-	ID          string    `json:"id"`
-	BucketName  string    `json:"bucketName"`
-	ObjectKey   string    `json:"objectKey"`
-	TenantID    string    `json:"tenantId,omitempty"` // Tenant ID for tenant-scoped buckets
-	AccessKeyID string    `json:"accessKeyId"`
-	SecretKey   string    `json:"-"` // Never expose in JSON
-	ShareToken  string    `json:"shareToken"`
+	ID          string     `json:"id"`
+	BucketName  string     `json:"bucketName"`
+	ObjectKey   string     `json:"objectKey"`
+	TenantID    string     `json:"tenantId,omitempty"` // Tenant ID for tenant-scoped buckets
+	AccessKeyID string     `json:"accessKeyId"`
+	SecretKey   string     `json:"-"` // Never expose in JSON
+	ShareToken  string     `json:"shareToken"`
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty"` // nil = never expires
-	CreatedAt   time.Time `json:"createdAt"`
-	CreatedBy   string    `json:"createdBy"` // User ID
+	CreatedAt   time.Time  `json:"createdAt"`
+	CreatedBy   string     `json:"createdBy"` // User ID
 }
 
 // ShareCreateRequest represents a request to create a share

@@ -10,24 +10,24 @@ import (
 
 // Bucket represents a storage bucket
 type Bucket struct {
-	Name              string             `json:"name"`
-	TenantID          string             `json:"tenant_id"`  // Tenant ID for multi-tenancy isolation
-	OwnerID           string             `json:"owner_id"`   // Owner user ID
-	OwnerType         string             `json:"owner_type"` // "user" or "tenant"
-	CreatedAt         time.Time          `json:"created_at"`
-	Region            string             `json:"region"`
-	Versioning        *VersioningConfig  `json:"versioning,omitempty"`
-	ObjectLock        *ObjectLockConfig  `json:"object_lock,omitempty"`
-	Policy            *Policy            `json:"policy,omitempty"`
-	Lifecycle         *LifecycleConfig   `json:"lifecycle,omitempty"`
+	Name              string              `json:"name"`
+	TenantID          string              `json:"tenant_id"`  // Tenant ID for multi-tenancy isolation
+	OwnerID           string              `json:"owner_id"`   // Owner user ID
+	OwnerType         string              `json:"owner_type"` // "user" or "tenant"
+	CreatedAt         time.Time           `json:"created_at"`
+	Region            string              `json:"region"`
+	Versioning        *VersioningConfig   `json:"versioning,omitempty"`
+	ObjectLock        *ObjectLockConfig   `json:"object_lock,omitempty"`
+	Policy            *Policy             `json:"policy,omitempty"`
+	Lifecycle         *LifecycleConfig    `json:"lifecycle,omitempty"`
 	CORS              *CORSConfig         `json:"cors,omitempty"`
 	Encryption        *EncryptionConfig   `json:"encryption,omitempty"`
 	PublicAccessBlock *PublicAccessBlock  `json:"public_access_block,omitempty"`
 	Website           *WebsiteConfig      `json:"website,omitempty"`
 	Notification      *NotificationConfig `json:"notification,omitempty"`
 	Logging           *LoggingConfig      `json:"logging,omitempty"`
-	Tags              map[string]string  `json:"tags,omitempty"`
-	Metadata          map[string]string  `json:"metadata,omitempty"`
+	Tags              map[string]string   `json:"tags,omitempty"`
+	Metadata          map[string]string   `json:"metadata,omitempty"`
 
 	// Cached metrics for performance (updated incrementally)
 	ObjectCount int64 `json:"object_count"` // Cached object count

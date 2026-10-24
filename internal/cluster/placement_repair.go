@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -69,16 +70,15 @@ func (w *HASyncWorker) StartRepair(ctx context.Context) {
 
 // RepairPlacement makes the copies of the writes this node holds match the
 // protection of their class. A write that lost holders to dead or removed
-// nodes, or to a raised factor, is copied to the healthy nodes of its class
-// with the most free space, and to nodes of other classes when its class has
-// too few; one with more holders than the factor keeps this node and those
-// of its class with the most free space. The copies of a drained node, or of
-// a node of another class, are copied to other nodes, then dropped. Each
-// write is repaired by the first of its holders that is neither dead nor
-// removed, so that one node acts on it. A write that names no node, made
-// before the cluster kept them, is first given the nodes that hold it (see
-// adopt). A drained node that a whole pass finds holding no write is out of
-// service (see Manager.setLocalDrainDone).
+// nodes, or to a raised factor, is copied to the least full healthy nodes of
+// its class, and to nodes of other classes when its class has too few; one
+// with more holders than the factor keeps this node and the least full of its
+// class. The copies of a drained node, or of a node of another class, are
+// copied to other nodes, then dropped. Each write is repaired by the first of
+// its holders that is neither dead nor removed, so that one node acts on it.
+// A write that names no node, made before the cluster kept them, is first
+// given the nodes that hold it (see adopt). A drained node that a whole pass
+// finds holding no write is out of service (see Manager.setLocalDrainDone).
 func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 	if !w.mgr.IsClusterEnabled() {
 		return nil
@@ -160,12 +160,7 @@ func (h *HAObjectManager) placementRepair(ctx context.Context) (*placementRepair
 			}
 		}
 	}
-	slices.SortStableFunc(r.candidates, func(a, b *Node) int {
-		if c := cmp.Compare(freeSpace(b), freeSpace(a)); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.ID, b.ID)
-	})
+	slices.SortStableFunc(r.candidates, h.mgr.leastFull)
 	return r, nil
 }
 
@@ -252,7 +247,7 @@ type placementRepair struct {
 	localID    string
 	nodes      map[string]*Node
 	peers      []*Node // the other nodes in service
-	candidates []*Node // the other nodes that take data, most free space first
+	candidates []*Node // the other nodes that take data, least full first
 	// remaining counts the writes this node still holds after the pass, and
 	// remainingBytes their bytes.
 	remaining      int64
@@ -392,8 +387,8 @@ func (r *placementRepair) inClass(id, class string) bool {
 	return ok && r.view.node(n) == class
 }
 
-// classCandidates are the other nodes that take data, most free space first,
-// in class or out of it.
+// classCandidates are the other nodes that take data, least full first, in
+// class or out of it.
 func (r *placementRepair) classCandidates(class string, in bool) []*Node {
 	var nodes []*Node
 	for _, n := range r.candidates {
@@ -495,7 +490,7 @@ func (r *placementRepair) copyTo(ctx context.Context, bucket, key string, v obje
 
 // keep is locations trimmed to the factor: the nodes of class not drained
 // first, then those of other classes not drained, this node first among
-// each, then those with the most free space.
+// each, then the least full.
 func (r *placementRepair) keep(locations []string, factor int, class string) []string {
 	if len(locations) <= factor {
 		return locations
@@ -508,7 +503,7 @@ func (r *placementRepair) keep(locations []string, factor int, class string) []s
 		if c := cmp.Compare(boolRank(a != r.localID), boolRank(b != r.localID)); c != 0 {
 			return c
 		}
-		return cmp.Compare(r.free(b), r.free(a))
+		return cmp.Compare(r.fill(a), r.fill(b))
 	})
 	return kept[:factor]
 }
@@ -530,9 +525,9 @@ func (r *placementRepair) drained(id string) bool {
 	return ok && n.Drained
 }
 
-func (r *placementRepair) free(id string) int64 {
+func (r *placementRepair) fill(id string) float64 {
 	if n, ok := r.nodes[id]; ok {
-		return freeSpace(n)
+		return r.ha.mgr.fill(n)
 	}
-	return -1
+	return math.Inf(1)
 }

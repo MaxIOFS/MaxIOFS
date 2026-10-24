@@ -44,8 +44,8 @@ func TestLimiter_SharedAndHotUpdate(t *testing.T) {
 // TestThrottleReader_Rate: reading 2 MiB through a 1 MiB/s limiter must take
 // ~2 seconds (real throttling of the core mechanism).
 func TestThrottleReader_Rate(t *testing.T) {
-	const rate = 1 << 20     // 1 MiB/s
-	const total = 2 << 20    // 2 MiB
+	const rate = 1 << 20  // 1 MiB/s
+	const total = 2 << 20 // 2 MiB
 	m := NewManager()
 	lim := m.Limiter("t1", rate)
 

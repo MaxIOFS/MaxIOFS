@@ -50,6 +50,9 @@ type Manager struct {
 	// are in moving their objects.
 	drainsDone    sync.Map
 	drainProgress sync.Map
+	// rooms is the room of each node, held and free, as the last balance
+	// count found it.
+	rooms sync.Map
 	// taskObserver is told of each anti-entropy cycle, dead-node check and
 	// initial sync.
 	taskObserver atomic.Pointer[bgwork.TaskObserver]

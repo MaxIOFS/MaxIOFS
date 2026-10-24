@@ -4,10 +4,10 @@ package idp
 type IdentityProvider struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
-	Type      string         `json:"type"`      // "ldap" | "oauth2"
-	TenantID  string         `json:"tenantId"`  // empty = global
-	Status    string         `json:"status"`    // "active" | "inactive" | "testing"
-	Config    ProviderConfig `json:"config"`    // Type-specific configuration
+	Type      string         `json:"type"`     // "ldap" | "oauth2"
+	TenantID  string         `json:"tenantId"` // empty = global
+	Status    string         `json:"status"`   // "active" | "inactive" | "testing"
+	Config    ProviderConfig `json:"config"`   // Type-specific configuration
 	CreatedBy string         `json:"createdBy"`
 	CreatedAt int64          `json:"createdAt"`
 	UpdatedAt int64          `json:"updatedAt"`
@@ -40,7 +40,7 @@ type LDAPConfig struct {
 
 // OAuth2Config holds OAuth2/OIDC provider settings
 type OAuth2Config struct {
-	Preset       string   `json:"preset"`        // "google" | "microsoft" | "custom"
+	Preset       string   `json:"preset"` // "google" | "microsoft" | "custom"
 	ClientID     string   `json:"client_id"`
 	ClientSecret string   `json:"client_secret"` // Encrypted at rest
 	AuthURL      string   `json:"auth_url"`
@@ -56,18 +56,18 @@ type OAuth2Config struct {
 
 // ExternalUser represents a user found in an external directory
 type ExternalUser struct {
-	ExternalID  string            `json:"externalId"`  // DN for LDAP, sub/email for OAuth
+	ExternalID  string            `json:"externalId"` // DN for LDAP, sub/email for OAuth
 	Username    string            `json:"username"`
 	Email       string            `json:"email"`
 	DisplayName string            `json:"displayName"`
-	Groups      []string          `json:"groups"`      // DNs or group names
-	RawAttrs    map[string]string `json:"rawAttrs"`    // All attributes for display
+	Groups      []string          `json:"groups"`   // DNs or group names
+	RawAttrs    map[string]string `json:"rawAttrs"` // All attributes for display
 }
 
 // ExternalGroup represents a group found in an external directory
 type ExternalGroup struct {
-	ExternalID  string `json:"externalId"`  // DN for LDAP
-	Name        string `json:"name"`        // CN or display name
+	ExternalID  string `json:"externalId"` // DN for LDAP
+	Name        string `json:"name"`       // CN or display name
 	MemberCount int    `json:"memberCount"`
 }
 
@@ -88,8 +88,8 @@ type GroupMapping struct {
 // ImportRequest represents a request to import external users
 type ImportRequest struct {
 	Users    []ImportUserEntry `json:"users"`
-	Role     string           `json:"role"`
-	TenantID string           `json:"tenant_id"`
+	Role     string            `json:"role"`
+	TenantID string            `json:"tenant_id"`
 }
 
 // ImportUserEntry represents a single user to import

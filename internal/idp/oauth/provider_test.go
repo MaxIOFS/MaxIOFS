@@ -312,10 +312,10 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 
 	t.Run("uses custom claim names", func(t *testing.T) {
 		claims := map[string]interface{}{
-			"sub":           "user-custom",
-			"mail":          "custom@example.com",
-			"display_name":  "Custom Name",
-			"team_groups":   []interface{}{"team-1"},
+			"sub":          "user-custom",
+			"mail":         "custom@example.com",
+			"display_name": "Custom Name",
+			"team_groups":  []interface{}{"team-1"},
 		}
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(claims)

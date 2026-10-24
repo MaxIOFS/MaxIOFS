@@ -86,7 +86,7 @@ func buildPostPresignedRequest(
 
 	fields := map[string]string{
 		"key":              objectKey,
-		"x-amz-algorithm": "AWS4-HMAC-SHA256",
+		"x-amz-algorithm":  "AWS4-HMAC-SHA256",
 		"x-amz-credential": credential,
 		"x-amz-date":       dateTime,
 		"policy":           policyB64,

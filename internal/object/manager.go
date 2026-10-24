@@ -1128,7 +1128,7 @@ func (om *objectManager) createDeleteMarker(ctx context.Context, bucket, key, ve
 		"bucket":    bucket,
 		"key":       key,
 		"versionID": deleteMarkerVersionID,
-	}).Info("Created delete marker")
+	}).Debug("Created delete marker")
 
 	return deleteMarkerVersionID, nil
 }
@@ -1284,7 +1284,7 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 		"bucket":    bucket,
 		"key":       key,
 		"versionID": versionID,
-	}).Info("Permanently deleted version")
+	}).Debug("Permanently deleted version")
 
 	return nil
 }
@@ -1396,7 +1396,7 @@ func (om *objectManager) deletePermanently(ctx context.Context, bucket, key stri
 				"tenantID":   tenantID,
 				"bucketName": bucketName,
 				"objectSize": objectSize,
-			}).Info("Successfully decremented bucket metrics")
+			}).Debug("Successfully decremented bucket metrics")
 		}
 	} else {
 		logrus.Warn("BucketManager is nil, cannot update metrics")
@@ -2498,7 +2498,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		"uploadID": uploadID,
 		"size":     originalSize,
 		"etag":     originalETag,
-	}).Info("Multipart upload completed successfully")
+	}).Debug("Multipart upload completed successfully")
 
 	releaseQuota()
 
@@ -3161,7 +3161,7 @@ func (om *objectManager) updateTenantQuotaAfterPut(ctx context.Context, tenantID
 		}(),
 		"sizeToAdd":   sizeToAdd,
 		"isNewObject": existingObjBeforeSave == nil,
-	}).Info("Updating tenant storage quota after PutObject")
+	}).Debug("Updating tenant storage quota after PutObject")
 
 	var err error
 	switch {

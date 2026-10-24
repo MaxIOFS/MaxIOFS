@@ -71,4 +71,3 @@ func TestStreamEncryption(t *testing.T) {
 		t.Errorf("Decrypted stream doesn't match original")
 	}
 }
-

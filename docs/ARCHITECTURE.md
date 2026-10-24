@@ -358,7 +358,7 @@ MaxIOFS supports **five authentication methods**:
 3. Every node holds every bucket and every object's entry: Node 2 answers
    listings, HEAD and metadata from its own entry
 4. A read whose data Node 2 does not hold is read from a node that holds it
-5. A write is held by Node 2 and the nodes with the most free space, up to
+5. A write is held by Node 2 and the least full nodes, up to
    the replication factor, or cut in shards over them with parity; its entry
    reaches every node before the answer. The nodes are those of the write's
    storage class first, and Node 2 passes its copy on when it is in another

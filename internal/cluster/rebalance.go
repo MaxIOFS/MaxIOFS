@@ -190,10 +190,12 @@ func (w *HASyncWorker) planBalance(ctx context.Context, r *placementRepair) *bal
 		return nil
 	}
 	plan := newBalance()
+	rooms := make(map[string]int64)
 	for class, nodes := range classes {
 		fills := make([]nodeFill, len(nodes))
 		for i, n := range nodes {
 			fills[i] = nodeFill{id: n.ID, held: held[n.ID], free: freeSpace(n), takes: n.TakesData()}
+			rooms[n.ID] = fills[i].held + fills[i].free
 		}
 		b := balanceOf(fills)
 		if b == nil {
@@ -208,6 +210,7 @@ func (w *HASyncWorker) planBalance(ctx context.Context, r *placementRepair) *bal
 		logrus.WithFields(logrus.Fields{"class": class, "bytes": int64(bytes)}).
 			Debug("HASyncWorker: the writes of a class are spread again over its nodes")
 	}
+	w.mgr.noteRooms(rooms)
 	if len(plan.share) == 0 {
 		return nil
 	}

@@ -7,20 +7,20 @@ import (
 
 // InventoryConfig represents a bucket inventory configuration
 type InventoryConfig struct {
-	ID                string    `json:"id"`
-	BucketName        string    `json:"bucket_name"`
-	TenantID          string    `json:"tenant_id,omitempty"`
-	Enabled           bool      `json:"enabled"`
-	Frequency         string    `json:"frequency"` // "daily" or "weekly"
-	Format            string    `json:"format"`    // "csv" or "json"
-	DestinationBucket string    `json:"destination_bucket"`
-	DestinationPrefix string    `json:"destination_prefix"`
-	IncludedFields    []string  `json:"included_fields"`
-	ScheduleTime      string    `json:"schedule_time"` // HH:MM format
-	LastRunAt         *int64    `json:"last_run_at,omitempty"`
-	NextRunAt         *int64    `json:"next_run_at,omitempty"`
-	CreatedAt         int64     `json:"created_at"`
-	UpdatedAt         int64     `json:"updated_at"`
+	ID                string   `json:"id"`
+	BucketName        string   `json:"bucket_name"`
+	TenantID          string   `json:"tenant_id,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	Frequency         string   `json:"frequency"` // "daily" or "weekly"
+	Format            string   `json:"format"`    // "csv" or "json"
+	DestinationBucket string   `json:"destination_bucket"`
+	DestinationPrefix string   `json:"destination_prefix"`
+	IncludedFields    []string `json:"included_fields"`
+	ScheduleTime      string   `json:"schedule_time"` // HH:MM format
+	LastRunAt         *int64   `json:"last_run_at,omitempty"`
+	NextRunAt         *int64   `json:"next_run_at,omitempty"`
+	CreatedAt         int64    `json:"created_at"`
+	UpdatedAt         int64    `json:"updated_at"`
 }
 
 // InventoryReport represents a generated inventory report
@@ -56,18 +56,18 @@ type ObjectInventoryItem struct {
 
 // Available field names for inventory configuration
 const (
-	FieldBucketName           = "bucket_name"
-	FieldObjectKey            = "object_key"
-	FieldVersionID            = "version_id"
-	FieldIsLatest             = "is_latest"
-	FieldSize                 = "size"
-	FieldLastModified         = "last_modified"
-	FieldETag                 = "etag"
-	FieldStorageClass         = "storage_class"
-	FieldIsMultipartUploaded  = "is_multipart_uploaded"
-	FieldEncryptionStatus     = "encryption_status"
-	FieldReplicationStatus    = "replication_status"
-	FieldObjectACL            = "object_acl"
+	FieldBucketName          = "bucket_name"
+	FieldObjectKey           = "object_key"
+	FieldVersionID           = "version_id"
+	FieldIsLatest            = "is_latest"
+	FieldSize                = "size"
+	FieldLastModified        = "last_modified"
+	FieldETag                = "etag"
+	FieldStorageClass        = "storage_class"
+	FieldIsMultipartUploaded = "is_multipart_uploaded"
+	FieldEncryptionStatus    = "encryption_status"
+	FieldReplicationStatus   = "replication_status"
+	FieldObjectACL           = "object_acl"
 )
 
 // DefaultIncludedFields returns the default set of fields for inventory reports

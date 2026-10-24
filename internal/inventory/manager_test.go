@@ -202,7 +202,7 @@ func TestListReadyConfigs(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().Unix()
-	past := now - 3600 // 1 hour ago
+	past := now - 3600   // 1 hour ago
 	future := now + 3600 // 1 hour from now
 
 	// Create config that should be ready (next_run_at in past)

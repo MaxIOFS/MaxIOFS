@@ -2062,6 +2062,33 @@ func TestTheCopiesAreSpreadByTheRoomOfEachNode(t *testing.T) {
 	assert.Equal(t, sent, c.copiesSent(), "a spread cluster moves nothing")
 }
 
+func TestNewWritesFollowTheRoomTheRepairCounted(t *testing.T) {
+	const size = 1000
+	c := newHACluster(t, 3, 2)
+	a, first, second := c.nodes[0], c.nodes[1], c.nodes[2]
+	if second.id < first.id {
+		first, second = second, first
+	}
+	require.NoError(t, a.bucketManager.CreateBucket(context.Background(), "", "fill", routingAdminID))
+	keys := putMany(t, a, "fill", 20, size)
+	held := heldCopies(t, c, "fill", keys, 2)
+	require.Equal(t, 20, held[first.id])
+	room := map[*haNode]int64{a: 200_000, first: 200_000, second: 200_000}
+	c.setFreeOnEveryNode(t, freeOf(room, held, size))
+
+	put := func(key string) []string {
+		_, err := a.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("fill"), Key: aws.String(key), Body: strings.NewReader("data")})
+		require.NoError(t, err)
+		return a.entry(t, "fill", key).Locations
+	}
+	assert.ElementsMatch(t, []string{a.id, first.id}, put("before"), "a disk shows no fill")
+
+	sent := c.copiesSent()
+	c.repairEveryNode(t)
+	require.Equal(t, sent, c.copiesSent(), "within the threshold")
+	assert.ElementsMatch(t, []string{a.id, second.id}, put("after"))
+}
+
 // The degraded banner shows the nodes as they are: it follows a change of a
 // node's health at once, and the console reads it as it is now.
 func TestTheDegradedBannerFollowsTheNodes(t *testing.T) {

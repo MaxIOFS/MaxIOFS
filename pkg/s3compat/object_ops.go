@@ -734,7 +734,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"source":      copySource,
 		"dest_bucket": destBucket,
 		"dest_key":    destKey,
-	}).Info("S3 API: CopyObject - received request")
+	}).Debug("S3 API: CopyObject - received request")
 
 	sourceBucket, sourceKey, copySourceVersionID, err := parseCopySourceHeader(copySource)
 	if err != nil {
@@ -819,7 +819,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		"dest_key":      destKey,
 		"source_size":   sourceObj.Size,
 		"source_etag":   sourceObj.ETag,
-	}).Info("CopyObject: Starting copy operation")
+	}).Debug("CopyObject: Starting copy operation")
 
 	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
 		return

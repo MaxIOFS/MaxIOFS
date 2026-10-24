@@ -105,7 +105,7 @@ func generateSystemXML(iamSTSEndpoint string) ([]byte, error) {
 		"protocol_version": sysInfo.ProtocolVersion,
 		"model_name":       sysInfo.ModelName,
 		"xml_length":       len(xmlData),
-	}).Info("Generated SOSAPI system.xml - MaxIOFS S3-compatible storage")
+	}).Debug("Generated SOSAPI system.xml - MaxIOFS S3-compatible storage")
 
 	return xmlData, nil
 }
@@ -171,7 +171,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"quota_bytes": totalCapacity,
 					"used_bytes":  used,
 					"free_bytes":  availableCapacity,
-				}).Info("SOSAPI capacity calculated from bucket quota")
+				}).Debug("SOSAPI capacity calculated from bucket quota")
 			}
 		}
 
@@ -197,7 +197,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"quota_bytes": totalCapacity,
 					"used_bytes":  usedCapacity,
 					"free_bytes":  availableCapacity,
-				}).Info("SOSAPI capacity calculated from tenant quota")
+				}).Debug("SOSAPI capacity calculated from tenant quota")
 			}
 		}
 
@@ -209,7 +209,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 				logrus.WithFields(logrus.Fields{
 					"total_bytes": totalCapacity,
 					"free_bytes":  availableCapacity,
-				}).Info("SOSAPI capacity calculated from the cluster")
+				}).Debug("SOSAPI capacity calculated from the cluster")
 			}
 		}
 
@@ -226,7 +226,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 					"free_bytes":  availableCapacity,
 					"used_bytes":  int64(diskInfo.Used),
 					"data_dir":    h.dataDir,
-				}).Info("SOSAPI capacity calculated from disk")
+				}).Debug("SOSAPI capacity calculated from disk")
 			}
 		}
 

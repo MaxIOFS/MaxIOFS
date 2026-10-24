@@ -14,7 +14,9 @@ func TestARetentionCleanupIsObserved(t *testing.T) {
 	m, cleanup := setupTestDB(t)
 	defer cleanup()
 	var runs []string
-	m.SetTaskObserver(func(task string, _ time.Duration, failed bool) { runs = append(runs, fmt.Sprintf("%s:%v", task, failed)) })
+	m.SetTaskObserver(func(task string, _ time.Duration, failed bool) {
+		runs = append(runs, fmt.Sprintf("%s:%v", task, failed))
+	})
 
 	m.retentionCleanupWithSettings(context.Background(), 30)
 

@@ -86,8 +86,8 @@ type JWTClaims struct {
 	AccessKey   string   `json:"access_key"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
-	TokenType string `json:"token_type,omitempty"`
-	Resource string `json:"resource,omitempty"`
+	TokenType   string   `json:"token_type,omitempty"`
+	Resource    string   `json:"resource,omitempty"`
 }
 
 // Token types: an access token is the only API credential.
