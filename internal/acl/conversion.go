@@ -36,6 +36,48 @@ type S3Grantee struct {
 	URI          string   `xml:"URI,omitempty"`
 }
 
+const (
+	// S3Namespace is the namespace of the S3 API's documents.
+	S3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/"
+	// xsiNamespace is the namespace of the xsi:type a grantee is typed with.
+	xsiNamespace = "http://www.w3.org/2001/XMLSchema-instance"
+)
+
+// MarshalXML writes the policy as AWS writes it, in the S3 namespace. Reading
+// one accepts it with or without.
+func (p S3AccessControlPolicy) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	type plain S3AccessControlPolicy
+	return e.EncodeElement(plain(p), InS3Namespace("AccessControlPolicy"))
+}
+
+// InS3Namespace is the start of an element named local that declares the S3
+// namespace, as AWS writes the root of a document.
+func InS3Namespace(local string) xml.StartElement {
+	return xml.StartElement{
+		Name: xml.Name{Local: local},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "xmlns"}, Value: S3Namespace}},
+	}
+}
+
+// MarshalXML writes the grantee as AWS writes it: its type in xsi:type, with
+// the xsi prefix declared on the grantee. SDKs read the attribute by that
+// name, prefix included.
+func (g S3Grantee) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	start = xml.StartElement{Name: xml.Name{Local: "Grantee"}}
+	if g.Type != "" {
+		start.Attr = []xml.Attr{
+			{Name: xml.Name{Local: "xmlns:xsi"}, Value: xsiNamespace},
+			{Name: xml.Name{Local: "xsi:type"}, Value: g.Type},
+		}
+	}
+	return e.EncodeElement(struct {
+		ID           string `xml:"ID,omitempty"`
+		DisplayName  string `xml:"DisplayName,omitempty"`
+		EmailAddress string `xml:"EmailAddress,omitempty"`
+		URI          string `xml:"URI,omitempty"`
+	}{g.ID, g.DisplayName, g.EmailAddress, g.URI}, start)
+}
+
 // ToS3Format converts internal ACL to S3 XML format
 func (a *ACL) ToS3Format() *S3AccessControlPolicy {
 	s3ACL := &S3AccessControlPolicy{

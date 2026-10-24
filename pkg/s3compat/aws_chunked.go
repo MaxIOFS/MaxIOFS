@@ -37,9 +37,28 @@ type AwsChunkedReader struct {
 
 // isAwsChunked reports a body its headers say is aws-chunked.
 func isAwsChunked(r *http.Request) bool {
-	return strings.Contains(r.Header.Get("Content-Encoding"), "aws-chunked") ||
+	return strings.Contains(strings.Join(r.Header.Values("Content-Encoding"), ","), "aws-chunked") ||
 		r.Header.Get("X-Amz-Decoded-Content-Length") != "" ||
 		strings.HasPrefix(r.Header.Get("X-Amz-Content-Sha256"), "STREAMING-")
+}
+
+// dropAwsChunkedCoding takes aws-chunked out of a body's Content-Encoding: it
+// says only how the body travelled, and the object keeps the codings left, as
+// AWS keeps them.
+func dropAwsChunkedCoding(h http.Header) {
+	var kept []string
+	for _, value := range h.Values("Content-Encoding") {
+		for _, coding := range strings.Split(value, ",") {
+			if coding = strings.TrimSpace(coding); coding != "" && !strings.EqualFold(coding, "aws-chunked") {
+				kept = append(kept, coding)
+			}
+		}
+	}
+	if len(kept) == 0 {
+		h.Del("Content-Encoding")
+		return
+	}
+	h.Set("Content-Encoding", strings.Join(kept, ","))
 }
 
 // VerifyingChunks checks each chunk, and the trailers, against the signatures

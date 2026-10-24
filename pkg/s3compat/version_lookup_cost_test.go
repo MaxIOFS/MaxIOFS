@@ -43,6 +43,10 @@ func (c *countingVersionStore) GetMultipartUpload(ctx context.Context, uploadID 
 	return nil, nil
 }
 
+func (c *countingVersionStore) GetFinishedUpload(ctx context.Context, uploadID string) (*metadata.FinishedUpload, error) {
+	return nil, metadata.ErrUploadNotFound
+}
+
 func TestFindExactObjectVersion_ReadsOnlyTheKeysOwnVersions(t *testing.T) {
 	store := &countingVersionStore{
 		versions: []*metadata.ObjectVersion{

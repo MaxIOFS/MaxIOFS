@@ -28,7 +28,7 @@ var notObjectMutations = map[string]bool{
 	"GetObjectAttributes":   true,
 	"HeadObject":            true,
 	"ObjectExists":          true,
-	"ResolveDeleteKey":      true,
+	"CheckWriteConditions":  true,
 	"GetObjectVersions":     true,
 	"ListObjectVersions":    true,
 	"VerifyObjectIntegrity": true,

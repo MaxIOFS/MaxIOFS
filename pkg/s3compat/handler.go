@@ -114,6 +114,7 @@ type Handler struct {
 		GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 		GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
+		GetFinishedUpload(ctx context.Context, uploadID string) (*metadata.FinishedUpload, error)
 	}
 	clusterManager interface {
 		IsClusterEnabled() bool
@@ -555,6 +556,7 @@ func (h *Handler) SetMetadataStore(ms interface {
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 	GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 	GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
+	GetFinishedUpload(ctx context.Context, uploadID string) (*metadata.FinishedUpload, error)
 }) {
 	h.metadataStore = ms
 }
@@ -1644,10 +1646,6 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	// Resolve before authorizing: the permission has to be checked against the
-	// key the delete will actually remove, not the one the client spelled.
-	objectKey = h.objectManager.ResolveDeleteKey(r.Context(), bucketPath, objectKey)
-
 	hasPermission := h.checkDeleteObjectPermission(r.Context(), user, userExists, tenantID, bucketName, bucketPath, objectKey, versionID)
 	if !hasPermission {
 		logrus.WithFields(logrus.Fields{
@@ -1813,7 +1811,7 @@ func (h *Handler) GetBucketLocation(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketLocation) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	// x-amz-bucket-region: Veeam reads this header from both HeadBucket and
@@ -3234,7 +3232,10 @@ func (h *Handler) setObjectHeaders(w http.ResponseWriter, r *http.Request, obj *
 	hdr.Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
 	hdr.Set("Accept-Ranges", "bytes")
 	hdr.Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	hdr.Set("x-amz-storage-class", storageClassOrStandard(obj.StorageClass))
+	// As AWS: every class but STANDARD is named.
+	if sc := storageClassOrStandard(obj.StorageClass); sc != "STANDARD" {
+		hdr.Set("x-amz-storage-class", sc)
+	}
 	obj.SetStoredHeaders(hdr)
 	setUserMetadataHeaders(w, obj.Metadata)
 
@@ -3411,8 +3412,7 @@ func (h *Handler) detectAndDecodeAwsChunked(
 			}
 		}
 
-		// Remove aws-chunked from Content-Encoding for storage
-		r.Header.Del("Content-Encoding")
+		dropAwsChunkedCoding(r.Header)
 	}
 
 	return bodyReader
@@ -3751,6 +3751,21 @@ func (h *Handler) requireBucketS3Action(w http.ResponseWriter, r *http.Request, 
 		return true
 	}
 	h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+	return false
+}
+
+// requireBucketExists answers NoSuchBucket for a bucket that does not exist,
+// as AWS answers a request about any of its subresources.
+func (h *Handler) requireBucketExists(w http.ResponseWriter, r *http.Request, bucketName string) bool {
+	_, err := h.bucketManager.GetBucketInfo(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+	default:
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+	}
 	return false
 }
 

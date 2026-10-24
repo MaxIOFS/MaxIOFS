@@ -400,6 +400,21 @@ type MultipartUploadMetadata struct {
 	OwnerID      string            `json:"owner_id"`
 }
 
+// FinishedUpload is what is kept of a multipart upload once it is completed or
+// aborted: enough to answer the same completion or abort sent again.
+type FinishedUpload struct {
+	UploadID string `json:"upload_id"`
+	Bucket   string `json:"bucket"`
+	Key      string `json:"key"`
+	Aborted  bool   `json:"aborted,omitempty"`
+	// ETag, VersionID and Parts are those of a completed upload; Parts is
+	// the digest of the part list it was completed with.
+	ETag       string    `json:"etag,omitempty"`
+	VersionID  string    `json:"version_id,omitempty"`
+	Parts      string    `json:"parts,omitempty"`
+	FinishedAt time.Time `json:"finished_at"`
+}
+
 // PartMetadata represents metadata for a multipart upload part
 type PartMetadata struct {
 	UploadID     string    `json:"upload_id"`

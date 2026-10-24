@@ -419,6 +419,17 @@ func (m *MockMetadataStore) CompleteMultipartUpload(ctx context.Context, uploadI
 	return args.Error(0)
 }
 
+func (m *MockMetadataStore) FinishMultipartUpload(ctx context.Context, uploadID string, finished *metadata.FinishedUpload) error {
+	args := m.Called(ctx, uploadID, finished)
+	return args.Error(0)
+}
+
+func (m *MockMetadataStore) GetFinishedUpload(ctx context.Context, uploadID string) (*metadata.FinishedUpload, error) {
+	args := m.Called(ctx, uploadID)
+	finished, _ := args.Get(0).(*metadata.FinishedUpload)
+	return finished, args.Error(1)
+}
+
 func (m *MockMetadataStore) PutPart(ctx context.Context, part *metadata.PartMetadata) error {
 	args := m.Called(ctx, part)
 	return args.Error(0)

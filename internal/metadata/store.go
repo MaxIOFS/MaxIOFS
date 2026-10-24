@@ -118,6 +118,13 @@ type Store interface {
 	// CompleteMultipartUpload marks a multipart upload as complete
 	CompleteMultipartUpload(ctx context.Context, uploadID string, obj *ObjectMetadata) error
 
+	// FinishMultipartUpload removes an upload and its parts as
+	// AbortMultipartUpload does and keeps finished in their place, for a day.
+	FinishMultipartUpload(ctx context.Context, uploadID string, finished *FinishedUpload) error
+
+	// GetFinishedUpload returns what is kept of a completed or aborted upload.
+	GetFinishedUpload(ctx context.Context, uploadID string) (*FinishedUpload, error)
+
 	// PutPart stores metadata for a multipart upload part
 	PutPart(ctx context.Context, part *PartMetadata) error
 

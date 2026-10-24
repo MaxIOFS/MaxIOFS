@@ -118,6 +118,37 @@ func (s *PebbleStore) ListMultipartUploads(ctx context.Context, bucket, prefix s
 
 // AbortMultipartUpload cancels a multipart upload and removes all its parts.
 func (s *PebbleStore) AbortMultipartUpload(ctx context.Context, uploadID string) error {
+	return s.removeUpload(ctx, uploadID, nil)
+}
+
+// FinishMultipartUpload removes an upload and its parts and keeps finished in
+// their place, in the same commit.
+func (s *PebbleStore) FinishMultipartUpload(ctx context.Context, uploadID string, finished *FinishedUpload) error {
+	if finished == nil {
+		return fmt.Errorf("finished upload cannot be nil")
+	}
+	return s.removeUpload(ctx, uploadID, finished)
+}
+
+// GetFinishedUpload returns what is kept of a completed or aborted upload.
+func (s *PebbleStore) GetFinishedUpload(ctx context.Context, uploadID string) (*FinishedUpload, error) {
+	data, err := s.pebbleGet(finishedUploadKey(uploadID))
+	if err == pebble.ErrNotFound {
+		return nil, ErrUploadNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get finished upload: %w", err)
+	}
+	var finished FinishedUpload
+	if err := json.Unmarshal(data, &finished); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal finished upload: %w", err)
+	}
+	return &finished, nil
+}
+
+// removeUpload deletes an upload, its parts and its index entry, and stores
+// finished in the same batch when it is given.
+func (s *PebbleStore) removeUpload(ctx context.Context, uploadID string, finished *FinishedUpload) error {
 	// Read the upload to get its bucket (needed for index key)
 	upload, err := s.GetMultipartUpload(ctx, uploadID)
 	if err != nil {
@@ -159,6 +190,20 @@ func (s *PebbleStore) AbortMultipartUpload(ctx context.Context, uploadID string)
 	uploadKey := multipartUploadKey(uploadID)
 	if err := batch.Delete(uploadKey, nil); err != nil {
 		return fmt.Errorf("failed to delete multipart upload in batch: %w", err)
+	}
+
+	if finished != nil {
+		finished.UploadID = uploadID
+		if finished.FinishedAt.IsZero() {
+			finished.FinishedAt = time.Now()
+		}
+		data, err := json.Marshal(finished)
+		if err != nil {
+			return fmt.Errorf("failed to marshal finished upload: %w", err)
+		}
+		if err := batch.Set(finishedUploadKey(uploadID), data, nil); err != nil {
+			return fmt.Errorf("failed to keep the finished upload in batch: %w", err)
+		}
 	}
 
 	if err := batch.Commit(pebble.Sync); err != nil {
@@ -423,5 +468,44 @@ func (s *PebbleStore) cleanupStaleMultipartUploads() {
 
 	if len(staleUploadIDs) > 0 {
 		s.logger.WithField("count", len(staleUploadIDs)).Info("Cleaned up stale multipart uploads")
+	}
+
+	s.dropFinishedUploads(time.Now().Add(-finishedUploadRetention))
+}
+
+// finishedUploadRetention is how long a finished upload is kept for a
+// completion or an abort sent again.
+const finishedUploadRetention = 24 * time.Hour
+
+// dropFinishedUploads removes the finished uploads kept since before cutoff.
+func (s *PebbleStore) dropFinishedUploads(cutoff time.Time) {
+	iter, err := s.pebbleIter([]byte(finishedUploadPrefix))
+	if err != nil {
+		s.logger.WithError(err).Warn("Failed to create iterator for finished uploads")
+		return
+	}
+	var stale [][]byte
+	for iter.First(); iter.Valid(); iter.Next() {
+		var finished FinishedUpload
+		if json.Unmarshal(iter.Value(), &finished) == nil && finished.FinishedAt.After(cutoff) {
+			continue
+		}
+		stale = append(stale, append([]byte(nil), iter.Key()...))
+	}
+	_ = iter.Error()
+	_ = iter.Close()
+	if len(stale) == 0 {
+		return
+	}
+
+	batch := s.db.NewBatch()
+	defer batch.Close() //nolint:errcheck
+	for _, key := range stale {
+		if err := batch.Delete(key, nil); err != nil {
+			s.logger.WithError(err).Warn("Failed to delete finished upload in batch")
+		}
+	}
+	if err := s.commitNoSync(batch); err != nil {
+		s.logger.WithError(err).Warn("Failed to remove finished uploads")
 	}
 }

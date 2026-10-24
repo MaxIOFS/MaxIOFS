@@ -32,7 +32,9 @@ type Manager interface {
 	GetObject(ctx context.Context, bucket, key string, versionID ...string) (*Object, io.ReadCloser, error)
 	PutObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (*Object, error)
 	DeleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (deleteMarkerVersionID string, err error)
-	ResolveDeleteKey(ctx context.Context, bucket, key string) string
+	// CheckWriteConditions decides a write's If-Match and If-None-Match
+	// against the object of key, as the write decides them under its lock.
+	CheckWriteConditions(ctx context.Context, bucket, key string, headers http.Header) error
 	ListObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*ListObjectsResult, error)
 	SearchObjects(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int, filter *metadata.ObjectFilter) (*ListObjectsResult, error)
 
@@ -974,24 +976,6 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 // DeleteObject deletes an object or creates a delete marker
 // Returns deleteMarkerVersionID if a delete marker was created, empty string otherwise
 // bypassGovernance allows admins to delete objects under GOVERNANCE retention
-// ResolveDeleteKey returns the key a delete request actually names: a client
-// asking for "folder" when only the "folder/" marker exists means the marker,
-// which is how S3 Browser deletes a folder. Callers resolve before authorizing,
-// so the policy is evaluated on the key that will be removed.
-func (om *objectManager) ResolveDeleteKey(ctx context.Context, bucket, key string) string {
-	if strings.HasSuffix(key, "/") {
-		return key
-	}
-	if _, err := om.metadataStore.GetObject(ctx, bucket, key); err == nil {
-		return key
-	}
-	folderKey := key + "/"
-	if _, err := om.metadataStore.GetObject(ctx, bucket, folderKey); err == nil {
-		return folderKey
-	}
-	return key
-}
-
 func (om *objectManager) deleteObject(ctx context.Context, bucket, key string, bypassGovernance bool, versionID ...string) (string, error) {
 	if err := om.validateObjectName(key); err != nil {
 		return "", err
@@ -2357,6 +2341,11 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 
 	defer om.lockKey(multipart.Bucket, multipart.Key)()
 
+	// A completion's conditions are decided under the key's lock, as a PUT's.
+	if err := om.checkWriteConditions(ctx, multipart.Bucket, multipart.Key, writeConditionsFrom(ctx)); err != nil {
+		return nil, err
+	}
+
 	// Validate parts list and calculate total size
 	totalSize, partSizes, err := om.validateAndCalculatePartsSize(ctx, uploadID, parts)
 	if err != nil {
@@ -2514,7 +2503,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	releaseQuota()
 
 	// Update bucket metrics and clean up multipart data
-	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, originalSize, isNewObject, existingObj, parts, versioningEnabled)
+	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, object, isNewObject, existingObj, parts, versioningEnabled)
 	om.freeReplacedNullVersion(ctx, multipart.Bucket, replacedNull)
 
 	return object, nil
@@ -2820,8 +2809,14 @@ func UploadOwner(uploadID string) string {
 func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID string, returnError bool) error {
 	defer om.lockUpload(uploadID)()
 
-	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
+	upload, err := om.metadataStore.GetMultipartUpload(ctx, uploadID)
+	if err != nil {
 		if err == metadata.ErrUploadNotFound {
+			// An upload finished already is aborted again, as in AWS, with
+			// nothing left to do.
+			if _, finishedErr := om.metadataStore.GetFinishedUpload(ctx, uploadID); finishedErr == nil {
+				return nil
+			}
 			if returnError {
 				return ErrUploadNotFound
 			}
@@ -2851,7 +2846,9 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 		return nil
 	}
 
-	err = om.metadataStore.AbortMultipartUpload(ctx, uploadID)
+	err = om.metadataStore.FinishMultipartUpload(ctx, uploadID, &metadata.FinishedUpload{
+		Bucket: upload.Bucket, Key: upload.Key, Aborted: true,
+	})
 	if err != nil && err != metadata.ErrUploadNotFound {
 		if returnError {
 			return fmt.Errorf("failed to delete multipart upload metadata: %w", err)
@@ -3263,8 +3260,9 @@ func (om *objectManager) computeMultipartETag(ctx context.Context, uploadID stri
 }
 
 // updateMetricsAndCleanupMultipart updates bucket/tenant metrics and cleans up multipart data
-func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, bucket, uploadID string, originalSize int64, isNewObject bool, existingObj *metadata.ObjectMetadata, parts []Part, versioningEnabledArg ...bool) {
+func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, bucket, uploadID string, completed *Object, isNewObject bool, existingObj *metadata.ObjectMetadata, parts []Part, versioningEnabledArg ...bool) {
 	versioningEnabled := len(versioningEnabledArg) > 0 && versioningEnabledArg[0]
+	originalSize := completed.Size
 	tenantID, bucketName := om.parseBucketPath(bucket)
 
 	// Update bucket metrics
@@ -3316,7 +3314,14 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 		return
 	}
 
-	if err := om.metadataStore.AbortMultipartUpload(ctx, uploadID); err != nil {
+	// What is kept answers the same completion sent again.
+	if err := om.metadataStore.FinishMultipartUpload(ctx, uploadID, &metadata.FinishedUpload{
+		Bucket:    bucket,
+		Key:       completed.Key,
+		ETag:      completed.ETag,
+		VersionID: completed.VersionID,
+		Parts:     PartsDigest(parts),
+	}); err != nil {
 		logrus.WithError(err).Warn("Failed to delete multipart upload state after completion")
 		return
 	}
@@ -3324,6 +3329,10 @@ func (om *objectManager) updateMetricsAndCleanupMultipart(ctx context.Context, b
 	if err := om.storage.DeleteUpload(ctx, uploadID); err != nil {
 		logrus.WithError(err).WithField("uploadID", uploadID).Warn("Left the multipart upload directory behind")
 	}
+}
+
+func (om *objectManager) CheckWriteConditions(ctx context.Context, bucket, key string, headers http.Header) error {
+	return om.checkWriteConditions(ctx, bucket, key, headers)
 }
 
 // checkWriteConditions holds a write to its If-Match and If-None-Match: the

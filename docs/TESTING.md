@@ -106,7 +106,7 @@ npx vitest run --coverage
 | `sqlite_test.go` | Audit log storage, querying, retention, SQLite operations |
 | `task_observer_test.go` | Each retention cleanup is told to the task observer |
 
-### `internal/auth/` — 32 test files
+### `internal/auth/` — 33 test files
 
 | File | Description |
 |------|-------------|
@@ -137,6 +137,7 @@ npx vitest run --coverage
 | `rate_limiter_test.go` | Login rate limiting, account lockout |
 | `s3_subresources_test.go` | S3 action resolution for bucket subresources, action precedence and trailing slashes |
 | `s3auth_test.go` | S3 authentication flow end-to-end |
+| `sigv4_header_values_test.go` | A header sent more than once is signed with its values joined by commas and a run of spaces in a value counts as one, as the AWS SDK's signer signs them |
 | `sts_policy_test.go` | STS session policies: parsing, evaluation, action/ARN resolution per request, enforcement on signed and presigned requests |
 | `sts_test.go` | STS sessions: issued credentials, duration bounds, per-user cap, signature round trip, tampering, expiry, revocation, deactivated user, SigV2 refusal, sweeping |
 | `tenant_admin_test.go` | Tenant administrators: role policies still apply, Object Lock managed for their own tenant, no unscoped full access |
@@ -310,7 +311,7 @@ npx vitest run --coverage
 | `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
-### `internal/metadata/` — 18 test files
+### `internal/metadata/` — 19 test files
 
 | File | Description |
 |------|-------------|
@@ -318,6 +319,7 @@ npx vitest run --coverage
 | `bucket_replica_test.go` | A bucket from another node is stored with its times when newer, keeping this node's usage; an older or equal version changes nothing; a name another tenant holds is refused. Usage does not change `UpdatedAt`; a change here is later than the version it replaces, from a node whose clock is ahead too |
 | `close_idempotent_test.go` | `Close` is idempotent |
 | `delete_bucket_if_empty_test.go` | A bucket holding a folder-marker object is not empty |
+| `finished_upload_test.go` | Finishing an upload removes it and its parts and keeps what answers it again, in one commit; what is kept goes after a day |
 | `lastmodified_test.go` | `PutObject` keeps a caller-provided `LastModified` and stamps the current time only when it is unset |
 | `multipart_comprehensive_test.go` | Multipart upload metadata tracking |
 | `objects_test.go` | Object metadata storage and retrieval; a version kept latest beside a current null object is listed as no longer the latest |
@@ -359,7 +361,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 55 test files
+### `internal/object/` — 56 test files
 
 | File | Description |
 |------|-------------|
@@ -387,6 +389,7 @@ npx vitest run --coverage
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
 | `multipart_cleanup_test.go` | Abort/complete leave no upload directory behind; the record survives when parts can't be removed |
 | `multipart_complete_rollback_test.go` | A multipart completion that fails after publishing the assembled object restores the previous one |
+| `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing |
 | `multipart_lock_test.go` | Independent parts upload concurrently; conflicting operations exclude each other |
 | `multipart_part_race_test.go` | A part cannot be replaced while completion is assembling it |
 | `multipart_part_replace_test.go` | Replacing an acknowledged part retains it until the new one commits, and restores it on failure |
@@ -571,7 +574,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 47 test files
+### `pkg/s3compat/` — 48 test files
 
 | File | Description |
 |------|-------------|
@@ -587,7 +590,7 @@ npx vitest run --coverage
 | `bucket_replication_test.go` | PutBucketReplication answers `NotImplemented` and names where replication rules are set; GetBucketReplication finds no configuration |
 | `bucket_limit_test.go` | A tenant's bucket limit counts every bucket the tenant has, including those its users created through the S3 API |
 | `bucket_listing_test.go` | `ListBuckets` shows exactly what the caller's policies grant, no more and no less |
-| `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256); a write and a part are checked against the digests they carry (Content-MD5, a checksum in a header or an aws-chunked trailer, CRC64NVME, the signed payload hash) and nothing is stored on a mismatch; a checksum is kept and returned, not with a range; a body that only looks aws-chunked is stored as it is; a body in signed chunks is checked chunk by chunk and its trailers too (as AWS documents them and as minio-go writes them) |
+| `checksum_test.go` | `x-amz-checksum-*` header validation (CRC32, CRC32C, SHA1, SHA256); a write and a part are checked against the digests they carry (Content-MD5, a checksum in a header or an aws-chunked trailer, CRC64NVME, the signed payload hash) and nothing is stored on a mismatch; a checksum is kept and returned, not with a range; a body that only looks aws-chunked is stored as it is; a body in signed chunks is checked chunk by chunk and its trailers too (as AWS documents them and as minio-go writes them); an aws-chunked body keeps the content codings it names besides `aws-chunked` |
 | `conditional_headers_test.go` | `If-Match`/`If-None-Match` ETag comparison; a PUT with `If-Match` of another ETag or of no object is refused, of its own replaces it; of concurrent writes of a new key with `If-None-Match: *` one is taken |
 | `copy_source_test.go` | Copy source parsing, version IDs, and encoded source keys |
 | `delete_bucket_compat_test.go` | Bucket deletion allows only implicit folder markers to remain |
@@ -597,12 +600,13 @@ npx vitest run --coverage
 | `iam_authorization_test.go` | An IAM read policy does not authorize a write or delete; version actions are resource-scoped |
 | `inventory_test.go` | S3 inventory API compatibility |
 | `multipart_faultcheck_test.go` | Concurrent part uploads to different/the same part number over real HTTP; abort during a disconnected upload |
+| `multipart_finish_test.go` | A completion or an abort sent again once the upload is finished is answered as AWS answers it; a completion is held to `If-Match` and `If-None-Match` with `412` or `NoSuchKey` before anything is written |
 | `multipart_object_lock_test.go` | `CreateMultipartUpload` refuses Object Lock headers it cannot honour with `InvalidRequest`; a canned ACL comes from `x-amz-acl` only, never from user metadata |
 | `multipart_ownership_test.go` | A foreign multipart upload is refused; the owner's own upload keeps working |
 | `multipart_pagination_test.go` | Multipart upload listing and parts pagination |
 | `multipart_retention_test.go` | Default retention applied to an S3 multipart completion |
 | `null_version_test.go` | The null version through the S3 API: kept, read and listed with `versionId=null`, replaced while suspended, a suspended delete answered `x-amz-version-id: null`, deleted by its ID |
-| `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused; an ETag is sent quoted in every header and listing and kept without quotes |
+| `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused; an ETag is sent quoted in every header and listing and kept without quotes; HEAD and GET name the storage class of every class but STANDARD |
 | `notifications_test.go` | Bucket notification webhook dispatch |
 | `object_lock_permissions_test.go` | Object Lock headers on PUT, CreateMultipartUpload and CopyObject need `s3:PutObjectRetention` / `s3:PutObjectLegalHold`; the bucket default needs neither; a copy carries the retention it asked for |
 | `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously |
@@ -613,7 +617,7 @@ npx vitest run --coverage
 | `presigned_test.go` | S3 pre-signed request handling (SigV2 + SigV4) |
 | `proxy_fallthrough_test.go` | A request whose body was already consumed is not handled locally; reads may still fall through |
 | `request_errors_test.go` | A request S3 refuses is a `4xx` with S3's code and writes nothing: bucket names, a missing bucket, tags, storage classes, metadata over 2 KB, keys too long; a copy onto itself that changes nothing; a part other than the last under 5 MB; a wrong secret is `SignatureDoesNotMatch`; a read of a part is that part, parts of one size kept as one run |
-| `s3_test.go` | S3 protocol compatibility tests; in a cluster, capacity.xml takes the usage of the bucket's tenant on every node and, with no quota, the room of the cluster |
+| `s3_test.go` | S3 protocol compatibility tests; in a cluster, capacity.xml takes the usage of the bucket's tenant on every node and, with no quota, the room of the cluster; a delete removes only the key it names; the subresources of a missing bucket answer `NoSuchBucket`; a grantee is typed with `xsi:type` and a policy given back is taken as it is |
 | `select_streaming_test.go` | `SelectObjectContent` loaders don't scale memory with input size; schema can grow mid-stream |
 | `select_test.go` | `SelectObjectContent` — event stream encoding, CSV/JSON loaders, SQL queries, batch flushing |
 | `sts_compound_test.go` | Compound operations within one STS session |

@@ -1024,7 +1024,7 @@ func (h *Handler) GetBucketAccelerateConfiguration(w http.ResponseWriter, r *htt
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetAccelerate) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetAccelerate) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -1038,7 +1038,7 @@ func (h *Handler) PutBucketAccelerateConfiguration(w http.ResponseWriter, r *htt
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutAccelerate) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutAccelerate) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1049,7 +1049,7 @@ func (h *Handler) GetBucketRequestPayment(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetRequestPayment) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetRequestPayment) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -1065,7 +1065,7 @@ func (h *Handler) PutBucketRequestPayment(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutRequestPayment) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutRequestPayment) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1190,7 +1190,7 @@ func (h *Handler) GetBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketReplication) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketReplication) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	h.writeError(w, "ReplicationConfigurationNotFoundError",
@@ -1203,7 +1203,7 @@ func (h *Handler) PutBucketReplication(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	h.writeError(w, "NotImplemented",
@@ -1215,7 +1215,7 @@ func (h *Handler) DeleteBucketReplication(w http.ResponseWriter, r *http.Request
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionPutBucketReplication) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -2286,10 +2286,6 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		bucketPath = bucketName
 	}
 
-	// Resolve before authorizing, so the permission covers the key that will
-	// actually be removed.
-	objectKey = s.objectManager.ResolveDeleteKey(r.Context(), bucketPath, objectKey)
-
 	deleteAction := auth.ActionDeleteObject
 	if r.URL.Query().Get("versionId") != "" {
 		deleteAction = auth.ActionDeleteObjectVersion

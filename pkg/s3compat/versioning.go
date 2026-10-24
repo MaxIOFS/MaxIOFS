@@ -58,7 +58,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListBucketVersions")
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketVersions) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketVersions) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 

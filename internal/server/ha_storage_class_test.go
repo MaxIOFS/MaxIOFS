@@ -162,7 +162,11 @@ func TestTheWritesOfAClassAreHeldByItsNodes(t *testing.T) {
 		CopySource: aws.String("classes/cold")})
 	require.NoError(t, err)
 	c.eventuallyHeldBy(t, "classes", "copied-back", n0, n1)
-	assert.Equal(t, "STANDARD", classOnHead(t, n1, "classes", "copied-back"))
+	assert.Empty(t, classOnHead(t, n1, "classes", "copied-back"), "HEAD does not name STANDARD, as in S3")
+	listed, err := n1.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("classes"), Prefix: aws.String("copied-back")})
+	require.NoError(t, err)
+	require.Len(t, listed.Contents, 1)
+	assert.Equal(t, types.ObjectStorageClassStandard, listed.Contents[0].StorageClass)
 }
 
 // A class with fewer nodes than its protection needs keeps its writes on

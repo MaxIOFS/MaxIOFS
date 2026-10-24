@@ -342,7 +342,7 @@ func TestUpdateMetricsAndCleanupMultipart_NewObject(t *testing.T) {
 
 	// Call updateMetricsAndCleanupMultipart
 	parts := []Part{*part1}
-	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, int64(1024), true, nil, parts)
+	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, &Object{Key: key, Size: 1024}, true, nil, parts)
 
 	assert.True(t, mockBM.incrementCalled, "Should increment bucket metrics for new object")
 	assert.True(t, mockAuth.incrementCalled, "Should increment tenant quota for new object")
@@ -392,7 +392,7 @@ func TestUpdateMetricsAndCleanupMultipart_OverwriteObject(t *testing.T) {
 
 	// Call updateMetricsAndCleanupMultipart for overwrite
 	parts := []Part{*part}
-	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, int64(2048), false, existingObj, parts)
+	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, &Object{Key: key, Size: 2048}, false, existingObj, parts)
 
 	assert.True(t, mockBM.adjustCalled, "Should call AdjustBucketSize for multipart overwrite (not IncrementObjectCount)")
 	assert.False(t, mockBM.incrementCalled, "Should NOT call IncrementObjectCount for multipart overwrite")
@@ -430,7 +430,7 @@ func TestUpdateMetricsAndCleanupMultipart_NoManagers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call cleanup - should not panic
-	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, 1024, true, nil, []Part{})
+	om.updateMetricsAndCleanupMultipart(ctx, bucket, upload.UploadID, &Object{Key: key, Size: 1024}, true, nil, []Part{})
 	t.Log("No managers handled correctly")
 }
 

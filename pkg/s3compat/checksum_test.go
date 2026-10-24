@@ -522,3 +522,28 @@ func TestS3ASignedBodyCutShortIsRefused(t *testing.T) {
 	_, err := env.objectManager.GetObjectMetadata(t.Context(), env.tenantID+"/cut", "k")
 	assert.Error(t, err, "nothing is stored")
 }
+
+// An aws-chunked body is stored with the content codings it names besides
+// aws-chunked, which describes only how the body travelled.
+func TestAwsChunkedKeepsTheOtherContentCodings(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "codings", env.userID))
+	data := []byte("compressed bytes")
+
+	for key, c := range map[string]struct{ sent, stored string }{
+		"coding-first":  {"gzip,aws-chunked", "gzip"},
+		"chunked-first": {"aws-chunked, gzip", "gzip"},
+		"only-chunked":  {"aws-chunked", ""},
+	} {
+		w := env.sendSigned("PUT", "/codings/"+key, awsChunked(data, "x-amz-checksum-crc32:"+crc32Of(data)), map[string]string{
+			"Content-Encoding":             c.sent,
+			"X-Amz-Decoded-Content-Length": fmt.Sprint(len(data)),
+			"X-Amz-Content-Sha256":         "STREAMING-UNSIGNED-PAYLOAD-TRAILER",
+			"X-Amz-Trailer":                "x-amz-checksum-crc32",
+		})
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		head := env.sendSigned("HEAD", "/codings/"+key, nil, nil)
+		assert.Equal(t, c.stored, head.Header().Get("Content-Encoding"), key)
+	}
+}

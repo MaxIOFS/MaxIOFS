@@ -529,12 +529,14 @@ type Grant struct {
 	Permission string  `xml:"Permission"`
 }
 
-type Grantee struct {
-	Type         string `xml:"http://www.w3.org/2001/XMLSchema-instance type,attr"`
-	ID           string `xml:"ID,omitempty"`
-	DisplayName  string `xml:"DisplayName,omitempty"`
-	EmailAddress string `xml:"EmailAddress,omitempty"`
-	URI          string `xml:"URI,omitempty"`
+// Grantee is written as AWS writes it (see acl.S3Grantee).
+type Grantee = acl.S3Grantee
+
+// MarshalXML writes the policy as AWS writes it, in the S3 namespace. Reading
+// one accepts it with or without.
+func (p AccessControlPolicy) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	type plain AccessControlPolicy
+	return e.EncodeElement(plain(p), acl.InS3Namespace("AccessControlPolicy"))
 }
 
 // GetObjectACL retrieves the object ACL

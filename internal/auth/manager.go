@@ -1947,19 +1947,20 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		for _, name := range headerNames {
 			headerName := strings.ToLower(strings.TrimSpace(name))
 
+			// A header sent more than once is signed with its values joined by
+			// commas, each with its runs of spaces made one.
 			var value string
-			// Special handling for 'host' header
 			if headerName == "host" {
-				value = r.Host
+				value = strings.TrimSpace(r.Host)
 			} else {
-				value = r.Header.Get(headerName)
+				sent := r.Header.Values(headerName)
+				values := make([]string, len(sent))
+				for i, v := range sent {
+					values[i] = strings.Join(strings.Fields(v), " ")
+				}
+				value = strings.Join(values, ",")
 			}
-
-			if value != "" {
-				// Trim and normalize whitespace
-				value = strings.TrimSpace(value)
-				canonicalHeaders += headerName + ":" + value + "\n"
-			}
+			canonicalHeaders += headerName + ":" + value + "\n"
 		}
 	}
 

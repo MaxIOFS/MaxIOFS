@@ -50,6 +50,12 @@ func multipartUploadKey(uploadID string) []byte {
 	return []byte(fmt.Sprintf("multipart:%s", uploadID))
 }
 
+const finishedUploadPrefix = "upload_finished:"
+
+func finishedUploadKey(uploadID string) []byte {
+	return []byte(finishedUploadPrefix + uploadID)
+}
+
 func multipartListPrefix(bucket string) []byte {
 	return []byte(fmt.Sprintf("multipart_idx:%s:", bucket))
 }

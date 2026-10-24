@@ -185,3 +185,28 @@ func TestS3AnETagIsSentQuoted(t *testing.T) {
 		assert.Equal(t, http.StatusNotModified, got.Code, condition)
 	}
 }
+
+// HEAD and GET name the storage class of an object of any class but
+// STANDARD, as AWS does: a STANDARD object has no x-amz-storage-class.
+func TestStorageClassHeaderIsLeftOutForStandard(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(t.Context(), env.tenantID, "classes", env.userID))
+	for key, class := range map[string]string{"unnamed": "", "standard": "STANDARD", "ia": "STANDARD_IA"} {
+		headers := map[string]string{}
+		if class != "" {
+			headers["X-Amz-Storage-Class"] = class
+		}
+		w := env.sendSigned("PUT", "/classes/"+key, []byte("x"), headers)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+	for _, method := range []string{"HEAD", "GET"} {
+		for key, want := range map[string]string{"unnamed": "", "standard": "", "ia": "STANDARD_IA"} {
+			w := env.sendSigned(method, "/classes/"+key, nil, nil)
+			require.Equal(t, http.StatusOK, w.Code)
+			_, present := w.Header()["X-Amz-Storage-Class"]
+			assert.Equal(t, want != "", present, method+" "+key)
+			assert.Equal(t, want, w.Header().Get("X-Amz-Storage-Class"), method+" "+key)
+		}
+	}
+}

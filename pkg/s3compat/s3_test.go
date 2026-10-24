@@ -163,6 +163,11 @@ func setupCompleteS3Environment(t *testing.T) *s3TestEnv {
 	router.HandleFunc("/{bucket}", handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "")
 	router.HandleFunc("/{bucket}", handler.GetBucketReplication).Methods("GET").Queries("replication", "")
 	router.HandleFunc("/{bucket}", handler.PutBucketReplication).Methods("PUT").Queries("replication", "")
+	router.HandleFunc("/{bucket}", handler.DeleteBucketReplication).Methods("DELETE").Queries("replication", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketAccelerateConfiguration).Methods("GET").Queries("accelerate", "")
+	router.HandleFunc("/{bucket}", handler.PutBucketAccelerateConfiguration).Methods("PUT").Queries("accelerate", "")
+	router.HandleFunc("/{bucket}", handler.GetBucketRequestPayment).Methods("GET").Queries("requestPayment", "")
+	router.HandleFunc("/{bucket}", handler.PutBucketRequestPayment).Methods("PUT").Queries("requestPayment", "")
 	router.HandleFunc("/{bucket}", handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "")
 	router.HandleFunc("/{bucket}", handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "")
 
@@ -398,6 +403,15 @@ func (env *s3TestEnv) sendSigned(method, path string, body []byte, headers map[s
 // part for each of parts, and gives the answer to its completion.
 func (env *s3TestEnv) uploadInParts(t *testing.T, path string, headers map[string]string, parts ...[]byte) *httptest.ResponseRecorder {
 	t.Helper()
+	uploadID, complete := env.startUploadInParts(t, path, headers, parts...)
+	return env.sendSigned("POST", path+"?uploadId="+uploadID, []byte(complete), nil)
+}
+
+// startUploadInParts starts a multipart upload of path with headers and stores
+// one part for each of parts; it gives the upload's ID and the body of its
+// completion.
+func (env *s3TestEnv) startUploadInParts(t *testing.T, path string, headers map[string]string, parts ...[]byte) (string, string) {
+	t.Helper()
 	created := env.sendSigned("POST", path+"?uploads", nil, headers)
 	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
 	var upload InitiateMultipartUploadResult
@@ -410,7 +424,7 @@ func (env *s3TestEnv) uploadInParts(t *testing.T, path string, headers map[strin
 		fmt.Fprintf(&complete, "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>", i+1, w.Header().Get("ETag"))
 	}
 	complete.WriteString("</CompleteMultipartUpload>")
-	return env.sendSigned("POST", path+"?uploadId="+upload.UploadId, []byte(complete.String()), nil)
+	return upload.UploadId, complete.String()
 }
 
 func makeSignedS3Request(method, path string, body []byte, accessKey, secretKey string) (*http.Request, *httptest.ResponseRecorder) {
@@ -1286,22 +1300,26 @@ func TestS3DeleteObjects(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "non-existent-file.txt", "Response should contain key")
 	})
 
-	t.Run("Delete folder marker without trailing slash", func(t *testing.T) {
+	t.Run("A delete removes only the key it names", func(t *testing.T) {
 		headers := http.Header{"Content-Type": []string{"application/x-directory"}}
-		_, err := env.objectManager.PutObject(ctx, bucketPath, "s3-browser-folder/", bytes.NewReader(nil), headers)
+		_, err := env.objectManager.PutObject(ctx, bucketPath, "marker-folder/", bytes.NewReader(nil), headers)
 		require.NoError(t, err)
 
 		deleteXML := `<Delete>
-			<Object><Key>s3-browser-folder</Key></Object>
+			<Object><Key>marker-folder</Key></Object>
 		</Delete>`
-
 		req, w := env.makeS3Request("POST", "/"+bucketName+"?delete", []byte(deleteXML))
 		req.Header.Set("Content-Type", "application/xml")
 		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "<Key>marker-folder</Key>")
 
-		assert.Equal(t, http.StatusOK, w.Code, "Should delete folder marker sent without trailing slash")
-		_, _, err = env.objectManager.GetObject(ctx, bucketPath, "s3-browser-folder/")
-		assert.Error(t, err, "Folder marker metadata should be removed")
+		req, w = env.makeS3Request("DELETE", "/"+bucketName+"/marker-folder", nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNoContent, w.Code)
+
+		_, err = env.objectManager.GetObjectMetadata(ctx, bucketPath, "marker-folder/")
+		assert.NoError(t, err, "marker-folder/ is another key")
 	})
 
 	t.Run("Quiet mode (no response body for successful deletes)", func(t *testing.T) {
@@ -2295,6 +2313,70 @@ func TestBucketACL(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code, "Should set bucket ACL successfully")
 	})
+}
+
+// A request about a bucket that does not exist is answered NoSuchBucket,
+// whatever the subresource it names, once it is allowed.
+func TestBucketSubresourcesOfAMissingBucket(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	admin := &auth.User{ID: "global-admin", Username: "global-admin", Status: "active", Roles: []string{"admin"}}
+
+	for _, c := range []struct {
+		method, query string
+		handle        http.HandlerFunc
+	}{
+		{"GET", "location", env.handler.GetBucketLocation},
+		{"GET", "uploads", env.handler.ListMultipartUploads},
+		{"GET", "versions", env.handler.ListBucketVersions},
+		{"GET", "accelerate", env.handler.GetBucketAccelerateConfiguration},
+		{"PUT", "accelerate", env.handler.PutBucketAccelerateConfiguration},
+		{"GET", "requestPayment", env.handler.GetBucketRequestPayment},
+		{"PUT", "requestPayment", env.handler.PutBucketRequestPayment},
+		{"GET", "replication", env.handler.GetBucketReplication},
+		{"PUT", "replication", env.handler.PutBucketReplication},
+		{"DELETE", "replication", env.handler.DeleteBucketReplication},
+	} {
+		req := httptest.NewRequest(c.method, "/no-such-bucket?"+c.query, nil)
+		req = mux.SetURLVars(req, map[string]string{"bucket": "no-such-bucket"})
+		req = req.WithContext(context.WithValue(req.Context(), "user", admin))
+		w := httptest.NewRecorder()
+		c.handle(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, c.method+" ?"+c.query)
+		assert.Contains(t, w.Body.String(), "<Code>NoSuchBucket</Code>", c.method+" ?"+c.query)
+	}
+}
+
+// A grantee's type is written as xsi:type with the xsi prefix declared on the
+// grantee, as AWS writes it: the SDKs read the attribute by that name.
+func TestACLGranteesWriteTheirTypeAsXsiType(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	require.NoError(t, env.bucketManager.CreateBucket(context.Background(), env.tenantID, "grantees", env.userID))
+
+	req, w := env.makeS3Request("PUT", "/grantees/o", []byte("x"))
+	req.Header.Set("x-amz-acl", "log-delivery-write")
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	const owner = `<Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser">`
+	for _, path := range []string{"/grantees?acl", "/grantees/o?acl"} {
+		req, w = env.makeS3Request("GET", path, nil)
+		env.router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), owner, path)
+	}
+	assert.Contains(t, w.Body.String(),
+		`<Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="Group"><URI>http://acs.amazonaws.com/groups/s3/LogDelivery</URI></Grantee>`)
+	assert.Contains(t, w.Body.String(), `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+
+	policy := w.Body.Bytes()
+	req, w = env.makeS3Request("PUT", "/grantees/o?acl", policy)
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "the policy given back is taken as it is: %s", w.Body.String())
+	req, w = env.makeS3Request("GET", "/grantees/o?acl", nil)
+	env.router.ServeHTTP(w, req)
+	assert.Equal(t, string(policy), w.Body.String())
 }
 
 // TestObjectRetention tests object retention operations (Get/Put)

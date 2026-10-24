@@ -148,7 +148,7 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 
 	logrus.WithField("bucket", bucketName).Debug("S3 API: ListMultipartUploads")
 
-	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketMultipartUploads) {
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionListBucketMultipartUploads) || !h.requireBucketExists(w, r, bucketName) {
 		return
 	}
 
@@ -302,7 +302,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("Content-Length", decodedContentLength)
 			}
 		}
-		r.Header.Del("Content-Encoding")
+		dropAwsChunkedCoding(r.Header)
 	}
 
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
@@ -598,6 +598,38 @@ func (h *Handler) writePartTooSmall(w http.ResponseWriter, r *http.Request, uplo
 	return false
 }
 
+// finishedUploadOf is the upload uploadID names once it is completed or
+// aborted, when it was one of objectKey in bucketPath; nil otherwise.
+func (h *Handler) finishedUploadOf(r *http.Request, uploadID, bucketPath, objectKey string) *metadata.FinishedUpload {
+	if h.metadataStore == nil {
+		return nil
+	}
+	finished, err := h.metadataStore.GetFinishedUpload(r.Context(), uploadID)
+	if err != nil || finished == nil || finished.Bucket != bucketPath || finished.Key != objectKey {
+		return nil
+	}
+	return finished
+}
+
+// writeFinishedCompletion answers a completion of an upload finished already,
+// as AWS answers a client whose first answer was lost: the same completion
+// gets the result the first one got, and anything else is NoSuchUpload.
+func (h *Handler) writeFinishedCompletion(w http.ResponseWriter, r *http.Request, finished *metadata.FinishedUpload, parts []object.Part, bucketName, objectKey string) {
+	if finished.Aborted || finished.Parts != object.PartsDigest(parts) {
+		h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", objectKey, r)
+		return
+	}
+	if finished.VersionID != "" {
+		w.Header().Set("x-amz-version-id", finished.VersionID)
+	}
+	h.writeXMLResponse(w, http.StatusOK, CompleteMultipartUploadResult{
+		Location: h.buildLocationURL(r, bucketName, objectKey),
+		Bucket:   bucketName,
+		Key:      objectKey,
+		ETag:     QuoteETag(finished.ETag),
+	})
+}
+
 func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -621,8 +653,11 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 
 	// Nothing has been written yet, so this is an ordinary 404. The in-body
 	// error further down exists only because the keep-alive path has already
-	// committed a 200 by the time it can fail.
-	if !h.uploadMatchesTarget(r, uploadID, h.getBucketPath(r, bucketName), objectKey) {
+	// committed a 200 by the time it can fail. An upload finished already is
+	// answered once its parts are read.
+	bucketPath := h.getBucketPath(r, bucketName)
+	finished := h.finishedUploadOf(r, uploadID, bucketPath, objectKey)
+	if finished == nil && !h.uploadMatchesTarget(r, uploadID, bucketPath, objectKey) {
 		h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", objectKey, r)
 		return
 	}
@@ -650,11 +685,22 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	if finished != nil {
+		h.writeFinishedCompletion(w, r, finished, parts, bucketName, objectKey)
+		return
+	}
+
 	if h.writePartTooSmall(w, r, uploadID, objectKey, parts) {
 		return
 	}
 
-	bucketPath := h.getBucketPath(r, bucketName)
+	// The conditions are decided here, while an error can still be its own
+	// status, and again under the key's lock as the upload completes.
+	if err := h.objectManager.CheckWriteConditions(r.Context(), bucketPath, objectKey, r.Header); err != nil {
+		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
+		return
+	}
+
 	var storedCannedACL string
 	if h.metadataStore != nil {
 		if uploadMeta, metaErr := h.metadataStore.GetMultipartUpload(r.Context(), uploadID); metaErr == nil && uploadMeta != nil {
@@ -672,7 +718,7 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 		err error
 	}
 	resultCh := make(chan completionResult, 1)
-	bgCtx := h.backgroundJobContext(r.Context())
+	bgCtx := h.backgroundJobContext(object.WithWriteConditions(r.Context(), r.Header))
 	if !h.runBackground("S3 complete multipart upload", func() {
 		obj, err := h.objectManager.CompleteMultipartUpload(bgCtx, uploadID, parts)
 		resultCh <- completionResult{obj, err}
@@ -719,6 +765,10 @@ done:
 			code = "InvalidPart"
 		} else if res.err == object.ErrInvalidPartOrder {
 			code = "InvalidPartOrder"
+		} else if errors.Is(res.err, object.ErrPreconditionFailed) {
+			code = "PreconditionFailed"
+		} else if errors.Is(res.err, object.ErrObjectNotFound) {
+			code = "NoSuchKey"
 		} else if errors.Is(res.err, cluster.ErrClusterDegraded) {
 			code = "ServiceUnavailable"
 		} else if isQuotaExceeded(res.err) {
@@ -795,6 +845,13 @@ func (h *Handler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) {
 	}).Debug("S3 API: AbortMultipartUpload")
 
 	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionAbortMultipartUpload) {
+		return
+	}
+
+	// An upload of this key finished already is aborted again, as in AWS,
+	// with nothing left to do.
+	if h.finishedUploadOf(r, uploadID, h.getBucketPath(r, bucketName), objectKey) != nil {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
