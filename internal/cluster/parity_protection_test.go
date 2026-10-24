@@ -184,5 +184,5 @@ func TestTheWritesFollowTheLayoutOfParity(t *testing.T) {
 
 	require.NoError(t, mgr.SetParity(ctx, false))
 	require.NoError(t, r.RunOnce(ctx))
-	repairs(2)
+	repairs(3)
 }

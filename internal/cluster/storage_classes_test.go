@@ -190,8 +190,7 @@ func TestTheRoomOfTheClusterIsThatOfStandard(t *testing.T) {
 	assert.Equal(t, 1, states[1].ToleratedFailures)
 }
 
-// The writes are repaired when the nodes of a class change, once classes are
-// kept; without them, a node's move from nothing to follow repairs nothing.
+// The writes are repaired when the protection or the nodes of a class change.
 func TestTheWritesFollowTheNodesOfTheirClass(t *testing.T) {
 	db, mgr := classDB(t, 4, 2)
 	ctx := context.Background()
@@ -205,26 +204,26 @@ func TestTheWritesFollowTheNodesOfTheirClass(t *testing.T) {
 		assert.Equal(t, want, syncer.Calls())
 	}
 	require.NoError(t, r.RunOnce(ctx))
-	repairs(0)
+	repairs(1)
 
 	require.NoError(t, mgr.SetStorageClass(ctx, StorageClass{Name: "GLACIER", Factor: 1}))
 	require.NoError(t, r.RunOnce(ctx))
-	repairs(1)
-	require.NoError(t, r.RunOnce(ctx))
-	repairs(1)
-	require.NoError(t, mgr.SetNodeStorageClass(ctx, "n4", "GLACIER"))
+	repairs(2)
 	require.NoError(t, r.RunOnce(ctx))
 	repairs(2)
-	require.NoError(t, mgr.SetStorageClass(ctx, StorageClass{Name: "GLACIER", Factor: 2}))
+	require.NoError(t, mgr.SetNodeStorageClass(ctx, "n4", "GLACIER"))
 	require.NoError(t, r.RunOnce(ctx))
 	repairs(3)
+	require.NoError(t, mgr.SetStorageClass(ctx, StorageClass{Name: "GLACIER", Factor: 2}))
+	require.NoError(t, r.RunOnce(ctx))
+	repairs(4)
 	_, err := db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = 'n2'`, HealthStatusUnavailable)
 	require.NoError(t, err)
 	require.NoError(t, r.RunOnce(ctx))
-	repairs(3)
+	repairs(4)
 	require.NoError(t, mgr.DeleteStorageClass(ctx, "GLACIER"))
 	require.NoError(t, r.RunOnce(ctx))
-	repairs(3)
+	repairs(5)
 }
 
 // A class with fewer nodes taking data than it spreads a write over makes the

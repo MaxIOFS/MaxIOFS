@@ -104,8 +104,14 @@ func (w *HASyncWorker) RepairPlacement(ctx context.Context) error {
 	}
 	if draining {
 		r.moved = w.drain.moved
+	} else {
+		r.balance = w.planBalance(ctx, r)
 	}
 	err = w.eachPage(ctx, r.repairPage)
+	if r.balanced > 0 {
+		logrus.WithFields(logrus.Fields{"moved": r.balanced, "bytes": r.balancedBytes}).
+			Info("HASyncWorker: the writes were spread again")
+	}
 	if !draining || err != nil {
 		return err
 	}
@@ -254,6 +260,9 @@ type placementRepair struct {
 	// moved, when this node is drained, counts a write of bytes it no longer
 	// holds.
 	moved func(bytes int64)
+	// balance is nil when no class is spread again in this pass.
+	balance                 *balance
+	balanced, balancedBytes int64
 }
 
 // repairPage repairs the copies of the writes of keys, once those that name no
@@ -284,6 +293,9 @@ func (r *placementRepair) repairPage(ctx context.Context, bucket string, keys []
 			before := slices.Contains(v.Locations, r.localID)
 			here, err := r.repairWrite(ctx, bucket, key, v)
 			errs = errors.Join(errs, err)
+			if err == nil {
+				errs = errors.Join(errs, r.balanceWrite(ctx, bucket, key, v))
+			}
 			switch {
 			case here:
 				r.remaining++

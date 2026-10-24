@@ -272,6 +272,10 @@ func createClusterGlobalConfigTable(ctx context.Context, db *sql.DB) error {
 			value:       "true",
 			description: "Enable automatic redistribution of replicas from dead nodes to healthy nodes (kill-switch)",
 		},
+		"ha.rebalance_enabled": {
+			value:       "true",
+			description: "Spread the copies and shards of a class again when a node's fill is more than 10 points from the class's",
+		},
 		"ha.cluster_degraded_reason": {
 			value:       "",
 			description: "Non-empty string indicates the cluster cannot maintain the configured replication factor (e.g. insufficient capacity). Cleared automatically when capacity is restored",

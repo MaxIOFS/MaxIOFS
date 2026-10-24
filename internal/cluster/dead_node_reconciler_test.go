@@ -319,7 +319,7 @@ func TestDrainNode_MovesTheCopiesThenTakesTheNodeOut(t *testing.T) {
 	n3, err = mgr.GetNode(ctx, "n3")
 	require.NoError(t, err)
 	assert.Equal(t, HealthStatusHealthy, n3.HealthStatus, "it holds data still")
-	assert.Eventually(t, func() bool { return syncer.Calls() == 2 }, time.Second, 10*time.Millisecond, "the move is retried")
+	assert.Eventually(t, func() bool { return syncer.Calls() == 3 }, time.Second, 10*time.Millisecond, "the move is retried, and the nodes of the class changed")
 
 	mgr.noteDrainDone("n3", true)
 	require.NoError(t, r.RunOnce(ctx))

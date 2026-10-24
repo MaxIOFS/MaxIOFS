@@ -1840,6 +1840,228 @@ func TestADeadNodeThatComesBackTakesTheLocationsChangedMeanwhile(t *testing.T) {
 	assert.Zero(t, entries.Load(), "the locations agree")
 }
 
+func TestADeadHoldersCopyIsMadeOnTheFourthNodeAndDroppedWhenItIsBack(t *testing.T) {
+	c := newHACluster(t, 4, 3)
+	ctx := context.Background()
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(ctx, "", "four", routingAdminID))
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("four"), Key: aws.String("k"), Body: strings.NewReader("data")})
+	require.NoError(t, err)
+	holders := c.nodes[0].entry(t, "four", "k").Locations
+	require.Len(t, holders, 3)
+	var spare, dead *haNode
+	for _, n := range c.nodes {
+		switch {
+		case !slices.Contains(holders, n.id):
+			spare = n
+		case n != c.nodes[0] && dead == nil:
+			dead = n
+		}
+	}
+	living := c.except(dead)
+	setStatus := func(status string) {
+		t.Helper()
+		for _, n := range living {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, status, dead.id)
+			require.NoError(t, err)
+		}
+	}
+	held := func() []string {
+		var ids []string
+		for _, n := range c.nodes {
+			if n.holds(t, "four", "k", "") {
+				ids = append(ids, n.id)
+			}
+		}
+		slices.Sort(ids)
+		return ids
+	}
+
+	dead.down.Store(true)
+	setStatus(cluster.HealthStatusDead)
+	for _, n := range living {
+		require.NoError(t, n.haSyncWorker.RepairPlacement(ctx))
+	}
+	moved := living[0].entry(t, "four", "k").Locations
+	assert.ElementsMatch(t, append(slices.DeleteFunc(slices.Clone(holders), func(id string) bool { return id == dead.id }), spare.id), moved)
+	for _, n := range living {
+		assert.Equal(t, moved, n.entry(t, "four", "k").Locations)
+	}
+	assert.True(t, spare.holds(t, "four", "k", ""))
+	assert.Equal(t, holders, dead.entry(t, "four", "k").Locations, "a dead node is told nothing")
+	assert.Len(t, held(), 4, "the dead node still has its copy")
+
+	dead.down.Store(false)
+	setStatus(cluster.HealthStatusHealthy)
+	for _, n := range living {
+		startScrubber(t, n.Server)
+		n.antiEntropyScrubber.CatchUp(dead.id, time.Unix(1, 0))
+	}
+	require.Eventually(t, func() bool {
+		return slices.Equal(moved, dead.entry(t, "four", "k").Locations) && !dead.holds(t, "four", "k", "")
+	}, 15*time.Second, 50*time.Millisecond)
+	three := slices.Sorted(slices.Values(moved))
+	assert.Equal(t, three, held(), "the spare keeps its copy")
+	assert.Equal(t, "data", getBody(t, dead.s3, "four", "k"))
+
+	for _, n := range c.nodes {
+		require.NoError(t, n.haSyncWorker.RepairPlacement(ctx))
+	}
+	assert.Equal(t, three, held(), "a repair with every node back moves nothing")
+	for _, n := range c.nodes {
+		assert.Equal(t, moved, n.entry(t, "four", "k").Locations)
+	}
+}
+
+func putMany(t *testing.T, n *haNode, bucketName string, count, size int) []string {
+	t.Helper()
+	keys := make([]string, count)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("k%03d", i)
+		_, err := n.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String(bucketName), Key: aws.String(keys[i]), Body: bytes.NewReader(payload(size))})
+		require.NoError(t, err)
+	}
+	return keys
+}
+
+func (c *haCluster) setFreeOnEveryNode(t *testing.T, free map[*haNode]int64) {
+	t.Helper()
+	for _, n := range c.nodes {
+		for peer, f := range free {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET capacity_total = ?, capacity_used = 0 WHERE id = ?`, f, peer.id)
+			require.NoError(t, err)
+		}
+	}
+}
+
+// freeOf is the room of each node less what it holds, as its disk would show.
+func freeOf(room map[*haNode]int64, held map[string]int, size int64) map[*haNode]int64 {
+	free := make(map[*haNode]int64, len(room))
+	for n, r := range room {
+		free[n] = r - int64(held[n.id])*size
+	}
+	return free
+}
+
+func (c *haCluster) repairEveryNode(t *testing.T) {
+	t.Helper()
+	for _, n := range c.nodes {
+		require.NoError(t, n.haSyncWorker.RepairPlacement(context.Background()))
+	}
+}
+
+func (c *haCluster) copiesSent() int32 {
+	var sent int32
+	for _, n := range c.nodes {
+		sent += n.copies.Load()
+	}
+	return sent
+}
+
+func (c *haCluster) setDrained(t *testing.T, drained bool, nodes ...*haNode) {
+	t.Helper()
+	for _, n := range c.except(nodes...) {
+		for _, d := range nodes {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET drained = ? WHERE id = ?`, drained, d.id)
+			require.NoError(t, err)
+		}
+	}
+}
+
+// heldCopies waits until every node names the same holders of each key and
+// only they hold it, and counts the copies of each node.
+func heldCopies(t *testing.T, c *haCluster, bucketName string, keys []string, factor int) map[string]int {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, key := range keys {
+			locations := c.nodes[0].entry(t, bucketName, key).Locations
+			if len(locations) != factor {
+				return false
+			}
+			for _, n := range c.nodes {
+				if !slices.Equal(locations, n.entry(t, bucketName, key).Locations) ||
+					slices.Contains(locations, n.id) != n.holds(t, bucketName, key, "") {
+					return false
+				}
+			}
+		}
+		return true
+	}, 20*time.Second, 100*time.Millisecond)
+	held := make(map[string]int)
+	for _, key := range keys {
+		for _, id := range c.nodes[0].entry(t, bucketName, key).Locations {
+			held[id]++
+		}
+	}
+	return held
+}
+
+func TestANodeThatJoinsIsGivenItsShareOfTheCopies(t *testing.T) {
+	const size = 1000
+	c := newHACluster(t, 4, 3)
+	joined := c.nodes[3]
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(context.Background(), "", "spread", routingAdminID))
+	c.setDrained(t, true, joined)
+	keys := putMany(t, c.nodes[0], "spread", 200, size)
+	c.setDrained(t, false, joined)
+	held := heldCopies(t, c, "spread", keys, 3)
+	require.Zero(t, held[joined.id])
+	room := map[*haNode]int64{c.nodes[0]: 500_000, c.nodes[1]: 500_000, c.nodes[2]: 500_000, joined: 300_000}
+	c.setFreeOnEveryNode(t, freeOf(room, held, size))
+
+	setHealth := func(status string) {
+		t.Helper()
+		for _, n := range c.nodes {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, status, c.nodes[2].id)
+			require.NoError(t, err)
+		}
+	}
+	setHealth(cluster.HealthStatusUnavailable)
+	sent := c.copiesSent()
+	c.repairEveryNode(t)
+	assert.Equal(t, sent, c.copiesSent(), "nothing moves while a node is out of service")
+	setHealth(cluster.HealthStatusHealthy)
+
+	c.repairEveryNode(t)
+	held = heldCopies(t, c, "spread", keys, 3)
+	assert.InDelta(t, 100, held[joined.id], 30)
+	for _, key := range keys {
+		if slices.Contains(c.nodes[0].entry(t, "spread", key).Locations, joined.id) {
+			assert.True(t, bytes.Equal(payload(size), getBytes(t, joined.s3, "spread", key)))
+			break
+		}
+	}
+
+	c.setFreeOnEveryNode(t, freeOf(room, held, size))
+	sent = c.copiesSent()
+	c.repairEveryNode(t)
+	assert.Equal(t, sent, c.copiesSent(), "a spread cluster moves nothing")
+	assert.Equal(t, held, heldCopies(t, c, "spread", keys, 3))
+}
+
+func TestTheCopiesAreSpreadByTheRoomOfEachNode(t *testing.T) {
+	const size = 1000
+	c := newHACluster(t, 4, 2)
+	small, large := c.nodes[2], c.nodes[3]
+	require.NoError(t, c.nodes[0].bucketManager.CreateBucket(context.Background(), "", "rooms", routingAdminID))
+	c.setDrained(t, true, small, large)
+	keys := putMany(t, c.nodes[0], "rooms", 200, size)
+	c.setDrained(t, false, small, large)
+	held := heldCopies(t, c, "rooms", keys, 2)
+	room := map[*haNode]int64{c.nodes[0]: 400_000, c.nodes[1]: 400_000, small: 200_000, large: 600_000}
+	c.setFreeOnEveryNode(t, freeOf(room, held, size))
+
+	c.repairEveryNode(t)
+	held = heldCopies(t, c, "rooms", keys, 2)
+	assert.InDelta(t, 50, held[small.id], 20)
+	assert.InDelta(t, 150, held[large.id], 30)
+	assert.Greater(t, held[large.id], 2*held[small.id])
+
+	c.setFreeOnEveryNode(t, freeOf(room, held, size))
+	sent := c.copiesSent()
+	c.repairEveryNode(t)
+	assert.Equal(t, sent, c.copiesSent(), "a spread cluster moves nothing")
+}
+
 // The degraded banner shows the nodes as they are: it follows a change of a
 // node's health at once, and the console reads it as it is now.
 func TestTheDegradedBannerFollowsTheNodes(t *testing.T) {

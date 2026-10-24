@@ -56,9 +56,8 @@ func (r *placementRepair) livingHolders(v object.ObjectVersion) []string {
 // in shards and shards joined in whole copies as the protection of its class
 // asks, the shards of dead, removed or drained nodes are made again on other
 // nodes and those of nodes of another class on nodes of its own, and shards
-// that a cluster can no longer hold apart, or with less parity than it asks,
-// are cut again. The first of the write's living holders acts. It reports
-// whether this node still holds the write.
+// that no longer fit the cluster are cut again. The first of the write's
+// living holders acts. It reports whether this node still holds the write.
 func (r *placementRepair) repairShards(ctx context.Context, bucket, key string, v object.ObjectVersion, target dataTarget) (bool, error) {
 	living := r.livingHolders(v)
 	if len(living) == 0 || slices.Min(living) != r.localID {
@@ -165,8 +164,7 @@ func (r *placementRepair) joinShards(ctx context.Context, bucket, key string, v 
 // mendShards makes the shards of dead, removed or drained holders again on
 // nodes holding none of the write, those of the write's class first, and
 // moves those of holders of another class to nodes of its own; it cuts the
-// write again when its shards cannot stay apart on the nodes there are or
-// have less parity than target.
+// write again when its layout no longer fits the nodes.
 func (r *placementRepair) mendShards(ctx context.Context, bucket, key string, v object.ObjectVersion, layout, target erasure.Layout) (bool, error) {
 	class := r.view.of(v.StorageClass)
 	var replaced, elsewhere []int
@@ -183,13 +181,15 @@ func (r *placementRepair) mendShards(ctx context.Context, bucket, key string, v 
 			staying++
 		}
 	}
+	nodes := r.shardNodes(class)
 	var free []*Node
-	for _, n := range r.shardNodes(class) {
+	for _, n := range nodes {
 		if !slices.Contains(v.Locations, n.ID) {
 			free = append(free, n)
 		}
 	}
-	if layout.Parity < target.Parity || staying+len(free) < layout.Width() {
+	wider, _ := fit(target, len(nodes))
+	if layout.Parity < target.Parity || staying+len(free) < layout.Width() || layout.Data < wider.Data {
 		return r.recutShards(ctx, bucket, key, v, target)
 	}
 	want := make(map[int]*Node)

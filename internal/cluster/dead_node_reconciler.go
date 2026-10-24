@@ -188,9 +188,6 @@ func (r *DeadNodeReconciler) followPlacement(ctx context.Context) {
 		return
 	}
 	r.shape = shape
-	if shape == "" {
-		return
-	}
 	r.log.WithField("placement", shape).Info("The placement of the writes changed: the writes are repaired")
 	if r.syncer != nil {
 		r.Spawn(func() { r.syncer.Trigger(ctx) })

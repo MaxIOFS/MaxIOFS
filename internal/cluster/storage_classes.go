@@ -214,11 +214,6 @@ func (m *Manager) classView(ctx context.Context) (*classView, error) {
 	return v, nil
 }
 
-// defined reports whether the cluster keeps a class beyond STANDARD.
-func (v *classView) defined() bool {
-	return len(v.protection) > 1
-}
-
 // of is the class whose nodes keep an object of storage class sc: sc when the
 // cluster keeps it, STANDARD otherwise.
 func (v *classView) of(sc string) string {
@@ -310,19 +305,15 @@ func (v *classView) sortForClass(nodes []*Node, class string) {
 }
 
 // placementShape is what the placement of the writes follows: the
-// protection and layout of each class and, with classes beyond STANDARD, the
-// nodes in each. It is empty when there is nothing to follow: no class but
-// STANDARD, kept in whole copies. settled is false while a class with parity
-// has a node that holds data and does not take it yet.
+// protection, layout and nodes of each class. settled is false while a class
+// with parity has a node that holds data and does not take it yet.
 func (v *classView) placementShape(nodes []*Node) (shape string, settled bool) {
 	settled = true
-	parity := false
 	var parts []string
 	for _, class := range v.names() {
 		p := v.protection[class]
 		part := fmt.Sprintf("%s:%d:%t", class, p.Factor, p.Parity)
 		if p.Parity {
-			parity = true
 			layout, ok := v.layout(nodes, class)
 			if ok {
 				part += fmt.Sprintf(":%d+%d", layout.Data, layout.Parity)
@@ -331,20 +322,14 @@ func (v *classView) placementShape(nodes []*Node) (shape string, settled bool) {
 				}
 			}
 		}
-		if v.defined() {
-			var ids []string
-			for _, n := range nodes {
-				if n.HealthStatus != HealthStatusDead && !n.Drained && v.node(n) == class {
-					ids = append(ids, n.ID)
-				}
+		var ids []string
+		for _, n := range nodes {
+			if n.HealthStatus != HealthStatusDead && !n.Drained && v.node(n) == class {
+				ids = append(ids, n.ID)
 			}
-			slices.Sort(ids)
-			part += ":" + strings.Join(ids, ",")
 		}
-		parts = append(parts, part)
-	}
-	if !parity && !v.defined() {
-		return "", true
+		slices.Sort(ids)
+		parts = append(parts, part+":"+strings.Join(ids, ","))
 	}
 	return strings.Join(parts, ";"), settled
 }

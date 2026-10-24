@@ -509,6 +509,134 @@ func TestARemovedNodeLeavesItsWritesCutAgain(t *testing.T) {
 	assert.True(t, bytes.Equal(data, getBytes(t, rest.nodes[1].s3, "fewer", "k")))
 }
 
+func TestADeadNodesWriteIsCutOverTheOthersAndOverEveryNodeWhenItIsBack(t *testing.T) {
+	c := newParityCluster(t, 4, "back")
+	ctx := context.Background()
+	data := payload(400000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("back"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	before := assertSharded(t, c, "back", "k", "", erasure.Layout{Data: 3, Parity: 1, Block: erasure.DefaultBlock})
+	dead := c.byID(before[3])
+	rest := &haCluster{nodes: c.except(dead)}
+	setStatus := func(status string) {
+		t.Helper()
+		for _, n := range rest.nodes {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, status, dead.id)
+			require.NoError(t, err)
+		}
+	}
+	everyNode := erasure.Layout{Data: 3, Parity: 1, Block: erasure.DefaultBlock}
+
+	dead.down.Store(true)
+	setStatus(cluster.HealthStatusDead)
+	for _, n := range rest.nodes {
+		require.NoError(t, n.deadNodeReconciler.RunOnce(ctx))
+	}
+	eventuallySharded(t, rest, "back", "k", erasure.Layout{Data: 2, Parity: 1, Block: erasure.DefaultBlock})
+	assert.Equal(t, []int{3}, dead.shardsHeld(t, "back", "k", ""), "a dead node is told nothing")
+
+	dead.down.Store(false)
+	setStatus(cluster.HealthStatusHealthy)
+	for _, n := range rest.nodes {
+		startScrubber(t, n.Server)
+		n.antiEntropyScrubber.CatchUp(dead.id, time.Unix(1, 0))
+	}
+	for _, n := range c.nodes {
+		require.NoError(t, n.deadNodeReconciler.RunOnce(ctx))
+	}
+	after := eventuallySharded(t, c, "back", "k", everyNode)
+
+	for _, n := range c.nodes {
+		require.NoError(t, n.haSyncWorker.RepairPlacement(ctx))
+	}
+	assert.Equal(t, after, assertSharded(t, c, "back", "k", "", everyNode), "a repair with every node back moves nothing")
+	for _, down := range after {
+		c.byID(down).down.Store(true)
+		reader := c.except(c.byID(down))[0]
+		assert.True(t, bytes.Equal(data, getBytes(t, reader.s3, "back", "k")), "read on %s with %s down", reader.id, down)
+		c.byID(down).down.Store(false)
+	}
+}
+
+func TestASixthNodeWidensTheWrites(t *testing.T) {
+	c := newParityCluster(t, 6, "wide")
+	ctx := context.Background()
+	sixth := c.nodes[5]
+	setDrained := func(drained int) {
+		for _, n := range c.except(sixth) {
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET drained = ? WHERE id = ?`, drained, sixth.id)
+			require.NoError(t, err)
+		}
+	}
+	setDrained(1)
+	data := payload(600000)
+	_, err := c.nodes[0].s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("wide"), Key: aws.String("k"), Body: bytes.NewReader(data)})
+	require.NoError(t, err)
+	before := c.nodes[0].entry(t, "wide", "k")
+	require.Equal(t, [2]int{3, 2}, [2]int{before.ECData, before.ECParity})
+
+	setDrained(0)
+	for _, n := range c.nodes {
+		require.NoError(t, n.deadNodeReconciler.RunOnce(ctx))
+	}
+	locations := eventuallySharded(t, c, "wide", "k", erasure.Layout{Data: 4, Parity: 2, Block: erasure.DefaultBlock})
+	for i, id := range before.Locations {
+		assert.NotEqual(t, id, locations[i], "no node keeps the index it held: shard %d", i)
+	}
+	c.byID(locations[0]).down.Store(true)
+	c.byID(locations[4]).down.Store(true)
+	assert.True(t, bytes.Equal(data, getBytes(t, c.byID(locations[5]).s3, "wide", "k")))
+}
+
+func TestANodeBeyondTheShardsOfTheWritesIsGivenItsShare(t *testing.T) {
+	const size = 32768
+	c := newParityCluster(t, 11, "beyond")
+	joined := c.nodes[10]
+	c.setDrained(t, true, joined)
+	keys := putMany(t, c.nodes[0], "beyond", 30, size)
+	c.setDrained(t, false, joined)
+	layout := erasure.Layout{Data: 8, Parity: 2, Block: erasure.DefaultBlock}
+	shard := layout.ShardSize(size)
+	held := make(map[string]int)
+	for _, key := range keys {
+		for _, id := range assertSharded(t, c, "beyond", key, "", layout) {
+			held[id]++
+		}
+	}
+	require.Zero(t, held[joined.id])
+	room := make(map[*haNode]int64)
+	for _, n := range c.nodes {
+		room[n] = 60 * shard
+	}
+	c.setFreeOnEveryNode(t, freeOf(room, held, shard))
+
+	c.repairEveryNode(t)
+	held = make(map[string]int)
+	var moved string
+	for _, key := range keys {
+		locations := eventuallySharded(t, c, "beyond", key, layout)
+		for _, id := range locations {
+			held[id]++
+		}
+		if slices.Contains(locations, joined.id) {
+			moved = key
+		}
+	}
+	assert.InDelta(t, 27, held[joined.id], 6)
+	require.NotEmpty(t, moved)
+
+	var down []*haNode
+	for _, id := range c.nodes[0].entry(t, "beyond", moved).Locations {
+		if id != joined.id && len(down) < 2 {
+			down = append(down, c.byID(id))
+		}
+	}
+	for _, n := range down {
+		n.down.Store(true)
+	}
+	assert.True(t, bytes.Equal(payload(size), getBytes(t, joined.s3, "beyond", moved)))
+}
+
 // A write that cannot be cut in shards, a node refusing its shard, keeps its
 // whole copies, and the shards the others took go.
 func TestAWriteNotCutInShardsKeepsItsCopies(t *testing.T) {
