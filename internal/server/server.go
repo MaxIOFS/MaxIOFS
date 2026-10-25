@@ -319,12 +319,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Connect settings manager to auth manager for dynamic rate limiting and session config
-	if am, ok := authManager.(interface {
-		SetSettingsManager(interface {
-			GetInt(key string) (int, error)
-			GetBool(key string) (bool, error)
-		})
-	}); ok {
+	if am, ok := authManager.(interface{ SetSettingsManager(auth.SettingsManager) }); ok {
 		am.SetSettingsManager(settingsManager)
 	}
 

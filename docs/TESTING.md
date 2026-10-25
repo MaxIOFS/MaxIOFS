@@ -114,7 +114,7 @@ npx vitest run --coverage
 | `admin_identity_test.go` | Administrator status comes from the role or from an attached policy |
 | `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
-| `auth_test.go` | Core authentication flows |
+| `auth_test.go` | Core authentication flows; only failed sign-ins count against an address |
 | `bucket_policy_decision_test.go` | The bucket policy decides with the caller's policies: a Deny in either refuses, an Allow in either grants; the tenant boundary, a session policy and an unreadable document bound it |
 | `bootstrap_key_test.go` | The bootstrap key pair seeds the administrator's first S3 key once; ignored when a key exists, when unset, or when unusable |
 | `cluster_convergence_test.go` | Two-node convergence: credential revocation window, immediate deactivation, concurrent policy and bucket-grant writes |
@@ -254,7 +254,7 @@ npx vitest run --coverage
 |------|-------------|
 | `erasure_test.go` | The layout of a cluster of nodes; the size of a shard; an object read back with any parity's worth of shards missing, whatever its size against the stripes; too few shards refused; a shard failing mid-read replaced from its stripe; ranges and Seeks, a Seek while reading reopening the shards; each shard opened once in a sequential read; a missing shard rebuilt byte for byte without reading its stale bytes; a failed destination written no more; a short object refused; `Ready` reads the first stripe ahead |
 
-### `internal/idp/` — 7 test files
+### `internal/idp/` — 10 test files
 
 | File | Description |
 |------|-------------|
@@ -264,7 +264,10 @@ npx vitest run --coverage
 | `reencrypt_test.go` | Bind passwords and client secrets move to a new secret; the rest of the configuration is kept; what no secret decrypts is named and left |
 | `store_test.go` | IDP persistent storage operations |
 | `ldap/ldap_test.go` | LDAP bind, search, group resolution |
+| `ldap/directory_test.go` | A directory for the tests: simple binds, searches with a size limit, and one that takes connections and never answers |
+| `ldap/provider_directory_test.go` | The connection test passes with many users; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts |
 | `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping |
+| `oauth/provider_unavailable_test.go` | A provider that does not answer at its token or userinfo endpoint, or is not there, is unavailable within the timeout; one that refuses the code is not |
 
 ### `internal/inventory/` — 6 test files
 
@@ -376,7 +379,7 @@ npx vitest run --coverage
 | `integration_test.go` | Full object lifecycle (put → get → delete) |
 | `key_acls_test.go` | An object does not inherit the ACL of the one before it at the key; ACLs kept per key are moved into their objects once |
 | `lock_sidecar_test.go` | The sidecar keeps a version's Object Lock state through multipart completion and a metadata update, which cannot change it; a raw copy keeps its entry's state; the encryption pass writes it for versions stored before |
-| `key_serialization_test.go` | Every key-mutating call serializes on the per-key lock |
+| `key_serialization_test.go` | Every key-mutating call serializes on the per-key lock; a PUT still receiving its data holds up no read |
 | `manager_coverage_test.go` | Manager edge cases for coverage; a retention in force only grows stricter |
 | `manager_critical_functions_test.go` | Critical path testing (copy, multipart complete) |
 | `manager_envelope_test.go` | Envelope encryption roundtrip, legacy direct-encrypted objects, folder markers stay plaintext |
@@ -390,7 +393,7 @@ npx vitest run --coverage
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
 | `multipart_cleanup_test.go` | Abort/complete leave no upload directory behind; the record survives when parts can't be removed |
 | `multipart_complete_rollback_test.go` | A multipart completion that fails after publishing the assembled object restores the previous one |
-| `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing; a completion is logged with its bucket, key, parts and version |
+| `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing; a completion is logged with its bucket, key, parts and version; it names its version before it waits for the key's lock, and the same completion sent again is told it |
 | `multipart_lock_test.go` | Independent parts upload concurrently; conflicting operations exclude each other |
 | `multipart_part_race_test.go` | A part cannot be replaced while completion is assembling it |
 | `multipart_part_replace_test.go` | Replacing an acknowledged part retains it until the new one commits, and restores it on failure |
@@ -429,7 +432,7 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/recovery/` — 6 test files
+### `internal/recovery/` — 7 test files
 
 | File | Description |
 |------|-------------|
@@ -438,6 +441,7 @@ npx vitest run --coverage
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
 | `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone, with the headers each object kept |
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
+| `resume_test.go` | A recovery stopped at any step, and stopped again as it continues, ends as one that never stopped; it is continued only with the same data directory, bundle and files |
 | `review_faultcheck_test.go` | Reconcile takes the same per-key lock as a live overwrite and does not race it; a same-size same-second overwrite is still detected |
 
 ### `internal/replication/` — 11 test files
@@ -463,7 +467,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 64 test files
+### `internal/server/` — 66 test files
 
 | File | Description |
 |------|-------------|
@@ -481,7 +485,9 @@ npx vitest run --coverage
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
-| `console_idp_test.go` | Console IDP management endpoints |
+| `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked |
+| `idp_sign_in_test.go` | A user whose ID is not its name signs in; a sign-in its directory cannot answer is `503` and locks neither the account nor the address; one its SSO provider cannot answer goes back to the login page with `provider_unavailable` |
+| `login_rate_limit_test.go` | Only failed sign-ins hold an address up; the security settings reach the sign-in of a server as it starts |
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth; the coordinator sees the user's address and TLS |
 | `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups; a deletion from the log removes the copy of every kind of entity with what goes with it; a revoked session reaches the other node with its time |
@@ -659,7 +665,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
-| `IdentityProviders.test.tsx` | IDP management UI flows |
+| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN; a group mapping is made with the group given |
 | `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |
 | `OAuthComplete.test.tsx` | The OAuth completion page keeps the session the exchange gives, or asks for the second factor and sends it with the first step's token |
@@ -881,7 +887,7 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Area | Files | Key Packages |
 |------|-------|-------------|
 | Object | 55 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 64 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Server | 66 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
 | S3 Compat | 41 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
 | Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
@@ -891,14 +897,14 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Replication | 8 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 6 | Prometheus, history, system, performance |
 | Bucket | 6 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
-| IDP | 5 | LDAP, OAuth, crypto, storage |
-| Recovery | 5 | Offline recover, reconcile (restore + repair) |
+| IDP | 10 | LDAP against a test directory, OAuth, crypto, storage |
+| Recovery | 7 | Offline recover and its resumption, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 4 | Auth, CORS, tracing, body digest |
 | Inventory | 4 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 26 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **361** | |
+| **Total Go** | **367** | |
 | Frontend | 15 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, storage classes, lifecycle rules |
 | Performance | 4 | Upload, download, mixed, common |

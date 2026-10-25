@@ -1288,37 +1288,37 @@ export interface IdentityProvider {
   tenantId: string;
   status: IDPStatus;
   config: IDPProviderConfig;
-  created_by: string;
-  created_at: number;
-  updated_at: number;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ExternalUser {
-  external_id: string;
+  externalId: string;
   username: string;
   email: string;
-  display_name: string;
+  displayName: string;
   groups: string[];
-  raw_attrs: Record<string, string>;
+  rawAttrs: Record<string, string>;
 }
 
 export interface ExternalGroup {
-  external_id: string;
+  externalId: string;
   name: string;
-  member_count: number;
+  memberCount: number;
 }
 
 export interface GroupMapping {
   id: string;
-  provider_id: string;
-  external_group: string;
-  external_group_name: string;
+  providerId: string;
+  externalGroup: string;
+  externalGroupName: string;
   role: string;
-  tenant_id: string;
-  auto_sync: boolean;
-  last_synced_at: number;
-  created_at: number;
-  updated_at: number;
+  tenantId: string;
+  autoSync: boolean;
+  lastSyncedAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ImportUserEntry {
@@ -1326,17 +1326,26 @@ export interface ImportUserEntry {
   username: string;
 }
 
+export interface ImportUserResult {
+  external_id: string;
+  username: string;
+  status: 'imported' | 'skipped' | 'error';
+  error?: string;
+}
+
 export interface ImportResult {
   imported: number;
   skipped: number;
-  errors: { external_id: string; error: string }[];
+  errors: number;
+  results: ImportUserResult[];
 }
 
 export interface SyncResult {
+  mappingId: string;
   imported: number;
   updated: number;
   removed: number;
-  errors: string[];
+  errors: number;
 }
 
 export interface OAuthProviderInfo {

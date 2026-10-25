@@ -394,6 +394,12 @@ recovery bundle, the tool verifies that every encrypted object's key material
 unwraps and restores the encryption keys into the database so the server can
 decrypt after the rebuild. `--dry-run` reports without writing anything.
 
+A run that stops (Ctrl+C, crash, power loss) continues where it stopped when
+it is run again with the same `--data-dir`, `--out-db` and `--recovery-bundle`.
+Its progress is kept in `<out-db>.progress` until the run ends. Another data
+directory or bundle is refused, and so are files that changed since the stop;
+remove `<out-db>` and `<out-db>.progress` to start over.
+
 **Behaviour notes:**
 
 - **Deleted versioned objects come back visible**: delete markers exist only

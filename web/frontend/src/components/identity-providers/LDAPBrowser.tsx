@@ -42,13 +42,13 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
   const importMutation = useMutation({
     mutationFn: () => {
       const users = results
-        .filter((u) => selected.has(u.external_id))
-        .map((u) => ({ external_id: u.external_id, username: u.username || u.email }));
+        .filter((u) => selected.has(u.externalId))
+        .map((u) => ({ external_id: u.externalId, username: u.username || u.email }));
       return APIClient.idpImportUsers(provider.id, users, importRole);
     },
     onSuccess: (data) => {
       const msg = t('importResult', { imported: data.imported, skipped: data.skipped }) +
-        (data.errors?.length ? t('importResultErrors', { errors: data.errors.length }) : '');
+        (data.errors ? t('importResultErrors', { errors: data.errors }) : '');
       ModalManager.success(t('importComplete'), msg);
       setSelected(new Set());
     },
@@ -68,7 +68,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
     if (selected.size === results.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(results.map((u) => u.external_id)));
+      setSelected(new Set(results.map((u) => u.externalId)));
     }
   };
 
@@ -147,18 +147,18 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
             </TableHeader>
             <TableBody>
               {results.map((user) => (
-                <TableRow key={user.external_id} className={selected.has(user.external_id) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}>
+                <TableRow key={user.externalId} className={selected.has(user.externalId) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}>
                   <TableCell>
                     <input
                       type="checkbox"
-                      checked={selected.has(user.external_id)}
-                      onChange={() => toggleSelect(user.external_id)}
+                      checked={selected.has(user.externalId)}
+                      onChange={() => toggleSelect(user.externalId)}
                       className="rounded border-gray-300"
                     />
                   </TableCell>
                   <TableCell className="font-medium text-foreground">{user.username}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{user.display_name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{user.displayName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {(user.groups || []).length > 0 ? (
                       <span className="inline-flex items-center gap-1 text-xs">

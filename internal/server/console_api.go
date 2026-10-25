@@ -23,6 +23,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
@@ -708,7 +709,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 2: Get user by username first (don't validate password yet)
-	userByName, err := s.authManager.GetUser(r.Context(), loginReq.Username)
+	userByName, err := s.authManager.GetUserByUsername(r.Context(), loginReq.Username)
 	if err != nil {
 		// If input looks like an email and OAuth providers exist, hint to use SSO
 		if strings.Contains(loginReq.Username, "@") && s.idpManager != nil {
@@ -724,6 +725,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// User doesn't exist - return generic error to avoid username enumeration
+		s.authManager.RecordFailedLogin(r.Context(), "", clientIP)
 		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -770,6 +772,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		providerID := strings.TrimPrefix(userByName.AuthProvider, "ldap:")
 		_, err = s.idpManager.AuthenticateExternal(r.Context(), providerID, userByName.ExternalID, loginReq.Password)
+		if errors.Is(err, idp.ErrUnavailable) {
+			// The directory's failure: neither the account nor the address is held to it.
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"user_id":     userByName.ID,
+				"provider_id": providerID,
+			}).Warn("LDAP sign-in: directory unavailable")
+			s.writeError(w, "The directory that signs this user in is not available. Try again later.", http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil {
 			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
 			logrus.WithFields(logrus.Fields{
@@ -6625,6 +6636,7 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, "The sign-in expired. Sign in again.", http.StatusUnauthorized)
 			return
 		}
+		s.authManager.RecordFailedLogin(r.Context(), "", clientIP)
 		s.writeError(w, "Invalid two-factor token", http.StatusUnauthorized)
 		return
 	}

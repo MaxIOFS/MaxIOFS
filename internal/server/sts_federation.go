@@ -55,6 +55,11 @@ func (s *Server) handleSTSLDAPIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := s.resolveLDAPIdentity(r.Context(), provider.ID, req.Username, req.Password)
+	if errors.Is(err, idp.ErrUnavailable) {
+		logrus.WithError(err).WithField("provider_id", provider.ID).Warn("STS federation: directory unavailable")
+		s.writeError(w, "The directory is not available. Try again later.", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		s.denySTSFederation(w, r, "ldap", provider.ID, req.Username, federationDenialReason(err))
 		return
@@ -81,12 +86,15 @@ func federationDenialReason(err error) string {
 
 // resolveLDAPIdentity authenticates username/password against an LDAP provider
 func (s *Server) resolveLDAPIdentity(ctx context.Context, providerID, username, password string) (*auth.User, error) {
-	user, err := s.authManager.GetUser(ctx, username)
+	user, err := s.authManager.GetUserByUsername(ctx, username)
 	if err != nil || user == nil || user.AuthProvider != "ldap:"+providerID {
 		return nil, &federationDenied{"user is not linked to this LDAP provider"}
 	}
 
 	if _, err := s.idpManager.AuthenticateExternal(ctx, providerID, user.ExternalID, password); err != nil {
+		if errors.Is(err, idp.ErrUnavailable) {
+			return nil, err
+		}
 		logrus.WithFields(logrus.Fields{
 			"provider_id": providerID,
 			"username":    username,
@@ -105,6 +113,9 @@ func (s *Server) resolveWebIdentity(ctx context.Context, r *http.Request, provid
 	// The provider's userinfo endpoint validates the token for us: expired,
 	// revoked and forged tokens are all rejected there.
 	externalUser, err := s.idpManager.AuthenticateWithAccessToken(ctx, providerID, token)
+	if errors.Is(err, idp.ErrUnavailable) {
+		return nil, err
+	}
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"provider_id": providerID,
@@ -147,6 +158,11 @@ func (s *Server) handleSTSWebIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := s.resolveWebIdentity(r.Context(), r, provider.ID, req.Token)
+	if errors.Is(err, idp.ErrUnavailable) {
+		logrus.WithError(err).WithField("provider_id", provider.ID).Warn("STS federation: identity provider unavailable")
+		s.writeError(w, "The identity provider is not available. Try again later.", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		s.denySTSFederation(w, r, "oauth", provider.ID, "", federationDenialReason(err))
 		return
@@ -198,6 +214,7 @@ func (s *Server) beginSTSFederation(w http.ResponseWriter, r *http.Request, meth
 func (s *Server) resolveFederationProvider(w http.ResponseWriter, r *http.Request, providerID, wantType string) (*idp.IdentityProvider, bool) {
 	provider, err := s.idpManager.GetProvider(r.Context(), providerID)
 	if err != nil || provider == nil {
+		s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
 		s.writeError(w, "Identity provider not found", http.StatusNotFound)
 		return nil, false
 	}
@@ -301,6 +318,7 @@ func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error
 
 // denySTSFederation audits a rejected exchange and answers with a single opaque
 func (s *Server) denySTSFederation(w http.ResponseWriter, r *http.Request, method, providerID, subject, reason string) {
+	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,

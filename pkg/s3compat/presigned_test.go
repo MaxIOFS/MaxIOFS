@@ -85,6 +85,10 @@ func (m *mockAuthManager) SetMustChangePassword(ctx context.Context, userID stri
 func (m *mockAuthManager) DeleteUser(ctx context.Context, userID string) error {
 	return fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) GetUserByUsername(ctx context.Context, username string) (*auth.User, error) {
+	return m.GetUser(ctx, username)
+}
+
 func (m *mockAuthManager) GetUser(ctx context.Context, userID string) (*auth.User, error) {
 	if userID == "user-1" || userID == "sts-user" {
 		return &auth.User{ID: userID, Username: userID, Status: auth.UserStatusActive, TenantID: "tenant-1"}, nil

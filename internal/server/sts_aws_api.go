@@ -267,6 +267,11 @@ func (s *Server) stsAssumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Req
 	}
 
 	user, err := s.resolveWebIdentity(r.Context(), r, providerID, token)
+	if errors.Is(err, idp.ErrUnavailable) {
+		logrus.WithError(err).WithField("provider_id", providerID).Warn("STS federation: identity provider unavailable")
+		writeSTSError(w, http.StatusServiceUnavailable, "ServiceUnavailable", "The identity provider is not available.")
+		return
+	}
 	if err != nil {
 		s.auditSTSXMLDenial(r, "AssumeRoleWithWebIdentity", "", federationDenialReason(err))
 		writeSTSError(w, http.StatusForbidden, "IDPRejectedClaim", "The identity token could not be validated.")
@@ -310,6 +315,11 @@ func (s *Server) stsAssumeRoleWithLDAPIdentity(w http.ResponseWriter, r *http.Re
 	}
 
 	user, err := s.resolveLDAPIdentity(r.Context(), providerID, username, password)
+	if errors.Is(err, idp.ErrUnavailable) {
+		logrus.WithError(err).WithField("provider_id", providerID).Warn("STS federation: directory unavailable")
+		writeSTSError(w, http.StatusServiceUnavailable, "ServiceUnavailable", "The directory is not available.")
+		return
+	}
 	if err != nil {
 		s.auditSTSXMLDenial(r, "AssumeRoleWithLDAPIdentity", username, federationDenialReason(err))
 		writeSTSError(w, http.StatusForbidden, "AccessDenied", "Access denied.")
@@ -413,6 +423,7 @@ func (s *Server) afterSTSXMLIssue(r *http.Request, user *auth.User, session *aut
 // auditSTSXMLDenial records a rejection. As on the JSON endpoints the caller
 // only ever sees an opaque error; the reason stays in the audit log.
 func (s *Server) auditSTSXMLDenial(r *http.Request, action, subject, reason string) {
+	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,
@@ -471,7 +482,7 @@ func (s *Server) stsResolveOAuthProviderID(r *http.Request) (string, error) {
 // stsResolveLDAPProviderID reads the provider an LDAP user is linked to from the
 // local user record.
 func (s *Server) stsResolveLDAPProviderID(r *http.Request, username string) (string, error) {
-	user, err := s.authManager.GetUser(r.Context(), username)
+	user, err := s.authManager.GetUserByUsername(r.Context(), username)
 	if err != nil || user == nil || !strings.HasPrefix(user.AuthProvider, "ldap:") {
 		return "", errors.New("user is not linked to an LDAP provider")
 	}

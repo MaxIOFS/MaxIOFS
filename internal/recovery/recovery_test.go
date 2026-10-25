@@ -38,6 +38,12 @@ func keptHeaders() http.Header {
 
 func buildTestDeployment(t *testing.T) (string, string, string) {
 	t.Helper()
+	return buildTestDeploymentWith(t, nil)
+}
+
+// buildTestDeploymentWith writes, through extra, more before the store is lost.
+func buildTestDeploymentWith(t *testing.T, extra func(ctx context.Context, buckets bucket.Manager, objects object.Manager)) (string, string, string) {
+	t.Helper()
 	ctx := context.Background()
 	dataDir := t.TempDir()
 
@@ -98,6 +104,9 @@ func buildTestDeployment(t *testing.T) (string, string, string) {
 	require.NoError(t, err)
 	_, err = objMgr.PutObject(ctx, "versioned-bucket", "doc.txt", bytes.NewReader([]byte("version two — latest")), http.Header{})
 	require.NoError(t, err)
+	if extra != nil {
+		extra(ctx, bucketMgr, objMgr)
+	}
 
 	// Export the recovery bundle, then close everything (simulating the loss
 	// of the live Pebble store — recovery must not need it).

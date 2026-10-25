@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@/test/utils/test-utils';
 import IdentityProvidersPage from '@/pages/identity-providers/index';
@@ -83,9 +83,9 @@ describe('Identity Providers Page', () => {
           attr_member_of: 'memberOf',
         },
       },
-      created_by: 'admin',
-      created_at: 1707955200,
-      updated_at: 1707955200,
+      createdBy: 'admin',
+      createdAt: 1707955200,
+      updatedAt: 1707955200,
     },
     {
       id: 'idp-2',
@@ -108,9 +108,9 @@ describe('Identity Providers Page', () => {
           claim_groups: '',
         },
       },
-      created_by: 'admin',
-      created_at: 1707955200,
-      updated_at: 1707955200,
+      createdBy: 'admin',
+      createdAt: 1707955200,
+      updatedAt: 1707955200,
     },
   ];
 
@@ -249,6 +249,46 @@ describe('Identity Providers Page', () => {
 
     const mappingButtons = screen.getAllByTitle('Group Mappings');
     expect(mappingButtons).toHaveLength(2);
+  });
+
+  // The server's users and mappings, as it sends them.
+  it('imports only the user that is ticked, with its DN', async () => {
+    const user = userEvent.setup();
+    vi.mocked(APIClient.idpSearchUsers).mockResolvedValue([
+      { externalId: 'uid=anabel,ou=people,dc=example,dc=org', username: 'anabel', email: 'anabel@example.org', displayName: 'Anabel Ruiz', groups: [], rawAttrs: {} },
+      { externalId: 'uid=ana,ou=people,dc=example,dc=org', username: 'ana', email: 'ana@example.org', displayName: 'Ana Torres', groups: [], rawAttrs: {} },
+    ]);
+    vi.mocked(APIClient.idpImportUsers).mockResolvedValue({ imported: 1, skipped: 0, errors: 0, results: [] });
+    render(<IdentityProvidersPage />);
+
+    await user.click(await screen.findByTitle('Browse Users'));
+    await user.type(screen.getByPlaceholderText('Search by name, email, or username...'), 'ana');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Ana Torres')).toBeInTheDocument();
+    await user.click(within(screen.getByText('ana@example.org').closest('tr')!).getByRole('checkbox'));
+    expect(within(screen.getByText('anabel@example.org').closest('tr')!).getByRole('checkbox')).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: /Import Selected/i }));
+
+    await waitFor(() => expect(APIClient.idpImportUsers).toHaveBeenCalledWith(
+      'idp-1', [{ external_id: 'uid=ana,ou=people,dc=example,dc=org', username: 'ana' }], 'user'));
+  });
+
+  it('creates a group mapping of the group it is given', async () => {
+    const user = userEvent.setup();
+    vi.mocked(APIClient.listGroupMappings).mockResolvedValue([]);
+    vi.mocked(APIClient.createGroupMapping).mockResolvedValue({
+      id: 'gmap-1', providerId: 'idp-1', externalGroup: 'cn=admins,ou=groups,dc=example,dc=org', externalGroupName: '',
+      role: 'user', tenantId: '', autoSync: false, lastSyncedAt: 0, createdAt: 0, updatedAt: 0,
+    });
+    render(<IdentityProvidersPage />);
+
+    await user.click((await screen.findAllByTitle('Group Mappings'))[0]);
+    await user.click(screen.getAllByRole('button', { name: /Add Mapping/i })[0]);
+    await user.type(screen.getByPlaceholderText('CN=Domain Admins,OU=Groups,DC=company,DC=com'), 'cn=admins,ou=groups,dc=example,dc=org');
+    await user.click(screen.getByRole('button', { name: /^Create$/ }));
+
+    await waitFor(() => expect(APIClient.createGroupMapping).toHaveBeenCalledWith(
+      'idp-1', expect.objectContaining({ externalGroup: 'cn=admins,ou=groups,dc=example,dc=org', role: 'user' })));
   });
 });
 

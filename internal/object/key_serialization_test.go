@@ -2,9 +2,11 @@ package object
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,5 +139,66 @@ func TestKeyMutatorsSerializeOnTheKeyLock(t *testing.T) {
 				t.Fatalf("%s did not complete after the key lock was released", name)
 			}
 		})
+	}
+}
+
+// A PUT takes the key's lock once its data is in, so a client still sending
+// holds up no read.
+func TestAReadIsNotHeldUpByAWriteStillReceiving(t *testing.T) {
+	om, _, metaStore := setupManagerWithConfigKey(t)
+	ctx := context.Background()
+	const bucket, key = "busy", "k"
+	if err := metaStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: bucket, OwnerID: "user-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := om.PutObject(ctx, bucket, key, strings.NewReader("first"), http.Header{}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, sending := io.Pipe()
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer sending.Close()
+	wg.Go(func() {
+		if _, err := om.PutObject(ctx, bucket, key, body, http.Header{}); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := sending.Write([]byte("sec")); err != nil {
+		t.Fatal(err)
+	}
+
+	read := make(chan string, 1)
+	wg.Go(func() {
+		_, r, err := om.GetObject(ctx, bucket, key)
+		if err != nil {
+			read <- err.Error()
+			return
+		}
+		data, _ := io.ReadAll(r)
+		r.Close()
+		read <- string(data)
+	})
+	select {
+	case data := <-read:
+		if data != "first" {
+			t.Fatalf("read %q while the write was receiving", data)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read waited for the write to receive its data")
+	}
+
+	if _, err := sending.Write([]byte("ond")); err != nil {
+		t.Fatal(err)
+	}
+	sending.Close()
+	wg.Wait()
+	_, r, err := om.GetObject(ctx, bucket, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if data, _ := io.ReadAll(r); string(data) != "second" {
+		t.Fatalf("read %q after the write", data)
 	}
 }

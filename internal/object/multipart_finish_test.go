@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
@@ -48,6 +50,58 @@ func TestACompletionIsLoggedWithItsObject(t *testing.T) {
 	assert.Equal(t, "big.zip", logged.Data["key"])
 	assert.Equal(t, 1, logged.Data["parts"])
 	assert.Equal(t, obj.VersionID, logged.Data["versionID"])
+}
+
+// A completion names its version before it waits for the key's lock, and the
+// same completion sent again while the first runs is told the same version.
+func TestACompletionNamesItsVersionBeforeItWaitsForTheKey(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{Name: "waiting", OwnerID: "u",
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"}}))
+	upload, err := om.CreateMultipartUpload(ctx, "waiting", "k", http.Header{})
+	require.NoError(t, err)
+	part, err := om.UploadPart(ctx, upload.UploadID, 1, bytes.NewReader([]byte("data")))
+	require.NoError(t, err)
+	parts := []Part{{PartNumber: 1, ETag: part.ETag}}
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	var once sync.Once
+	unlock := om.lockKey("waiting", "k")
+	release := func() { once.Do(unlock) }
+	defer release()
+
+	start := func() (chan string, chan *Object) {
+		noticed, done := make(chan string, 1), make(chan *Object, 1)
+		wg.Go(func() {
+			obj, err := om.CompleteMultipartUpload(WithVersionNotice(ctx, func(id string) { noticed <- id }), upload.UploadID, parts)
+			assert.NoError(t, err)
+			done <- obj
+		})
+		return noticed, done
+	}
+	versionOf := func(noticed chan string, what string) string {
+		select {
+		case id := <-noticed:
+			return id
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s is told no version while the key is locked", what)
+			return ""
+		}
+	}
+
+	firstNoticed, firstDone := start()
+	version := versionOf(firstNoticed, "the completion")
+	againNoticed, againDone := start()
+	assert.Equal(t, version, versionOf(againNoticed, "the completion sent again"))
+
+	release()
+	obj := <-firstDone
+	require.NotNil(t, obj)
+	assert.Equal(t, version, obj.VersionID)
+	assert.Equal(t, obj, <-againDone)
 }
 
 // A completion's If-Match and If-None-Match are decided under the key's lock,

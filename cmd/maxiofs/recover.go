@@ -28,6 +28,10 @@ The rebuild always writes into a FRESH directory (default:
 successful run, stop everything, move the corrupt store aside, rename the
 recovered directory to <data-dir>/metadata and start the server.
 
+A run that stops (Ctrl+C, crash, power loss) continues where it stopped when
+it is run again with the same --data-dir, --out-db and --recovery-bundle. Its
+progress is kept in <out-db>.progress until the run ends.
+
 Run with the server STOPPED.`,
 		Example: `  maxiofs recover --data-dir /var/lib/maxiofs --recovery-bundle /safe/maxiofs-recovery-bundle.json
   maxiofs recover --data-dir /var/lib/maxiofs --recovery-bundle bundle.json --passphrase-file /safe/pass.txt --dry-run`,

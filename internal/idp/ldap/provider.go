@@ -2,6 +2,7 @@ package ldap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/maxiofs/maxiofs/internal/idp"
@@ -61,12 +62,17 @@ func (p *Provider) AuthenticateUser(ctx context.Context, username, password stri
 	}
 	defer conn.Close()
 
-	// First bind as admin to find the user's DN
+	// First bind as admin to find the user
 	if err := p.client.BindAdmin(conn); err != nil {
 		return nil, err
 	}
 
-	userDN, err := p.client.FindUserDN(conn, username)
+	// A failure other than an unknown user or a wrong password is the
+	// directory's, never the user's.
+	entry, err := p.client.FindUser(conn, username)
+	if err != nil && !errors.Is(err, errUserNotFound) && !errors.Is(err, idp.ErrUnavailable) {
+		err = fmt.Errorf("%w: %w", idp.ErrUnavailable, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("user not found in LDAP: %w", err)
 	}
@@ -79,31 +85,11 @@ func (p *Provider) AuthenticateUser(ctx context.Context, username, password stri
 	}
 	defer userConn.Close()
 
-	if err := p.client.BindUser(userConn, userDN, password); err != nil {
+	if err := p.client.BindUser(userConn, entry.DN, password); err != nil {
 		return nil, err
 	}
 
-	// Re-connect as admin to fetch user details
-	detailConn, err := p.client.Connect()
-	if err != nil {
-		return nil, err
-	}
-	defer detailConn.Close()
-
-	if err := p.client.BindAdmin(detailConn); err != nil {
-		return nil, err
-	}
-
-	entries, err := p.client.SearchUsers(detailConn, username, 1)
-	if err != nil || len(entries) == 0 {
-		// Authentication succeeded but couldn't get details
-		return &idp.ExternalUser{
-			ExternalID: userDN,
-			Username:   username,
-		}, nil
-	}
-
-	user := p.client.EntryToExternalUser(entries[0])
+	user := p.client.EntryToExternalUser(entry)
 	return &user, nil
 }
 

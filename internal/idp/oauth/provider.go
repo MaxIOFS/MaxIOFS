@@ -3,13 +3,19 @@ package oauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"golang.org/x/oauth2"
 )
+
+// providerTimeout bounds a code exchange or an identity lookup with the
+// provider, so one that does not answer fails a sign-in in time.
+var providerTimeout = 15 * time.Second
 
 // Provider implements the idp.Provider interface for OAuth2/OIDC
 type Provider struct {
@@ -96,15 +102,24 @@ func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
 }
 
 func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.ExternalUser, error) {
+	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
+	defer cancel()
+
 	// Exchange the authorization code for a token
 	token, err := p.oauthConfig.Exchange(ctx, code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to exchange code: %w", err)
+		err = fmt.Errorf("failed to exchange code: %w", err)
+		// A refusal is the provider's answer; anything else is no answer.
+		var refused *oauth2.RetrieveError
+		if !errors.As(err, &refused) || refused.Response == nil || refused.Response.StatusCode >= 500 {
+			err = fmt.Errorf("%w: %w", idp.ErrUnavailable, err)
+		}
+		return nil, err
 	}
 
 	// Use the token to fetch user info
 	client := p.oauthConfig.Client(ctx, token)
-	return p.fetchUserInfo(client)
+	return p.fetchUserInfo(ctx, client)
 }
 
 // AuthenticateWithToken resolves the user an access token belongs to by calling
@@ -112,29 +127,39 @@ func (p *Provider) AuthenticateWithToken(ctx context.Context, accessToken string
 	if accessToken == "" {
 		return nil, fmt.Errorf("access token is required")
 	}
+	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
+	defer cancel()
 
 	client := p.oauthConfig.Client(ctx, &oauth2.Token{
 		AccessToken: accessToken,
 		TokenType:   "Bearer",
 	})
-	return p.fetchUserInfo(client)
+	return p.fetchUserInfo(ctx, client)
 }
 
 // fetchUserInfo retrieves user information from the OAuth provider's userinfo endpoint
-func (p *Provider) fetchUserInfo(client *http.Client) (*idp.ExternalUser, error) {
+func (p *Provider) fetchUserInfo(ctx context.Context, client *http.Client) (*idp.ExternalUser, error) {
 	if p.config.UserInfoURL == "" {
 		return nil, fmt.Errorf("userinfo_url is not configured")
 	}
 
-	resp, err := client.Get(p.config.UserInfoURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.UserInfoURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch user info: %w", err)
+		return nil, fmt.Errorf("failed to build the userinfo request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to fetch user info: %w", idp.ErrUnavailable, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, string(body))
+		if resp.StatusCode >= 500 {
+			err = fmt.Errorf("%w: %w", idp.ErrUnavailable, err)
+		}
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)

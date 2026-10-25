@@ -239,7 +239,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			UserInfoURL: server.URL,
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Equal(t, "user@example.com", user.Email)
 		assert.Equal(t, "user@example.com", user.Username)
@@ -261,7 +261,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			UserInfoURL: server.URL,
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Equal(t, "user-456", user.ExternalID)
 		assert.Equal(t, "", user.Email)
@@ -284,7 +284,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			ClaimGroups: "groups",
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Equal(t, []string{"admins", "developers", "team-alpha"}, user.Groups)
 	})
@@ -305,7 +305,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			// ClaimGroups intentionally not set
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Nil(t, user.Groups)
 	})
@@ -329,7 +329,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			ClaimGroups: "team_groups",
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Equal(t, "custom@example.com", user.Email)
 		assert.Equal(t, "Custom Name", user.DisplayName)
@@ -352,7 +352,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			UserInfoURL: server.URL,
 		})
 
-		user, err := p.fetchUserInfo(server.Client())
+		user, err := p.fetchUserInfo(context.Background(), server.Client())
 		require.NoError(t, err)
 		assert.Equal(t, "custom-value", user.RawAttrs["extra"])
 		assert.Equal(t, "raw@example.com", user.RawAttrs["email"])
@@ -363,7 +363,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			// UserInfoURL intentionally empty
 		})
 
-		_, err := p.fetchUserInfo(http.DefaultClient)
+		_, err := p.fetchUserInfo(context.Background(), http.DefaultClient)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "userinfo_url is not configured")
 	})
@@ -379,7 +379,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			UserInfoURL: server.URL,
 		})
 
-		_, err := p.fetchUserInfo(server.Client())
+		_, err := p.fetchUserInfo(context.Background(), server.Client())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "401")
 	})
@@ -394,7 +394,7 @@ func TestProvider_fetchUserInfo(t *testing.T) {
 			UserInfoURL: server.URL,
 		})
 
-		_, err := p.fetchUserInfo(server.Client())
+		_, err := p.fetchUserInfo(context.Background(), server.Client())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "parse userinfo response")
 	})

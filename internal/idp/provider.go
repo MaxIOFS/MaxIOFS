@@ -2,8 +2,13 @@ package idp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrUnavailable is the error of a provider that could not be reached or did
+// not answer in time; it says nothing of the credentials.
+var ErrUnavailable = errors.New("identity provider unavailable")
 
 // Provider defines the interface that all identity providers must implement
 type Provider interface {

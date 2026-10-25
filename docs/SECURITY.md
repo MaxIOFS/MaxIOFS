@@ -73,7 +73,11 @@ SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC provider
 
 ### LDAP/Active Directory
 
-Bind authentication against LDAP/AD directories. Configured via Web Console → Settings → Identity Providers.
+Bind authentication against LDAP/AD directories. Configured via Web Console → Users → Identity Providers.
+
+- Bind with a read-only service account; MaxIOFS only searches and binds.
+- A user signs in with the DN the console imported or a group sync gave, or with the name typed on the users page. The entry has to match the user filter.
+- A directory that does not answer within 10 seconds to connect, or 15 seconds to a request, fails the sign-in with `503`. The failure is not counted against the account or the address.
 
 ### Cluster Authentication & Encryption
 
@@ -320,7 +324,8 @@ that has not yet heard about a delete cannot resurrect the entity.
 ### IP Rate Limiting
 
 Prevents brute-force attacks from a single IP address:
-- Default: 5 login attempts per minute per IP
+- Only failed sign-ins count: a wrong password, an unknown user, a wrong two-factor token, a refused STS federation. A sign-in that succeeds never counts, so many users behind one NAT, or software that signs in on every request, are not held up.
+- Default: 5 failed sign-ins per minute per IP
 - Configurable: `security.ratelimit_login_per_minute`
 - Exceeded: HTTP 429 Too Many Requests
 

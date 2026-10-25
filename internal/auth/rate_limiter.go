@@ -120,34 +120,6 @@ func (l *LoginRateLimiter) ResetIP(ip string) {
 	delete(l.attempts, ip)
 }
 
-// CheckAndRecord atomically checks whether a login attempt from ip is allowed
-func (l *LoginRateLimiter) CheckAndRecord(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	now := time.Now()
-	attempt, exists := l.attempts[ip]
-
-	if !exists || now.Sub(attempt.FirstTry) > time.Duration(l.windowSeconds)*time.Second {
-		// No prior attempts or window expired — allow and record as first attempt.
-		l.attempts[ip] = &RateLimitAttempt{
-			Count:    1,
-			FirstTry: now,
-			LastTry:  now,
-		}
-		return true
-	}
-
-	// Within the window — check limit before incrementing.
-	if attempt.Count >= l.maxAttempts {
-		return false
-	}
-
-	attempt.Count++
-	attempt.LastTry = now
-	return true
-}
-
 // GetAttempts returns the current attempt count for an IP
 func (l *LoginRateLimiter) GetAttempts(ip string) int {
 	l.mu.RLock()

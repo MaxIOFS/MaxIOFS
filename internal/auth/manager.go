@@ -59,6 +59,8 @@ type Manager interface {
 	SetMustChangePassword(ctx context.Context, userID string, must bool) error
 	DeleteUser(ctx context.Context, userID string) error
 	GetUser(ctx context.Context, accessKey string) (*User, error)
+	// GetUserByUsername is the user a sign-in names; its ID may be another.
+	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	ListUsers(ctx context.Context) ([]User, error)
 
 	// Access key management
@@ -1136,6 +1138,10 @@ func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
 
 func (am *authManager) GetUser(ctx context.Context, userID string) (*User, error) {
 	return am.store.GetUserByID(userID)
+}
+
+func (am *authManager) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	return am.store.GetUserByUsername(username)
 }
 
 func (am *authManager) FindUserByExternalID(ctx context.Context, externalID, authProvider string) (*User, error) {
@@ -2244,7 +2250,9 @@ func generateS3AmzId2() string {
 	return hex.EncodeToString(b)
 }
 
-// CheckRateLimit checks if login is allowed from given IP address.
+// CheckRateLimit reports whether a sign-in from ip may be tried: it failed
+// fewer times than the limit within the window. A sign-in that succeeds is
+// not counted, so many users behind one address are not held up.
 // Reads ratelimit_enabled and ratelimit_login_per_minute from settings on every call (hot-reload).
 func (am *authManager) CheckRateLimit(ip string) bool {
 	if am.settingsManager != nil {
@@ -2257,9 +2265,7 @@ func (am *authManager) CheckRateLimit(ip string) bool {
 			am.rateLimiter.UpdateMaxAttempts(max)
 		}
 	}
-	// RACE-05: use CheckAndRecord to atomically check + increment under a single
-	// write lock, eliminating the TOCTOU window between AllowLogin and RecordFailedAttempt.
-	return am.rateLimiter.CheckAndRecord(ip)
+	return am.rateLimiter.AllowLogin(ip)
 }
 
 // IsAccountLocked checks if an account is currently locked
@@ -2389,12 +2395,20 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 	return nil
 }
 
-// RecordFailedLogin records a failed login attempt
+// RecordFailedLogin counts a failed sign-in against the address it came from
+// and, when userID names an account, against that account.
 func (am *authManager) RecordFailedLogin(ctx context.Context, userID, ip string) error {
 	logrus.WithFields(logrus.Fields{
 		"user_id": userID,
 		"ip":      ip,
 	}).Debug("RecordFailedLogin called")
+
+	if ip != "" {
+		am.rateLimiter.RecordFailedAttempt(ip)
+	}
+	if userID == "" {
+		return nil
+	}
 
 	// Increment failed attempts in database
 	err := am.store.IncrementFailedLoginAttempts(userID)

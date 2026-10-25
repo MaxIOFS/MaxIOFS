@@ -2,11 +2,22 @@ package ldap
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/maxiofs/maxiofs/internal/idp"
+)
+
+// dialTimeout bounds the connection to the directory and requestTimeout each
+// request on it, so a directory that does not answer fails a sign-in in time.
+var (
+	dialTimeout    = 10 * time.Second
+	requestTimeout = 15 * time.Second
 )
 
 // Client wraps an LDAP connection with helper methods
@@ -21,39 +32,49 @@ func NewClient(config *idp.LDAPConfig) *Client {
 
 // Connect establishes a connection to the LDAP server
 func (c *Client) Connect() (*ldap.Conn, error) {
-	addr := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
+	addr := net.JoinHostPort(c.config.Host, strconv.Itoa(c.config.Port))
+	dialer := ldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout})
+	tlsConfig := &tls.Config{ServerName: c.config.Host}
 
 	var conn *ldap.Conn
 	var err error
-
 	switch c.config.Security {
 	case "tls":
-		conn, err = ldap.DialTLS("tcp", addr, &tls.Config{
-			ServerName: c.config.Host,
-		})
-	case "starttls":
-		conn, err = ldap.DialURL(fmt.Sprintf("ldap://%s", addr))
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to LDAP server: %w", err)
-		}
-		err = conn.StartTLS(&tls.Config{
-			ServerName: c.config.Host,
-		})
-	default: // "none"
-		conn, err = ldap.DialURL(fmt.Sprintf("ldap://%s", addr))
+		conn, err = ldap.DialURL("ldaps://"+addr, dialer, ldap.DialWithTLSConfig(tlsConfig))
+	default: // "none", "starttls"
+		conn, err = ldap.DialURL("ldap://"+addr, dialer)
 	}
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to LDAP server: %w", err)
+		return nil, unavailable(fmt.Errorf("failed to connect to LDAP server: %w", err))
 	}
+	conn.SetTimeout(requestTimeout)
 
+	if c.config.Security == "starttls" {
+		if err := conn.StartTLS(tlsConfig); err != nil {
+			conn.Close()
+			return nil, unavailable(fmt.Errorf("failed to start TLS with the LDAP server: %w", err))
+		}
+	}
 	return conn, nil
 }
 
-// BindAdmin binds with the service account credentials
+// unavailable marks err as the directory's when it is: the directory could
+// not be reached, did not answer in time, or said it is busy.
+func unavailable(err error) error {
+	if err == nil || errors.Is(err, idp.ErrUnavailable) {
+		return err
+	}
+	if ldap.IsErrorAnyOf(err, ldap.ErrorNetwork, ldap.LDAPResultBusy, ldap.LDAPResultUnavailable) {
+		return fmt.Errorf("%w: %w", idp.ErrUnavailable, err)
+	}
+	return err
+}
+
+// BindAdmin binds with the service account credentials. A directory that
+// refuses them cannot be used by anybody, so it is unavailable.
 func (c *Client) BindAdmin(conn *ldap.Conn) error {
 	if err := conn.Bind(c.config.BindDN, c.config.BindPassword); err != nil {
-		return fmt.Errorf("failed to bind with admin credentials: %w", err)
+		return fmt.Errorf("%w: failed to bind with admin credentials: %w", idp.ErrUnavailable, err)
 	}
 	return nil
 }
@@ -61,9 +82,22 @@ func (c *Client) BindAdmin(conn *ldap.Conn) error {
 // BindUser binds with user credentials for authentication
 func (c *Client) BindUser(conn *ldap.Conn, userDN, password string) error {
 	if err := conn.Bind(userDN, password); err != nil {
-		return fmt.Errorf("LDAP authentication failed: %w", err)
+		return unavailable(fmt.Errorf("LDAP authentication failed: %w", err))
 	}
 	return nil
+}
+
+// search runs req, keeping the entries of one a size limit cut short: a
+// directory answers the first entries and then says the limit was reached.
+func search(conn *ldap.Conn, req *ldap.SearchRequest) ([]*ldap.Entry, error) {
+	result, err := conn.Search(req)
+	if err != nil && result != nil && ldap.IsErrorWithCode(err, ldap.LDAPResultSizeLimitExceeded) {
+		return result.Entries, nil
+	}
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	return result.Entries, nil
 }
 
 // SearchUsers searches for users matching the query
@@ -116,12 +150,11 @@ func (c *Client) SearchUsers(conn *ldap.Conn, query string, limit int) ([]*ldap.
 		nil,
 	)
 
-	result, err := conn.Search(searchRequest)
+	entries, err := search(conn, searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("LDAP search failed: %w", err)
 	}
-
-	return result.Entries, nil
+	return entries, nil
 }
 
 // SearchGroups searches for groups matching the query
@@ -157,12 +190,11 @@ func (c *Client) SearchGroups(conn *ldap.Conn, query string, limit int) ([]*ldap
 		nil,
 	)
 
-	result, err := conn.Search(searchRequest)
+	entries, err := search(conn, searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("LDAP group search failed: %w", err)
 	}
-
-	return result.Entries, nil
+	return entries, nil
 }
 
 // GetGroupMembers retrieves all members of a given group DN
@@ -180,19 +212,19 @@ func (c *Client) GetGroupMembers(conn *ldap.Conn, groupDN string) ([]*ldap.Entry
 		nil,
 	)
 
-	result, err := conn.Search(searchRequest)
+	groups, err := search(conn, searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get group: %w", err)
 	}
 
-	if len(result.Entries) == 0 {
+	if len(groups) == 0 {
 		return nil, fmt.Errorf("group not found: %s", groupDN)
 	}
 
 	// Get member DNs
-	memberDNs := result.Entries[0].GetAttributeValues("member")
+	memberDNs := groups[0].GetAttributeValues("member")
 	if len(memberDNs) == 0 {
-		memberDNs = result.Entries[0].GetAttributeValues("uniqueMember")
+		memberDNs = groups[0].GetAttributeValues("uniqueMember")
 	}
 
 	// Look up each member
@@ -212,62 +244,63 @@ func (c *Client) GetGroupMembers(conn *ldap.Conn, groupDN string) ([]*ldap.Entry
 			nil,
 		)
 
-		memberResult, err := conn.Search(memberSearch)
+		found, err := search(conn, memberSearch)
+		if errors.Is(err, idp.ErrUnavailable) {
+			return nil, err
+		}
 		if err != nil {
 			continue // Skip members we can't look up
 		}
 
-		if len(memberResult.Entries) > 0 {
-			members = append(members, memberResult.Entries[0])
+		if len(found) > 0 {
+			members = append(members, found[0])
 		}
 	}
 
 	return members, nil
 }
 
-// FindUserDN finds the DN of a user by their username attribute
-func (c *Client) FindUserDN(conn *ldap.Conn, username string) (string, error) {
-	safeUsername := EscapeFilter(username)
+// errUserNotFound is the error of an external ID no user of the directory has.
+var errUserNotFound = errors.New("user not found")
 
-	searchBase := c.config.UserSearchBase
-	if searchBase == "" {
-		searchBase = c.config.BaseDN
-	}
-
-	attrUsername := c.config.AttrUsername
-	if attrUsername == "" {
-		attrUsername = "uid"
-	}
-
+// FindUser finds the user an external ID names, with its attributes: the
+// entry at the ID when it is a DN, else the entry whose username attribute is
+// the ID. Either way the entry has to match the user filter.
+func (c *Client) FindUser(conn *ldap.Conn, externalID string) (*ldap.Entry, error) {
 	userFilter := c.config.UserFilter
 	if userFilter == "" {
 		userFilter = "(objectClass=person)"
 	}
 
-	filter := fmt.Sprintf("(&%s(%s=%s))", userFilter, attrUsername, safeUsername)
+	if _, err := ldap.ParseDN(externalID); err == nil && strings.Contains(externalID, "=") {
+		entries, err := search(conn, ldap.NewSearchRequest(externalID, ldap.ScopeBaseObject, ldap.NeverDerefAliases,
+			1, 0, false, userFilter, c.getUserAttributes(), nil))
+		if err != nil && !ldap.IsErrorWithCode(err, ldap.LDAPResultNoSuchObject) {
+			return nil, fmt.Errorf("failed to find user: %w", err)
+		}
+		if len(entries) == 1 {
+			return entries[0], nil
+		}
+	}
 
-	searchRequest := ldap.NewSearchRequest(
-		searchBase,
-		ldap.ScopeWholeSubtree,
-		ldap.NeverDerefAliases,
-		1,
-		0,
-		false,
-		filter,
-		[]string{"dn"},
-		nil,
-	)
-
-	result, err := conn.Search(searchRequest)
+	searchBase := c.config.UserSearchBase
+	if searchBase == "" {
+		searchBase = c.config.BaseDN
+	}
+	attrUsername := c.config.AttrUsername
+	if attrUsername == "" {
+		attrUsername = "uid"
+	}
+	filter := fmt.Sprintf("(&%s(%s=%s))", userFilter, attrUsername, EscapeFilter(externalID))
+	entries, err := search(conn, ldap.NewSearchRequest(searchBase, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
+		2, 0, false, filter, c.getUserAttributes(), nil))
 	if err != nil {
-		return "", fmt.Errorf("failed to find user DN: %w", err)
+		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
-
-	if len(result.Entries) == 0 {
-		return "", fmt.Errorf("user not found: %s", username)
+	if len(entries) != 1 {
+		return nil, fmt.Errorf("%w: %s", errUserNotFound, externalID)
 	}
-
-	return result.Entries[0].DN, nil
+	return entries[0], nil
 }
 
 // getUserAttributes returns the list of attributes to fetch for users

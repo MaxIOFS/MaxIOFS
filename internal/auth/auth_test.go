@@ -540,28 +540,23 @@ func TestAccountLockout(t *testing.T) {
 	assert.False(t, isLocked, "Account should be unlocked after manual unlock")
 }
 
-// TestRateLimiting tests login rate limiting
+// TestRateLimiting: only failed sign-ins count against an address; five of
+// them hold it up, and no other address.
 func TestRateLimiting(t *testing.T) {
 	manager, tmpDir := setupTestAuthManager(t)
 	defer cleanupTestAuthManager(t, tmpDir)
+	ctx := context.Background()
 
 	testIP := "10.0.0.100"
-
-	// Make multiple rapid requests
-	allowed := 0
-	denied := 0
-
-	for i := 0; i < 10; i++ {
-		if manager.CheckRateLimit(testIP) {
-			allowed++
-		} else {
-			denied++
-		}
+	for range 10 {
+		assert.True(t, manager.CheckRateLimit(testIP), "a sign-in that is only tried is not counted")
 	}
-
-	// Should allow up to 5 attempts and deny the rest
-	assert.Equal(t, 5, allowed, "Should allow exactly 5 attempts")
-	assert.Equal(t, 5, denied, "Should deny 5 attempts after limit reached")
+	for range 5 {
+		require.True(t, manager.CheckRateLimit(testIP))
+		require.NoError(t, manager.RecordFailedLogin(ctx, "", testIP))
+	}
+	assert.False(t, manager.CheckRateLimit(testIP), "five failures hold the address up")
+	assert.True(t, manager.CheckRateLimit("10.0.0.101"), "another address")
 }
 
 // Test2FASetup tests 2FA setup

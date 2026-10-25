@@ -74,6 +74,8 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 1. Click the **plug icon** next to the provider in the list
 2. Verify the connection test passes
 
+For an OAuth provider the test checks the configuration only; it does not contact the provider. Sign in once to check the endpoints.
+
 ### Step 3: Authorize Users
 
 Choose one or both methods described in the [Authorization Model](#authorization-model) below.
@@ -189,8 +191,8 @@ When a user matches multiple authorization rules, the highest-privilege role is 
 | `missing_email` | The OAuth provider did not return an email address | Check provider configuration and user's account settings |
 | `provisioning_failed` | Auto-provisioning failed (database error) | Check server logs for details |
 | `oauth_denied` | User cancelled the SSO login | User should try again |
-| `exchange_failed` | Token exchange with the provider failed | Check provider credentials and network connectivity |
-| `provider_unavailable` | The SSO provider could not be reached | Check provider status and network connectivity |
+| `exchange_failed` | The provider refused the code or the token | Check the client ID, the client secret and the redirect URI |
+| `provider_unavailable` | The provider could not be reached, answered with a server error, or did not answer within 15 seconds | Check provider status and network connectivity |
 | `account_inactive` | The user's account exists but is deactivated | Admin must reactivate the account |
 | `account_locked` | Too many failed login attempts | Wait for the lockout period to expire |
 

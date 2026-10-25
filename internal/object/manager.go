@@ -126,6 +126,9 @@ type completionFuture struct {
 	done chan struct{}
 	obj  *Object
 	err  error
+	// versioned is closed once versionID is named.
+	versioned chan struct{}
+	versionID string
 }
 
 type objectManager struct {
@@ -747,10 +750,8 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		objectRef = om.objectRef(bucket, key)
 	}
 
-	defer om.lockKey(bucket, key)()
-
-	// A conditional write is decided under the key's lock: two writes cannot
-	// both find the key as they need it. A copy was decided where it was taken.
+	// A refused conditional write reads no data. A copy was decided where it
+	// was taken.
 	if !isReplicaCopy(ctx) {
 		if err := om.checkWriteConditions(ctx, bucket, key, headers); err != nil {
 			return nil, err
@@ -808,6 +809,18 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		"originalSize": originalSize,
 		"originalETag": originalETag,
 	}).Debug("Calculated metadata from streaming upload")
+
+	// The key is locked once the data is in, so a client still sending holds
+	// up no other request on it or on a key that shares its lock.
+	defer om.lockKey(bucket, key)()
+
+	// A conditional write is decided under the key's lock: two writes cannot
+	// both find the key as they need it.
+	if !isReplicaCopy(ctx) {
+		if err := om.checkWriteConditions(ctx, bucket, key, headers); err != nil {
+			return nil, err
+		}
+	}
 
 	existingObjBeforeSave, err := om.metadataStore.GetObject(ctx, bucket, key)
 	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) {
@@ -2313,16 +2326,32 @@ func (om *objectManager) completeMultipartUpload(ctx context.Context, uploadID s
 	if f, ok := om.completions[uploadID]; ok {
 		om.completionMu.Unlock()
 		// Another goroutine is already completing this upload — wait for it.
-		select {
-		case <-f.done:
-			return f.obj, f.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		versioned := f.versioned
+		for {
+			select {
+			case <-versioned:
+				noticeVersion(ctx, f.versionID)
+				versioned = nil
+			case <-f.done:
+				return f.obj, f.err
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
-	f := &completionFuture{done: make(chan struct{})}
+	f := &completionFuture{done: make(chan struct{}), versioned: make(chan struct{})}
 	om.completions[uploadID] = f
 	om.completionMu.Unlock()
+
+	var named sync.Once
+	asked := ctx
+	ctx = WithVersionNotice(ctx, func(versionID string) {
+		named.Do(func() {
+			f.versionID = versionID
+			close(f.versioned)
+		})
+		noticeVersion(asked, versionID)
+	})
 
 	defer func() {
 		om.completionMu.Lock()
@@ -2352,6 +2381,14 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		return nil, err
 	}
 	versioningEnabled := bucketMeta.Versioning != nil && bucketMeta.Versioning.Status == "Enabled"
+
+	// The version is named before the key's lock is waited for, as a PUT's,
+	// so a completion answered early still names it.
+	var versionID string
+	if versioningEnabled {
+		versionID = generateVersionID()
+		noticeVersion(ctx, versionID)
+	}
 
 	defer om.lockKey(multipart.Bucket, multipart.Key)()
 
@@ -2387,12 +2424,9 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 	}
 
 	// Publish the encrypted object directly from the parts.
-	var versionID string
 	var objectRef storage.ObjectRef
 	if versioningEnabled {
-		versionID = generateVersionID()
 		objectRef = om.versionRef(multipart.Bucket, multipart.Key, versionID)
-		noticeVersion(ctx, versionID)
 	} else {
 		objectRef = om.objectRef(multipart.Bucket, multipart.Key)
 	}

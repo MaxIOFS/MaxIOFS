@@ -264,6 +264,68 @@ func TestHandleCreateIDP(t *testing.T) {
 	})
 }
 
+// A provider is answered with its secrets masked when it is made or changed,
+// as when it is read: the service account's password and the client secret
+// never leave the server.
+func TestAProviderIsAnsweredWithItsSecretsMasked(t *testing.T) {
+	server := getSharedServer()
+	secretsOf := func(rr *httptest.ResponseRecorder) (string, string) {
+		t.Helper()
+		var resp struct {
+			Data idp.IdentityProvider `json:"data"`
+		}
+		require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+		var password, secret string
+		if resp.Data.Config.LDAP != nil {
+			password = resp.Data.Config.LDAP.BindPassword
+		}
+		if resp.Data.Config.OAuth2 != nil {
+			secret = resp.Data.Config.OAuth2.ClientSecret
+		}
+		return password, secret
+	}
+	send := func(method, path string, provider idp.IdentityProvider, handle http.HandlerFunc) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(provider)
+		require.NoError(t, err)
+		req := createAuthenticatedRequest(method, path, bytes.NewReader(body), "", "admin-1", true)
+		if id := provider.ID; id != "" {
+			req = mux.SetURLVars(req, map[string]string{"id": id})
+		}
+		rr := httptest.NewRecorder()
+		handle(rr, req)
+		return rr
+	}
+
+	provider := idp.IdentityProvider{Name: "Masked", Type: "ldap", Config: idp.ProviderConfig{LDAP: &idp.LDAPConfig{
+		Host: "ldap.test.com", Port: 389, BindDN: "cn=svc,dc=test,dc=com", BindPassword: "Svc.Pass.2026", BaseDN: "dc=test,dc=com"}}}
+	rr := send("POST", "/api/v1/identity-providers", provider, server.handleCreateIDP)
+	require.Equal(t, http.StatusCreated, rr.Code)
+	require.NotContains(t, rr.Body.String(), "Svc.Pass.2026")
+	var created struct {
+		Data idp.IdentityProvider `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	defer server.idpManager.DeleteProvider(context.Background(), created.Data.ID)
+
+	// The console sends the mask back for a password it did not change.
+	provider.ID = created.Data.ID
+	provider.Name = "Masked, renamed"
+	provider.Config.LDAP.BindPassword = "********"
+	rr = send("PUT", "/api/v1/identity-providers/"+provider.ID, provider, server.handleUpdateIDP)
+	require.Equal(t, http.StatusOK, rr.Code)
+	password, _ := secretsOf(rr)
+	assert.Equal(t, "********", password, "the stored password")
+
+	oauth := idp.IdentityProvider{Name: "Masked SSO", Type: "oauth2", Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{
+		Preset: "google", ClientID: "client", ClientSecret: "Client.Secret.2026", RedirectURI: "http://localhost/callback"}}}
+	rr = send("POST", "/api/v1/identity-providers", oauth, server.handleCreateIDP)
+	require.Equal(t, http.StatusCreated, rr.Code)
+	assert.NotContains(t, rr.Body.String(), "Client.Secret.2026")
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	server.idpManager.DeleteProvider(context.Background(), created.Data.ID)
+}
+
 func TestHandleGetIDP(t *testing.T) {
 	server := getSharedServer()
 

@@ -27,10 +27,10 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newMapping, setNewMapping] = useState({
-    external_group: '',
-    external_group_name: '',
+    externalGroup: '',
+    externalGroupName: '',
     role: 'user',
-    auto_sync: false,
+    autoSync: false,
   });
 
   const { data: mappings } = useQuery({
@@ -43,7 +43,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
       setIsCreateOpen(false);
-      setNewMapping({ external_group: '', external_group_name: '', role: 'user', auto_sync: false });
+      setNewMapping({ externalGroup: '', externalGroupName: '', role: 'user', autoSync: false });
       ModalManager.success(t('created'), t('mappingCreatedSuccess'));
     },
     onError: (err: any) => {
@@ -82,7 +82,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
   });
 
   const handleDelete = async (mapping: GroupMapping) => {
-    const result = await ModalManager.confirmDelete(mapping.external_group_name || mapping.external_group, 'group mapping');
+    const result = await ModalManager.confirmDelete(mapping.externalGroupName || mapping.externalGroup, 'group mapping');
     if (result.isConfirmed) {
       deleteMutation.mutate(mapping.id);
     }
@@ -129,9 +129,9 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
                 <TableRow key={m.id}>
                   <TableCell>
                     <div>
-                      <p className="font-medium text-foreground">{m.external_group_name || m.external_group}</p>
-                      {m.external_group_name && (
-                        <p className="text-xs text-muted-foreground truncate max-w-xs">{m.external_group}</p>
+                      <p className="font-medium text-foreground">{m.externalGroupName || m.externalGroup}</p>
+                      {m.externalGroupName && (
+                        <p className="text-xs text-muted-foreground truncate max-w-xs">{m.externalGroup}</p>
                       )}
                     </div>
                   </TableCell>
@@ -145,12 +145,12 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className={`text-xs ${m.auto_sync ? 'text-green-600' : 'text-gray-400'}`}>
-                      {m.auto_sync ? t('enabled') : t('disabled')}
+                    <span className={`text-xs ${m.autoSync ? 'text-green-600' : 'text-gray-400'}`}>
+                      {m.autoSync ? t('enabled') : t('disabled')}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {m.last_synced_at ? new Date(m.last_synced_at * 1000).toLocaleString() : t('never')}
+                    {m.lastSyncedAt ? new Date(m.lastSyncedAt * 1000).toLocaleString() : t('never')}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -194,16 +194,16 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">{t('externalGroupLabel')}</label>
               <Input
-                value={newMapping.external_group}
-                onChange={(e) => setNewMapping({ ...newMapping, external_group: e.target.value })}
+                value={newMapping.externalGroup}
+                onChange={(e) => setNewMapping({ ...newMapping, externalGroup: e.target.value })}
                 placeholder="CN=Domain Admins,OU=Groups,DC=company,DC=com"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">{t('displayName')}</label>
               <Input
-                value={newMapping.external_group_name}
-                onChange={(e) => setNewMapping({ ...newMapping, external_group_name: e.target.value })}
+                value={newMapping.externalGroupName}
+                onChange={(e) => setNewMapping({ ...newMapping, externalGroupName: e.target.value })}
                 placeholder="Domain Admins"
               />
             </div>
@@ -223,8 +223,8 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
               <input
                 type="checkbox"
                 id="auto_sync"
-                checked={newMapping.auto_sync}
-                onChange={(e) => setNewMapping({ ...newMapping, auto_sync: e.target.checked })}
+                checked={newMapping.autoSync}
+                onChange={(e) => setNewMapping({ ...newMapping, autoSync: e.target.checked })}
                 className="rounded border-gray-300"
               />
               <label htmlFor="auto_sync" className="text-sm text-foreground">{t('enableAutoSync')}</label>
@@ -234,7 +234,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
             <Button variant="secondary" onClick={() => setIsCreateOpen(false)}>{t('cancel')}</Button>
             <Button
               onClick={() => createMutation.mutate(newMapping)}
-              disabled={createMutation.isPending || !newMapping.external_group}
+              disabled={createMutation.isPending || !newMapping.externalGroup}
             >
               {createMutation.isPending ? t('creating') : t('create')}
             </Button>

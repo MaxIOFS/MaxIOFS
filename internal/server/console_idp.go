@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -152,7 +153,17 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 		s.idpProviderSyncMgr.TriggerSync(r.Context())
 	}
 
-	s.writeJSONWithStatus(w, http.StatusCreated, APIResponse{Success: true, Data: provider})
+	s.writeJSONWithStatus(w, http.StatusCreated, APIResponse{Success: true, Data: s.maskedProvider(r.Context(), &provider)})
+}
+
+// maskedProvider is provider as a read answers it: its secrets masked.
+func (s *Server) maskedProvider(ctx context.Context, provider *idp.IdentityProvider) *idp.IdentityProvider {
+	if masked, err := s.idpManager.GetProviderMasked(ctx, provider.ID); err == nil {
+		return masked
+	}
+	copied := *provider
+	copied.Config = idp.ProviderConfig{}
+	return &copied
 }
 
 func (s *Server) handleGetIDP(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +246,7 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 		s.idpProviderSyncMgr.TriggerSync(r.Context())
 	}
 
-	s.writeJSON(w, updated)
+	s.writeJSON(w, s.maskedProvider(r.Context(), &updated))
 }
 
 func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +485,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		existingByName, _ := s.authManager.GetUser(r.Context(), entry.Username)
+		existingByName, _ := s.authManager.GetUserByUsername(r.Context(), entry.Username)
 		if existingByName != nil {
 			results = append(results, idp.ImportResult{
 				ExternalID: entry.ExternalID,
@@ -980,6 +991,11 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	externalUser, err := s.idpManager.HandleOAuthCallback(r.Context(), providerID, code)
+	if errors.Is(err, idp.ErrUnavailable) {
+		logrus.WithError(err).WithField("provider_id", providerID).Warn("OAuth sign-in: provider unavailable")
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=provider_unavailable"), http.StatusFound)
+		return
+	}
 	if err != nil {
 		logrus.WithError(err).Error("OAuth code exchange failed")
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=exchange_failed"), http.StatusFound)
@@ -1348,7 +1364,7 @@ func (s *Server) findOAuthUser(ctx context.Context, email string) (*auth.User, s
 // across ALL active OAuth providers. Returns (nil, "", errorCode) if not authorized.
 func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, externalUser *idp.ExternalUser) (*auth.User, string, string) {
 	// Safety check: reject if a local/LDAP user already has this email as username
-	existingUser, _ := s.authManager.GetUser(ctx, externalUser.Email)
+	existingUser, _ := s.authManager.GetUserByUsername(ctx, externalUser.Email)
 	if existingUser != nil && !strings.HasPrefix(existingUser.AuthProvider, "oauth:") {
 		logrus.WithFields(logrus.Fields{
 			"email":    externalUser.Email,
