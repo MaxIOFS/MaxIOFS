@@ -170,6 +170,7 @@ func TestServerNewRegistersManagedComponents(t *testing.T) {
 		"userSync",
 		"accessKeySync",
 		"stsSessionSync",
+		"consoleSessionSync",
 		"iamSync",
 		"leader",
 		"encryptionSecretSync",

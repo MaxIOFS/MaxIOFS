@@ -746,6 +746,7 @@ func (s *Server) handleSyncGroupMapping(w http.ResponseWriter, r *http.Request) 
 			UpdatedAt:    time.Now().Unix(),
 		}
 
+		markGroupManaged(newUser)
 		if err := s.authManager.CreateUser(r.Context(), newUser); err != nil {
 			syncErrors++
 			continue
@@ -836,6 +837,7 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 				UpdatedAt:    time.Now().Unix(),
 			}
 
+			markGroupManaged(newUser)
 			if err := s.authManager.CreateUser(r.Context(), newUser); err != nil {
 				totalErrors++
 				continue
@@ -950,6 +952,48 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
+// handleBackchannelLogout ends the console sessions an identity provider signs
+// out (OpenID Connect Back-Channel Logout 1.0): the provider posts a logout
+// token that names the user or the provider's session.
+// POST /api/v1/auth/oauth/{id}/backchannel-logout
+func (s *Server) handleBackchannelLogout(w http.ResponseWriter, r *http.Request) {
+	providerID := mux.Vars(r)["id"]
+	w.Header().Set("Cache-Control", "no-store")
+	refuse := func(reason string) {
+		logrus.WithFields(logrus.Fields{"provider_id": providerID, "reason": reason}).Warn("Back-channel logout refused")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_request", "error_description": reason})
+	}
+	if s.idpManager == nil {
+		refuse("identity providers are not available")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		refuse("the body is not a form")
+		return
+	}
+	token := r.PostForm.Get("logout_token")
+	if token == "" {
+		refuse("logout_token is required")
+		return
+	}
+	subject, session, err := s.idpManager.VerifyLogoutToken(r.Context(), providerID, token)
+	if err != nil {
+		refuse(err.Error())
+		return
+	}
+	ended, err := s.authManager.RevokeIdPSessions(r.Context(), providerID, subject, session, "identity provider logout")
+	if err != nil {
+		logrus.WithError(err).WithField("provider_id", providerID).Error("Failed to end the sessions of a back-channel logout")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	logrus.WithFields(logrus.Fields{"provider_id": providerID, "subject": subject, "session": session, "ended": ended}).
+		Info("Back-channel logout: console sessions ended")
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -1010,6 +1054,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Step 1: Look for existing user across ALL OAuth providers (not just the one used for auth)
 	user, resolvedProviderID := s.findOAuthUser(r.Context(), externalUser.Email)
+	if user != nil {
+		var allowed bool
+		if user, allowed = s.applyProviderGroups(r.Context(), user, externalUser); !allowed {
+			logrus.WithField("user", user.Username).Info("OAuth sign-in refused: the user is in no group mapped any more")
+			http.Redirect(w, r, s.consoleRelativePath("/login?error=not_in_authorized_group"), http.StatusFound)
+			return
+		}
+	}
 
 	// Step 2: If no existing user, try auto-provisioning via group mappings
 	if user == nil {
@@ -1029,14 +1081,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		s.authManager.UpdateUser(r.Context(), user)
 	}
 
-	s.finishOAuthSignIn(w, r, user, providerID)
+	s.finishOAuthSignIn(w, r, user, providerID, externalUser)
 }
 
 // finishOAuthSignIn signs in the user an identity provider vouched for: the
 // browser is sent to the console with a single-use code it exchanges for the
 // session or, when the user has two-factor authentication, for the second
 // step's token.
-func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user *auth.User, providerID string) {
+func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user *auth.User, providerID string, external *idp.ExternalUser) {
 	if user.Status != auth.UserStatusActive {
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=account_inactive"), http.StatusFound)
 		return
@@ -1050,7 +1102,7 @@ func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user 
 
 	twoFactorEnabled, _, _ := s.authManager.Get2FAStatus(r.Context(), user.ID)
 	if twoFactorEnabled {
-		twoFactorToken, err := s.authManager.GenerateTwoFactorToken(r.Context(), user)
+		twoFactorToken, err := s.authManager.StartTwoFactorSession(r.Context(), user, s.sessionOrigin(user, external))
 		if err != nil {
 			logrus.WithError(err).Error("Failed to issue the two-factor token after OAuth login")
 			http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
@@ -1062,7 +1114,7 @@ func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user 
 
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 
-	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
+	pair, err := s.authManager.StartSession(r.Context(), user, s.sessionOrigin(user, external))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate JWT after OAuth login")
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=token_failed"), http.StatusFound)
@@ -1407,6 +1459,7 @@ func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, external
 			UpdatedAt:    time.Now().Unix(),
 		}
 
+		markGroupManaged(newUser)
 		if createErr := s.authManager.CreateUser(ctx, newUser); createErr != nil {
 			logrus.WithError(createErr).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
 			continue
@@ -1448,14 +1501,16 @@ func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, external
 }
 
 func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) (string, bool) {
+	// Group names and DNs are compared as directories compare them: in any
+	// case.
 	groupSet := make(map[string]bool, len(userGroups))
 	for _, g := range userGroups {
-		groupSet[g] = true
+		groupSet[strings.ToLower(g)] = true
 	}
 
 	bestRole := ""
 	for _, m := range mappings {
-		if !groupSet[m.ExternalGroup] && !groupSet[m.ExternalGroupName] {
+		if !groupSet[strings.ToLower(m.ExternalGroup)] && !groupSet[strings.ToLower(m.ExternalGroupName)] {
 			continue
 		}
 		switch m.Role {

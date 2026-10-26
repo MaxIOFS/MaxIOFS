@@ -294,5 +294,7 @@
   "forcePasswordChangeHint": "Le compte reste inutilisable tant que l'utilisateur n'a pas remplacé ce mot de passe : vous ne connaîtrez jamais le mot de passe définitif.",
   "passwordChangeRequiredTitle": "Définissez un nouveau mot de passe",
   "passwordChangeRequiredBody": "Un administrateur vous a donné un mot de passe temporaire. Choisissez le vôtre avant de continuer : le reste de la console reste fermé jusque-là.",
-  "passwordChangeFailed": "Le mot de passe n'a pas pu être modifié."
+  "passwordChangeFailed": "Le mot de passe n'a pas pu être modifié.",
+  "managedByGroups": "Suit les groupes du fournisseur",
+  "managedByGroupsHelp": "Le rôle, et la possibilité de se connecter, suivent les groupes que donne son fournisseur d'identité à chaque connexion et renouvellement."
 }

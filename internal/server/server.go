@@ -83,6 +83,8 @@ type Server struct {
 	userSyncMgr         *cluster.UserSyncManager
 	accessKeySyncMgr    *cluster.AccessKeySyncManager
 	stsSessionSyncMgr   *cluster.STSSessionSyncManager
+	consoleSessionSync  *cluster.ConsoleSessionSyncManager
+	sessionRenewals     sessionRenewals
 	iamSyncMgr          *cluster.IAMSyncManager
 	leaderMgr           *cluster.LeaderManager
 	// consoleRouter is kept so a configuration write forwarded by another node
@@ -456,7 +458,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize IDP manager
 	idpStore := idpkg.NewStore(db)
 	idpManager := idpkg.NewManager(idpStore, encSecret.Current)
-	encSecret.SetReencrypters(share.Reencrypt, replication.ReencryptCredentials, idpkg.ReencryptSecrets)
+	encSecret.SetReencrypters(share.Reencrypt, replication.ReencryptCredentials, idpkg.ReencryptSecrets, idpkg.ReencryptSessionTokens)
 	if unreadable, err := encSecret.Check(context.Background()); err != nil {
 		logrus.WithError(err).Error("Could not check the stored credentials against the encryption secret")
 	} else if len(unreadable) > 0 {
@@ -535,6 +537,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize STS session synchronization manager
 	stsSessionSyncMgr := supervise(reg, "stsSessionSync", cluster.NewSTSSessionSyncManager(db, clusterManager))
+	consoleSessionSync := supervise(reg, "consoleSessionSync", cluster.NewConsoleSessionSyncManager(db, clusterManager))
 	iamSyncMgr := supervise(reg, "iamSync", cluster.NewIAMSyncManager(db, clusterManager))
 	leaderMgr := supervise(reg, "leader", cluster.NewLeaderManager(db, clusterManager))
 	encSecretSync := supervise(reg, "encryptionSecretSync", cluster.NewEncryptionSecretSync(clusterManager, leaderMgr, encSecret))
@@ -684,6 +687,7 @@ func New(cfg *config.Config) (*Server, error) {
 		userSyncMgr:             userSyncMgr,
 		accessKeySyncMgr:        accessKeySyncMgr,
 		stsSessionSyncMgr:       stsSessionSyncMgr,
+		consoleSessionSync:      consoleSessionSync,
 		iamSyncMgr:              iamSyncMgr,
 		leaderMgr:               leaderMgr,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
@@ -724,6 +728,19 @@ func New(cfg *config.Config) (*Server, error) {
 	logrus.Info("Setting up user locked callback for SSE notifications")
 	// A change of a user is sent to the other nodes at once, in the background.
 	authManager.SetUsersChangedCallback(func() { userSyncMgr.TriggerSync(context.Background()) })
+	authManager.SetSessionsChangedCallback(func() { consoleSessionSync.TriggerSync(context.Background()) })
+	// In a cluster a session names the node it starts on, which renews it with
+	// its identity provider.
+	authManager.SetSessionNode(func(ctx context.Context) string {
+		if !clusterManager.IsClusterEnabled() {
+			return ""
+		}
+		nodeID, err := clusterManager.GetLocalNodeID(ctx)
+		if err != nil {
+			return ""
+		}
+		return nodeID
+	})
 	authManager.SetUserLockedCallback(func(user *auth.User) {
 		// Send notification to SSE clients
 		notification := &Notification{
@@ -1071,6 +1088,9 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		if s.stsSessionSyncMgr != nil {
 			s.stsSessionSyncMgr.Start(ctx)
 			logrus.Info("STS session synchronization manager started")
+		}
+		if s.consoleSessionSync != nil {
+			s.consoleSessionSync.Start(ctx)
 		}
 		if s.bucketPermissionSyncMgr != nil {
 			s.bucketPermissionSyncMgr.Start(ctx)
@@ -1520,10 +1540,12 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
 	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
 	hmac.HandleFunc("/oauth-exchange", s.handleClusterOAuthExchange).Methods("GET")
+	hmac.HandleFunc("/console-session-renew", s.handleClusterSessionRenew).Methods("POST")
 	hmac.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
 	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
 	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
 	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
+	hmac.HandleFunc("/console-session-sync", s.handleReceiveConsoleSessionSync).Methods("POST")
 	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
 	hmac.HandleFunc("/leader-lease", s.handleLeaderLease).Methods("POST")
 	hmac.PathPrefix("/console-write").HandlerFunc(s.handleCoordinatorWrite).Methods("POST", "PUT", "DELETE", "PATCH")

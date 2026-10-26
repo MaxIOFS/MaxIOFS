@@ -24,8 +24,9 @@ type directoryEntry struct {
 // answered as a directory does (the first entries, then sizeLimitExceeded).
 // A frozen one takes connections and never answers.
 type fakeDirectory struct {
-	entries []directoryEntry
-	frozen  bool
+	entries   []directoryEntry
+	entriesMu sync.RWMutex
+	frozen    bool
 
 	ln    net.Listener
 	mu    sync.Mutex
@@ -66,6 +67,36 @@ func startDirectory(t *testing.T, d *fakeDirectory) *fakeDirectory {
 
 func (d *fakeDirectory) port() int { return d.ln.Addr().(*net.TCPAddr).Port }
 
+// snapshot is the entries as they are now.
+func (d *fakeDirectory) snapshot() []directoryEntry {
+	d.entriesMu.RLock()
+	defer d.entriesMu.RUnlock()
+	return append([]directoryEntry(nil), d.entries...)
+}
+
+// remove takes the entry dn out of the directory.
+func (d *fakeDirectory) remove(dn string) {
+	d.entriesMu.Lock()
+	defer d.entriesMu.Unlock()
+	for i, e := range d.entries {
+		if strings.EqualFold(e.dn, dn) {
+			d.entries = append(d.entries[:i], d.entries[i+1:]...)
+			return
+		}
+	}
+}
+
+// setAttr sets an attribute of the entry dn.
+func (d *fakeDirectory) setAttr(dn, name string, values ...string) {
+	d.entriesMu.Lock()
+	defer d.entriesMu.Unlock()
+	for _, e := range d.entries {
+		if strings.EqualFold(e.dn, dn) {
+			e.attrs[name] = values
+		}
+	}
+}
+
 // config is a provider configuration for this directory, bound as the
 // service account.
 func (d *fakeDirectory) config() *idp.LDAPConfig {
@@ -91,12 +122,26 @@ func person(uid, password string) directoryEntry {
 	}
 }
 
+// group is a groupOfNames under ou=groups with the people members names.
+func group(name string, members ...string) directoryEntry {
+	dns := make([]string, len(members))
+	for i, m := range members {
+		dns[i] = "uid=" + m + ",ou=people,dc=example,dc=org"
+	}
+	return directoryEntry{
+		dn:    "cn=" + name + ",ou=groups,dc=example,dc=org",
+		attrs: map[string][]string{"objectClass": {"groupOfNames"}, "cn": {name}, "member": dns},
+	}
+}
+
 // standardDirectory has the service account and joanna, ann and bob, in that
-// order: a search for "ann" finds joanna first.
+// order: a search for "ann" finds joanna first. ann is in admins, bob and
+// joanna in devs; nobody has memberOf.
 func standardDirectory() *fakeDirectory {
 	return &fakeDirectory{entries: []directoryEntry{
 		{dn: "cn=svc,dc=example,dc=org", password: "svc-pass", attrs: map[string][]string{"objectClass": {"organizationalRole"}, "cn": {"svc"}}},
 		person("joanna", "joanna-pass"), person("ann", "ann-pass"), person("bob", "bob-pass"),
+		group("admins", "ann"), group("devs", "bob", "joanna"),
 	}}
 }
 
@@ -117,7 +162,7 @@ func (d *fakeDirectory) serve(conn net.Conn) {
 			dn := op.Children[1].Data.String()
 			password := op.Children[2].Data.String()
 			code := uint16(ldap.LDAPResultInvalidCredentials)
-			for _, e := range d.entries {
+			for _, e := range d.snapshot() {
 				if strings.EqualFold(e.dn, dn) && e.password == password {
 					code = ldap.LDAPResultSuccess
 				}
@@ -139,7 +184,7 @@ func (d *fakeDirectory) search(conn net.Conn, id interface{}, op *ber.Packet) {
 	sizeLimit := op.Children[3].Value.(int64)
 	filter := op.Children[6]
 	sent := 0
-	for _, e := range d.entries {
+	for _, e := range d.snapshot() {
 		inScope := strings.EqualFold(e.dn, base)
 		if scope != ldap.ScopeBaseObject {
 			inScope = inScope || strings.HasSuffix(strings.ToLower(e.dn), ","+strings.ToLower(base))

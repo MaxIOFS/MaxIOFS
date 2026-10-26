@@ -294,5 +294,7 @@
   "forcePasswordChangeHint": "在用户更换此密码之前账户无法使用，因此你永远不会知道最终的密码。",
   "passwordChangeRequiredTitle": "设置新密码",
   "passwordChangeRequiredBody": "管理员给了你一个临时密码。请先设置你自己的密码，在此之前控制台的其余部分将保持关闭。",
-  "passwordChangeFailed": "无法更改密码。"
+  "passwordChangeFailed": "无法更改密码。",
+  "managedByGroups": "跟随提供方的组",
+  "managedByGroupsHelp": "角色以及能否登录，取决于身份提供方在每次登录和续期时给出的组。"
 }

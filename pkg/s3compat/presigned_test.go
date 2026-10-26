@@ -85,6 +85,33 @@ func (m *mockAuthManager) SetMustChangePassword(ctx context.Context, userID stri
 func (m *mockAuthManager) DeleteUser(ctx context.Context, userID string) error {
 	return fmt.Errorf("not implemented")
 }
+func (m *mockAuthManager) StartSession(ctx context.Context, user *auth.User, origin *auth.ConsoleSession) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) StartTwoFactorSession(ctx context.Context, user *auth.User, origin *auth.ConsoleSession) (string, error) {
+	return "", nil
+}
+func (m *mockAuthManager) CompleteTwoFactorSession(ctx context.Context, user *auth.User, token string) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) RefreshSession(ctx context.Context, token string) (*auth.User, *auth.ConsoleSession, error) {
+	return nil, nil, nil
+}
+func (m *mockAuthManager) ContinueSession(ctx context.Context, user *auth.User, s *auth.ConsoleSession) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *mockAuthManager) RevokeSession(ctx context.Context, id, reason string) error { return nil }
+func (m *mockAuthManager) EndSession(ctx context.Context, token, reason string) error { return nil }
+func (m *mockAuthManager) ApplyPeerSessions(ctx context.Context, s []*auth.ConsoleSession) error {
+	return nil
+}
+func (m *mockAuthManager) SetSessionsChangedCallback(cb func())                 {}
+func (m *mockAuthManager) SetSessionNode(node func(ctx context.Context) string) {}
+func (m *mockAuthManager) SessionIDOf(token string) string                      { return "" }
+func (m *mockAuthManager) RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error) {
+	return 0, nil
+}
+
 func (m *mockAuthManager) GetUserByUsername(ctx context.Context, username string) (*auth.User, error) {
 	return m.GetUser(ctx, username)
 }

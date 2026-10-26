@@ -32,6 +32,46 @@ func getAllMigrations() []Migration {
 		migration19_v160_ForcedPasswordChange(),
 		migration20_v170_IAMPolicyTenant(),
 		migration21_v180_EncryptionSecret(),
+		migration22_v190_ConsoleSessions(),
+	}
+}
+
+// migration22_v190_ConsoleSessions keeps the console's sessions, so one can
+// be ended (logout, an identity provider's logout or a revalidation that
+// fails) and, for a provider's user, renewed against the provider.
+func migration22_v190_ConsoleSessions() Migration {
+	return Migration{
+		Version:     22,
+		Description: "v1.9.0 - Create console_sessions table",
+		Up: func(tx *sql.Tx) error {
+			for _, stmt := range []string{`
+				CREATE TABLE IF NOT EXISTS console_sessions (
+					id TEXT PRIMARY KEY,
+					user_id TEXT NOT NULL,
+					method TEXT NOT NULL,
+					provider_id TEXT NOT NULL DEFAULT '',
+					idp_subject TEXT NOT NULL DEFAULT '',
+					idp_session TEXT NOT NULL DEFAULT '',
+					idp_refresh_token TEXT NOT NULL DEFAULT '',
+					created_at INTEGER NOT NULL,
+					refreshed_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL,
+					revoked_at INTEGER NOT NULL DEFAULT 0,
+					revoked_reason TEXT NOT NULL DEFAULT '',
+					updated_at INTEGER NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_console_sessions_user ON console_sessions(user_id)`,
+				`CREATE INDEX IF NOT EXISTS idx_console_sessions_idp ON console_sessions(provider_id, idp_subject, idp_session)`,
+			} {
+				if _, err := tx.Exec(stmt); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Down: func(tx *sql.Tx) error {
+			return nil
+		},
 	}
 }
 

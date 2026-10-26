@@ -24,7 +24,7 @@ func TestAnOAuthCodeIsExchangedOnAnyNode(t *testing.T) {
 	require.NoError(t, p.a.authManager.CreateUser(ctx, user))
 
 	rr := httptest.NewRecorder()
-	p.a.finishOAuthSignIn(rr, httptest.NewRequest("GET", "/api/v1/auth/oauth/callback", nil), user, "test-idp")
+	p.a.finishOAuthSignIn(rr, httptest.NewRequest("GET", "/api/v1/auth/oauth/callback", nil), user, "test-idp", nil)
 	require.Equal(t, http.StatusFound, rr.Code)
 	location, err := url.Parse(rr.Header().Get("Location"))
 	require.NoError(t, err)

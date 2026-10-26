@@ -45,6 +45,7 @@ const defaultOAuth: OAuth2Config = {
   claim_email: 'email',
   claim_name: 'name',
   claim_groups: '',
+  issuer: '',
 };
 
 export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps) {
@@ -188,7 +189,7 @@ export function CreateIDPModal({ idp, onClose, onSuccess }: CreateIDPModalProps)
         {type === 'ldap' ? (
           <LDAPFields config={ldapConfig} onChange={setLdapConfig} />
         ) : (
-          <OAuthFields config={oauthConfig} onChange={setOauthConfig} onPresetChange={handlePresetChange} />
+          <OAuthFields config={oauthConfig} onChange={setOauthConfig} onPresetChange={handlePresetChange} providerId={idp?.id} />
         )}
       </div>
 
@@ -289,10 +290,11 @@ function LDAPFields({ config, onChange }: { config: LDAPConfig; onChange: (c: LD
   );
 }
 
-function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Config; onChange: (c: OAuth2Config) => void; onPresetChange: (p: string) => void }) {
+function OAuthFields({ config, onChange, onPresetChange, providerId }: { config: OAuth2Config; onChange: (c: OAuth2Config) => void; onPresetChange: (p: string) => void; providerId?: string }) {
   const { t } = useTranslation('idp');
   const update = (key: keyof OAuth2Config, value: any) => onChange({ ...config, [key]: value });
   const callbackUrl = `${window.location.origin}/api/v1/auth/oauth/callback`;
+  const backchannelUrl = providerId ? `${window.location.origin}/api/v1/auth/oauth/${providerId}/backchannel-logout` : '';
 
   return (
     <div className="space-y-4">
@@ -341,6 +343,24 @@ function OAuthFields({ config, onChange, onPresetChange }: { config: OAuth2Confi
           <br />{t('redirectUriConfigure')}
         </p>
       </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">{t('issuerUrl')}</label>
+        <Input value={config.issuer || ''} onChange={(e) => update('issuer', e.target.value)} placeholder="https://sso.example.com/realms/company" />
+        <p className="text-xs text-muted-foreground mt-1">{t('issuerUrlHelp')}</p>
+      </div>
+      {config.issuer && (
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('backchannelLogoutUrl')}</label>
+          {backchannelUrl ? (
+            <p className="text-xs text-muted-foreground">
+              <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs select-all cursor-pointer break-all" title="Click to select">{backchannelUrl}</code>
+              <br />{t('backchannelLogoutHelp')}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('backchannelAfterSave')}</p>
+          )}
+        </div>
+      )}
 
       <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2 pt-2">{t('claimMapping')}</h3>
       <div className="grid grid-cols-3 gap-4">

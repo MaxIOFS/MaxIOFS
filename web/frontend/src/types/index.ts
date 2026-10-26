@@ -29,6 +29,9 @@ export interface User {
   // Set by an administrator who handed out a password. The API refuses
   // everything but the password form until the user replaces it.
   mustChangePassword?: boolean;
+  // The role, and whether the user may sign in, follow the groups its identity
+  // provider gives.
+  managedByGroups?: boolean;
   // How many policies are attached to this user directly. Permissions can come
   // from a role, from policies, or both.
   policyCount?: number;
@@ -162,6 +165,7 @@ export interface EditUserForm {
   roles: string[];
   status?: 'active' | 'inactive' | 'suspended';
   tenantId?: string;
+  managedByGroups?: boolean;
 }
 
 // Tenant Types
@@ -1274,6 +1278,7 @@ export interface OAuth2Config {
   claim_email: string;
   claim_name: string;
   claim_groups: string;
+  issuer?: string;
 }
 
 export interface IDPProviderConfig {

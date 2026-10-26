@@ -229,8 +229,8 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | POST | `/api/v1/auth/login` | Login (username + password). With 2FA, answers `requires_2fa` and a `two_factor_token` valid for 5 minutes instead of a session | None |
-| POST | `/api/v1/auth/refresh` | Exchange a refresh token for a new token pair | Refresh token |
-| POST | `/api/v1/auth/logout` | Logout | JWT |
+| POST | `/api/v1/auth/refresh` | Exchange a refresh token for a new token pair; an identity provider's session is asked about again. `401` for a session that was ended | Refresh token |
+| POST | `/api/v1/auth/logout` | Logout: ends the session of the token on every node | JWT |
 | GET | `/api/v1/auth/me` | Get current user info | JWT |
 
 ### Two-Factor Authentication
@@ -252,6 +252,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | GET | `/api/v1/auth/oauth/{id}/login` | Start the OAuth flow with a provider | None |
 | POST | `/api/v1/auth/oauth/start` | Resolve the provider from a preset and an email, then start the flow | None |
 | GET | `/api/v1/auth/oauth/callback` | Callback from the provider; issues a one-time code | None |
+| POST | `/api/v1/auth/oauth/{id}/backchannel-logout` | OpenID Connect back-channel logout: the provider posts a `logout_token` (form) and the console sessions of its subject or session end; `400` for a token that does not verify. Needs the provider's Issuer URL | None |
 | GET | `/api/v1/auth/oauth/exchange-code` | Exchange the one-time code for JWT tokens (single use); for a user with two-factor authentication, `{"requires_2fa": true, "two_factor_token"}` for `/api/v1/auth/2fa/verify`. In a cluster any node exchanges it: the code names the node that issued it | None |
 
 ### Users
@@ -261,7 +262,7 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | GET | `/api/v1/users` | List users |
 | POST | `/api/v1/users` | Create user |
 | GET | `/api/v1/users/{id}` | Get user details |
-| PUT | `/api/v1/users/{id}` | Update user |
+| PUT | `/api/v1/users/{id}` | Update user; `managedByGroups` (an identity provider's user only) makes the role and the sign-in follow the provider's groups |
 | DELETE | `/api/v1/users/{id}` | Delete user |
 | PUT | `/api/v1/users/{id}/password` | Change password |
 | PATCH | `/api/v1/users/{id}/preferences` | Update theme and language preferences |

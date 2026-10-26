@@ -10,6 +10,34 @@ import (
 // not answer in time; it says nothing of the credentials.
 var ErrUnavailable = errors.New("identity provider unavailable")
 
+// ErrSessionEnded is the error of a provider that no longer lets a signed-in
+// user in: the user is gone or disabled, or the provider ended its session.
+var ErrSessionEnded = errors.New("identity provider ended the sign-in")
+
+// ErrProviderNotFound is the error of an identity provider ID none has.
+var ErrProviderNotFound = errors.New("identity provider not found")
+
+// Grant is what a provider gave for a sign-in, kept to ask it again: the
+// user's subject (a DN for LDAP), the provider's session and its refresh token.
+type Grant struct {
+	Subject      string
+	Session      string
+	RefreshToken string
+}
+
+// SessionRevalidator is implemented by providers that can tell, without the
+// user, whether a sign-in still stands: ErrSessionEnded when it does not.
+type SessionRevalidator interface {
+	Revalidate(ctx context.Context, grant Grant) (*ExternalUser, error)
+}
+
+// LogoutVerifier is implemented by providers that send OpenID Connect
+// back-channel logouts: it checks a logout token and gives its subject and
+// session.
+type LogoutVerifier interface {
+	VerifyLogoutToken(ctx context.Context, token string) (subject, session string, err error)
+}
+
 // Provider defines the interface that all identity providers must implement
 type Provider interface {
 	// Type returns the provider type identifier ("ldap", "oauth2")

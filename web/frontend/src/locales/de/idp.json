@@ -137,5 +137,10 @@
   "failedToSyncAll": "Synchronisation aller Zuordnungen fehlgeschlagen",
   "badgeLocal": "Lokal",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "Aussteller-URL (Issuer)",
+  "issuerUrlHelp": "Optional. Mit dem Aussteller prüft MaxIOFS das ID-Token und nimmt Back-Channel-Abmeldungen des Anbieters an.",
+  "backchannelLogoutUrl": "Back-Channel-Abmelde-URL",
+  "backchannelLogoutHelp": "Im Client des Anbieters eintragen: Eine Abmeldung dort beendet die Sitzung hier sofort.",
+  "backchannelAfterSave": "Die Back-Channel-Abmelde-URL wird angezeigt, sobald der Anbieter gespeichert ist."
 }

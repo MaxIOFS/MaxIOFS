@@ -606,6 +606,33 @@ func (m *MockAuthManager) GetUserByUsername(ctx context.Context, username string
 	return args.Get(0).(*auth.User), args.Error(1)
 }
 
+func (m *MockAuthManager) StartSession(ctx context.Context, user *auth.User, origin *auth.ConsoleSession) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) StartTwoFactorSession(ctx context.Context, user *auth.User, origin *auth.ConsoleSession) (string, error) {
+	return "", nil
+}
+func (m *MockAuthManager) CompleteTwoFactorSession(ctx context.Context, user *auth.User, token string) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) RefreshSession(ctx context.Context, token string) (*auth.User, *auth.ConsoleSession, error) {
+	return nil, nil, nil
+}
+func (m *MockAuthManager) ContinueSession(ctx context.Context, user *auth.User, s *auth.ConsoleSession) (*auth.TokenPair, error) {
+	return nil, nil
+}
+func (m *MockAuthManager) RevokeSession(ctx context.Context, id, reason string) error { return nil }
+func (m *MockAuthManager) EndSession(ctx context.Context, token, reason string) error { return nil }
+func (m *MockAuthManager) ApplyPeerSessions(ctx context.Context, s []*auth.ConsoleSession) error {
+	return nil
+}
+func (m *MockAuthManager) SetSessionsChangedCallback(cb func())                 {}
+func (m *MockAuthManager) SetSessionNode(node func(ctx context.Context) string) {}
+func (m *MockAuthManager) SessionIDOf(token string) string                      { return "" }
+func (m *MockAuthManager) RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error) {
+	return 0, nil
+}
+
 func (m *MockAuthManager) ListUsers(ctx context.Context) ([]auth.User, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

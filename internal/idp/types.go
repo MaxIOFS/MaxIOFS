@@ -52,6 +52,9 @@ type OAuth2Config struct {
 	ClaimEmail  string `json:"claim_email"`  // "email"
 	ClaimName   string `json:"claim_name"`   // "name"
 	ClaimGroups string `json:"claim_groups"` // "groups" (optional)
+	// Issuer is the provider's OpenID Connect issuer: with it the ID token is
+	// checked, and the provider's back-channel logouts are taken.
+	Issuer string `json:"issuer,omitempty"`
 }
 
 // ExternalUser represents a user found in an external directory
@@ -62,6 +65,8 @@ type ExternalUser struct {
 	DisplayName string            `json:"displayName"`
 	Groups      []string          `json:"groups"`   // DNs or group names
 	RawAttrs    map[string]string `json:"rawAttrs"` // All attributes for display
+	// Grant is what the provider gave for a sign-in; internal.
+	Grant *Grant `json:"-"`
 }
 
 // ExternalGroup represents a group found in an external directory

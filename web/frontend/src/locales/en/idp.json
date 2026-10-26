@@ -137,5 +137,10 @@
   "failedToSyncAll": "Failed to sync all mappings",
   "badgeLocal": "Local",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "Issuer URL",
+  "issuerUrlHelp": "Optional. With the issuer, MaxIOFS checks the ID token and accepts the provider's back-channel logouts.",
+  "backchannelLogoutUrl": "Back-channel logout URL",
+  "backchannelLogoutHelp": "Set it in the provider's client: a sign-out there ends the session here at once.",
+  "backchannelAfterSave": "The back-channel logout URL is shown once the provider is saved."
 }

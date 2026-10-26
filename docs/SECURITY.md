@@ -78,6 +78,8 @@ Bind authentication against LDAP/AD directories. Configured via Web Console → 
 - Bind with a read-only service account; MaxIOFS only searches and binds.
 - A user signs in with the DN the console imported or a group sync gave, or with the name typed on the users page. The entry has to match the user filter.
 - A directory that does not answer within 10 seconds to connect, or 15 seconds to a request, fails the sign-in with `503`. The failure is not counted against the account or the address.
+- A user's groups are those its `memberOf` names and those that name it as `member` or `uniqueMember`.
+- At each renewal of a console session the service account looks the user up again: a user gone from the directory, or disabled in Active Directory, loses the session.
 
 ### Cluster Authentication & Encryption
 
@@ -316,6 +318,17 @@ that has not yet heard about a delete cannot resurrect the entity.
 - **Storage**: SQLite database (`maxiofs.db`), never stored in plaintext
 - **Minimum length**: 8 characters (configurable via `security.password_min_length`)
 - **Recommendation**: 12+ characters with mixed case, numbers, and symbols
+
+---
+
+## Console Sessions
+
+- A sign-in starts a session kept on the server and replicated to every node. Its access token lasts `security.access_token_lifetime` (15 minutes) and its refresh token `security.session_timeout` (24 hours), renewed at each refresh.
+- A sign-out ends the session on every node: its access and refresh tokens are refused from then on.
+- A session of an identity provider's user is asked about again at each renewal, and ended by the provider's back-channel logout; see [SSO.md](SSO.md#sessions-follow-the-provider). A provider that cannot be reached ends no session.
+- The provider's refresh token kept with a session is encrypted with the encryption secret.
+- In a cluster only the node that started an OAuth session uses the provider's refresh token: another node passes the renewal there over the cluster port, and while that node does not answer keeps the session without asking the provider. Renewals that arrive together share one question to the provider.
+- A session ended during a renewal stays ended.
 
 ---
 

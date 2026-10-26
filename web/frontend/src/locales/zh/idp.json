@@ -137,5 +137,10 @@
   "failedToSyncAll": "同步所有映射失败",
   "badgeLocal": "本地",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "颁发者 URL (Issuer)",
+  "issuerUrlHelp": "可选。设置颁发者后，MaxIOFS 会校验 ID 令牌，并接受提供方的后端通道注销。",
+  "backchannelLogoutUrl": "后端通道注销 URL",
+  "backchannelLogoutHelp": "请在提供方的客户端中配置：在那里注销会立即结束这里的会话。",
+  "backchannelAfterSave": "保存提供方后会显示后端通道注销 URL。"
 }

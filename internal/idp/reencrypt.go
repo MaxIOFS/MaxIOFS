@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ReencryptSecrets rewrites, inside tx, the bind passwords and client secrets
@@ -83,4 +84,57 @@ func ReencryptSecrets(ctx context.Context, tx *sql.Tx, from, to string) ([]strin
 		}
 	}
 	return unreadable, nil
+}
+
+// ReencryptSessionTokens rewrites, inside tx, the providers' refresh tokens
+// kept with the console sessions as encrypted with to. A session whose token
+// neither secret decrypts is ended: it could no longer be asked about.
+func ReencryptSessionTokens(ctx context.Context, tx *sql.Tx, from, to string) ([]string, error) {
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("an encryption secret is required")
+	}
+	type stored struct{ id, token string }
+	rows, err := tx.QueryContext(ctx, `SELECT id, idp_refresh_token FROM console_sessions WHERE idp_refresh_token != ''`)
+	if err != nil {
+		return nil, err
+	}
+	var all []stored
+	for rows.Next() {
+		var r stored
+		if err := rows.Scan(&r.id, &r.token); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	for _, r := range all {
+		plain, err := Decrypt(r.token, from)
+		if err != nil {
+			if _, err := Decrypt(r.token, to); err != nil {
+				if _, err := tx.ExecContext(ctx, `UPDATE console_sessions SET idp_refresh_token = '', revoked_at = ?,
+					revoked_reason = 'the encryption secret changed', updated_at = ? WHERE id = ? AND revoked_at = 0`, now, now, r.id); err != nil {
+					return nil, err
+				}
+			}
+			continue
+		}
+		if from == to {
+			continue
+		}
+		encrypted, err := Encrypt(plain, to)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE console_sessions SET idp_refresh_token = ?, updated_at = ? WHERE id = ?`,
+			encrypted, now, r.id); err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
 }

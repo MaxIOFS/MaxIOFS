@@ -76,3 +76,50 @@ func TestAnUnansweringDirectoryIsUnavailableInTime(t *testing.T) {
 		assert.Less(t, time.Since(started), 5*time.Second, name)
 	}
 }
+
+// A sign-in gives the groups the user is in, found by member for a directory
+// without memberOf, and the user's DN to ask about the sign-in later.
+func TestASignInGivesTheUsersGroupsAndDN(t *testing.T) {
+	d := startDirectory(t, standardDirectory())
+	user, err := NewProvider(d.config()).AuthenticateUser(context.Background(), "ann", "ann-pass")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"cn=admins,ou=groups,dc=example,dc=org"}, user.Groups)
+	require.NotNil(t, user.Grant)
+	assert.Equal(t, "uid=ann,ou=people,dc=example,dc=org", user.Grant.Subject)
+}
+
+// A sign-in is asked about again with the service account: it stands with the
+// user's groups as they are now, and ends for a user gone from the directory
+// or disabled in it. A directory that does not answer ends nothing.
+func TestRevalidationEndsTheSignInOfAUserGoneOrDisabled(t *testing.T) {
+	ctx := context.Background()
+	d := startDirectory(t, standardDirectory())
+	p := NewProvider(d.config())
+	ann := idp.Grant{Subject: "uid=ann,ou=people,dc=example,dc=org"}
+	bob := idp.Grant{Subject: "uid=bob,ou=people,dc=example,dc=org"}
+
+	user, err := p.Revalidate(ctx, ann)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"cn=admins,ou=groups,dc=example,dc=org"}, user.Groups)
+
+	d.setAttr("cn=admins,ou=groups,dc=example,dc=org", "member", "uid=bob,ou=people,dc=example,dc=org")
+	user, err = p.Revalidate(ctx, ann)
+	require.NoError(t, err)
+	assert.Empty(t, user.Groups, "taken out of admins")
+
+	d.remove(ann.Subject)
+	_, err = p.Revalidate(ctx, ann)
+	assert.ErrorIs(t, err, idp.ErrSessionEnded, "gone")
+
+	d.setAttr(bob.Subject, "userAccountControl", "514")
+	_, err = p.Revalidate(ctx, bob)
+	assert.ErrorIs(t, err, idp.ErrSessionEnded, "disabled")
+
+	formerDial, formerRequest := dialTimeout, requestTimeout
+	dialTimeout, requestTimeout = 500*time.Millisecond, 500*time.Millisecond
+	defer func() { dialTimeout, requestTimeout = formerDial, formerRequest }()
+	frozen := startDirectory(t, &fakeDirectory{frozen: true})
+	_, err = NewProvider(frozen.config()).Revalidate(ctx, ann)
+	assert.ErrorIs(t, err, idp.ErrUnavailable)
+	assert.NotErrorIs(t, err, idp.ErrSessionEnded)
+}

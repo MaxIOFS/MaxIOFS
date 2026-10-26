@@ -299,17 +299,14 @@ class TokenManager {
       this.proactiveRefreshTimer = setTimeout(async () => {
         const rt = this.refreshToken;
         if (!rt) return;
+        // One renewal at a time: the one in flight reschedules this on success.
+        if (isRefreshing) {
+          this.scheduleProactiveRefresh(token, retryAttempt + 1);
+          return;
+        }
         try {
-          const resp = await axios.post(
-            `${API_CONFIG.baseURL}/auth/refresh`,
-            { refresh_token: rt },
-            { headers: { 'Content-Type': 'application/json' } }
-          );
-          const { access_token, refresh_token } = extractTokenPair(resp.data);
-          if (access_token) {
-            // Success: setTokens reschedules with retryAttempt = 0 on the new token.
-            this.setTokens(access_token, refresh_token);
-          }
+          // Success: setTokens reschedules with retryAttempt = 0 on the new token.
+          await backgroundRefresh(rt);
         } catch (err: unknown) {
           // Transient failure (network, 5xx): retry in 30 s while token still lives.
           // Auth rejection (401/403): the refresh token is gone — don't retry,
@@ -374,35 +371,43 @@ const handleResponse = (response: AxiosResponse): AxiosResponse => {
   // or if a refresh is already in flight, or if there is no refresh token.
   if (rt && !isRefreshing && now - lastActivityRefreshAt > 60_000) {
     lastActivityRefreshAt = now;
-    isRefreshing = true;
-    axios.post(
-      `${API_CONFIG.baseURL}/auth/refresh`,
-      { refresh_token: rt },
-      { headers: { 'Content-Type': 'application/json' } }
-    ).then((resp) => {
-      const { access_token, refresh_token } = extractTokenPair(resp.data);
-      if (access_token) {
-        tokenManager.setTokens(access_token, refresh_token);
-        pendingRefreshCallbacks.forEach(cb => cb(access_token));
-        pendingRefreshCallbacks = [];
-      }
-    }).catch(() => {
-      // Release any requests queued while this background refresh was in flight
-      // so they don't hang forever. Pass an empty token — they'll get 401 and
-      // the per-request error interceptor will handle retry / logout properly.
-      // Do NOT call doLogout() here: this is a best-effort background refresh.
-      // If the refresh token is genuinely expired, the next real API call's 401
-      // interceptor will detect it and trigger the proper logout flow.
-      if (pendingRefreshCallbacks.length > 0) {
-        pendingRefreshCallbacks.forEach(cb => cb(''));
-        pendingRefreshCallbacks = [];
-      }
-    }).finally(() => {
-      isRefreshing = false;
-    });
+    // Do NOT call doLogout() on failure: this is a best-effort background
+    // refresh. If the refresh token is genuinely expired, the next real API
+    // call's 401 interceptor will detect it and trigger the proper logout flow.
+    backgroundRefresh(rt).catch(() => {});
   }
   return response;
 };
+
+// backgroundRefresh renews the tokens with rt while no other renewal is in
+// flight; requests that get a 401 meanwhile wait for it. It rejects with the
+// refresh request's error.
+function backgroundRefresh(rt: string): Promise<void> {
+  isRefreshing = true;
+  return axios.post(
+    `${API_CONFIG.baseURL}/auth/refresh`,
+    { refresh_token: rt },
+    { headers: { 'Content-Type': 'application/json' } }
+  ).then((resp) => {
+    const { access_token, refresh_token } = extractTokenPair(resp.data);
+    if (access_token) {
+      tokenManager.setTokens(access_token, refresh_token);
+      pendingRefreshCallbacks.forEach(cb => cb(access_token));
+      pendingRefreshCallbacks = [];
+    }
+  }).catch((err: unknown) => {
+    // Release any requests queued while this refresh was in flight so they
+    // don't hang forever. Pass an empty token — they'll get 401 and the
+    // per-request error interceptor will handle retry / logout properly.
+    if (pendingRefreshCallbacks.length > 0) {
+      pendingRefreshCallbacks.forEach(cb => cb(''));
+      pendingRefreshCallbacks = [];
+    }
+    throw err;
+  }).finally(() => {
+    isRefreshing = false;
+  });
+}
 
 // Track if we're already redirecting to prevent loops
 let isRedirectingToLogin = false;

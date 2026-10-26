@@ -305,3 +305,35 @@ func (s *Server) handleRevokeSTSSession(w http.ResponseWriter, r *http.Request) 
 
 	s.writeJSON(w, map[string]string{"message": "Session revoked"})
 }
+
+// handleReceiveConsoleSessionSync stores the console sessions a peer node
+// sent: those made or renewed there, and those ended there.
+// POST /api/internal/cluster/console-session-sync
+func (s *Server) handleReceiveConsoleSessionSync(w http.ResponseWriter, r *http.Request) {
+	if _, ok := r.Context().Value("cluster_node_id").(string); !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload cluster.ConsoleSessionSyncPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	sessions := make([]*auth.ConsoleSession, 0, len(payload.Sessions))
+	for _, in := range payload.Sessions {
+		sessions = append(sessions, &auth.ConsoleSession{
+			ID: in.ID, UserID: in.UserID, Method: in.Method, ProviderID: in.ProviderID,
+			IdPSubject: in.IdPSubject, IdPSession: in.IdPSession, IdPRefreshToken: in.IdPRefreshToken,
+			CreatedAt: in.CreatedAt, RefreshedAt: in.RefreshedAt, ExpiresAt: in.ExpiresAt,
+			RevokedAt: in.RevokedAt, RevokedReason: in.RevokedReason, UpdatedAt: in.UpdatedAt,
+		})
+	}
+	if err := s.authManager.ApplyPeerSessions(r.Context(), sessions); err != nil {
+		logrus.WithError(err).Error("Failed to store the console sessions a peer sent")
+		http.Error(w, "Failed to store the sessions", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

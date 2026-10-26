@@ -972,6 +972,9 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 	}
 
 	// Push active temporary credentials so in-flight STS sessions keep working.
+	if s.consoleSessionSync != nil {
+		s.consoleSessionSync.SyncToNode(ctx, newNode)
+	}
 	if s.stsSessionSyncMgr != nil {
 		s.stsSessionSyncMgr.SyncToNode(ctx, newNode)
 	}

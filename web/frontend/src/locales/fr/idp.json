@@ -137,5 +137,10 @@
   "failedToSyncAll": "Échec de la synchronisation de tous les mappages",
   "badgeLocal": "Local",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "URL de l'émetteur (Issuer)",
+  "issuerUrlHelp": "Facultatif. Avec l'émetteur, MaxIOFS vérifie l'ID token et accepte les déconnexions back-channel du fournisseur.",
+  "backchannelLogoutUrl": "URL de déconnexion back-channel",
+  "backchannelLogoutHelp": "Configurez-la dans le client du fournisseur : une déconnexion là-bas met fin à la session ici immédiatement.",
+  "backchannelAfterSave": "L'URL de déconnexion back-channel s'affiche une fois le fournisseur enregistré."
 }

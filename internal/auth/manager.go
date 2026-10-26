@@ -38,6 +38,19 @@ type Manager interface {
 	ValidateJWT(ctx context.Context, token string) (*User, error)
 	GenerateJWT(ctx context.Context, user *User) (string, error)
 	GenerateTokenPair(ctx context.Context, user *User) (*TokenPair, error)
+	// Console sessions: a sign-in, its renewals and its end.
+	StartSession(ctx context.Context, user *User, origin *ConsoleSession) (*TokenPair, error)
+	StartTwoFactorSession(ctx context.Context, user *User, origin *ConsoleSession) (string, error)
+	CompleteTwoFactorSession(ctx context.Context, user *User, twoFactorToken string) (*TokenPair, error)
+	RefreshSession(ctx context.Context, refreshToken string) (*User, *ConsoleSession, error)
+	ContinueSession(ctx context.Context, user *User, session *ConsoleSession) (*TokenPair, error)
+	RevokeSession(ctx context.Context, id, reason string) error
+	EndSession(ctx context.Context, token, reason string) error
+	RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error)
+	ApplyPeerSessions(ctx context.Context, sessions []*ConsoleSession) error
+	SetSessionsChangedCallback(cb func())
+	SetSessionNode(node func(ctx context.Context) string)
+	SessionIDOf(token string) string
 	GenerateDownloadToken(ctx context.Context, user *User, resource string) (string, error)
 	ValidateDownloadToken(ctx context.Context, token, resource string) (*User, error)
 	ValidateRefreshToken(ctx context.Context, token string) (*User, error)
@@ -262,6 +275,11 @@ type authManager struct {
 	usersChangedCallback      func()
 	storageQuotaAlertCallback func(tenantID string, currentBytes, maxBytes int64)
 	settingsManager           SettingsManager
+	// revokedSessions holds the console sessions ended before they expire,
+	// by ID, with when they expire.
+	revokedSessions         sync.Map
+	sessionsChangedCallback func()
+	sessionNode             func(ctx context.Context) string
 	bgwork.Worker
 	closeOnce sync.Once
 	closeErr  error
@@ -288,6 +306,9 @@ func NewManager(cfg config.AuthConfig, dataDir string) Manager {
 		config:      cfg,
 		store:       store,
 		rateLimiter: rateLimiter,
+	}
+	if err := manager.LoadRevokedSessions(); err != nil {
+		logrus.WithError(err).Warn("Failed to read the ended console sessions")
 	}
 
 	// Resolve JWT secret: explicit config > persisted DB value > auto-generated (save to DB)
@@ -543,6 +564,9 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 	if claims.TokenType != TokenTypeAccess {
 		return nil, ErrInvalidToken
 	}
+	if am.sessionRevoked(claims.SessionID) {
+		return nil, ErrSessionEnded
+	}
 
 	// Get user by username (AccessKey in claims is username for console users)
 	user, err := am.store.GetUserByUsername(claims.AccessKey)
@@ -560,6 +584,12 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 // generateToken is the shared JWT-signing helper. ttlSeconds is the token
 // lifetime.
 func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds int) (string, error) {
+	return am.generateSessionToken(user, tokenType, ttlSeconds, "")
+}
+
+// generateSessionToken is generateToken for a token of the console session
+// sessionID.
+func (am *authManager) generateSessionToken(user *User, tokenType string, ttlSeconds int, sessionID string) (string, error) {
 	accessKey := user.Username
 	if accessKey == "" {
 		return "", fmt.Errorf("user has no username")
@@ -584,6 +614,7 @@ func (am *authManager) generateToken(user *User, tokenType string, ttlSeconds in
 		AccessKey: accessKey,
 		Roles:     user.Roles,
 		TokenType: tokenType,
+		SessionID: sessionID,
 	}
 
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

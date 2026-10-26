@@ -303,6 +303,54 @@ func (c *Client) FindUser(conn *ldap.Conn, externalID string) (*ldap.Entry, erro
 	return entries[0], nil
 }
 
+// GroupsOf is the groups an entry is in: those its memberOf names, and those
+// under the group base that name it as a member, for a directory that keeps
+// no memberOf.
+func (c *Client) GroupsOf(conn *ldap.Conn, entry *ldap.Entry) ([]string, error) {
+	attrMemberOf := c.config.AttrMemberOf
+	if attrMemberOf == "" {
+		attrMemberOf = "memberOf"
+	}
+	groups := entry.GetAttributeValues(attrMemberOf)
+	seen := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		seen[strings.ToLower(g)] = true
+	}
+
+	searchBase := c.config.GroupSearchBase
+	if searchBase == "" {
+		searchBase = c.config.BaseDN
+	}
+	groupFilter := c.config.GroupFilter
+	if groupFilter == "" {
+		groupFilter = "(objectClass=group)"
+	}
+	dn := EscapeFilter(entry.DN)
+	filter := fmt.Sprintf("(&%s(|(member=%s)(uniqueMember=%s)))", groupFilter, dn, dn)
+	found, err := search(conn, ldap.NewSearchRequest(searchBase, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
+		1000, 0, false, filter, []string{"dn"}, nil))
+	if err != nil {
+		return nil, fmt.Errorf("failed to find the groups of %s: %w", entry.DN, err)
+	}
+	for _, g := range found {
+		if !seen[strings.ToLower(g.DN)] {
+			seen[strings.ToLower(g.DN)] = true
+			groups = append(groups, g.DN)
+		}
+	}
+	return groups, nil
+}
+
+// adAccountDisabled is the bit of userAccountControl by which Active Directory
+// disables an account.
+const adAccountDisabled = 0x2
+
+// Disabled reports whether the directory disabled the account of entry.
+func Disabled(entry *ldap.Entry) bool {
+	control, err := strconv.Atoi(entry.GetAttributeValue("userAccountControl"))
+	return err == nil && control&adAccountDisabled != 0
+}
+
 // getUserAttributes returns the list of attributes to fetch for users
 func (c *Client) getUserAttributes() []string {
 	attrs := []string{"dn"}
@@ -320,8 +368,9 @@ func (c *Client) getUserAttributes() []string {
 	addIfSet(c.config.AttrDisplayName, "displayName")
 	addIfSet(c.config.AttrMemberOf, "memberOf")
 
-	// Also fetch sAMAccountName for AD compatibility
-	attrs = append(attrs, "sAMAccountName", "cn")
+	// Also fetch sAMAccountName for AD compatibility, and whether AD disabled
+	// the account.
+	attrs = append(attrs, "sAMAccountName", "cn", "userAccountControl")
 
 	return attrs
 }

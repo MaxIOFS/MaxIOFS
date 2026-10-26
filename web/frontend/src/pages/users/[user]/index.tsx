@@ -97,6 +97,9 @@ export default function UserDetailsPage() {
     enabled: !!userId && !currentUserLoading,
   });
 
+  // A user an identity provider signs in.
+  const isExternalUser = !!userData?.authProvider && userData.authProvider !== 'local';
+
   // Fetch access keys
   const { data: accessKeys, isLoading: keysLoading } = useQuery({
     queryKey: ['accessKeys', userId],
@@ -189,6 +192,9 @@ export default function UserDetailsPage() {
         roles: data.roles,
         status: data.status,
       };
+      if (isExternalUser) {
+        payload.managedByGroups = data.managedByGroups;
+      }
       if (isGlobalAdmin) {
         payload.tenantId = data.tenantId;
       }
@@ -282,6 +288,7 @@ export default function UserDetailsPage() {
         roles: userData.roles || [],
         status: userData.status,
         tenantId: userData.tenantId || undefined,
+        managedByGroups: !!userData.managedByGroups,
       });
     }
   }, [userData]);
@@ -1132,6 +1139,21 @@ export default function UserDetailsPage() {
               </p>
             )}
           </div>
+
+          {isCurrentUserAdmin && isExternalUser && (
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={!!editForm.managedByGroups}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, managedByGroups: e.target.checked }))}
+                  className="rounded border-gray-300"
+                />
+                {t('managedByGroups')}
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">{t('managedByGroupsHelp')}</p>
+            </div>
+          )}
 
           <div className="flex justify-end space-x-2 pt-4">
             <Button

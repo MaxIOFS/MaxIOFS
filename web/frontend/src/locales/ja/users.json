@@ -294,5 +294,7 @@
   "forcePasswordChangeHint": "利用者がこのパスワードを変更するまでアカウントは使用できないため、最終的なパスワードを知ることはありません。",
   "passwordChangeRequiredTitle": "新しいパスワードを設定してください",
   "passwordChangeRequiredBody": "管理者から一時的なパスワードが渡されています。続行する前にご自身のパスワードを設定してください。それまでコンソールの他の機能は使用できません。",
-  "passwordChangeFailed": "パスワードを変更できませんでした。"
+  "passwordChangeFailed": "パスワードを変更できませんでした。",
+  "managedByGroups": "プロバイダーのグループに従う",
+  "managedByGroupsHelp": "ロールとサインインの可否は、サインインと更新のたびに ID プロバイダーが渡すグループに従います。"
 }

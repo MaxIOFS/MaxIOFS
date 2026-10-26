@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/maxiofs/maxiofs/internal/idp"
 )
 
@@ -88,9 +89,44 @@ func (p *Provider) AuthenticateUser(ctx context.Context, username, password stri
 	if err := p.client.BindUser(userConn, entry.DN, password); err != nil {
 		return nil, err
 	}
+	return p.externalUser(conn, entry)
+}
 
+// externalUser is entry as a provider's user, with its groups and the grant
+// that names it.
+func (p *Provider) externalUser(conn *ldap.Conn, entry *ldap.Entry) (*idp.ExternalUser, error) {
 	user := p.client.EntryToExternalUser(entry)
+	groups, err := p.client.GroupsOf(conn, entry)
+	if err != nil {
+		return nil, err
+	}
+	user.Groups = groups
+	user.Grant = &idp.Grant{Subject: entry.DN}
 	return &user, nil
+}
+
+// Revalidate looks the user of grant up with the service account: one gone
+// from the directory, or disabled in it, is no longer signed in.
+func (p *Provider) Revalidate(ctx context.Context, grant idp.Grant) (*idp.ExternalUser, error) {
+	conn, err := p.client.Connect()
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if err := p.client.BindAdmin(conn); err != nil {
+		return nil, err
+	}
+	entry, err := p.client.FindUser(conn, grant.Subject)
+	if errors.Is(err, errUserNotFound) {
+		return nil, fmt.Errorf("%w: %s is gone from the directory", idp.ErrSessionEnded, grant.Subject)
+	}
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	if Disabled(entry) {
+		return nil, fmt.Errorf("%w: the directory disabled %s", idp.ErrSessionEnded, grant.Subject)
+	}
+	return p.externalUser(conn, entry)
 }
 
 func (p *Provider) SearchUsers(ctx context.Context, query string, limit int) ([]idp.ExternalUser, error) {

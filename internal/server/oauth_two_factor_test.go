@@ -41,7 +41,7 @@ func TestOAuthSignInAsksForTheSecondFactor(t *testing.T) {
 	signIn := func(user *auth.User) map[string]interface{} {
 		t.Helper()
 		rr := httptest.NewRecorder()
-		server.finishOAuthSignIn(rr, httptest.NewRequest("GET", "/auth/oauth/callback", nil), user, "test-idp")
+		server.finishOAuthSignIn(rr, httptest.NewRequest("GET", "/auth/oauth/callback", nil), user, "test-idp", nil)
 		require.Equal(t, http.StatusFound, rr.Code)
 		location, err := url.Parse(rr.Header().Get("Location"))
 		require.NoError(t, err)

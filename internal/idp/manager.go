@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -279,6 +280,45 @@ func (m *Manager) HandleOAuthCallback(ctx context.Context, providerID, code stri
 	}
 
 	return provider.ExchangeCode(ctx, code)
+}
+
+// RevalidateSession asks the provider whether the user of grant may stay
+// signed in. A provider deleted or turned inactive ended every sign-in; one
+// that cannot tell answers nil.
+func (m *Manager) RevalidateSession(ctx context.Context, providerID string, grant Grant) (*ExternalUser, error) {
+	stored, err := m.store.GetProvider(providerID)
+	if errors.Is(err, ErrProviderNotFound) {
+		return nil, fmt.Errorf("%w: the identity provider was deleted", ErrSessionEnded)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if stored.Status == StatusInactive {
+		return nil, fmt.Errorf("%w: the identity provider is inactive", ErrSessionEnded)
+	}
+	provider, err := m.getOrCreateProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	revalidator, ok := provider.(SessionRevalidator)
+	if !ok {
+		return nil, nil
+	}
+	return revalidator.Revalidate(ctx, grant)
+}
+
+// VerifyLogoutToken checks a back-channel logout token a provider sent and
+// gives the subject and the session it ends.
+func (m *Manager) VerifyLogoutToken(ctx context.Context, providerID, token string) (string, string, error) {
+	provider, err := m.getOrCreateProvider(providerID)
+	if err != nil {
+		return "", "", err
+	}
+	verifier, ok := provider.(LogoutVerifier)
+	if !ok {
+		return "", "", fmt.Errorf("identity provider %s does not send back-channel logouts", providerID)
+	}
+	return verifier.VerifyLogoutToken(ctx, token)
 }
 
 // AuthenticateWithAccessToken resolves the external user an access token belongs

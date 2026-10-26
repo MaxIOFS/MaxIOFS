@@ -15,6 +15,7 @@ var (
 	ErrAccessDenied         = errors.New("access denied")
 	ErrInvalidToken         = errors.New("invalid token")
 	ErrTokenExpired         = errors.New("token expired")
+	ErrSessionEnded         = errors.New("session ended")
 	ErrMissingSignature     = errors.New("missing signature")
 	ErrInvalidSignature     = errors.New("invalid signature")
 	ErrTimestampSkew        = errors.New("timestamp skew too large")
@@ -88,6 +89,9 @@ type JWTClaims struct {
 	Permissions []string `json:"permissions"`
 	TokenType   string   `json:"token_type,omitempty"`
 	Resource    string   `json:"resource,omitempty"`
+	// SessionID names the console session the token belongs to; empty in a
+	// token issued before sessions were kept.
+	SessionID string `json:"sess,omitempty"`
 }
 
 // Token types: an access token is the only API credential.

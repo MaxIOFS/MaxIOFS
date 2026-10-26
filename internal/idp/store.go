@@ -49,7 +49,7 @@ func (s *Store) GetProvider(id string) (*IdentityProvider, error) {
 	`, id).Scan(&idp.ID, &idp.Name, &idp.Type, &tenantID, &idp.Status, &configJSON,
 		&idp.CreatedBy, &idp.CreatedAt, &idp.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("identity provider not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrProviderNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %w", err)

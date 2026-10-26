@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **359 Go test files**, **15 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **375 Go test files**, **19 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -106,7 +106,7 @@ npx vitest run --coverage
 | `sqlite_test.go` | Audit log storage, querying, retention, SQLite operations |
 | `task_observer_test.go` | Each retention cleanup is told to the task observer |
 
-### `internal/auth/` — 33 test files
+### `internal/auth/` — 34 test files
 
 | File | Description |
 |------|-------------|
@@ -115,6 +115,7 @@ npx vitest run --coverage
 | `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
 | `auth_test.go` | Core authentication flows; only failed sign-ins count against an address |
+| `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it |
 | `bucket_policy_decision_test.go` | The bucket policy decides with the caller's policies: a Deny in either refuses, an Allow in either grants; the tenant boundary, a session policy and an unreadable document bound it |
 | `bootstrap_key_test.go` | The bootstrap key pair seeds the administrator's first S3 key once; ignored when a key exists, when unset, or when unusable |
 | `cluster_convergence_test.go` | Two-node convergence: credential revocation window, immediate deactivation, concurrent policy and bucket-grant writes |
@@ -170,7 +171,7 @@ npx vitest run --coverage
 | `policy_evaluation_test.go` | S3 bucket policy evaluation |
 | `policy_public_test.go` | A bucket policy is public as AWS defines it: an Allow naming everyone not limited to source ranges of /8 (IPv4) or /32 (IPv6) or narrower |
 
-### `internal/cluster/` — 42 test files
+### `internal/cluster/` — 43 test files
 
 | File | Description |
 |------|-------------|
@@ -254,7 +255,7 @@ npx vitest run --coverage
 |------|-------------|
 | `erasure_test.go` | The layout of a cluster of nodes; the size of a shard; an object read back with any parity's worth of shards missing, whatever its size against the stripes; too few shards refused; a shard failing mid-read replaced from its stripe; ranges and Seeks, a Seek while reading reopening the shards; each shard opened once in a sequential read; a missing shard rebuilt byte for byte without reading its stale bytes; a failed destination written no more; a short object refused; `Ready` reads the first stripe ahead |
 
-### `internal/idp/` — 10 test files
+### `internal/idp/` — 11 test files
 
 | File | Description |
 |------|-------------|
@@ -265,8 +266,9 @@ npx vitest run --coverage
 | `store_test.go` | IDP persistent storage operations |
 | `ldap/ldap_test.go` | LDAP bind, search, group resolution |
 | `ldap/directory_test.go` | A directory for the tests: simple binds, searches with a size limit, and one that takes connections and never answers |
-| `ldap/provider_directory_test.go` | The connection test passes with many users; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts |
+| `ldap/provider_directory_test.go` | The connection test passes with many users; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts; a sign-in gives the user's groups found by member and its DN; a revalidation ends the sign-in of a user gone or disabled, and a directory that does not answer ends nothing |
 | `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping |
+| `oauth/oidc_test.go` | An OpenID Connect sign-in keeps the subject and session of its checked ID token and the refresh token, and refuses an ID token for another client; a revalidation renews the grant and the groups, ends on a refused refresh or userinfo, and ends nothing for a failing provider or a refused client; a back-channel logout token is taken as the standard says |
 | `oauth/provider_unavailable_test.go` | A provider that does not answer at its token or userinfo endpoint, or is not there, is unavailable within the timeout; one that refuses the code is not |
 
 ### `internal/inventory/` — 6 test files
@@ -467,7 +469,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 66 test files
+### `internal/server/` — 67 test files
 
 | File | Description |
 |------|-------------|
@@ -486,6 +488,7 @@ npx vitest run --coverage
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
 | `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked |
+| `idp_sessions_test.go` | A provider's session follows the provider at each renewal (role from the groups, kept through an outage, ended on a refused refresh at once); renewals of one session that arrive together keep it with a provider that rotates refresh tokens; in a cluster the node that started a session renews it, a node the session has not reached passes the renewal there, and another node keeps it without the provider while that one does not answer; a user out of its groups loses its session and a user an administrator made does not; a back-channel logout ends the session; a sign-out ends the session; an administrator marks a user as following its groups; sessions reach every node of a cluster |
 | `idp_sign_in_test.go` | A user whose ID is not its name signs in; a sign-in its directory cannot answer is `503` and locks neither the account nor the address; one its SSO provider cannot answer goes back to the login page with `provider_unavailable` |
 | `login_rate_limit_test.go` | Only failed sign-ins hold an address up; the security settings reach the sign-in of a server as it starts |
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
@@ -657,6 +660,8 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | File | Description |
 |------|-------------|
 | `api-token.test.ts` | JWT payload decoding for refresh scheduling; an object URL escapes each segment of the key |
+| `api-refresh.test.ts` | One session renewal at a time: the scheduled one waits for a renewal in flight |
+| `timeTicks.test.ts` | Time axis ticks fall on round times, minutes in real time, local hours and midnights, and name the day or second where needed |
 | `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
 | `ClusterHA.test.tsx` | The HA page shows the layout of a write with parity, turns parity on and off, and needs three nodes for it; with other storage classes it counts the nodes of STANDARD and names each node's class |
@@ -665,7 +670,8 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
-| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN; a group mapping is made with the group given |
+| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN; a group mapping is made with the group given; an OAuth provider with an issuer shows its back-channel logout URL and is created with the issuer |
+| `UserDetails.test.tsx` | An administrator saves whether an identity provider's user follows its groups; a local user is offered no such mark |
 | `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |
 | `OAuthComplete.test.tsx` | The OAuth completion page keeps the session the exchange gives, or asks for the second factor and sends it with the first step's token |
@@ -886,25 +892,25 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 55 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 66 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Object | 56 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 67 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
-| S3 Compat | 41 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
-| Auth | 32 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
-| Metadata | 17 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
+| S3 Compat | 48 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
+| Auth | 34 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
+| Metadata | 19 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
 | Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
-| Replication | 8 | Manager, worker, S3 client, end-to-end, status retention |
-| Metrics | 6 | Prometheus, history, system, performance |
-| Bucket | 6 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
-| IDP | 10 | LDAP against a test directory, OAuth, crypto, storage |
+| Replication | 11 | Manager, worker, S3 client, end-to-end, status retention |
+| Metrics | 5 | Prometheus, history, system, performance |
+| Bucket | 9 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
+| IDP | 11 | LDAP against a test directory, OAuth, crypto, storage |
 | Recovery | 7 | Offline recover and its resumption, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 4 | Auth, CORS, tracing, body digest |
-| Inventory | 4 | Report generation, scheduling, retention |
+| Inventory | 6 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
-| Other | 26 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **367** | |
-| Frontend | 15 | Dashboard, Login, Users, Buckets, IDP, layout, i18n, token handling, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, storage classes, lifecycle rules |
+| Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
+| **Total Go** | **375** | |
+| Frontend | 19 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, storage classes, lifecycle rules, time axis |
 | Performance | 4 | Upload, download, mixed, common |

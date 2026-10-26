@@ -294,5 +294,7 @@
   "forcePasswordChangeHint": "A conta não pode ser usada até que a pessoa substitua esta senha, por isso nunca ficas a conhecer a definitiva.",
   "passwordChangeRequiredTitle": "Define uma nova senha",
   "passwordChangeRequiredBody": "Um administrador deu-te uma senha temporária. Escolhe a tua antes de continuar — o resto da consola fica fechado até lá.",
-  "passwordChangeFailed": "Não foi possível alterar a senha."
+  "passwordChangeFailed": "Não foi possível alterar a senha.",
+  "managedByGroups": "Segue os grupos do provedor",
+  "managedByGroupsHelp": "O papel, e se o usuário pode entrar, seguem os grupos que o provedor de identidade dá em cada login e renovação."
 }

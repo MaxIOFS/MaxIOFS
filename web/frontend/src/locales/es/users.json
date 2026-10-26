@@ -294,5 +294,7 @@
   "forcePasswordChangeHint": "La cuenta no podrá usarse hasta que el usuario sustituya esta contraseña, así nunca conoces la definitiva.",
   "passwordChangeRequiredTitle": "Establece una contraseña nueva",
   "passwordChangeRequiredBody": "Un administrador te dio una contraseña temporal. Elige la tuya antes de continuar: el resto de la consola seguirá cerrado hasta que lo hagas.",
-  "passwordChangeFailed": "No se pudo cambiar la contraseña."
+  "passwordChangeFailed": "No se pudo cambiar la contraseña.",
+  "managedByGroups": "Sigue los grupos del proveedor",
+  "managedByGroupsHelp": "El rol, y si el usuario puede entrar, siguen los grupos que da su proveedor de identidad en cada inicio de sesión y renovación."
 }

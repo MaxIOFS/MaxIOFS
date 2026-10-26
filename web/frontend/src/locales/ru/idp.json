@@ -137,5 +137,10 @@
   "failedToSyncAll": "Не удалось синхронизировать все сопоставления",
   "badgeLocal": "Локальный",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "URL издателя (Issuer)",
+  "issuerUrlHelp": "Необязательно. С издателем MaxIOFS проверяет ID-токен и принимает back-channel выходы провайдера.",
+  "backchannelLogoutUrl": "URL back-channel выхода",
+  "backchannelLogoutHelp": "Укажите его в клиенте провайдера: выход там сразу завершает сеанс здесь.",
+  "backchannelAfterSave": "URL back-channel выхода появится после сохранения провайдера."
 }

@@ -137,5 +137,10 @@
   "failedToSyncAll": "すべてのマッピングの同期に失敗しました",
   "badgeLocal": "ローカル",
   "badgeLDAP": "LDAP",
-  "badgeSSO": "SSO"
+  "badgeSSO": "SSO",
+  "issuerUrl": "発行者 URL (Issuer)",
+  "issuerUrlHelp": "任意。発行者を設定すると、MaxIOFS は ID トークンを検証し、プロバイダーのバックチャネル ログアウトを受け付けます。",
+  "backchannelLogoutUrl": "バックチャネル ログアウト URL",
+  "backchannelLogoutHelp": "プロバイダーのクライアントに設定してください。そちらでのサインアウトでここのセッションが直ちに終了します。",
+  "backchannelAfterSave": "バックチャネル ログアウト URL はプロバイダーの保存後に表示されます。"
 }

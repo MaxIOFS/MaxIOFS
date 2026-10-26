@@ -88,7 +88,10 @@ type UserResponse struct {
 	AuthProvider        string   `json:"authProvider,omitempty"`
 	ExternalID          string   `json:"externalId,omitempty"`
 	MustChangePassword  bool     `json:"mustChangePassword,omitempty"`
-	CreatedAt           int64    `json:"createdAt"`
+	// ManagedByGroups: the user's role, and whether it may sign in, follow the
+	// groups its identity provider gives.
+	ManagedByGroups bool  `json:"managedByGroups,omitempty"`
+	CreatedAt       int64 `json:"createdAt"`
 
 	PolicyCount int `json:"policyCount"`
 }
@@ -640,6 +643,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/auth/oauth/{id}/login", s.handleOAuthLogin).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/start", s.handleOAuthStart).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth/oauth/callback", s.countSignIns("console_oauth", s.handleOAuthCallback)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/auth/oauth/{id}/backchannel-logout", s.handleBackchannelLogout).Methods("POST")
 	router.HandleFunc("/auth/oauth/exchange-code", s.handleOAuthExchangeCode).Methods("GET", "OPTIONS")
 	router.HandleFunc("/auth/oauth/providers", s.handleListOAuthProviders).Methods("GET", "OPTIONS")
 
@@ -753,6 +757,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Step 4: Now validate credentials (routing based on auth_provider)
 	var user *auth.User
+	var external *idp.ExternalUser
 
 	switch {
 	case userByName.AuthProvider == "" || userByName.AuthProvider == "local":
@@ -771,7 +776,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		providerID := strings.TrimPrefix(userByName.AuthProvider, "ldap:")
-		_, err = s.idpManager.AuthenticateExternal(r.Context(), providerID, userByName.ExternalID, loginReq.Password)
+		external, err = s.idpManager.AuthenticateExternal(r.Context(), providerID, userByName.ExternalID, loginReq.Password)
 		if errors.Is(err, idp.ErrUnavailable) {
 			// The directory's failure: neither the account nor the address is held to it.
 			logrus.WithError(err).WithFields(logrus.Fields{
@@ -791,7 +796,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
 			return
 		}
-		user = userByName
+		var allowed bool
+		if user, allowed = s.applyProviderGroups(r.Context(), userByName, external); !allowed {
+			s.writeError(w, "Your account is in no group of its directory authorized to sign in", http.StatusForbidden)
+			return
+		}
 
 	case strings.HasPrefix(userByName.AuthProvider, "oauth:"):
 		// OAuth users cannot log in with username/password
@@ -843,7 +852,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// With 2FA the sign-in is not done yet: the token stands for the password
 	// until the code is checked.
 	if twoFactorEnabled {
-		twoFactorToken, err := s.authManager.GenerateTwoFactorToken(r.Context(), user)
+		twoFactorToken, err := s.authManager.StartTwoFactorSession(r.Context(), user, s.sessionOrigin(user, external))
 		if err != nil {
 			s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 			return
@@ -870,8 +879,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 	s.auditLoginSuccess(r, user, "password")
 
-	// Step 7: Generate short-lived access token + sliding-window refresh token
-	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
+	// Step 7: Start the console session: a short-lived access token and a
+	// sliding-window refresh token
+	pair, err := s.authManager.StartSession(r.Context(), user, s.sessionOrigin(user, external))
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
@@ -975,25 +985,70 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.authManager.ValidateRefreshToken(r.Context(), req.RefreshToken)
+	ctx := r.Context()
+	user, sess, err := s.authManager.RefreshSession(ctx, req.RefreshToken)
+	// Only the node that started a session uses its provider's refresh token,
+	// so a provider that rotates them never sees one twice: the other nodes
+	// pass the renewal there, and that of a session or a user that has not
+	// reached them yet. An end or an expiry known here is final.
+	unknown := err != nil && !errors.Is(err, auth.ErrSessionEnded) && !errors.Is(err, auth.ErrTokenExpired)
+	askProvider := true
+	if unknown || (err == nil && sess != nil && sess.IdPRefreshToken != "") {
+		if home := s.sessionHome(ctx, s.authManager.SessionIDOf(req.RefreshToken)); home != nil {
+			if s.renewOnHome(ctx, w, home, req.RefreshToken) {
+				return
+			}
+			if unknown {
+				w.Header().Set("Retry-After", "5")
+				s.writeError(w, "The node that started your session did not answer. Try again in a few seconds.",
+					http.StatusServiceUnavailable)
+				return
+			}
+			// Until that node answers, the session is kept without asking the
+			// provider, as when the provider cannot be reached.
+			askProvider = false
+		}
+	}
+	s.renewHere(ctx, w, req.RefreshToken, user, sess, err, askProvider)
+}
+
+// renewHere renews on this node the session of refreshToken, which
+// RefreshSession resolved to user and sess, or failed with err; askProvider
+// false renews an identity provider's session without asking the provider.
+func (s *Server) renewHere(ctx context.Context, w http.ResponseWriter, refreshToken string, user *auth.User, sess *auth.ConsoleSession, err error, askProvider bool) {
+	var pair *auth.TokenPair
+	switch {
+	case err != nil:
+	case sess != nil:
+		// An identity provider's session is asked about again at each renewal;
+		// the renewals of one session that arrive together share one.
+		flightCtx := context.WithoutCancel(ctx)
+		pair, err = s.sessionRenewals.do(sess.ID, func() (*auth.TokenPair, error) {
+			return s.renewSession(flightCtx, refreshToken, askProvider)
+		})
+	case !s.userHasConsoleAccess(ctx, user):
+		err = errNoConsoleAccess
+	default:
+		// A token from before sessions were kept is renewed into a session.
+		if pair, err = s.authManager.StartSession(ctx, user, s.sessionOrigin(user, nil)); err != nil {
+			err = fmt.Errorf("%w: %w", errTokenIssue, err)
+		}
+	}
+
 	if err != nil {
-		switch err {
-		case auth.ErrTokenExpired:
+		var ended *errSessionEnded
+		switch {
+		case errors.Is(err, auth.ErrTokenExpired):
 			s.writeError(w, "Refresh token expired. Please log in again.", http.StatusUnauthorized)
+		case errors.Is(err, auth.ErrSessionEnded), errors.As(err, &ended):
+			s.writeError(w, "Your session was ended. Sign in again.", http.StatusUnauthorized)
+		case errors.Is(err, errNoConsoleAccess):
+			s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
+		case errors.Is(err, errTokenIssue):
+			s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		default:
 			s.writeError(w, "Invalid refresh token", http.StatusUnauthorized)
 		}
-		return
-	}
-
-	if !s.userHasConsoleAccess(r.Context(), user) {
-		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
-		return
-	}
-
-	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
-	if err != nil {
-		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
@@ -1095,6 +1150,12 @@ func getClientIP(r *http.Request, trustedProxies []string) string {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if token, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); found {
+		if err := s.authManager.EndSession(r.Context(), token, "signed out"); err != nil {
+			logrus.WithError(err).Warn("Failed to end the console session")
+		}
+	}
+
 	// Get user from context
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if userExists {
@@ -2428,6 +2489,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			LanguagePreference:  u.LanguagePreference,
 			AuthProvider:        u.AuthProvider,
 			ExternalID:          u.ExternalID,
+			ManagedByGroups:     groupManaged(&u),
 			CreatedAt:           u.CreatedAt,
 			PolicyCount:         policyCounts[u.ID],
 		}
@@ -2620,6 +2682,9 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
 		MustChangePassword:  user.MustChangePassword,
+		AuthProvider:        user.AuthProvider,
+		ExternalID:          user.ExternalID,
+		ManagedByGroups:     groupManaged(user),
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -2643,6 +2708,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Status             string   `json:"status,omitempty"`
 		TenantID           *string  `json:"tenantId,omitempty"`
 		MustChangePassword *bool    `json:"mustChangePassword,omitempty"`
+		ManagedByGroups    *bool    `json:"managedByGroups,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
@@ -2653,7 +2719,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Non-admins can only update their own email — block privileged fields
 	if !s.isAdmin(currentUser) && isSelf {
 		if updateRequest.Roles != nil || updateRequest.Status != "" || updateRequest.TenantID != nil ||
-			updateRequest.MustChangePassword != nil {
+			updateRequest.MustChangePassword != nil || updateRequest.ManagedByGroups != nil {
 			s.writeError(w, "Insufficient permissions to change roles, status, or tenant", http.StatusForbidden)
 			return
 		}
@@ -2734,6 +2800,17 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		user.MustChangePassword = *updateRequest.MustChangePassword
 	}
+	if updateRequest.ManagedByGroups != nil {
+		if method, _ := signInMethod(user); method == auth.SessionMethodPassword {
+			s.writeError(w, "Only a user of an identity provider follows its groups", http.StatusBadRequest)
+			return
+		}
+		if *updateRequest.ManagedByGroups {
+			markGroupManaged(user)
+		} else {
+			delete(user.Metadata, provisionedByKey)
+		}
+	}
 
 	// Update user
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
@@ -2757,6 +2834,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		ThemePreference:     user.ThemePreference,
 		LanguagePreference:  user.LanguagePreference,
 		MustChangePassword:  user.MustChangePassword,
+		AuthProvider:        user.AuthProvider,
+		ExternalID:          user.ExternalID,
+		ManagedByGroups:     groupManaged(user),
 		CreatedAt:           user.CreatedAt,
 	}
 
@@ -6669,8 +6749,12 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
 	s.auditLoginSuccess(r, user, "2fa")
 
-	// Generate token pair
-	pair, err := s.authManager.GenerateTokenPair(r.Context(), user)
+	// Start the session the first step was for
+	pair, err := s.authManager.CompleteTwoFactorSession(r.Context(), user, req.TwoFactorToken)
+	if errors.Is(err, auth.ErrSessionEnded) || errors.Is(err, auth.ErrInvalidToken) {
+		s.writeError(w, "The sign-in expired. Sign in again.", http.StatusUnauthorized)
+		return
+	}
 	if err != nil {
 		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
 		return

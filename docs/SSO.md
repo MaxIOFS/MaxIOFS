@@ -31,7 +31,7 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 
 ### Step 1: Create the Identity Provider
 
-1. Go to **Settings → Identity Providers**
+1. Go to **Users → Identity Providers**
 2. Click **Add Provider**
 3. Select **OAuth2** as the type
 4. Fill in the provider configuration:
@@ -69,6 +69,20 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 3. Create a client secret under "Certificates & secrets"
 4. Under "API Permissions", add Microsoft Graph: `openid`, `email`, `profile`
 
+#### Keycloak (or another OpenID Connect provider)
+
+| Field | Value |
+|-------|-------|
+| Preset | Custom |
+| Client ID / Client Secret | Of a confidential client of the realm |
+| Authorization / Token / UserInfo URL | `https://keycloak/realms/<realm>/protocol/openid-connect/auth`, `/token`, `/userinfo` |
+| Groups claim | `groups`, with a *Group Membership* mapper on the client (full group path off) |
+| Issuer URL | `https://keycloak/realms/<realm>` |
+
+**Keycloak client setup:**
+1. Valid redirect URI: `https://your-maxiofs-domain/api/v1/auth/oauth/callback`
+2. Once the provider is saved, its settings show the **Back-channel logout URL** (`https://your-maxiofs-domain/api/v1/auth/oauth/<provider-id>/backchannel-logout`). Set it as the client's *Backchannel logout URL*, with *Backchannel logout session required* on.
+
 ### Step 2: Test the Connection
 
 1. Click the **plug icon** next to the provider in the list
@@ -99,7 +113,7 @@ There are **two ways** to authorize which users can log in via SSO. You can use 
    - `admin` — Full access including user management
    - `user` — Standard access to buckets and objects
    - `readonly` — View-only access
-5. Optionally enable **Auto Sync** to periodically sync group membership
+5. Optionally enable **Auto Sync**: the mapping is then synced by **Sync All**. Membership is checked again at each sign-in and renewal (see [Sessions Follow the Provider](#sessions-follow-the-provider)).
 
 **How it works**: When a user authenticates via SSO, MaxIOFS checks if they belong to any mapped group. If they do, an account is automatically created with:
 - **Username** = their email address
@@ -147,6 +161,20 @@ Both methods work together:
 - If a user is **already imported manually**, they log in immediately (SSO finds their existing account)
 - If a user is **not imported** but belongs to a **mapped group**, they are auto-provisioned on first login
 - If a user is **neither imported nor in a mapped group**, they are rejected
+
+---
+
+## Sessions Follow the Provider
+
+A console session of an SSO user is renewed every `security.access_token_lifetime` (15 minutes by default), and at each renewal MaxIOFS asks the provider again with the refresh token the provider gave at sign-in:
+
+- The provider refuses the refresh (user deleted or disabled, provider session ended): the console session ends.
+- A user **made by a group mapping** gets the role its groups map to now; in no group mapped any more, the session ends and the user cannot sign in again. A user **an administrator made** keeps the role given; to make one follow its groups, edit the user and tick **Follows the provider's groups**.
+- The provider cannot be reached: the session is kept, as long as the console's own `security.session_timeout`.
+- In a cluster only the node that started the session uses the provider's refresh token: the other nodes pass its renewals there, and renewals that arrive together, as from several tabs, share one refresh. A provider with refresh token rotation (Keycloak's **Revoke Refresh Token**) refuses a second use of a refresh token and ends its own session. While that node does not answer, the node reached keeps the session without asking the provider. An LDAP session is asked about on the node reached.
+- With the **Issuer URL** and the back-channel logout URL set in the provider, a sign-out there, or an administrator ending the user's sessions there, ends the console sessions of that sign-in at once.
+
+Google gives a refresh token only on the first consent of a user: later sign-ins cannot be asked about again, and end with the console's own session. A sign-out in MaxIOFS ends the session on every node.
 
 ---
 

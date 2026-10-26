@@ -273,6 +273,34 @@ describe('Identity Providers Page', () => {
       'idp-1', [{ external_id: 'uid=ana,ou=people,dc=example,dc=org', username: 'ana' }], 'user'));
   });
 
+  it('shows the back-channel logout URL of an OAuth provider with an issuer', async () => {
+    const user = userEvent.setup();
+    vi.mocked(APIClient.listIDPs).mockResolvedValue([{
+      ...mockIDPs[1], id: 'idp-kc', name: 'Keycloak', config: { oauth2: { ...mockIDPs[1].config.oauth2!, preset: 'custom', issuer: 'https://sso.example.com/realms/company' } },
+    }]);
+    render(<IdentityProvidersPage />);
+
+    await user.click(await screen.findByTitle('Edit'));
+    expect(await screen.findByText('http://localhost:8081/api/v1/auth/oauth/idp-kc/backchannel-logout')).toBeInTheDocument();
+  });
+
+  it('creates an OAuth provider with its issuer', async () => {
+    const user = userEvent.setup();
+    vi.mocked(APIClient.createIDP).mockResolvedValue(mockIDPs[1]);
+    render(<IdentityProvidersPage />);
+
+    await user.click(await screen.findByRole('button', { name: /Add Provider/i }));
+    await user.type(screen.getByPlaceholderText('e.g., Corporate AD, Google SSO'), 'Keycloak');
+    await user.click(screen.getByRole('button', { name: /OAuth2/i }));
+    await user.type(screen.getByPlaceholderText('https://sso.example.com/realms/company'), 'https://sso.example.com/realms/company');
+    expect(screen.getByText('The back-channel logout URL is shown once the provider is saved.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Create$/ }));
+
+    await waitFor(() => expect(APIClient.createIDP).toHaveBeenCalledWith(expect.objectContaining({
+      config: { oauth2: expect.objectContaining({ issuer: 'https://sso.example.com/realms/company' }) },
+    })));
+  });
+
   it('creates a group mapping of the group it is given', async () => {
     const user = userEvent.setup();
     vi.mocked(APIClient.listGroupMappings).mockResolvedValue([]);

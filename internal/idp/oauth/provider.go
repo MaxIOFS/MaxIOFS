@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"golang.org/x/oauth2"
 )
@@ -21,6 +24,11 @@ var providerTimeout = 15 * time.Second
 type Provider struct {
 	config      *idp.OAuth2Config
 	oauthConfig *oauth2.Config
+
+	oidcMu       sync.Mutex
+	oidcProvider *oidc.Provider
+	// seenLogouts holds the IDs of the logout tokens taken, by when.
+	seenLogouts sync.Map
 }
 
 func init() {
@@ -97,6 +105,11 @@ func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
 	if loginHint != "" {
 		opts = append(opts, oauth2.SetAuthURLParam("login_hint", loginHint))
 	}
+	// Google gives a refresh token only to a client that asks for offline
+	// access; without one a sign-in cannot be asked about again.
+	if p.config.Preset == "google" {
+		opts = append(opts, oauth2.AccessTypeOffline)
+	}
 	url := p.oauthConfig.AuthCodeURL(state, opts...)
 	return url, nil
 }
@@ -119,7 +132,23 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.External
 
 	// Use the token to fetch user info
 	client := p.oauthConfig.Client(ctx, token)
-	return p.fetchUserInfo(ctx, client)
+	user, err := p.fetchUserInfo(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	subject, session, err := p.idTokenGrant(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if subject != "" {
+		if user.Grant.Subject != "" && user.Grant.Subject != subject {
+			return nil, fmt.Errorf("userinfo answered for another subject than the ID token")
+		}
+		user.Grant.Subject = subject
+	}
+	user.Grant.Session = session
+	user.Grant.RefreshToken = token.RefreshToken
+	return user, nil
 }
 
 // AuthenticateWithToken resolves the user an access token belongs to by calling
@@ -156,8 +185,11 @@ func (p *Provider) fetchUserInfo(ctx context.Context, client *http.Client) (*idp
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode >= 500 {
+		switch {
+		case resp.StatusCode >= 500:
 			err = fmt.Errorf("%w: %w", idp.ErrUnavailable, err)
+		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+			err = fmt.Errorf("%w: %w", errUserInfoRefused, err)
 		}
 		return nil, err
 	}
@@ -215,6 +247,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, client *http.Client) (*idp
 		DisplayName: name,
 		Groups:      groups,
 		RawAttrs:    rawAttrs,
+		Grant:       &idp.Grant{Subject: sub},
 	}, nil
 }
 
@@ -238,6 +271,10 @@ func applyPreset(config *idp.OAuth2Config) *idp.OAuth2Config {
 		}
 		if len(cfg.Scopes) == 0 {
 			cfg.Scopes = []string{"openid", "profile", "email"}
+		}
+		// Entra ID gives a refresh token only for offline_access.
+		if !slices.Contains(cfg.Scopes, "offline_access") {
+			cfg.Scopes = append(slices.Clone(cfg.Scopes), "offline_access")
 		}
 	}
 
