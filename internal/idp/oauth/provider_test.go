@@ -89,61 +89,28 @@ func TestProvider_Type(t *testing.T) {
 	assert.Equal(t, "oauth2", p.Type())
 }
 
+// A configuration without a field a sign-in needs fails the connection test
+// naming it, before the provider is asked.
 func TestProvider_TestConnection(t *testing.T) {
-	t.Run("succeeds with valid config", func(t *testing.T) {
-		p := NewProvider(&idp.OAuth2Config{
-			ClientID:     "client",
-			ClientSecret: "secret",
-			AuthURL:      "https://auth.example.com/authorize",
-			TokenURL:     "https://auth.example.com/token",
-		})
-		err := p.TestConnection(context.Background())
-		assert.NoError(t, err)
-	})
-
-	t.Run("fails without client_id", func(t *testing.T) {
-		p := NewProvider(&idp.OAuth2Config{
-			ClientSecret: "secret",
-			AuthURL:      "https://auth.example.com/authorize",
-			TokenURL:     "https://auth.example.com/token",
-		})
-		err := p.TestConnection(context.Background())
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "client_id")
-	})
-
-	t.Run("fails without client_secret", func(t *testing.T) {
-		p := NewProvider(&idp.OAuth2Config{
-			ClientID: "client",
-			AuthURL:  "https://auth.example.com/authorize",
-			TokenURL: "https://auth.example.com/token",
-		})
-		err := p.TestConnection(context.Background())
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "client_secret")
-	})
-
-	t.Run("fails without auth_url", func(t *testing.T) {
-		p := NewProvider(&idp.OAuth2Config{
-			ClientID:     "client",
-			ClientSecret: "secret",
-			TokenURL:     "https://auth.example.com/token",
-		})
-		err := p.TestConnection(context.Background())
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "auth_url")
-	})
-
-	t.Run("fails without token_url", func(t *testing.T) {
-		p := NewProvider(&idp.OAuth2Config{
-			ClientID:     "client",
-			ClientSecret: "secret",
-			AuthURL:      "https://auth.example.com/authorize",
-		})
-		err := p.TestConnection(context.Background())
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "token_url")
-	})
+	full := idp.OAuth2Config{
+		ClientID: "client", ClientSecret: "secret", RedirectURI: "http://localhost/callback",
+		AuthURL: "https://auth.invalid/authorize", TokenURL: "https://auth.invalid/token", UserInfoURL: "https://auth.invalid/userinfo",
+	}
+	for label, clear := range map[string]func(*idp.OAuth2Config){
+		"Client ID":         func(c *idp.OAuth2Config) { c.ClientID = "" },
+		"Client Secret":     func(c *idp.OAuth2Config) { c.ClientSecret = "" },
+		"Authorization URL": func(c *idp.OAuth2Config) { c.AuthURL = "" },
+		"Token URL":         func(c *idp.OAuth2Config) { c.TokenURL = "" },
+		"User Info URL":     func(c *idp.OAuth2Config) { c.UserInfoURL = "" },
+		"Redirect URI":      func(c *idp.OAuth2Config) { c.RedirectURI = "" },
+	} {
+		cfg := full
+		clear(&cfg)
+		checks := NewProvider(&cfg).TestConnection(context.Background())
+		require.Len(t, checks, 1, label)
+		assert.Equal(t, idp.CheckFailed, checks[0].Status, label)
+		assert.Equal(t, "Missing: "+label, checks[0].Detail)
+	}
 }
 
 func TestProvider_AuthenticateUser(t *testing.T) {

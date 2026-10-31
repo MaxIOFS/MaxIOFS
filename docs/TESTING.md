@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **375 Go test files**, **19 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **379 Go test files**, **19 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -106,7 +106,7 @@ npx vitest run --coverage
 | `sqlite_test.go` | Audit log storage, querying, retention, SQLite operations |
 | `task_observer_test.go` | Each retention cleanup is told to the task observer |
 
-### `internal/auth/` — 34 test files
+### `internal/auth/` — 35 test files
 
 | File | Description |
 |------|-------------|
@@ -115,11 +115,12 @@ npx vitest run --coverage
 | `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
 | `auth_test.go` | Core authentication flows; only failed sign-ins count against an address |
-| `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it |
+| `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it; a renewal in the same second reaches the other nodes; an older copy from another node never replaces a renewal |
 | `bucket_policy_decision_test.go` | The bucket policy decides with the caller's policies: a Deny in either refuses, an Allow in either grants; the tenant boundary, a session policy and an unreadable document bound it |
 | `bootstrap_key_test.go` | The bootstrap key pair seeds the administrator's first S3 key once; ignored when a key exists, when unset, or when unusable |
 | `cluster_convergence_test.go` | Two-node convergence: credential revocation window, immediate deactivation, concurrent policy and bucket-grant writes |
 | `download_token_test.go` | A download token opens only the resource it names, is not a session, and is refused for a disabled user |
+| `email_test.go` | An email names one user, as its email or its username, in any case: creating or editing a user with another's is refused; users without an email, and users that shared one before, are left alone |
 | `iam_console_test.go` | The console's permission screens load what a user's role and grants give; assignable roles exist and are healed on an old database |
 | `iam_legacy_schema_test.go` | Databases that applied the IAM migration early: a NOT NULL trust policy column, a missing permission catalogue |
 | `iam_policy_repair_test.go` | A policy whose default version is missing is repaired; one with no versions is an error |
@@ -255,7 +256,7 @@ npx vitest run --coverage
 |------|-------------|
 | `erasure_test.go` | The layout of a cluster of nodes; the size of a shard; an object read back with any parity's worth of shards missing, whatever its size against the stripes; too few shards refused; a shard failing mid-read replaced from its stripe; ranges and Seeks, a Seek while reading reopening the shards; each shard opened once in a sequential read; a missing shard rebuilt byte for byte without reading its stale bytes; a failed destination written no more; a short object refused; `Ready` reads the first stripe ahead |
 
-### `internal/idp/` — 11 test files
+### `internal/idp/` — 13 test files
 
 | File | Description |
 |------|-------------|
@@ -265,9 +266,11 @@ npx vitest run --coverage
 | `reencrypt_test.go` | Bind passwords and client secrets move to a new secret; the rest of the configuration is kept; what no secret decrypts is named and left |
 | `store_test.go` | IDP persistent storage operations |
 | `ldap/ldap_test.go` | LDAP bind, search, group resolution |
-| `ldap/directory_test.go` | A directory for the tests: simple binds, searches with a size limit, and one that takes connections and never answers |
-| `ldap/provider_directory_test.go` | The connection test passes with many users; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts; a sign-in gives the user's groups found by member and its DN; a revalidation ends the sign-in of a user gone or disabled, and a directory that does not answer ends nothing |
-| `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping |
+| `ldap/directory_test.go` | A directory for the tests: simple binds, searches with a size limit, `noSuchObject` for a base that does not exist, and one that takes connections and never answers |
+| `ldap/connection_test.go` | The connection test checks the connection, StartTLS, the service account, the users and the groups, names the step that fails and stops at a step the next ones need: a wrong or missing password, no TLS, a base that does not exist, a filter of nobody or broken, no username attribute, no group found, a directory not there |
+| `ldap/provider_directory_test.go` | The connection test passes with more users than it reads; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts; a sign-in gives the user's groups found by member and its DN; a revalidation ends the sign-in of a user gone or disabled, and a directory that does not answer ends nothing |
+| `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping; a configuration without a field a sign-in needs fails the connection test naming it |
+| `oauth/connection_test.go` | The connection test checks the OpenID configuration and keys, the sign-in page for the client and redirect URI, the client secret by an invented code (`invalid_grant` takes it; `invalid_client` and `unauthorized_client` refuse it, in the header or the form) and the userinfo endpoint; a provider that does not answer, or is not there, fails each check within the timeout |
 | `oauth/oidc_test.go` | An OpenID Connect sign-in keeps the subject and session of its checked ID token and the refresh token, and refuses an ID token for another client; a revalidation renews the grant and the groups, ends on a refused refresh or userinfo, and ends nothing for a failing provider or a refused client; a back-channel logout token is taken as the standard says |
 | `oauth/provider_unavailable_test.go` | A provider that does not answer at its token or userinfo endpoint, or is not there, is unavailable within the timeout; one that refuses the code is not |
 
@@ -469,7 +472,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 67 test files
+### `internal/server/` — 68 test files
 
 | File | Description |
 |------|-------------|
@@ -487,8 +490,9 @@ npx vitest run --coverage
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
-| `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked |
-| `idp_sessions_test.go` | A provider's session follows the provider at each renewal (role from the groups, kept through an outage, ended on a refused refresh at once); renewals of one session that arrive together keep it with a provider that rotates refresh tokens; in a cluster the node that started a session renews it, a node the session has not reached passes the renewal there, and another node keeps it without the provider while that one does not answer; a user out of its groups loses its session and a user an administrator made does not; a back-channel logout ends the session; a sign-out ends the session; an administrator marks a user as following its groups; sessions reach every node of a cluster |
+| `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked; the connection test answers each check, and the first that failed as its message |
+| `idp_isolation_test.go` | A provider signs in its own users only, by the console and by STS, and provisions with its own mappings; a local user's email is not provisioned; a tenant administrator reaches its tenant's providers and their mappings only; a tenant's provider maps, imports and syncs into its tenant, with the email, and not an email another user has; the console answers `409` |
+| `idp_sessions_test.go` | A provider's session follows the provider at each renewal (role from the groups, kept through an outage, ended on a refused refresh at once); renewals of one session that arrive together keep it with a provider that rotates refresh tokens; in a cluster the node that started a session renews it, a node the session has not reached passes the renewal there, another node keeps it without the provider while that one does not answer or is seen down, and the coordinator renews the sessions of a removed node; a user out of its groups loses its session and a user an administrator made does not; a back-channel logout ends the session; a sign-out ends the session; an administrator marks a user as following its groups; sessions reach every node of a cluster |
 | `idp_sign_in_test.go` | A user whose ID is not its name signs in; a sign-in its directory cannot answer is `503` and locks neither the account nor the address; one its SSO provider cannot answer goes back to the login page with `provider_unavailable` |
 | `login_rate_limit_test.go` | Only failed sign-ins hold an address up; the security settings reach the sign-in of a server as it starts |
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
@@ -670,7 +674,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
-| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN; a group mapping is made with the group given; an OAuth provider with an issuer shows its back-channel logout URL and is created with the issuer |
+| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN and email; a group mapping is made with the group given; an OAuth provider with an issuer shows its back-channel logout URL and is created with the issuer; the connection test shows each step with how it went |
 | `UserDetails.test.tsx` | An administrator saves whether an identity provider's user follows its groups; a local user is offered no such mark |
 | `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |

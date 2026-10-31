@@ -1,6 +1,7 @@
 package ldap
 
 import (
+	"context"
 	"testing"
 
 	goLdap "github.com/go-ldap/ldap/v3"
@@ -260,8 +261,7 @@ func TestProvider_TestConnection_InvalidServer(t *testing.T) {
 		BindPassword: "secret",
 		BaseDN:       "dc=example,dc=com",
 	})
-	err := p.TestConnection(nil)
-	assert.Error(t, err)
+	assert.NotNil(t, idp.Failed(p.TestConnection(context.Background())))
 }
 
 func TestProvider_AuthenticateUser_InvalidServer(t *testing.T) {

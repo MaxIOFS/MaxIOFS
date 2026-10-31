@@ -21,8 +21,9 @@ type directoryEntry struct {
 
 // fakeDirectory is an LDAP server for tests: simple binds, and searches with
 // a base or subtree scope, the filters the client sends and a size limit
-// answered as a directory does (the first entries, then sizeLimitExceeded).
-// A frozen one takes connections and never answers.
+// answered as a directory does (the first entries, then sizeLimitExceeded),
+// and noSuchObject for a base that does not exist. A frozen one takes
+// connections and never answers.
 type fakeDirectory struct {
 	entries   []directoryEntry
 	entriesMu sync.RWMutex
@@ -183,6 +184,15 @@ func (d *fakeDirectory) search(conn net.Conn, id interface{}, op *ber.Packet) {
 	scope := op.Children[1].Value.(int64)
 	sizeLimit := op.Children[3].Value.(int64)
 	filter := op.Children[6]
+	// A base no entry is or is under does not exist.
+	exists := false
+	for _, e := range d.snapshot() {
+		exists = exists || strings.EqualFold(e.dn, base) || strings.HasSuffix(strings.ToLower(e.dn), ","+strings.ToLower(base))
+	}
+	if !exists {
+		d.reply(conn, id, ldap.ApplicationSearchResultDone, ldap.LDAPResultNoSuchObject)
+		return
+	}
 	sent := 0
 	for _, e := range d.snapshot() {
 		inScope := strings.EqualFold(e.dn, base)

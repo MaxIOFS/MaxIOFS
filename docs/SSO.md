@@ -13,6 +13,8 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 
 **Key principle**: SSO users log in with their **email address** as their MaxIOFS username. This avoids username collisions between different identity providers.
 
+**One email, one user**: an email belongs to one MaxIOFS user, as its username or as its email, local, LDAP or SSO. Creating, editing, importing, syncing or provisioning a user with an email another user has is refused: `409` in the console, `email_conflict` at sign-in. Case does not count. Providers can repeat (two tenants with Google); emails cannot.
+
 ---
 
 ## How SSO Login Works
@@ -86,9 +88,26 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 ### Step 2: Test the Connection
 
 1. Click the **plug icon** next to the provider in the list
-2. Verify the connection test passes
+2. Each step shows whether it passed, warned or failed, and what it found. A warning is a configuration that works but lacks something.
 
-For an OAuth provider the test checks the configuration only; it does not contact the provider. Sign in once to check the endpoints.
+| Step | What it checks |
+|------|----------------|
+| Discovery | With an Issuer URL: the provider's OpenID configuration and its signing keys |
+| Sign-in page | The provider shows its sign-in page for the Client ID and the Redirect URI. A client it does not know, or a redirect URI the client does not have, fails here |
+| Client secret | An invented code is exchanged at the token URL. `invalid_grant` means the provider took the Client ID and secret; `invalid_client` or `unauthorized_client` means it refused them |
+| Userinfo | The userinfo URL asks for a token |
+
+The steps run together and take at most 15 seconds. A missing field fails the test before the provider is asked.
+
+For an LDAP provider the steps run in order, and a step that fails stops the ones that need it:
+
+| Step | What it checks |
+|------|----------------|
+| Connection | Host and port, over TLS for LDAPS. A connection without TLS warns: the passwords cross the network in clear |
+| StartTLS | With StartTLS: the directory starts TLS with a certificate the server trusts |
+| Service account | The bind DN and password |
+| Users | The user search base and filter find users; a warning when none has the username attribute |
+| Groups | The group search base and filter. A base that does not exist fails, since a sign-in searches it; no group found warns |
 
 ### Step 3: Authorize Users
 
@@ -153,7 +172,7 @@ User: stranger@gmail.com (not in any mapped group)
    - Search for the user
    - Click **Import**
 
-**How it works**: When the user authenticates via SSO, MaxIOFS finds their existing account by email and logs them in directly. No auto-provisioning needed.
+**How it works**: When the user authenticates via SSO, MaxIOFS finds the account of that email under the provider that signed them in, and logs them in directly. No auto-provisioning needed.
 
 ### Combining Both Methods
 
@@ -171,7 +190,7 @@ A console session of an SSO user is renewed every `security.access_token_lifetim
 - The provider refuses the refresh (user deleted or disabled, provider session ended): the console session ends.
 - A user **made by a group mapping** gets the role its groups map to now; in no group mapped any more, the session ends and the user cannot sign in again. A user **an administrator made** keeps the role given; to make one follow its groups, edit the user and tick **Follows the provider's groups**.
 - The provider cannot be reached: the session is kept, as long as the console's own `security.session_timeout`.
-- In a cluster only the node that started the session uses the provider's refresh token: the other nodes pass its renewals there, and renewals that arrive together, as from several tabs, share one refresh. A provider with refresh token rotation (Keycloak's **Revoke Refresh Token**) refuses a second use of a refresh token and ends its own session. While that node does not answer, the node reached keeps the session without asking the provider. An LDAP session is asked about on the node reached.
+- In a cluster only the node that started the session uses the provider's refresh token: the other nodes pass its renewals there, and renewals that arrive together, as from several tabs, share one refresh. A provider with refresh token rotation (Keycloak's **Revoke Refresh Token**) refuses a second use of a refresh token and ends its own session. While that node does not answer, the node reached keeps the session without asking the provider; once it is removed from the cluster, the coordinator renews its sessions. An LDAP session is asked about on the node reached.
 - With the **Issuer URL** and the back-channel logout URL set in the provider, a sign-out there, or an administrator ending the user's sessions there, ends the console sessions of that sign-in at once.
 
 Google gives a refresh token only on the first consent of a user: later sign-ins cannot be asked about again, and end with the console's own session. A sign-out in MaxIOFS ends the session on every node.
@@ -215,7 +234,7 @@ When a user matches multiple authorization rules, the highest-privilege role is 
 |-------|---------|----------|
 | `not_in_authorized_group` | User authenticated but is not in any authorized group and has no manual account | Admin must either add the user's group as a group mapping, or create the user manually |
 | `no_group_mappings` | No group mappings are configured and user has no manual account | Admin must configure at least one group mapping or create the user manually |
-| `email_conflict` | The user's email matches an existing local or LDAP account | Admin must resolve the conflict (rename or delete the existing account) |
+| `email_conflict` | The email belongs to another user: local, LDAP, or of another provider | Admin must resolve the conflict (change the other account's email or delete it) |
 | `missing_email` | The OAuth provider did not return an email address | Check provider configuration and user's account settings |
 | `provisioning_failed` | Auto-provisioning failed (database error) | Check server logs for details |
 | `oauth_denied` | User cancelled the SSO login | User should try again |
@@ -232,7 +251,7 @@ Each identity provider can be scoped to a specific tenant:
 - **Global providers** (no tenant): Available to all tenants
 - **Tenant-scoped providers**: Only users in that tenant can use the provider
 
-When a user is auto-provisioned, they are assigned to the provider's tenant.
+A tenant-scoped provider gives users of its tenant only: auto-provisioning, import and sync put them in the provider's tenant, whatever tenant a mapping or an import names. A tenant administrator sees, tests, browses, imports from and maps groups of its own tenant's providers only.
 
 ### Multiple Tenants with the Same Provider Type
 
@@ -241,18 +260,18 @@ Multiple tenants can each configure their own Google (or Microsoft) OAuth provid
 - **Tenant B**: Google OAuth for `companyB.com` Workspace
 
 The login page shows a single "Sign in with Google" button. When the user enters their email and authenticates:
-1. MaxIOFS checks **all** OAuth providers for an existing account matching that email
-2. If no existing account, it checks **all** providers' group mappings for authorization
-3. The user is assigned to the tenant of the provider where authorization was found
+1. MaxIOFS sends the user to the provider that has an account for that email; with none, to the first of that type by name
+2. Only that provider signs the user in: its account for that email, or, with none, an account its own group mappings give
+3. A provisioned user goes into that provider's tenant
 
-This means the email domain naturally routes users to the correct tenant — `alice@companyA.com` matches Tenant A's group mappings, and `bob@companyB.com` matches Tenant B's. No tenant information is exposed on the login page.
+A new email therefore reaches the first provider of its type only. For the users of the others, create or import them before their first sign-in. No tenant information is exposed on the login page.
 
 ---
 
 ## Important Notes
 
 - **SSO users cannot use password login** — they must always use the SSO button
-- **One account per email** — if the same email exists across two OAuth providers, only the first account is used
+- **One account per email** — an email belongs to one user; see [Key principle](#overview)
 - **LDAP users are unaffected** — LDAP authentication continues to work with username/password
 - **Local users are unaffected** — standard username/password login works as before
 - **2FA is supported** — SSO users can enable two-factor authentication after their first login. With it enabled, the console asks for the code after the provider's sign-in: the exchanged code gives the second step's token, sent with the code to `/api/v1/auth/2fa/verify`

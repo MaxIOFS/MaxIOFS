@@ -69,6 +69,7 @@ import type {
   IdentityProvider,
   ExternalUser,
   ExternalGroup,
+  IDPConnectionTest,
   GroupMapping,
   ImportResult,
   SyncResult,
@@ -2172,8 +2173,8 @@ export class APIClient {
     await apiClient.delete(`/identity-providers/${id}`);
   }
 
-  static async testIDPConnection(id: string): Promise<{ success: boolean; message: string }> {
-    const response = await apiClient.post<APIResponse<{ success: boolean; message: string }>>(`/identity-providers/${id}/test`);
+  static async testIDPConnection(id: string): Promise<IDPConnectionTest> {
+    const response = await apiClient.post<APIResponse<IDPConnectionTest>>(`/identity-providers/${id}/test`);
     return response.data.data!;
   }
 
@@ -2192,7 +2193,7 @@ export class APIClient {
     return response.data.data || [];
   }
 
-  static async idpImportUsers(id: string, users: { external_id: string; username: string }[], role: string, tenantId?: string): Promise<ImportResult> {
+  static async idpImportUsers(id: string, users: { external_id: string; username: string; email?: string }[], role: string, tenantId?: string): Promise<ImportResult> {
     const response = await apiClient.post<APIResponse<ImportResult>>(`/identity-providers/${id}/import-users`, { users, role, tenant_id: tenantId });
     return response.data.data!;
   }

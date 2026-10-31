@@ -66,24 +66,6 @@ func (p *Provider) Type() string {
 	return idp.TypeOAuth2
 }
 
-func (p *Provider) TestConnection(ctx context.Context) error {
-	// For OAuth, we can't really test the connection without a browser redirect.
-	// Just validate that we have the required fields.
-	if p.config.ClientID == "" {
-		return fmt.Errorf("client_id is required")
-	}
-	if p.config.ClientSecret == "" {
-		return fmt.Errorf("client_secret is required")
-	}
-	if p.config.AuthURL == "" {
-		return fmt.Errorf("auth_url is required")
-	}
-	if p.config.TokenURL == "" {
-		return fmt.Errorf("token_url is required")
-	}
-	return nil
-}
-
 func (p *Provider) AuthenticateUser(ctx context.Context, username, password string) (*idp.ExternalUser, error) {
 	return nil, fmt.Errorf("OAuth2 provider does not support direct username/password authentication. Use the SSO login flow")
 }

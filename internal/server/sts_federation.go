@@ -127,10 +127,10 @@ func (s *Server) resolveWebIdentity(ctx context.Context, r *http.Request, provid
 		return nil, &federationDenied{"provider returned no email claim"}
 	}
 
-	user, _ := s.findOAuthUser(ctx, externalUser.Email)
+	user, _ := s.authManager.FindUserByExternalID(ctx, externalUser.Email, "oauth:"+providerID)
 	if user == nil {
 		var errCode string
-		user, _, errCode = s.tryAutoProvision(ctx, r, externalUser)
+		user, errCode = s.tryAutoProvision(ctx, r, providerID, externalUser)
 		if user == nil {
 			return nil, &federationDenied{errCode}
 		}

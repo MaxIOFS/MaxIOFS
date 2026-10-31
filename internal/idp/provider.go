@@ -38,13 +38,40 @@ type LogoutVerifier interface {
 	VerifyLogoutToken(ctx context.Context, token string) (subject, session string, err error)
 }
 
+// Check is one step of a connection test: what it checked, how it went
+// (CheckPassed, CheckWarning or CheckFailed) and what it found.
+type Check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+// The outcomes of a check. A warning is a configuration that works but lacks
+// something.
+const (
+	CheckPassed  = "passed"
+	CheckWarning = "warning"
+	CheckFailed  = "failed"
+)
+
+// Failed is the first check of checks that failed, nil when none did.
+func Failed(checks []Check) *Check {
+	for i := range checks {
+		if checks[i].Status == CheckFailed {
+			return &checks[i]
+		}
+	}
+	return nil
+}
+
 // Provider defines the interface that all identity providers must implement
 type Provider interface {
 	// Type returns the provider type identifier ("ldap", "oauth2")
 	Type() string
 
-	// TestConnection validates the provider configuration
-	TestConnection(ctx context.Context) error
+	// TestConnection checks the configuration against the provider, step by
+	// step; a step that needs a failed one is not run.
+	TestConnection(ctx context.Context) []Check
 
 	AuthenticateUser(ctx context.Context, username, password string) (*ExternalUser, error)
 

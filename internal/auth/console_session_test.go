@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -256,4 +257,35 @@ func TestARenewalInTheSameSecondReachesTheOtherNodes(t *testing.T) {
 	got, err := peer.(*authManager).store.GetConsoleSession(id)
 	require.NoError(t, err)
 	assert.Equal(t, "rt-2", got.IdPRefreshToken)
+}
+
+// A peer's older copy of a session that arrives while the session is renewed
+// here never replaces the renewal.
+func TestAnOlderPeerCopyNeverReplacesARenewal(t *testing.T) {
+	ctx := context.Background()
+	m, dir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, dir)
+	user := sessionUser(t, m, "racing")
+	store := m.(*authManager).store
+
+	pair, err := m.StartSession(ctx, user, &ConsoleSession{Method: SessionMethodOAuth, ProviderID: "idp-1", IdPRefreshToken: "rt-0"})
+	require.NoError(t, err)
+	id := m.SessionIDOf(pair.RefreshToken)
+	for i := 1; i <= 200; i++ {
+		older, err := store.GetConsoleSession(id)
+		require.NoError(t, err)
+		older.IdPRefreshToken = "older"
+		older.UpdatedAt++
+		renewing := *older
+		renewing.IdPRefreshToken = fmt.Sprintf("rt-%d", i)
+
+		done := make(chan error, 1)
+		go func() { done <- m.ApplyPeerSessions(ctx, []*ConsoleSession{older}) }()
+		_, err = m.ContinueSession(ctx, user, &renewing)
+		require.NoError(t, err)
+		require.NoError(t, <-done)
+		got, err := store.GetConsoleSession(id)
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("rt-%d", i), got.IdPRefreshToken, "round %d", i)
+	}
 }

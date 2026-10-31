@@ -21,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -515,6 +516,38 @@ func TestARenewalGoesOnWhenTheStartingNodeIsDown(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, renewOn(p.b, unknown["refresh_token"]), "b has not the session")
 
 	p.aDown.Store(false)
+	_, err := p.b.db.Exec(`UPDATE cluster_nodes SET health_status = ? WHERE id = ?`, cluster.HealthStatusUnavailable, p.aID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, renewOn(p.b, tokens["refresh_token"]), "b keeps it while it sees a down")
+	assert.Equal(t, asked, p.issuer.refreshes(), "without asking the provider")
+
+	markHealthy(t, p.b, p.aID)
 	assert.Equal(t, http.StatusOK, renewOn(p.b, tokens["refresh_token"]), "a, back, renews it with the provider")
 	assert.Equal(t, asked+1, p.issuer.refreshes())
+}
+
+// The coordinator renews the sessions of a node no longer in the cluster, so
+// still only one node uses their provider's refresh token; without one, they
+// are kept without asking the provider.
+func TestTheCoordinatorRenewsTheSessionsOfARemovedNode(t *testing.T) {
+	p := newSSOPair(t)
+	p.issuer.rotating = true
+	p.a.authManager.SetSessionNode(func(context.Context) string { return "removed-node" })
+	tokens := p.signIn(t, p.a)
+	p.a.authManager.SetSessionNode(func(context.Context) string { return p.aID })
+	p.reachesB(t, tokens["refresh_token"])
+
+	asked := p.issuer.refreshes()
+	assert.Equal(t, http.StatusOK, renewOn(p.b, tokens["refresh_token"]), "no coordinator: b keeps it")
+	assert.Equal(t, asked, p.issuer.refreshes(), "without asking the provider")
+
+	require.NoError(t, p.b.leaderMgr.EnsureSchema())
+	now := time.Now().Unix()
+	_, err := p.b.db.Exec(`INSERT OR REPLACE INTO cluster_leader (id, leader_id, term, granted_at, expires_at) VALUES (1, ?, 1, ?, ?)`,
+		p.aID, now, now+3600)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, renewOn(p.b, tokens["refresh_token"]), "b passes it to the coordinator")
+	assert.Equal(t, asked+1, p.issuer.refreshes(), "which asks the provider")
+	assert.Equal(t, http.StatusOK, renewOn(p.b, tokens["refresh_token"]), "a later renewal")
+	assert.Equal(t, asked+2, p.issuer.refreshes())
 }

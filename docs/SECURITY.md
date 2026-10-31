@@ -69,6 +69,10 @@ write is stored. `UNSIGNED-PAYLOAD` bodies are covered by TLS only.
 
 SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC providers. Users are auto-provisioned based on group-to-role mappings.
 
+- An email belongs to one user, as its username or its email, whichever way it signs in. A user with an email another user has is refused.
+- A provider signs in its own users only, and provisions with its own group mappings. A tenant's provider gives users of its tenant only.
+- A tenant administrator reaches its own tenant's providers only.
+
 > Complete SSO guide: [SSO.md](SSO.md)
 
 ### LDAP/Active Directory
@@ -76,6 +80,7 @@ SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC provider
 Bind authentication against LDAP/AD directories. Configured via Web Console → Users → Identity Providers.
 
 - Bind with a read-only service account; MaxIOFS only searches and binds.
+- Test Connection warns of a directory reached without TLS: the service account's and the users' passwords cross the network in clear.
 - A user signs in with the DN the console imported or a group sync gave, or with the name typed on the users page. The entry has to match the user filter.
 - A directory that does not answer within 10 seconds to connect, or 15 seconds to a request, fails the sign-in with `503`. The failure is not counted against the account or the address.
 - A user's groups are those its `memberOf` names and those that name it as `member` or `uniqueMember`.
@@ -327,7 +332,7 @@ that has not yet heard about a delete cannot resurrect the entity.
 - A sign-out ends the session on every node: its access and refresh tokens are refused from then on.
 - A session of an identity provider's user is asked about again at each renewal, and ended by the provider's back-channel logout; see [SSO.md](SSO.md#sessions-follow-the-provider). A provider that cannot be reached ends no session.
 - The provider's refresh token kept with a session is encrypted with the encryption secret.
-- In a cluster only the node that started an OAuth session uses the provider's refresh token: another node passes the renewal there over the cluster port, and while that node does not answer keeps the session without asking the provider. Renewals that arrive together share one question to the provider.
+- In a cluster only the node that started an OAuth session uses the provider's refresh token: another node passes the renewal there over the cluster port, and while that node does not answer keeps the session without asking the provider. The coordinator renews the sessions of a node removed from the cluster. Renewals that arrive together share one question to the provider.
 - A session ended during a renewal stays ended.
 
 ---

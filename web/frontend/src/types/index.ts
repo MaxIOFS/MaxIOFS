@@ -1313,6 +1313,19 @@ export interface ExternalGroup {
   memberCount: number;
 }
 
+// One step of a provider's connection test.
+export interface IDPConnectionCheck {
+  name: string;
+  status: 'passed' | 'warning' | 'failed';
+  detail: string;
+}
+
+export interface IDPConnectionTest {
+  success: boolean;
+  message: string;
+  checks?: IDPConnectionCheck[];
+}
+
 export interface GroupMapping {
   id: string;
   providerId: string;

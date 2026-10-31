@@ -63,6 +63,28 @@ func (s *SQLiteStore) PutConsoleSession(sess *ConsoleSession) error {
 	return nil
 }
 
+// ApplyPeerConsoleSession writes a session another node sent when it is the
+// later change or ends the session; an ended session is never written over.
+// The comparison is part of the write, so a renewal written meanwhile is not
+// replaced by an older copy.
+func (s *SQLiteStore) ApplyPeerConsoleSession(sess *ConsoleSession) error {
+	_, err := s.db.Exec(`INSERT INTO console_sessions (`+consoleSessionColumns+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, method = excluded.method,
+			provider_id = excluded.provider_id, idp_subject = excluded.idp_subject, idp_session = excluded.idp_session,
+			idp_refresh_token = excluded.idp_refresh_token, created_at = excluded.created_at,
+			refreshed_at = excluded.refreshed_at, expires_at = excluded.expires_at, revoked_at = excluded.revoked_at,
+			revoked_reason = excluded.revoked_reason, updated_at = excluded.updated_at
+		WHERE console_sessions.revoked_at = 0
+			AND (excluded.revoked_at != 0 OR excluded.updated_at > console_sessions.updated_at)`,
+		sess.ID, sess.UserID, sess.Method, sess.ProviderID, sess.IdPSubject, sess.IdPSession, sess.IdPRefreshToken,
+		sess.CreatedAt, sess.RefreshedAt, sess.ExpiresAt, sess.RevokedAt, sess.RevokedReason, sess.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to apply console session: %w", err)
+	}
+	return nil
+}
+
 // RenewConsoleSession writes what a renewal changes in sess, unless the session
 // was ended meanwhile, and reports whether it did.
 func (s *SQLiteStore) RenewConsoleSession(sess *ConsoleSession) (bool, error) {
@@ -409,19 +431,7 @@ func (am *authManager) ApplyPeerSessions(ctx context.Context, sessions []*Consol
 		if incoming.ExpiresAt <= now {
 			continue
 		}
-		local, err := am.store.GetConsoleSession(incoming.ID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if local != nil {
-			if local.RevokedAt != 0 {
-				continue
-			}
-			if incoming.RevokedAt == 0 && incoming.UpdatedAt <= local.UpdatedAt {
-				continue
-			}
-		}
-		if err := am.store.PutConsoleSession(incoming); err != nil {
+		if err := am.store.ApplyPeerConsoleSession(incoming); err != nil {
 			return err
 		}
 	}

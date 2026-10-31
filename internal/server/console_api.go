@@ -987,20 +987,21 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	user, sess, err := s.authManager.RefreshSession(ctx, req.RefreshToken)
-	// Only the node that started a session uses its provider's refresh token,
-	// so a provider that rotates them never sees one twice: the other nodes
-	// pass the renewal there, and that of a session or a user that has not
-	// reached them yet. An end or an expiry known here is final.
+	// One node only uses a session's provider refresh token, so a provider
+	// that rotates them never sees one twice: the other nodes pass the renewal
+	// there, and that of a session or a user that has not reached them yet. An
+	// end or an expiry known here is final.
 	unknown := err != nil && !errors.Is(err, auth.ErrSessionEnded) && !errors.Is(err, auth.ErrTokenExpired)
 	askProvider := true
 	if unknown || (err == nil && sess != nil && sess.IdPRefreshToken != "") {
-		if home := s.sessionHome(ctx, s.authManager.SessionIDOf(req.RefreshToken)); home != nil {
-			if s.renewOnHome(ctx, w, home, req.RefreshToken) {
-				return
-			}
+		renewer, keep := s.sessionRenewer(ctx, s.authManager.SessionIDOf(req.RefreshToken))
+		if renewer != nil && s.renewOnNode(ctx, w, renewer, req.RefreshToken) {
+			return
+		}
+		if renewer != nil || keep {
 			if unknown {
 				w.Header().Set("Retry-After", "5")
-				s.writeError(w, "The node that started your session did not answer. Try again in a few seconds.",
+				s.writeError(w, "The node that renews your session did not answer. Try again in a few seconds.",
 					http.StatusServiceUnavailable)
 				return
 			}
@@ -2615,7 +2616,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.authManager.CreateUser(r.Context(), user); err != nil {
-		if strings.Contains(err.Error(), "already exists") {
+		if strings.Contains(err.Error(), "already exists") || errors.Is(err, auth.ErrEmailInUse) {
 			s.writeError(w, err.Error(), http.StatusConflict)
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -2814,7 +2815,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Update user
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if errors.Is(err, auth.ErrEmailInUse) {
+			status = http.StatusConflict
+		}
+		s.writeError(w, err.Error(), status)
 		return
 	}
 

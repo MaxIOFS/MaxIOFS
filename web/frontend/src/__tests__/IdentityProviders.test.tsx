@@ -212,6 +212,58 @@ describe('Identity Providers Page', () => {
     });
   });
 
+  it('shows each step of the connection test, with how it went', async () => {
+    vi.mocked(APIClient.testIDPConnection).mockResolvedValue({
+      success: false,
+      message: 'Service account: The directory refused cn=readonly,dc=corp,dc=com',
+      checks: [
+        { name: 'Connection', status: 'passed', detail: 'Connected to ldap.corp.com:636 over TLS' },
+        { name: 'Service account', status: 'failed', detail: 'The directory refused cn=readonly,dc=corp,dc=com' },
+      ],
+    });
+
+    render(<IdentityProvidersPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Corporate AD')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getAllByTitle('Test Connection')[0]);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Connection Failed')).toBeInTheDocument();
+    expect(within(dialog).getByText('Connected to ldap.corp.com:636 over TLS')).toBeInTheDocument();
+    const failed = within(dialog).getByText('Service account').closest('li');
+    expect(failed).toHaveAttribute('data-status', 'failed');
+    expect(within(failed!).getByText('The directory refused cn=readonly,dc=corp,dc=com')).toBeInTheDocument();
+    expect(ModalManager.error).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows a passed connection test with its warnings', async () => {
+    vi.mocked(APIClient.testIDPConnection).mockResolvedValue({
+      success: true,
+      message: 'Connection successful',
+      checks: [
+        { name: 'Sign-in page', status: 'passed', detail: 'The provider shows its sign-in page' },
+        { name: 'Client secret', status: 'warning', detail: 'The provider answered invalid_request' },
+      ],
+    });
+
+    render(<IdentityProvidersPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Google SSO')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getAllByTitle('Test Connection')[1]);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Connection OK')).toBeInTheDocument();
+    expect(within(dialog).getByText('Client secret').closest('li')).toHaveAttribute('data-status', 'warning');
+    expect(ModalManager.success).not.toHaveBeenCalled();
+  });
+
   it('shows permission denied for non-admin users', () => {
     // Override the mock for this test
     const originalGlobalAdmin = mockCurrentUser.isGlobalAdmin;
@@ -252,7 +304,7 @@ describe('Identity Providers Page', () => {
   });
 
   // The server's users and mappings, as it sends them.
-  it('imports only the user that is ticked, with its DN', async () => {
+  it('imports only the user that is ticked, with its DN and email', async () => {
     const user = userEvent.setup();
     vi.mocked(APIClient.idpSearchUsers).mockResolvedValue([
       { externalId: 'uid=anabel,ou=people,dc=example,dc=org', username: 'anabel', email: 'anabel@example.org', displayName: 'Anabel Ruiz', groups: [], rawAttrs: {} },
@@ -270,7 +322,7 @@ describe('Identity Providers Page', () => {
     await user.click(screen.getByRole('button', { name: /Import Selected/i }));
 
     await waitFor(() => expect(APIClient.idpImportUsers).toHaveBeenCalledWith(
-      'idp-1', [{ external_id: 'uid=ana,ou=people,dc=example,dc=org', username: 'ana' }], 'user'));
+      'idp-1', [{ external_id: 'uid=ana,ou=people,dc=example,dc=org', username: 'ana', email: 'ana@example.org' }], 'user'));
   });
 
   it('shows the back-channel logout URL of an OAuth provider with an issuer', async () => {

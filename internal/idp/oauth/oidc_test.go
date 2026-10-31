@@ -9,7 +9,9 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,16 +21,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeIssuer is an OpenID Connect provider for tests: discovery, keys, a token
-// endpoint that signs ID tokens, refreshes as its refresh tokens say, and a
-// userinfo endpoint.
+// fakeIssuer is an OpenID Connect provider for tests: discovery, keys, a
+// sign-in page for its client and redirect URI, a token endpoint that takes
+// the client's credentials, signs ID tokens for the codes it knows and
+// refreshes as its refresh tokens say, and a userinfo endpoint.
 type fakeIssuer struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
 	groups []string
+	// secretIn is how the token endpoint takes the client's secret:
+	// "header", "params", or either when unset.
+	secretIn atomic.Value
 }
 
-const fakeClientID = "maxiofs"
+const (
+	fakeClientID    = "maxiofs"
+	fakeRedirectURI = "http://localhost/callback"
+)
 
 func startIssuer(t *testing.T) *fakeIssuer {
 	t.Helper()
@@ -51,6 +60,16 @@ func startIssuer(t *testing.T) *fakeIssuer {
 			"jwks_uri": f.server.URL + "/jwks", "id_token_signing_alg_values_supported": []string{"RS256"},
 		})
 	})
+	// An issuer whose key set has no keys.
+	mux.HandleFunc("/keyless/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"issuer": f.server.URL + "/keyless", "jwks_uri": f.server.URL + "/answer/200/none"})
+	})
+	// /answer/<status>/<error> answers that status with that OAuth error.
+	mux.HandleFunc("/answer/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/answer/"), "/")
+		status, _ := strconv.Atoi(parts[0])
+		writeJSON(w, status, map[string]any{"error": parts[1]})
+	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
 		enc := base64.RawURLEncoding
 		writeJSON(w, http.StatusOK, map[string]any{"keys": []map[string]string{{
@@ -58,10 +77,54 @@ func startIssuer(t *testing.T) *fakeIssuer {
 			"n": enc.EncodeToString(key.N.Bytes()), "e": enc.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
 		}}})
 	})
+	// The sign-in page is a redirect away, as Keycloak's is after a cookie.
+	mux.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case q.Get("client_id") != fakeClientID:
+			http.Error(w, "Client not found.", http.StatusBadRequest)
+		case q.Get("redirect_uri") != fakeRedirectURI:
+			http.Error(w, "Invalid parameter: redirect_uri", http.StatusBadRequest)
+		case strings.Contains(q.Get("scope"), "nope"):
+			http.Redirect(w, r, fakeRedirectURI+"?error=invalid_scope&error_description=Invalid+scopes&state="+q.Get("state"), http.StatusFound)
+		default:
+			http.SetCookie(w, &http.Cookie{Name: "AUTH_SESSION_ID", Value: "s1", Path: "/"})
+			http.Redirect(w, r, "/login", http.StatusFound)
+		}
+	})
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("AUTH_SESSION_ID"); err != nil {
+			http.Error(w, "Cookie not found.", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("<html><body>Sign in</body></html>"))
+	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
+		id, secret, inHeader := r.BasicAuth()
+		if !inHeader {
+			id, secret = r.Form.Get("client_id"), r.Form.Get("client_secret")
+		}
+		// As Keycloak 26: an unknown client is invalid_client, a wrong secret
+		// unauthorized_client. One that takes the secret in the form only
+		// refuses the header as a malformed request.
+		switch way, _ := f.secretIn.Load().(string); {
+		case way == "params" && inHeader:
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "error_description": "Basic authentication is not supported"})
+			return
+		case id != fakeClientID:
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_client", "error_description": "Invalid client or Invalid client credentials"})
+			return
+		case secret != "secret" || (way == "header" && !inHeader):
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized_client", "error_description": "Invalid client or Invalid client credentials"})
+			return
+		}
 		switch r.Form.Get("grant_type") {
 		case "authorization_code":
+			if code := r.Form.Get("code"); code != "good" && code != "for-another-client" {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "Code not valid"})
+				return
+			}
 			aud := fakeClientID
 			if r.Form.Get("code") == "for-another-client" {
 				aud = "another-client"
@@ -114,12 +177,17 @@ func (f *fakeIssuer) sign(t *testing.T, key *rsa.PrivateKey, claims map[string]a
 	return signed
 }
 
-func (f *fakeIssuer) provider() *Provider {
+// config is a provider configuration for this issuer's client.
+func (f *fakeIssuer) config() *idp.OAuth2Config {
 	u := f.server.URL
-	return NewProvider(&idp.OAuth2Config{
-		Preset: "custom", ClientID: fakeClientID, ClientSecret: "secret", RedirectURI: "http://localhost/callback",
+	return &idp.OAuth2Config{
+		Preset: "custom", ClientID: fakeClientID, ClientSecret: "secret", RedirectURI: fakeRedirectURI,
 		AuthURL: u + "/auth", TokenURL: u + "/token", UserInfoURL: u + "/userinfo", ClaimGroups: "groups", Issuer: u,
-	})
+	}
+}
+
+func (f *fakeIssuer) provider() *Provider {
+	return NewProvider(f.config())
 }
 
 // An OpenID Connect sign-in keeps what the provider gave to ask about it

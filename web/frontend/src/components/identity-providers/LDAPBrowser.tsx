@@ -43,7 +43,7 @@ export function LDAPBrowser({ provider, onBack }: LDAPBrowserProps) {
     mutationFn: () => {
       const users = results
         .filter((u) => selected.has(u.externalId))
-        .map((u) => ({ external_id: u.externalId, username: u.username || u.email }));
+        .map((u) => ({ external_id: u.externalId, username: u.username || u.email, email: u.email }));
       return APIClient.idpImportUsers(provider.id, users, importRole);
     },
     onSuccess: (data) => {

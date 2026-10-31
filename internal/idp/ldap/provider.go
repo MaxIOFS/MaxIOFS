@@ -36,26 +36,6 @@ func (p *Provider) Type() string {
 	return idp.TypeLDAP
 }
 
-func (p *Provider) TestConnection(ctx context.Context) error {
-	conn, err := p.client.Connect()
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	if err := p.client.BindAdmin(conn); err != nil {
-		return err
-	}
-
-	// Do a simple search to validate the base DN
-	_, err = p.client.SearchUsers(conn, "", 1)
-	if err != nil {
-		return fmt.Errorf("connection succeeded but search failed: %w", err)
-	}
-
-	return nil
-}
-
 func (p *Provider) AuthenticateUser(ctx context.Context, username, password string) (*idp.ExternalUser, error) {
 	conn, err := p.client.Connect()
 	if err != nil {

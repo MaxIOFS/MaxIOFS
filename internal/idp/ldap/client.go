@@ -32,30 +32,77 @@ func NewClient(config *idp.LDAPConfig) *Client {
 
 // Connect establishes a connection to the LDAP server
 func (c *Client) Connect() (*ldap.Conn, error) {
-	addr := net.JoinHostPort(c.config.Host, strconv.Itoa(c.config.Port))
-	dialer := ldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout})
-	tlsConfig := &tls.Config{ServerName: c.config.Host}
-
-	var conn *ldap.Conn
-	var err error
-	switch c.config.Security {
-	case "tls":
-		conn, err = ldap.DialURL("ldaps://"+addr, dialer, ldap.DialWithTLSConfig(tlsConfig))
-	default: // "none", "starttls"
-		conn, err = ldap.DialURL("ldap://"+addr, dialer)
-	}
+	conn, err := c.dial()
 	if err != nil {
 		return nil, unavailable(fmt.Errorf("failed to connect to LDAP server: %w", err))
 	}
-	conn.SetTimeout(requestTimeout)
-
 	if c.config.Security == "starttls" {
-		if err := conn.StartTLS(tlsConfig); err != nil {
+		if err := c.startTLS(conn); err != nil {
 			conn.Close()
 			return nil, unavailable(fmt.Errorf("failed to start TLS with the LDAP server: %w", err))
 		}
 	}
 	return conn, nil
+}
+
+// address is the directory's host and port.
+func (c *Client) address() string {
+	return net.JoinHostPort(c.config.Host, strconv.Itoa(c.config.Port))
+}
+
+// dial connects to the directory, over TLS for "tls".
+func (c *Client) dial() (*ldap.Conn, error) {
+	dialer := ldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout})
+	var conn *ldap.Conn
+	var err error
+	switch c.config.Security {
+	case "tls":
+		conn, err = ldap.DialURL("ldaps://"+c.address(), dialer, ldap.DialWithTLSConfig(&tls.Config{ServerName: c.config.Host}))
+	default: // "none", "starttls"
+		conn, err = ldap.DialURL("ldap://"+c.address(), dialer)
+	}
+	if err != nil {
+		return nil, err
+	}
+	conn.SetTimeout(requestTimeout)
+	return conn, nil
+}
+
+// startTLS starts TLS on conn.
+func (c *Client) startTLS(conn *ldap.Conn) error {
+	return conn.StartTLS(&tls.Config{ServerName: c.config.Host})
+}
+
+// userSearch is the base and the filter users are searched by.
+func (c *Client) userSearch() (base, filter string) {
+	base, filter = c.config.UserSearchBase, c.config.UserFilter
+	if base == "" {
+		base = c.config.BaseDN
+	}
+	if filter == "" {
+		filter = "(objectClass=person)"
+	}
+	return base, filter
+}
+
+// groupSearch is the base and the filter groups are searched by.
+func (c *Client) groupSearch() (base, filter string) {
+	base, filter = c.config.GroupSearchBase, c.config.GroupFilter
+	if base == "" {
+		base = c.config.BaseDN
+	}
+	if filter == "" {
+		filter = "(objectClass=group)"
+	}
+	return base, filter
+}
+
+// usernameAttr is the attribute a user is found by name with.
+func (c *Client) usernameAttr() string {
+	if c.config.AttrUsername == "" {
+		return "uid"
+	}
+	return c.config.AttrUsername
 }
 
 // unavailable marks err as the directory's when it is: the directory could
@@ -105,23 +152,12 @@ func (c *Client) SearchUsers(conn *ldap.Conn, query string, limit int) ([]*ldap.
 	// Sanitize query to prevent LDAP injection
 	safeQuery := EscapeFilter(query)
 
-	searchBase := c.config.UserSearchBase
-	if searchBase == "" {
-		searchBase = c.config.BaseDN
-	}
-
-	userFilter := c.config.UserFilter
-	if userFilter == "" {
-		userFilter = "(objectClass=person)"
-	}
+	searchBase, userFilter := c.userSearch()
 
 	// Build search filter combining user filter with query
 	var filter string
 	if safeQuery != "" {
-		attrUsername := c.config.AttrUsername
-		if attrUsername == "" {
-			attrUsername = "uid"
-		}
+		attrUsername := c.usernameAttr()
 		attrEmail := c.config.AttrEmail
 		if attrEmail == "" {
 			attrEmail = "mail"
@@ -161,15 +197,7 @@ func (c *Client) SearchUsers(conn *ldap.Conn, query string, limit int) ([]*ldap.
 func (c *Client) SearchGroups(conn *ldap.Conn, query string, limit int) ([]*ldap.Entry, error) {
 	safeQuery := EscapeFilter(query)
 
-	searchBase := c.config.GroupSearchBase
-	if searchBase == "" {
-		searchBase = c.config.BaseDN
-	}
-
-	groupFilter := c.config.GroupFilter
-	if groupFilter == "" {
-		groupFilter = "(objectClass=group)"
-	}
+	searchBase, groupFilter := c.groupSearch()
 
 	var filter string
 	if safeQuery != "" {
@@ -267,10 +295,7 @@ var errUserNotFound = errors.New("user not found")
 // entry at the ID when it is a DN, else the entry whose username attribute is
 // the ID. Either way the entry has to match the user filter.
 func (c *Client) FindUser(conn *ldap.Conn, externalID string) (*ldap.Entry, error) {
-	userFilter := c.config.UserFilter
-	if userFilter == "" {
-		userFilter = "(objectClass=person)"
-	}
+	searchBase, userFilter := c.userSearch()
 
 	if _, err := ldap.ParseDN(externalID); err == nil && strings.Contains(externalID, "=") {
 		entries, err := search(conn, ldap.NewSearchRequest(externalID, ldap.ScopeBaseObject, ldap.NeverDerefAliases,
@@ -283,15 +308,7 @@ func (c *Client) FindUser(conn *ldap.Conn, externalID string) (*ldap.Entry, erro
 		}
 	}
 
-	searchBase := c.config.UserSearchBase
-	if searchBase == "" {
-		searchBase = c.config.BaseDN
-	}
-	attrUsername := c.config.AttrUsername
-	if attrUsername == "" {
-		attrUsername = "uid"
-	}
-	filter := fmt.Sprintf("(&%s(%s=%s))", userFilter, attrUsername, EscapeFilter(externalID))
+	filter := fmt.Sprintf("(&%s(%s=%s))", userFilter, c.usernameAttr(), EscapeFilter(externalID))
 	entries, err := search(conn, ldap.NewSearchRequest(searchBase, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
 		2, 0, false, filter, c.getUserAttributes(), nil))
 	if err != nil {
@@ -317,14 +334,7 @@ func (c *Client) GroupsOf(conn *ldap.Conn, entry *ldap.Entry) ([]string, error) 
 		seen[strings.ToLower(g)] = true
 	}
 
-	searchBase := c.config.GroupSearchBase
-	if searchBase == "" {
-		searchBase = c.config.BaseDN
-	}
-	groupFilter := c.config.GroupFilter
-	if groupFilter == "" {
-		groupFilter = "(objectClass=group)"
-	}
+	searchBase, groupFilter := c.groupSearch()
 	dn := EscapeFilter(entry.DN)
 	filter := fmt.Sprintf("(&%s(|(member=%s)(uniqueMember=%s)))", groupFilter, dn, dn)
 	found, err := search(conn, ldap.NewSearchRequest(searchBase, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
@@ -377,10 +387,7 @@ func (c *Client) getUserAttributes() []string {
 
 // EntryToExternalUser converts an LDAP entry to an ExternalUser
 func (c *Client) EntryToExternalUser(entry *ldap.Entry) idp.ExternalUser {
-	attrUsername := c.config.AttrUsername
-	if attrUsername == "" {
-		attrUsername = "uid"
-	}
+	attrUsername := c.usernameAttr()
 	attrEmail := c.config.AttrEmail
 	if attrEmail == "" {
 		attrEmail = "mail"

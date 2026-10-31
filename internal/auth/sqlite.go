@@ -145,6 +145,10 @@ func (s *SQLiteStore) CreateUser(user *User) error {
 		authProvider = "local"
 	}
 
+	if err := emailFree(tx, user.ID, user.Email, user.Username); err != nil {
+		return err
+	}
+
 	_, err = tx.Exec(`
 		INSERT INTO users (id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at, auth_provider, external_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -160,6 +164,30 @@ func (s *SQLiteStore) CreateUser(user *User) error {
 	}
 
 	return tx.Commit()
+}
+
+// emailFree fails with ErrEmailInUse when a user other than id has one of
+// names that is an email, as its email or its username: an email names one
+// user.
+func emailFree(tx *sql.Tx, id string, names ...string) error {
+	for _, name := range names {
+		if !strings.Contains(name, "@") {
+			continue
+		}
+		var other string
+		err := tx.QueryRow(`
+			SELECT id FROM users
+			WHERE id != ? AND status != 'deleted' AND (lower(email) = lower(?) OR lower(username) = lower(?))
+			LIMIT 1
+		`, id, name, name).Scan(&other)
+		if err == nil {
+			return fmt.Errorf("%w: %s", ErrEmailInUse, name)
+		}
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("failed to check the email: %w", err)
+		}
+	}
+	return nil
 }
 
 // nullString returns sql.NullString for optional string fields
@@ -404,6 +432,16 @@ func (s *SQLiteStore) UpdateUser(user *User) error {
 		return err
 	}
 	defer tx.Rollback()
+
+	var email string
+	if err := tx.QueryRow(`SELECT COALESCE(email, '') FROM users WHERE id = ?`, user.ID).Scan(&email); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+	if !strings.EqualFold(email, user.Email) {
+		if err := emailFree(tx, user.ID, user.Email); err != nil {
+			return err
+		}
+	}
 
 	_, err = tx.Exec(`
 		UPDATE users

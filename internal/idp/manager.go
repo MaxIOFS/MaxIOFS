@@ -191,14 +191,14 @@ func (m *Manager) ListActiveOAuthProviders(ctx context.Context) ([]*IdentityProv
 	return providers, nil
 }
 
-// TestConnection tests a provider's connection
-func (m *Manager) TestConnection(ctx context.Context, providerID string) error {
+// TestConnection checks a provider's configuration against it, step by step.
+func (m *Manager) TestConnection(ctx context.Context, providerID string) ([]Check, error) {
 	provider, err := m.getOrCreateProvider(providerID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return provider.TestConnection(ctx)
+	return provider.TestConnection(ctx), nil
 }
 
 // SearchUsers searches for users in an external directory

@@ -160,30 +160,47 @@ func (s *Server) renewSession(ctx context.Context, refreshToken string, askProvi
 	return pair, err
 }
 
-// sessionHome is the node that started the session id names, when it is
-// another node of the cluster that may answer: it renews the session with its
-// identity provider. A node known to be down is not asked.
-func (s *Server) sessionHome(ctx context.Context, id string) *cluster.Node {
+// sessionRenewer is the node that renews the session id names with its
+// identity provider, so that one node only uses the provider's refresh token:
+// the node that started the session, or the coordinator for a node no longer
+// in the cluster. It gives nil to renew the session here, and keep when that
+// node is known to be down or no node coordinates: the session is then kept
+// without asking the provider.
+func (s *Server) sessionRenewer(ctx context.Context, id string) (renewer *cluster.Node, keep bool) {
 	nodeID := auth.SessionNode(id)
 	if nodeID == "" || s.clusterManager == nil || !s.clusterManager.IsClusterEnabled() {
-		return nil
+		return nil, false
 	}
-	if local, err := s.clusterManager.GetLocalNodeID(ctx); err != nil || local == nodeID {
-		return nil
+	local, err := s.clusterManager.GetLocalNodeID(ctx)
+	if err != nil || local == nodeID {
+		return nil, false
 	}
 	node, err := s.clusterManager.GetNode(ctx, nodeID)
+	if errors.Is(err, cluster.ErrNodeNotFound) {
+		leaderID := ""
+		if s.leaderMgr != nil {
+			leaderID = s.leaderMgr.LeaderID(ctx)
+		}
+		switch leaderID {
+		case "":
+			return nil, true
+		case local:
+			return nil, false
+		}
+		node, err = s.clusterManager.GetNode(ctx, leaderID)
+	}
 	if err != nil || node == nil {
-		return nil
+		return nil, true
 	}
 	if node.HealthStatus == cluster.HealthStatusUnavailable || node.HealthStatus == cluster.HealthStatusDead {
-		return nil
+		return nil, true
 	}
-	return node
+	return node, false
 }
 
-// renewOnHome asks home to renew the session of refreshToken and copies its
-// answer back. It reports false when home does not answer.
-func (s *Server) renewOnHome(ctx context.Context, w http.ResponseWriter, home *cluster.Node, refreshToken string) bool {
+// renewOnNode asks node to renew the session of refreshToken and copies its
+// answer back. It reports false when node does not answer.
+func (s *Server) renewOnNode(ctx context.Context, w http.ResponseWriter, node *cluster.Node, refreshToken string) bool {
 	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
 	if err != nil {
 		return false
@@ -200,21 +217,21 @@ func (s *Server) renewOnHome(ctx context.Context, w http.ResponseWriter, home *c
 	defer cancel()
 	proxy := s.clusterManager.ProxyClient()
 	req, err := proxy.CreateAuthenticatedRequest(forwardCtx, http.MethodPost,
-		home.Endpoint+"/api/internal/cluster/console-session-renew", bytes.NewReader(body), localNodeID, nodeToken)
+		node.Endpoint+"/api/internal/cluster/console-session-renew", bytes.NewReader(body), localNodeID, nodeToken)
 	if err != nil {
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
-	log := logrus.WithField("node_id", home.ID)
+	log := logrus.WithField("node_id", node.ID)
 	resp, err := proxy.DoAuthenticatedRequest(req)
 	if err != nil {
-		log.WithError(err).Warn("Session renewal: the node that started the session did not answer; it is kept without asking its provider")
+		log.WithError(err).Warn("Session renewal: the node that renews the session did not answer; it is kept without asking its provider")
 		return false
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		log.WithField("status", resp.StatusCode).Warn("Session renewal: the node that started the session did not answer; it is kept without asking its provider")
+		log.WithField("status", resp.StatusCode).Warn("Session renewal: the node that renews the session did not answer; it is kept without asking its provider")
 		return false
 	}
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
@@ -224,7 +241,7 @@ func (s *Server) renewOnHome(ctx context.Context, w http.ResponseWriter, home *c
 }
 
 // handleClusterSessionRenew renews, for another node of the cluster, a session
-// this node started.
+// this node started, or as coordinator one of a node no longer in the cluster.
 func (s *Server) handleClusterSessionRenew(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`

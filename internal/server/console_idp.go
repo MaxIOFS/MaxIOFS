@@ -320,13 +320,29 @@ func (s *Server) handleTestIDPConnection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-	if err := s.idpManager.TestConnection(r.Context(), providerID); err != nil {
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	checks, err := s.idpManager.TestConnection(r.Context(), provider.ID)
+	if err != nil {
 		s.writeJSONWithStatus(w, http.StatusOK, APIResponse{
 			Success: false,
 			Data: map[string]interface{}{
 				"status":  "error",
 				"message": err.Error(),
+			},
+		})
+		return
+	}
+	if failed := idp.Failed(checks); failed != nil {
+		s.writeJSONWithStatus(w, http.StatusOK, APIResponse{
+			Success: false,
+			Data: map[string]interface{}{
+				"success": false,
+				"status":  "error",
+				"message": failed.Name + ": " + failed.Detail,
+				"checks":  checks,
 			},
 		})
 		return
@@ -338,6 +354,7 @@ func (s *Server) handleTestIDPConnection(w http.ResponseWriter, r *http.Request)
 			"success": true,
 			"status":  "success",
 			"message": "Connection successful",
+			"checks":  checks,
 		},
 	})
 }
@@ -353,8 +370,6 @@ func (s *Server) handleIDPSearchUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-
 	var req struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -367,7 +382,11 @@ func (s *Server) handleIDPSearchUsers(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 50
 	}
 
-	users, err := s.idpManager.SearchUsers(r.Context(), providerID, req.Query, req.Limit)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	users, err := s.idpManager.SearchUsers(r.Context(), provider.ID, req.Query, req.Limit)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Search failed: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -383,8 +402,6 @@ func (s *Server) handleIDPSearchGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-
 	var req struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -397,7 +414,11 @@ func (s *Server) handleIDPSearchGroups(w http.ResponseWriter, r *http.Request) {
 		req.Limit = 50
 	}
 
-	groups, err := s.idpManager.SearchGroups(r.Context(), providerID, req.Query, req.Limit)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	groups, err := s.idpManager.SearchGroups(r.Context(), provider.ID, req.Query, req.Limit)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Group search failed: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -413,8 +434,6 @@ func (s *Server) handleIDPGroupMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-
 	var req struct {
 		GroupID string `json:"group_id"`
 	}
@@ -423,7 +442,11 @@ func (s *Server) handleIDPGroupMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	members, err := s.idpManager.GetGroupMembers(r.Context(), providerID, req.GroupID)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	members, err := s.idpManager.GetGroupMembers(r.Context(), provider.ID, req.GroupID)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to get group members: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -439,13 +462,11 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-
-	provider, err := s.idpManager.GetProviderMasked(r.Context(), providerID)
-	if err != nil {
-		s.writeError(w, "Identity provider not found", http.StatusNotFound)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
 		return
 	}
+	providerID := provider.ID
 
 	var req idp.ImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -462,8 +483,9 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		req.Role = "user"
 	}
 
-	if !s.isGlobalAdmin(user) {
-		req.TenantID = user.TenantID
+	// A tenant's provider gives users of its tenant only.
+	if provider.TenantID != "" {
+		req.TenantID = provider.TenantID
 	}
 
 	authProviderValue := provider.Type + ":" + providerID
@@ -501,7 +523,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 			Username:     entry.Username,
 			Password:     "",
 			DisplayName:  entry.Username,
-			Email:        "",
+			Email:        entry.Email,
 			Status:       auth.UserStatusActive,
 			TenantID:     req.TenantID,
 			Roles:        []string{req.Role},
@@ -567,8 +589,11 @@ func (s *Server) handleListGroupMappings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-	mappings, err := s.idpManager.ListGroupMappings(r.Context(), providerID)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	mappings, err := s.idpManager.ListGroupMappings(r.Context(), provider.ID)
 	if err != nil {
 		s.writeError(w, "Failed to list group mappings", http.StatusInternalServerError)
 		return
@@ -584,19 +609,25 @@ func (s *Server) handleCreateGroupMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
-
 	var mapping idp.GroupMapping
 	if err := json.NewDecoder(r.Body).Decode(&mapping); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	mapping.ProviderID = providerID
-
 	if mapping.ExternalGroup == "" || mapping.Role == "" {
 		s.writeError(w, "external_group and role are required", http.StatusBadRequest)
 		return
+	}
+
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	mapping.ProviderID = provider.ID
+	// A tenant's provider gives users of its tenant only.
+	if provider.TenantID != "" {
+		mapping.TenantID = provider.TenantID
 	}
 
 	if err := s.idpManager.CreateGroupMapping(r.Context(), &mapping); err != nil {
@@ -619,18 +650,25 @@ func (s *Server) handleUpdateGroupMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	vars := mux.Vars(r)
-	providerID := vars["id"]
-	mappingID := vars["mapId"]
-
 	var mapping idp.GroupMapping
 	if err := json.NewDecoder(r.Body).Decode(&mapping); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	mapping.ID = mappingID
-	mapping.ProviderID = providerID
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	existing := s.providerMapping(w, r, provider)
+	if existing == nil {
+		return
+	}
+	mapping.ID = existing.ID
+	mapping.ProviderID = provider.ID
+	if provider.TenantID != "" {
+		mapping.TenantID = provider.TenantID
+	}
 
 	if err := s.idpManager.UpdateGroupMapping(r.Context(), &mapping); err != nil {
 		s.writeError(w, "Failed to update group mapping", http.StatusInternalServerError)
@@ -651,7 +689,15 @@ func (s *Server) handleDeleteGroupMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mappingID := mux.Vars(r)["mapId"]
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	mapping := s.providerMapping(w, r, provider)
+	if mapping == nil {
+		return
+	}
+	mappingID := mapping.ID
 
 	mappingChanged := s.changedAt(r.Context(), cluster.EntityTypeGroupMapping, mappingID)
 	if err := s.idpManager.DeleteGroupMapping(r.Context(), mappingID); err != nil {
@@ -681,21 +727,15 @@ func (s *Server) handleSyncGroupMapping(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	vars := mux.Vars(r)
-	providerID := vars["id"]
-	mappingID := vars["mapId"]
-
-	mapping, err := s.idpManager.GetGroupMapping(r.Context(), mappingID)
-	if err != nil {
-		s.writeError(w, "Group mapping not found", http.StatusNotFound)
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
 		return
 	}
-
-	provider, err := s.idpManager.GetProviderMasked(r.Context(), providerID)
-	if err != nil {
-		s.writeError(w, "Identity provider not found", http.StatusNotFound)
+	mapping := s.providerMapping(w, r, provider)
+	if mapping == nil {
 		return
 	}
+	providerID, mappingID := provider.ID, mapping.ID
 
 	members, err := s.idpManager.GetGroupMembers(r.Context(), providerID, mapping.ExternalGroup)
 	if err != nil {
@@ -704,9 +744,10 @@ func (s *Server) handleSyncGroupMapping(w http.ResponseWriter, r *http.Request) 
 	}
 
 	authProviderValue := provider.Type + ":" + providerID
-	targetTenant := mapping.TenantID
+	// A tenant's provider gives users of its tenant only.
+	targetTenant := provider.TenantID
 	if targetTenant == "" {
-		targetTenant = provider.TenantID
+		targetTenant = mapping.TenantID
 	}
 
 	imported := 0
@@ -770,7 +811,11 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID := mux.Vars(r)["id"]
+	provider := s.managedProvider(w, r, user)
+	if provider == nil {
+		return
+	}
+	providerID := provider.ID
 
 	mappings, err := s.idpManager.ListGroupMappings(r.Context(), providerID)
 	if err != nil {
@@ -786,11 +831,6 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		provider, err := s.idpManager.GetProviderMasked(r.Context(), providerID)
-		if err != nil {
-			continue
-		}
-
 		members, err := s.idpManager.GetGroupMembers(r.Context(), providerID, mapping.ExternalGroup)
 		if err != nil {
 			totalErrors++
@@ -798,9 +838,10 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		authProviderValue := provider.Type + ":" + providerID
-		targetTenant := mapping.TenantID
+		// A tenant's provider gives users of its tenant only.
+		targetTenant := provider.TenantID
 		if targetTenant == "" {
-			targetTenant = provider.TenantID
+			targetTenant = mapping.TenantID
 		}
 
 		for _, member := range members {
@@ -1052,8 +1093,8 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 1: Look for existing user across ALL OAuth providers (not just the one used for auth)
-	user, resolvedProviderID := s.findOAuthUser(r.Context(), externalUser.Email)
+	// An email is one user's, signed in by that user's provider only.
+	user, _ := s.authManager.FindUserByExternalID(r.Context(), externalUser.Email, "oauth:"+providerID)
 	if user != nil {
 		var allowed bool
 		if user, allowed = s.applyProviderGroups(r.Context(), user, externalUser); !allowed {
@@ -1063,17 +1104,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 2: If no existing user, try auto-provisioning via group mappings
 	if user == nil {
 		var errCode string
-		user, resolvedProviderID, errCode = s.tryAutoProvision(r.Context(), r, externalUser)
+		user, errCode = s.tryAutoProvision(r.Context(), r, providerID, externalUser)
 		if user == nil {
 			http.Redirect(w, r, s.consoleRelativePath("/login?error="+url.QueryEscape(errCode)), http.StatusFound)
 			return
 		}
 	}
-
-	_ = resolvedProviderID
 
 	// Ensure email field is populated for SSO users (username is email, so sync it)
 	if user.Email == "" && externalUser.Email != "" {
@@ -1314,6 +1352,33 @@ func (s *Server) getAuthUser(r *http.Request) *auth.User {
 	return user
 }
 
+// managedProvider is the provider the request names when user manages it: a
+// tenant administrator manages its own tenant's providers only. Otherwise it
+// answers the request and gives nil.
+func (s *Server) managedProvider(w http.ResponseWriter, r *http.Request, user *auth.User) *idp.IdentityProvider {
+	provider, err := s.idpManager.GetProviderMasked(r.Context(), mux.Vars(r)["id"])
+	if err != nil {
+		s.writeError(w, "Identity provider not found", http.StatusNotFound)
+		return nil
+	}
+	if !s.isGlobalAdmin(user) && provider.TenantID != user.TenantID {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return nil
+	}
+	return provider
+}
+
+// providerMapping is the group mapping the request names when it is one of
+// provider's. Otherwise it answers the request and gives nil.
+func (s *Server) providerMapping(w http.ResponseWriter, r *http.Request, provider *idp.IdentityProvider) *idp.GroupMapping {
+	mapping, err := s.idpManager.GetGroupMapping(r.Context(), mux.Vars(r)["mapId"])
+	if err != nil || mapping.ProviderID != provider.ID {
+		s.writeError(w, "Group mapping not found", http.StatusNotFound)
+		return nil
+	}
+	return mapping
+}
+
 // isAdmin reports whether a user administers anything: one tenant, or all of
 // them. Held as a permission, so it can be granted to somebody who does not
 // carry the admin role.
@@ -1394,110 +1459,79 @@ func (s *Server) countTenantAdmins(ctx context.Context, tenantID string) (int, e
 	return count, nil
 }
 
-// findOAuthUser searches for an existing user across ALL active OAuth providers
-func (s *Server) findOAuthUser(ctx context.Context, email string) (*auth.User, string) {
-	providers, err := s.idpManager.ListActiveOAuthProviders(ctx)
+// tryAutoProvision creates the user an OAuth provider signs in for the first
+// time, with the role the provider's own group mappings give, in the
+// provider's tenant. Without a user it gives the login page's error code.
+func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, providerID string, externalUser *idp.ExternalUser) (*auth.User, string) {
+	provider, err := s.idpManager.GetProviderMasked(ctx, providerID)
 	if err != nil {
-		return nil, ""
+		return nil, "provider_unavailable"
 	}
-
-	for _, p := range providers {
-		authProviderValue := "oauth:" + p.ID
-		user, err := s.authManager.FindUserByExternalID(ctx, email, authProviderValue)
-		if err == nil && user != nil {
-			return user, p.ID
-		}
-	}
-
-	return nil, ""
-}
-
-// tryAutoProvision attempts to auto-provision an OAuth user by checking group mappings
-// across ALL active OAuth providers. Returns (nil, "", errorCode) if not authorized.
-func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, externalUser *idp.ExternalUser) (*auth.User, string, string) {
-	// Safety check: reject if a local/LDAP user already has this email as username
-	existingUser, _ := s.authManager.GetUserByUsername(ctx, externalUser.Email)
-	if existingUser != nil && !strings.HasPrefix(existingUser.AuthProvider, "oauth:") {
+	mappings, _ := s.idpManager.ListGroupMappings(ctx, provider.ID)
+	role, matched := resolveRoleFromMappings(externalUser.Groups, mappings)
+	if !matched {
 		logrus.WithFields(logrus.Fields{
-			"email":    externalUser.Email,
-			"conflict": existingUser.AuthProvider,
-		}).Warn("OAuth auto-provision blocked: email conflicts with existing user")
-		return nil, "", "email_conflict"
+			"email":       externalUser.Email,
+			"provider":    provider.ID,
+			"user_groups": externalUser.Groups,
+		}).Warn("OAuth login rejected: user in no group the provider maps")
+		return nil, "not_in_authorized_group"
 	}
 
-	// Check group mappings across ALL OAuth providers
-	providers, err := s.idpManager.ListActiveOAuthProviders(ctx)
-	if err != nil || len(providers) == 0 {
-		return nil, "", "provider_unavailable"
+	newUser := &auth.User{
+		ID:           "user-" + uuid.New().String()[:8],
+		Username:     externalUser.Email,
+		Password:     "",
+		DisplayName:  externalUser.DisplayName,
+		Email:        externalUser.Email,
+		Status:       auth.UserStatusActive,
+		TenantID:     provider.TenantID,
+		Roles:        []string{role},
+		AuthProvider: "oauth:" + provider.ID,
+		ExternalID:   externalUser.Email,
+		CreatedAt:    time.Now().Unix(),
+		UpdatedAt:    time.Now().Unix(),
 	}
 
-	for _, provider := range providers {
-		mappings, _ := s.idpManager.ListGroupMappings(ctx, provider.ID)
-		if len(mappings) == 0 {
-			continue
+	markGroupManaged(newUser)
+	if err := s.authManager.CreateUser(ctx, newUser); err != nil {
+		if errors.Is(err, auth.ErrEmailInUse) {
+			logrus.WithFields(logrus.Fields{
+				"email":    externalUser.Email,
+				"provider": provider.ID,
+			}).Warn("OAuth auto-provision refused: the email belongs to another user")
+			return nil, "email_conflict"
 		}
-
-		role, matched := resolveRoleFromMappings(externalUser.Groups, mappings)
-		if !matched {
-			continue
-		}
-
-		// Found a matching provider with authorized group — provision the user
-		authProviderValue := "oauth:" + provider.ID
-		newUser := &auth.User{
-			ID:           "user-" + uuid.New().String()[:8],
-			Username:     externalUser.Email,
-			Password:     "",
-			DisplayName:  externalUser.DisplayName,
-			Email:        externalUser.Email,
-			Status:       auth.UserStatusActive,
-			TenantID:     provider.TenantID,
-			Roles:        []string{role},
-			AuthProvider: authProviderValue,
-			ExternalID:   externalUser.Email,
-			CreatedAt:    time.Now().Unix(),
-			UpdatedAt:    time.Now().Unix(),
-		}
-
-		markGroupManaged(newUser)
-		if createErr := s.authManager.CreateUser(ctx, newUser); createErr != nil {
-			logrus.WithError(createErr).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
-			continue
-		}
-
-		s.logAuditEvent(ctx, &audit.AuditEvent{
-			UserID:       newUser.ID,
-			Username:     newUser.Username,
-			TenantID:     provider.TenantID,
-			EventType:    audit.EventTypeUserCreated,
-			ResourceType: audit.ResourceTypeUser,
-			ResourceID:   newUser.ID,
-			ResourceName: newUser.Username,
-			Action:       "auto_provision_oauth",
-			Status:       audit.StatusSuccess,
-			IPAddress:    getClientIP(r, s.config.TrustedProxies),
-			UserAgent:    r.Header.Get("User-Agent"),
-			Details: map[string]interface{}{
-				"provider_id": provider.ID,
-				"role":        role,
-			},
-		})
-
-		logrus.WithFields(logrus.Fields{
-			"user_id":  newUser.ID,
-			"username": newUser.Username,
-			"provider": provider.ID,
-			"role":     role,
-		}).Info("Auto-provisioned OAuth user")
-
-		return newUser, provider.ID, ""
+		logrus.WithError(err).WithField("email", externalUser.Email).Error("OAuth auto-provision: failed to create user")
+		return nil, "provisioning_failed"
 	}
+
+	s.logAuditEvent(ctx, &audit.AuditEvent{
+		UserID:       newUser.ID,
+		Username:     newUser.Username,
+		TenantID:     provider.TenantID,
+		EventType:    audit.EventTypeUserCreated,
+		ResourceType: audit.ResourceTypeUser,
+		ResourceID:   newUser.ID,
+		ResourceName: newUser.Username,
+		Action:       "auto_provision_oauth",
+		Status:       audit.StatusSuccess,
+		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		UserAgent:    r.Header.Get("User-Agent"),
+		Details: map[string]interface{}{
+			"provider_id": provider.ID,
+			"role":        role,
+		},
+	})
 
 	logrus.WithFields(logrus.Fields{
-		"email":       externalUser.Email,
-		"user_groups": externalUser.Groups,
-	}).Warn("OAuth login rejected: user not authorized in any provider")
-	return nil, "", "not_in_authorized_group"
+		"user_id":  newUser.ID,
+		"username": newUser.Username,
+		"provider": provider.ID,
+		"role":     role,
+	}).Info("Auto-provisioned OAuth user")
+
+	return newUser, ""
 }
 
 func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) (string, bool) {

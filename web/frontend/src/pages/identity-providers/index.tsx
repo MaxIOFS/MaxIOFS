@@ -5,6 +5,7 @@ import { APIClient } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Loading } from '@/components/ui/Loading';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SuccessModal, AlertModal } from '@/components/ui/Modal';
 import {
   Table,
   TableBody,
@@ -23,16 +24,18 @@ import {
   Plug,
   Users as UsersIcon,
   FolderTree,
+  Loader2,
 } from 'lucide-react';
-import type { IdentityProvider, Tenant } from '@/types';
+import type { IdentityProvider, IDPConnectionTest, Tenant } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { CreateIDPModal } from '@/components/identity-providers/CreateIDPModal';
 import { LDAPBrowser } from '@/components/identity-providers/LDAPBrowser';
 import { GroupMappingTable } from '@/components/identity-providers/GroupMappingTable';
+import { ConnectionChecks } from '@/components/identity-providers/ConnectionChecks';
 
 export default function IdentityProvidersPage() {
-  const { t } = useTranslation('idp');
+  const { t } = useTranslation(['idp', 'common']);
   const { isGlobalAdmin, isTenantAdmin } = useCurrentUser();
   const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
   const queryClient = useQueryClient();
@@ -42,6 +45,7 @@ export default function IdentityProvidersPage() {
   const [browsingIDP, setBrowsingIDP] = useState<IdentityProvider | null>(null);
   const [mappingIDP, setMappingIDP] = useState<IdentityProvider | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [testResult, setTestResult] = useState<IDPConnectionTest | null>(null);
 
   const { data: idps, isLoading } = useQuery({
     queryKey: ['identity-providers'],
@@ -75,7 +79,9 @@ export default function IdentityProvidersPage() {
   const testMutation = useMutation({
     mutationFn: (id: string) => APIClient.testIDPConnection(id),
     onSuccess: (data) => {
-      if (data.success) {
+      if (data.checks?.length) {
+        setTestResult(data);
+      } else if (data.success) {
         ModalManager.success(t('connectionOK'), data.message || t('connectionPassed'));
       } else {
         ModalManager.error(t('connectionFailed'), data.message || t('connectionTestFailed'));
@@ -220,7 +226,9 @@ export default function IdentityProvidersPage() {
                         className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground"
                         title={t('testConnection')}
                       >
-                        <Plug className="h-4 w-4" />
+                        {testMutation.isPending && testMutation.variables === idp.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <Plug className="h-4 w-4" />}
                       </button>
                       {idp.type === 'ldap' && (
                         <button
@@ -260,6 +268,25 @@ export default function IdentityProvidersPage() {
           </Table>
         </div>
       )}
+
+      {/* Connection test result */}
+      {testResult && (testResult.success ? (
+        <SuccessModal
+          isOpen={true}
+          onClose={() => setTestResult(null)}
+          title={t('connectionOK')}
+          message={<ConnectionChecks checks={testResult.checks!} />}
+          buttonText={t('common:close')}
+        />
+      ) : (
+        <AlertModal
+          isOpen={true}
+          onClose={() => setTestResult(null)}
+          title={t('connectionFailed')}
+          message={<ConnectionChecks checks={testResult.checks!} />}
+          buttonText={t('common:close')}
+        />
+      ))}
 
       {/* Create/Edit Modal */}
       {(isCreateOpen || editingIDP) && (

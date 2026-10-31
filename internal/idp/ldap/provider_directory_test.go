@@ -2,6 +2,7 @@ package ldap
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -11,10 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A directory of more users than one passes the connection test.
+// A directory of more users than the connection test reads passes it.
 func TestTheConnectionTestPassesWithManyUsers(t *testing.T) {
-	d := startDirectory(t, standardDirectory())
-	require.NoError(t, NewProvider(d.config()).TestConnection(context.Background()))
+	many := standardDirectory()
+	for i := range 120 {
+		many.entries = append(many.entries, person(fmt.Sprintf("user%03d", i), "pass"))
+	}
+	d := startDirectory(t, many)
+	checks := NewProvider(d.config()).TestConnection(context.Background())
+	require.Nil(t, idp.Failed(checks))
+	assert.Contains(t, checks[2].Detail, "More than 100 users")
 }
 
 // A search gives the first users the limit takes, however many match.
@@ -70,7 +77,12 @@ func TestAnUnansweringDirectoryIsUnavailableInTime(t *testing.T) {
 		started := time.Now()
 		_, err := p.AuthenticateUser(ctx, "ann", "ann-pass")
 		assert.ErrorIs(t, err, idp.ErrUnavailable, name)
-		assert.ErrorIs(t, p.TestConnection(ctx), idp.ErrUnavailable, name)
+		failed := idp.Failed(p.TestConnection(ctx))
+		require.NotNil(t, failed, name)
+		if name == "frozen" {
+			assert.Equal(t, "Service account", failed.Name)
+			assert.Contains(t, failed.Detail, "did not answer")
+		}
 		_, err = p.SearchUsers(ctx, "a", 10)
 		assert.ErrorIs(t, err, idp.ErrUnavailable, name)
 		assert.Less(t, time.Since(started), 5*time.Second, name)

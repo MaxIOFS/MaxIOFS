@@ -260,9 +260,9 @@ REST API for web console management. All endpoints prefixed with `/api/v1` unles
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/users` | List users |
-| POST | `/api/v1/users` | Create user |
+| POST | `/api/v1/users` | Create user; `409` when its email, or its username that is an email, is another user's |
 | GET | `/api/v1/users/{id}` | Get user details |
-| PUT | `/api/v1/users/{id}` | Update user; `managedByGroups` (an identity provider's user only) makes the role and the sign-in follow the provider's groups |
+| PUT | `/api/v1/users/{id}` | Update user; `managedByGroups` (an identity provider's user only) makes the role and the sign-in follow the provider's groups; `409` when the email is another user's |
 | DELETE | `/api/v1/users/{id}` | Delete user |
 | PUT | `/api/v1/users/{id}/password` | Change password |
 | PATCH | `/api/v1/users/{id}/preferences` | Update theme and language preferences |
@@ -681,6 +681,8 @@ session: it opens only the resource it was minted for.
 
 ### Identity Providers (IDP)
 
+A tenant administrator reaches its own tenant's providers and their mappings only: `403` for another's, `404` for a mapping of another provider.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/identity-providers` | List all providers |
@@ -688,11 +690,11 @@ session: it opens only the resource it was minted for.
 | GET | `/api/v1/identity-providers/{id}` | Get provider details |
 | PUT | `/api/v1/identity-providers/{id}` | Update provider |
 | DELETE | `/api/v1/identity-providers/{id}` | Delete provider |
-| POST | `/api/v1/identity-providers/{id}/test` | Test provider connection |
+| POST | `/api/v1/identity-providers/{id}/test` | Check the provider step by step: `checks`, each with `name`, `status` (`passed`, `warning`, `failed`) and `detail`; `message` is the first that failed |
 | POST | `/api/v1/identity-providers/{id}/search-users` | Search users in provider |
 | POST | `/api/v1/identity-providers/{id}/search-groups` | Search groups in provider |
 | POST | `/api/v1/identity-providers/{id}/group-members` | List the members of a provider group |
-| POST | `/api/v1/identity-providers/{id}/import-users` | Import users from provider |
+| POST | `/api/v1/identity-providers/{id}/import-users` | Import users from provider — `{"users":[{"external_id","username","email"}],"role"}`; a tenant's provider imports into its tenant; a user whose email is another's is an error in `results` |
 | POST | `/api/v1/identity-providers/{id}/sync` | Sync all group memberships |
 
 ### Group Mappings (IDP)

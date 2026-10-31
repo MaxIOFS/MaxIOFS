@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -416,11 +417,24 @@ func TestHandleListGroupMappings(t *testing.T) {
 	})
 
 	t.Run("returns list for admin", func(t *testing.T) {
-		req := createAuthenticatedRequest("GET", "/api/v1/identity-providers/test/group-mappings", nil, "", "admin-1", true)
-		req = mux.SetURLVars(req, map[string]string{"id": "test"})
+		provider := idp.IdentityProvider{Name: "Mappings Test LDAP", Type: idp.TypeLDAP,
+			Config: idp.ProviderConfig{LDAP: &idp.LDAPConfig{Host: "ldap.test.com", Port: 389, BaseDN: "dc=test,dc=com", Security: "none"}}}
+		require.NoError(t, server.idpManager.CreateProvider(context.Background(), &provider))
+		defer server.idpManager.DeleteProvider(context.Background(), provider.ID)
+
+		req := createAuthenticatedRequest("GET", "/api/v1/identity-providers/"+provider.ID+"/group-mappings", nil, "", "admin-1", true)
+		req = mux.SetURLVars(req, map[string]string{"id": provider.ID})
 		rr := httptest.NewRecorder()
 		server.handleListGroupMappings(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("returns 404 for nonexistent provider", func(t *testing.T) {
+		req := createAuthenticatedRequest("GET", "/api/v1/identity-providers/nonexistent/group-mappings", nil, "", "admin-1", true)
+		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent"})
+		rr := httptest.NewRecorder()
+		server.handleListGroupMappings(rr, req)
+		assert.Equal(t, http.StatusNotFound, rr.Code)
 	})
 }
 
@@ -874,4 +888,73 @@ func TestIsGlobalAdmin(t *testing.T) {
 		user := &auth.User{Roles: []string{"user"}, TenantID: ""}
 		assert.False(t, server.isGlobalAdmin(user))
 	})
+}
+
+// The connection test answers each check, and the first that failed as its
+// message.
+func TestTheConnectionTestAnswersEachCheck(t *testing.T) {
+	server := getSharedServer()
+	test := func(provider idp.IdentityProvider) (bool, string, []idp.Check) {
+		t.Helper()
+		body, err := json.Marshal(provider)
+		require.NoError(t, err)
+		rr := httptest.NewRecorder()
+		server.handleCreateIDP(rr, createAuthenticatedRequest("POST", "/api/v1/identity-providers", bytes.NewReader(body), "", "admin-1", true))
+		require.Equal(t, http.StatusCreated, rr.Code)
+		var created struct {
+			Data idp.IdentityProvider `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+		defer server.idpManager.DeleteProvider(context.Background(), created.Data.ID)
+
+		req := createAuthenticatedRequest("POST", "/api/v1/identity-providers/"+created.Data.ID+"/test", nil, "", "admin-1", true)
+		rr = httptest.NewRecorder()
+		server.handleTestIDPConnection(rr, mux.SetURLVars(req, map[string]string{"id": created.Data.ID}))
+		require.Equal(t, http.StatusOK, rr.Code)
+		var resp struct {
+			Success bool `json:"success"`
+			Data    struct {
+				Message string      `json:"message"`
+				Checks  []idp.Check `json:"checks"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		return resp.Success, resp.Data.Message, resp.Data.Checks
+	}
+
+	gone := httptest.NewServer(http.NotFoundHandler())
+	port := gone.Listener.Addr().(*net.TCPAddr).Port
+	gone.Close()
+	ok, message, checks := test(idp.IdentityProvider{Name: "Directory gone", Type: "ldap", Config: idp.ProviderConfig{LDAP: &idp.LDAPConfig{
+		Host: "127.0.0.1", Port: port, BindDN: "cn=svc,dc=test,dc=com", BindPassword: "Svc.Pass.2026", BaseDN: "dc=test,dc=com"}}})
+	assert.False(t, ok)
+	require.Len(t, checks, 1)
+	assert.Equal(t, idp.Check{Name: "Connection", Status: idp.CheckFailed, Detail: checks[0].Detail}, checks[0])
+	assert.Equal(t, "Connection: "+checks[0].Detail, message)
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		case "/userinfo":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			_, _ = w.Write([]byte("<html>Sign in</html>"))
+		}
+	}))
+	defer provider.Close()
+	u := provider.URL
+	ok, message, checks = test(idp.IdentityProvider{Name: "Provider", Type: "oauth2", Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{
+		Preset: "custom", ClientID: "client", ClientSecret: "secret", RedirectURI: "http://localhost/callback",
+		AuthURL: u + "/auth", TokenURL: u + "/token", UserInfoURL: u + "/userinfo"}}})
+	assert.True(t, ok)
+	assert.Equal(t, "Connection successful", message)
+	var names []string
+	for _, c := range checks {
+		assert.Equal(t, idp.CheckPassed, c.Status, c.Name)
+		names = append(names, c.Name)
+	}
+	assert.Equal(t, []string{"Sign-in page", "Client secret", "Userinfo"}, names)
 }

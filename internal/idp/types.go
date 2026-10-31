@@ -101,6 +101,7 @@ type ImportRequest struct {
 type ImportUserEntry struct {
 	ExternalID string `json:"external_id"`
 	Username   string `json:"username"`
+	Email      string `json:"email,omitempty"`
 }
 
 // ImportResult represents the outcome of importing a single user
