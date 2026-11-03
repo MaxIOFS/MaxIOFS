@@ -132,7 +132,7 @@ There are **two ways** to authorize which users can log in via SSO. You can use 
    - `admin` — Full access including user management
    - `user` — Standard access to buckets and objects
    - `readonly` — View-only access
-5. Optionally enable **Auto Sync**: the mapping is then synced by **Sync All**. Membership is checked again at each sign-in and renewal (see [Sessions Follow the Provider](#sessions-follow-the-provider)).
+5. Optionally enable **Auto Sync**: the provider's directory is then read every hour (see [Directory Sync](#directory-sync)). Membership is checked again at each sign-in and renewal (see [Sessions Follow the Provider](#sessions-follow-the-provider)).
 
 **How it works**: When a user authenticates via SSO, MaxIOFS checks if they belong to any mapped group. If they do, an account is automatically created with:
 - **Username** = their email address
@@ -194,6 +194,17 @@ A console session of an SSO user is renewed every `security.access_token_lifetim
 - With the **Issuer URL** and the back-channel logout URL set in the provider, a sign-out there, or an administrator ending the user's sessions there, ends the console sessions of that sign-in at once.
 
 Google gives a refresh token only on the first consent of a user: later sign-ins cannot be asked about again, and end with the console's own session. A sign-out in MaxIOFS ends the session on every node.
+
+### Directory Sync
+
+A user who never signs in to the console, such as one who uses access keys only, is not asked about at a renewal. The directory sync asks for them: every hour, on the coordinator in a cluster, MaxIOFS reads the directory of each active LDAP provider with a mapping set to **Auto Sync**. **Sync All** in the provider's group mappings reads it at once and says what it did.
+
+- The members of the mappings set to Auto Sync that have no user get one, following their groups.
+- Each user of the provider is asked about as at a renewal, with the service account. A user gone from the directory or disabled there is **deactivated**: no console, no access keys. A user that follows its groups gets the role they map to now, and is deactivated in no group mapped.
+- A user the sync deactivated is activated again once the directory lets it in. A user an administrator deactivated stays so.
+- A directory that does not answer changes nobody.
+
+Users are deactivated, never deleted: a configuration mistake, such as a wrong user search base, is undone by the next sync after it is fixed. An OAuth provider gives no members and cannot be asked about a user without the user's sign-in: Auto Sync reads LDAP directories only.
 
 ---
 

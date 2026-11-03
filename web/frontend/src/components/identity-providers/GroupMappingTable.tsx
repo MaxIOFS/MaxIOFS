@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import { ArrowLeft, Plus, Trash2, RefreshCw, FolderTree } from 'lucide-react';
-import type { IdentityProvider, GroupMapping } from '@/types';
+import type { IdentityProvider, GroupMapping, SyncResult } from '@/types';
 import ModalManager from '@/lib/modals';
 
 interface GroupMappingTableProps {
@@ -24,6 +24,11 @@ interface GroupMappingTableProps {
 
 export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) {
   const { t } = useTranslation('idp');
+
+  // syncMessage is what a sync did, with the members it could not make or ask about.
+  const syncMessage = (data: SyncResult) =>
+    t('syncResult', { imported: data.imported, updated: data.updated, deactivated: data.deactivated }) +
+    (data.errors ? t('importResultErrors', { errors: data.errors }) : '');
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newMapping, setNewMapping] = useState({
@@ -63,7 +68,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     mutationFn: (mapId: string) => APIClient.syncGroupMapping(provider.id, mapId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
-      ModalManager.success(t('syncComplete'), t('syncResult', { imported: data.imported, updated: data.updated, removed: data.removed }));
+      ModalManager.success(t('syncComplete'), syncMessage(data));
     },
     onError: (err: any) => {
       ModalManager.error(t('syncFailed'), err.message || t('failedToSync'));
@@ -74,7 +79,7 @@ export function GroupMappingTable({ provider, onBack }: GroupMappingTableProps) 
     mutationFn: () => APIClient.syncAllMappings(provider.id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['group-mappings', provider.id] });
-      ModalManager.success(t('syncComplete'), data.message);
+      ModalManager.success(t('syncComplete'), syncMessage(data));
     },
     onError: (err: any) => {
       ModalManager.error(t('syncFailed'), err.message || t('failedToSyncAll'));

@@ -112,13 +112,15 @@ type ImportResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
-// SyncResult represents the outcome of syncing a group mapping
+// SyncResult is what a sync of a mapping, or of a provider's directory, did:
+// the users it made, those whose role or status it changed, those it
+// deactivated, and the members it could not make or ask about.
 type SyncResult struct {
-	MappingID string `json:"mappingId"`
-	Imported  int    `json:"imported"`
-	Updated   int    `json:"updated"`
-	Removed   int    `json:"removed"`
-	Errors    int    `json:"errors"`
+	MappingID   string `json:"mappingId,omitempty"`
+	Imported    int    `json:"imported"`
+	Updated     int    `json:"updated"`
+	Deactivated int    `json:"deactivated"`
+	Errors      int    `json:"errors"`
 }
 
 // Provider status constants

@@ -3917,18 +3917,28 @@ func (h *Handler) userCanPerformS3ActionAnywhere(ctx context.Context, user *auth
 		return false
 	}
 
-	if set, ok := auth.PolicySetFromContext(ctx); ok && set.UserID == user.ID {
-		return set.AllowsAnywhere(action)
+	set, ok := auth.PolicySetFromContext(ctx)
+	if !ok || set.UserID != user.ID {
+		resolver, ok := h.authManager.(interface {
+			ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
+		})
+		if !ok {
+			return false
+		}
+		var err error
+		if set, err = resolver.ResolvePolicySet(ctx, user); err != nil {
+			return false
+		}
 	}
-
-	resolver, ok := h.authManager.(interface {
-		ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
-	})
-	if !ok {
+	if !set.AllowsAnywhere(action) {
+		name := user.Username
+		if name == "" {
+			name = user.ID
+		}
+		auth.NoteRefusal(ctx, name, action, "*", "no policy of the caller allows it")
 		return false
 	}
-	set, err := resolver.ResolvePolicySet(ctx, user)
-	return err == nil && set.AllowsAnywhere(action)
+	return true
 }
 
 func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth.User, bucketTenantID, action, resource string) bool {

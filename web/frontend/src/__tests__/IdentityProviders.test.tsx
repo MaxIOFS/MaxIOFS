@@ -370,6 +370,19 @@ describe('Identity Providers Page', () => {
     await waitFor(() => expect(APIClient.createGroupMapping).toHaveBeenCalledWith(
       'idp-1', expect.objectContaining({ externalGroup: 'cn=admins,ou=groups,dc=example,dc=org', role: 'user' })));
   });
+
+  it('shows what a sync of the directory did', async () => {
+    const user = userEvent.setup();
+    vi.mocked(APIClient.listGroupMappings).mockResolvedValue([]);
+    vi.mocked(APIClient.syncAllMappings).mockResolvedValue({ mappingId: '', imported: 1, updated: 2, deactivated: 3, errors: 4 });
+    render(<IdentityProvidersPage />);
+
+    await user.click((await screen.findAllByTitle('Group Mappings'))[0]);
+    await user.click(screen.getByRole('button', { name: /Sync All/i }));
+
+    await waitFor(() => expect(ModalManager.success).toHaveBeenCalledWith(
+      'Sync Complete', 'Imported: 1, Updated: 2, Deactivated: 3, Errors: 4'));
+  });
 });
 
 describe('Identity Providers Page - IDPStatusBadge', () => {

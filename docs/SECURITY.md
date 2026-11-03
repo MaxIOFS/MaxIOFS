@@ -331,6 +331,7 @@ that has not yet heard about a delete cannot resurrect the entity.
 - A sign-in starts a session kept on the server and replicated to every node. Its access token lasts `security.access_token_lifetime` (15 minutes) and its refresh token `security.session_timeout` (24 hours), renewed at each refresh.
 - A sign-out ends the session on every node: its access and refresh tokens are refused from then on.
 - A session of an identity provider's user is asked about again at each renewal, and ended by the provider's back-channel logout; see [SSO.md](SSO.md#sessions-follow-the-provider). A provider that cannot be reached ends no session.
+- The users of an LDAP provider with a mapping set to Auto Sync are asked about every hour, signed in or not: one gone from the directory or disabled there is deactivated, its access keys refused; see [SSO.md](SSO.md#directory-sync).
 - The provider's refresh token kept with a session is encrypted with the encryption secret.
 - In a cluster only the node that started an OAuth session uses the provider's refresh token: another node passes the renewal there over the cluster port, and while that node does not answer keeps the session without asking the provider. The coordinator renews the sessions of a node removed from the cluster. Renewals that arrive together share one question to the provider.
 - A session ended during a renewal stays ended.

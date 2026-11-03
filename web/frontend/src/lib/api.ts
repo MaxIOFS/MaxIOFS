@@ -2223,8 +2223,8 @@ export class APIClient {
     return response.data.data!;
   }
 
-  static async syncAllMappings(providerId: string): Promise<{ message: string }> {
-    const response = await apiClient.post<APIResponse<{ message: string }>>(`/identity-providers/${providerId}/sync`);
+  static async syncAllMappings(providerId: string): Promise<SyncResult> {
+    const response = await apiClient.post<APIResponse<SyncResult>>(`/identity-providers/${providerId}/sync`);
     return response.data.data!;
   }
 

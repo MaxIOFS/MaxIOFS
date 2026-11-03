@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -213,30 +212,6 @@ func TestTheConsoleRefusesAnEmailAnotherUserHas(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "belongs to another user")
 }
 
-// memberDirectory is a provider whose every group has members.
-type memberDirectory struct{ members []idp.ExternalUser }
-
-func (d *memberDirectory) Type() string                               { return "member-directory" }
-func (d *memberDirectory) TestConnection(context.Context) []idp.Check { return nil }
-func (d *memberDirectory) AuthenticateUser(context.Context, string, string) (*idp.ExternalUser, error) {
-	return nil, errors.New("no sign-in")
-}
-func (d *memberDirectory) SearchUsers(context.Context, string, int) ([]idp.ExternalUser, error) {
-	return nil, nil
-}
-func (d *memberDirectory) SearchGroups(context.Context, string, int) ([]idp.ExternalGroup, error) {
-	return nil, nil
-}
-func (d *memberDirectory) GetGroupMembers(context.Context, string) ([]idp.ExternalUser, error) {
-	return d.members, nil
-}
-func (d *memberDirectory) GetAuthURL(string, string) (string, error) {
-	return "", errors.New("no sign-in")
-}
-func (d *memberDirectory) ExchangeCode(context.Context, string) (*idp.ExternalUser, error) {
-	return nil, errors.New("no sign-in")
-}
-
 // A sync of a tenant's provider gives users of its tenant only, even by a
 // mapping that names another, and not an email another user has.
 func TestASyncGivesUsersOfTheProvidersTenant(t *testing.T) {
@@ -248,13 +223,11 @@ func TestASyncGivesUsersOfTheProvidersTenant(t *testing.T) {
 	owner := &auth.User{ID: "sync-owner", Username: "sync-owner", Password: "Secret-pass-1", Email: "taken@example.org"}
 	require.NoError(t, server.authManager.CreateUser(ctx, owner))
 	t.Cleanup(func() { _ = server.authManager.DeleteUser(ctx, owner.ID) })
-	idp.RegisterProvider("member-directory", func(provider *idp.IdentityProvider, _ string) (idp.Provider, error) {
-		name := provider.Name
-		return &memberDirectory{members: []idp.ExternalUser{
-			{ExternalID: "uid=" + name, Username: name, Email: name + "@example.org"},
-			{ExternalID: "uid=" + name + "-copy", Username: name + "-copy", Email: "TAKEN@example.org"},
-		}}, nil
-	})
+	for _, name := range []string{"sync-one", "sync-all"} {
+		directoryOf(name).set(
+			idp.ExternalUser{ExternalID: "uid=" + name, Username: name, Email: name + "@example.org", Groups: []string{"cn=staff"}},
+			idp.ExternalUser{ExternalID: "uid=" + name + "-copy", Username: name + "-copy", Email: "TAKEN@example.org", Groups: []string{"cn=staff"}})
+	}
 
 	for name, handler := range map[string]http.HandlerFunc{
 		"sync-one": server.handleSyncGroupMapping,

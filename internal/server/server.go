@@ -87,6 +87,9 @@ type Server struct {
 	sessionRenewals     sessionRenewals
 	iamSyncMgr          *cluster.IAMSyncManager
 	leaderMgr           *cluster.LeaderManager
+	// clusterJobs tells whether this node runs the jobs that act on the whole
+	// cluster: always outside a cluster, the coordinator only inside one.
+	clusterJobs func() bool
 	// consoleRouter is kept so a configuration write forwarded by another node
 	// can be replayed through the same routes a direct request would take.
 	consoleRouter           *mux.Router
@@ -690,6 +693,7 @@ func New(cfg *config.Config) (*Server, error) {
 		consoleSessionSync:      consoleSessionSync,
 		iamSyncMgr:              iamSyncMgr,
 		leaderMgr:               leaderMgr,
+		clusterJobs:             clusterJobs,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
 		idpProviderSyncMgr:      idpProviderSyncMgr,
 		groupMappingSyncMgr:     groupMappingSyncMgr,
@@ -882,6 +886,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// enforces expiry itself, so correctness never depends on this loop)
 	s.goWorker("STS session sweep", func() { s.startSTSSessionSweep(ctx, 1*time.Hour) })
 	logrus.Info("STS session sweep started")
+
+	// Read the directories of the identity providers set to sync (every hour)
+	s.goWorker("directory sync", func() { s.startDirectorySync(ctx) })
 
 	s.startUncleanShutdownReconcile(ctx)
 

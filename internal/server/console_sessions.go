@@ -96,7 +96,7 @@ func (s *Server) applyProviderGroups(ctx context.Context, user *auth.User, exter
 	if !groupManaged(user) || external == nil || s.idpManager == nil {
 		return user, true
 	}
-	_, providerID := signInMethod(user)
+	_, providerID, _ := strings.Cut(user.AuthProvider, ":")
 	mappings, err := s.idpManager.ListGroupMappings(ctx, providerID)
 	if err != nil {
 		logrus.WithError(err).WithField("provider_id", providerID).Warn("Failed to read the group mappings of a sign-in")

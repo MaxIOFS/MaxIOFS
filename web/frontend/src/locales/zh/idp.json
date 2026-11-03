@@ -131,7 +131,7 @@
   "failedToCreateMapping": "创建映射失败",
   "mappingDeletedSuccess": "组映射已删除",
   "syncComplete": "同步完成",
-  "syncResult": "已导入：{{imported}}，已更新：{{updated}}，已删除：{{removed}}",
+  "syncResult": "已导入：{{imported}}，已更新：{{updated}}，已停用：{{deactivated}}",
   "syncFailed": "同步失败",
   "failedToSync": "同步组失败",
   "failedToSyncAll": "同步所有映射失败",

@@ -131,7 +131,7 @@
   "failedToCreateMapping": "マッピングの作成に失敗しました",
   "mappingDeletedSuccess": "グループマッピングが削除されました",
   "syncComplete": "同期完了",
-  "syncResult": "インポート済み: {{imported}}、更新済み: {{updated}}、削除済み: {{removed}}",
+  "syncResult": "インポート済み: {{imported}}、更新済み: {{updated}}、無効化済み: {{deactivated}}",
   "syncFailed": "同期失敗",
   "failedToSync": "グループの同期に失敗しました",
   "failedToSyncAll": "すべてのマッピングの同期に失敗しました",

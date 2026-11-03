@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **379 Go test files**, **19 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **380 Go test files**, **19 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -472,7 +472,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 68 test files
+### `internal/server/` — 69 test files
 
 | File | Description |
 |------|-------------|
@@ -498,6 +498,7 @@ npx vitest run --coverage
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth; the coordinator sees the user's address and TLS |
 | `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups; a deletion from the log removes the copy of every kind of entity with what goes with it; a revoked session reaches the other node with its time |
+| `directory_sync_test.go` | The directory sync makes the members of the mappings set to sync, gives the role their groups map to, deactivates a user gone, disabled or in no group mapped (its access key refused) and activates it again when back, leaves alone a user an administrator deactivated, changes nobody while the directory does not answer, reads only active providers with a mapping set to sync, and asks nothing about the users of an OAuth provider |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for; a folder ZIP names no entry out of its folder (`..`, a leading `/`, a backslash, a drive letter) and names the archive by the folder or the bucket |
 | `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints; in a cluster every node shows the download, and a rotation asks every node for a new bundle |
 | `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |
@@ -674,7 +675,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `StorageClasses.test.tsx` | The storage classes page shows each class with how it keeps its data, warns of one short of nodes, adds a class, changes its protection, deletes it, moves a node to another class |
 | `AppLayout.test.tsx` | App shell layout and navigation behavior |
 | `Dashboard.test.tsx` | Dashboard metrics rendering, storage distribution |
-| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN and email; a group mapping is made with the group given; an OAuth provider with an issuer shows its back-channel logout URL and is created with the issuer; the connection test shows each step with how it went |
+| `IdentityProviders.test.tsx` | IDP management UI flows; the directory browser imports only the user ticked, with its DN and email; a group mapping is made with the group given; Sync All shows what the sync did; an OAuth provider with an issuer shows its back-channel logout URL and is created with the issuer; the connection test shows each step with how it went |
 | `UserDetails.test.tsx` | An administrator saves whether an identity provider's user follows its groups; a local user is offered no such mark |
 | `LanguageContext.test.tsx` | Language context and locale switching |
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |

@@ -131,7 +131,7 @@
   "failedToCreateMapping": "Failed to create mapping",
   "mappingDeletedSuccess": "Group mapping deleted",
   "syncComplete": "Sync Complete",
-  "syncResult": "Imported: {{imported}}, Updated: {{updated}}, Removed: {{removed}}",
+  "syncResult": "Imported: {{imported}}, Updated: {{updated}}, Deactivated: {{deactivated}}",
   "syncFailed": "Sync Failed",
   "failedToSync": "Failed to sync group",
   "failedToSyncAll": "Failed to sync all mappings",

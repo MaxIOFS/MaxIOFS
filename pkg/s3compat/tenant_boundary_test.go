@@ -115,6 +115,26 @@ func TestARefusedUploadNotesWhy(t *testing.T) {
 	assert.Equal(t, "the bucket belongs to tenant "+env.tenantID+": a global administrator only reads it", outcome.Reason)
 }
 
+func TestARefusedBucketListingNotesWhy(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+
+	user := &auth.User{ID: "no-policies", Username: "lruiz", TenantID: env.tenantID, Roles: []string{auth.RoleUser}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(setUserInContext(auth.WithOutcome(req.Context()), user))
+	w := httptest.NewRecorder()
+
+	env.handler.ListBuckets(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	outcome := auth.OutcomeOf(req.Context())
+	assert.Equal(t, "AccessDenied", outcome.Code)
+	assert.Equal(t, "lruiz", outcome.User)
+	assert.Equal(t, auth.ActionListAllMyBuckets, outcome.Action)
+	assert.Equal(t, "*", outcome.Resource)
+	assert.Equal(t, "no policy of the caller allows it", outcome.Reason)
+}
+
 func TestSubresourceAuthorization_SuperAdminCannotPutBucketPolicy(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

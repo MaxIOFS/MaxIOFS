@@ -695,7 +695,7 @@ A tenant administrator reaches its own tenant's providers and their mappings onl
 | POST | `/api/v1/identity-providers/{id}/search-groups` | Search groups in provider |
 | POST | `/api/v1/identity-providers/{id}/group-members` | List the members of a provider group |
 | POST | `/api/v1/identity-providers/{id}/import-users` | Import users from provider — `{"users":[{"external_id","username","email"}],"role"}`; a tenant's provider imports into its tenant; a user whose email is another's is an error in `results` |
-| POST | `/api/v1/identity-providers/{id}/sync` | Sync all group memberships |
+| POST | `/api/v1/identity-providers/{id}/sync` | Read the provider's directory now, as the hourly directory sync does: `imported`, `updated`, `deactivated`, `errors` (see [SSO.md](SSO.md#directory-sync)) |
 
 ### Group Mappings (IDP)
 
@@ -705,7 +705,7 @@ A tenant administrator reaches its own tenant's providers and their mappings onl
 | POST | `/api/v1/identity-providers/{id}/group-mappings` | Create group mapping |
 | PUT | `/api/v1/identity-providers/{id}/group-mappings/{mapId}` | Update mapping |
 | DELETE | `/api/v1/identity-providers/{id}/group-mappings/{mapId}` | Delete mapping |
-| POST | `/api/v1/identity-providers/{id}/group-mappings/{mapId}/sync` | Sync specific mapping |
+| POST | `/api/v1/identity-providers/{id}/group-mappings/{mapId}/sync` | Make the users the mapping's members lack: `imported`, `errors` |
 
 ### Cluster Management
 
@@ -822,7 +822,7 @@ Prometheus format at `/metrics` on the S3 port, without authentication, while `m
 | `maxiofs_bucket_operations_total` | `operation`, `bucket`, `status` | Bucket creations, deletions and configuration changes |
 | `maxiofs_object_lock_operations_total` | `operation`, `bucket`, `status` | Retention, legal hold and Object Lock configuration changes |
 | `maxiofs_object_lock_retention_objects_total` | `bucket`, `mode` | Objects whose current version a retention mode holds, counted every 15 minutes |
-| `maxiofs_background_tasks_total` | `task_type`, `status` | Runs of `lifecycle`, `inventory`, `replication`, `stats_reconciler`, `integrity_scrub`, `encryption`, `audit_retention`, `sts_session_sweep`, `anti_entropy`, `dead_node_check`, `ha_sync` |
+| `maxiofs_background_tasks_total` | `task_type`, `status` | Runs of `lifecycle`, `inventory`, `replication`, `stats_reconciler`, `integrity_scrub`, `encryption`, `audit_retention`, `sts_session_sweep`, `directory_sync`, `anti_entropy`, `dead_node_check`, `ha_sync` |
 | `maxiofs_background_task_duration_seconds` | `task_type` | Background task run duration (histogram) |
 | `maxiofs_system_events_total` | `event_type` | Events sent to the console: disk, quota, node, integrity and account alerts, configuration changes |
 | `maxiofs_system_cpu_usage_percent`, `maxiofs_system_memory_usage_percent`, `maxiofs_system_disk_usage_percent`, `maxiofs_system_disk_used_bytes`, `maxiofs_system_disk_total_bytes` | | Node resources |

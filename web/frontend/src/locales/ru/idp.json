@@ -131,7 +131,7 @@
   "failedToCreateMapping": "Не удалось создать сопоставление",
   "mappingDeletedSuccess": "Сопоставление группы удалено",
   "syncComplete": "Синхронизация завершена",
-  "syncResult": "Импортировано: {{imported}}, Обновлено: {{updated}}, Удалено: {{removed}}",
+  "syncResult": "Импортировано: {{imported}}, Обновлено: {{updated}}, Деактивировано: {{deactivated}}",
   "syncFailed": "Ошибка синхронизации",
   "failedToSync": "Не удалось синхронизировать группу",
   "failedToSyncAll": "Не удалось синхронизировать все сопоставления",

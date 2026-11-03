@@ -131,7 +131,7 @@
   "failedToCreateMapping": "Échec de la création du mappage",
   "mappingDeletedSuccess": "Mappage de groupe supprimé",
   "syncComplete": "Synchronisation terminée",
-  "syncResult": "Importés : {{imported}}, Mis à jour : {{updated}}, Supprimés : {{removed}}",
+  "syncResult": "Importés : {{imported}}, Mis à jour : {{updated}}, Désactivés : {{deactivated}}",
   "syncFailed": "Échec de la synchronisation",
   "failedToSync": "Échec de la synchronisation du groupe",
   "failedToSyncAll": "Échec de la synchronisation de tous les mappages",

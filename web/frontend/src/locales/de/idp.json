@@ -131,7 +131,7 @@
   "failedToCreateMapping": "Zuordnung konnte nicht erstellt werden",
   "mappingDeletedSuccess": "Gruppenzuordnung gelöscht",
   "syncComplete": "Synchronisation abgeschlossen",
-  "syncResult": "Importiert: {{imported}}, Aktualisiert: {{updated}}, Entfernt: {{removed}}",
+  "syncResult": "Importiert: {{imported}}, Aktualisiert: {{updated}}, Deaktiviert: {{deactivated}}",
   "syncFailed": "Synchronisation fehlgeschlagen",
   "failedToSync": "Gruppensynchonisation fehlgeschlagen",
   "failedToSyncAll": "Synchronisation aller Zuordnungen fehlgeschlagen",

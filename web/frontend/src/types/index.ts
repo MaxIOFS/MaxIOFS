@@ -1362,7 +1362,7 @@ export interface SyncResult {
   mappingId: string;
   imported: number;
   updated: number;
-  removed: number;
+  deactivated: number;
   errors: number;
 }
 

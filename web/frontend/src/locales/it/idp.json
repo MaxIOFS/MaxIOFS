@@ -131,7 +131,7 @@
   "failedToCreateMapping": "Impossibile creare la mappatura",
   "mappingDeletedSuccess": "Mappatura di gruppo eliminata",
   "syncComplete": "Sincronizzazione completata",
-  "syncResult": "Importati: {{imported}}, Aggiornati: {{updated}}, Rimossi: {{removed}}",
+  "syncResult": "Importati: {{imported}}, Aggiornati: {{updated}}, Disattivati: {{deactivated}}",
   "syncFailed": "Sincronizzazione non riuscita",
   "failedToSync": "Impossibile sincronizzare il gruppo",
   "failedToSyncAll": "Impossibile sincronizzare tutte le mappature",

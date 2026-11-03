@@ -735,75 +735,23 @@ func (s *Server) handleSyncGroupMapping(w http.ResponseWriter, r *http.Request) 
 	if mapping == nil {
 		return
 	}
-	providerID, mappingID := provider.ID, mapping.ID
 
-	members, err := s.idpManager.GetGroupMembers(r.Context(), providerID, mapping.ExternalGroup)
+	imported, failed, err := s.provisionMembers(r.Context(), provider, mapping)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to get group members: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
-
-	authProviderValue := provider.Type + ":" + providerID
-	// A tenant's provider gives users of its tenant only.
-	targetTenant := provider.TenantID
-	if targetTenant == "" {
-		targetTenant = mapping.TenantID
-	}
-
-	imported := 0
-	syncErrors := 0
-
-	for _, member := range members {
-		existing, _ := s.authManager.FindUserByExternalID(r.Context(), member.ExternalID, authProviderValue)
-		if existing != nil {
-			continue
-		}
-
-		// OAuth providers use email as username for consistency with auto-provisioning
-		username := member.Username
-		if provider.Type == idp.TypeOAuth2 {
-			username = member.Email
-		}
-		if username == "" {
-			username = member.Email
-		}
-		if username == "" {
-			syncErrors++
-			continue
-		}
-
-		newUser := &auth.User{
-			ID:           "user-" + uuid.New().String()[:8],
-			Username:     username,
-			Password:     "",
-			DisplayName:  member.DisplayName,
-			Email:        member.Email,
-			Status:       auth.UserStatusActive,
-			TenantID:     targetTenant,
-			Roles:        []string{mapping.Role},
-			AuthProvider: authProviderValue,
-			ExternalID:   member.ExternalID,
-			CreatedAt:    time.Now().Unix(),
-			UpdatedAt:    time.Now().Unix(),
-		}
-
-		markGroupManaged(newUser)
-		if err := s.authManager.CreateUser(r.Context(), newUser); err != nil {
-			syncErrors++
-			continue
-		}
-		imported++
-	}
-
-	s.idpManager.Store().UpdateGroupMappingSyncTime(mappingID)
+	s.idpManager.Store().UpdateGroupMappingSyncTime(mapping.ID)
 
 	s.writeJSON(w, idp.SyncResult{
-		MappingID: mappingID,
+		MappingID: mapping.ID,
 		Imported:  imported,
-		Errors:    syncErrors,
+		Errors:    failed,
 	})
 }
 
+// handleSyncAllMappings reads the provider's directory now, as the directory
+// sync does every hour.
 func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 	user := s.getAuthUser(r)
 	if user == nil || !s.isAdmin(user) {
@@ -815,84 +763,14 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		return
 	}
-	providerID := provider.ID
 
-	mappings, err := s.idpManager.ListGroupMappings(r.Context(), providerID)
+	mappings, err := s.idpManager.ListGroupMappings(r.Context(), provider.ID)
 	if err != nil {
 		s.writeError(w, "Failed to list group mappings", http.StatusInternalServerError)
 		return
 	}
 
-	totalImported := 0
-	totalErrors := 0
-
-	for _, mapping := range mappings {
-		if !mapping.AutoSync {
-			continue
-		}
-
-		members, err := s.idpManager.GetGroupMembers(r.Context(), providerID, mapping.ExternalGroup)
-		if err != nil {
-			totalErrors++
-			continue
-		}
-
-		authProviderValue := provider.Type + ":" + providerID
-		// A tenant's provider gives users of its tenant only.
-		targetTenant := provider.TenantID
-		if targetTenant == "" {
-			targetTenant = mapping.TenantID
-		}
-
-		for _, member := range members {
-			existing, _ := s.authManager.FindUserByExternalID(r.Context(), member.ExternalID, authProviderValue)
-			if existing != nil {
-				continue
-			}
-
-			// OAuth providers use email as username for consistency with auto-provisioning
-			username := member.Username
-			if provider.Type == idp.TypeOAuth2 {
-				username = member.Email
-			}
-			if username == "" {
-				username = member.Email
-			}
-			if username == "" {
-				totalErrors++
-				continue
-			}
-
-			newUser := &auth.User{
-				ID:           "user-" + uuid.New().String()[:8],
-				Username:     username,
-				Password:     "",
-				DisplayName:  member.DisplayName,
-				Email:        member.Email,
-				Status:       auth.UserStatusActive,
-				TenantID:     targetTenant,
-				Roles:        []string{mapping.Role},
-				AuthProvider: authProviderValue,
-				ExternalID:   member.ExternalID,
-				CreatedAt:    time.Now().Unix(),
-				UpdatedAt:    time.Now().Unix(),
-			}
-
-			markGroupManaged(newUser)
-			if err := s.authManager.CreateUser(r.Context(), newUser); err != nil {
-				totalErrors++
-				continue
-			}
-			totalImported++
-		}
-
-		s.idpManager.Store().UpdateGroupMappingSyncTime(mapping.ID)
-	}
-
-	s.writeJSON(w, map[string]interface{}{
-		"imported": totalImported,
-		"errors":   totalErrors,
-	})
+	s.writeJSON(w, s.syncDirectory(r.Context(), provider, mappings))
 }
 
 // =============================================================================
