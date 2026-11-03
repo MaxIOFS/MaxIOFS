@@ -84,6 +84,8 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 **Keycloak client setup:**
 1. Valid redirect URI: `https://your-maxiofs-domain/api/v1/auth/oauth/callback`
 2. Once the provider is saved, its settings show the **Back-channel logout URL** (`https://your-maxiofs-domain/api/v1/auth/oauth/<provider-id>/backchannel-logout`). Set it as the client's *Backchannel logout URL*, with *Backchannel logout session required* on.
+3. For **Auto Sync**: turn on the client's *Service accounts roles*, and give its service account the role `view-users` of the client `realm-management`. MaxIOFS reads the realm's users and groups with the client's own credentials.
+4. A user's **Email verified** must be on: MaxIOFS refuses an email the provider says it did not verify (`email_not_verified`). Keycloak leaves it off for a user an administrator creates; a user who registers verifies it by email.
 
 ### Step 2: Test the Connection
 
@@ -197,14 +199,14 @@ Google gives a refresh token only on the first consent of a user: later sign-ins
 
 ### Directory Sync
 
-A user who never signs in to the console, such as one who uses access keys only, is not asked about at a renewal. The directory sync asks for them: every hour, on the coordinator in a cluster, MaxIOFS reads the directory of each active LDAP provider with a mapping set to **Auto Sync**. **Sync All** in the provider's group mappings reads it at once and says what it did.
+A user who never signs in to the console, such as one who uses access keys only, is not asked about at a renewal. The directory sync asks for them: every hour, on the coordinator in a cluster, MaxIOFS reads the directory of each active LDAP provider, and the realm of each Keycloak provider, with a mapping set to **Auto Sync**. **Sync All** in the provider's group mappings reads it at once and says what it did.
 
 - The members of the mappings set to Auto Sync that have no user get one, following their groups.
-- Each user of the provider is asked about as at a renewal, with the service account. A user gone from the directory or disabled there is **deactivated**: no console, no access keys. A user that follows its groups gets the role they map to now, and is deactivated in no group mapped.
+- Each user of the provider is asked about as at a renewal: with the service account in LDAP, through the admin API in Keycloak. A user gone from the directory or disabled there, or in Keycloak whose email is not verified, is **deactivated**: no console, no access keys. A user that follows its groups gets the role they map to now, and is deactivated in no group mapped.
 - A user the sync deactivated is activated again once the directory lets it in. A user an administrator deactivated stays so.
 - A directory that does not answer changes nobody.
 
-Users are deactivated, never deleted: a configuration mistake, such as a wrong user search base, is undone by the next sync after it is fixed. An OAuth provider gives no members and cannot be asked about a user without the user's sign-in: Auto Sync reads LDAP directories only.
+Users are deactivated, never deleted: a configuration mistake, such as a wrong user search base, is undone by the next sync after it is fixed. A Keycloak provider is one whose Issuer URL names a realm (`https://keycloak/realms/<realm>`). Another OAuth provider gives no members and cannot be asked about a user without the user's sign-in: **Sync All** says it has no directory.
 
 ---
 
@@ -247,6 +249,7 @@ When a user matches multiple authorization rules, the highest-privilege role is 
 | `no_group_mappings` | No group mappings are configured and user has no manual account | Admin must configure at least one group mapping or create the user manually |
 | `email_conflict` | The email belongs to another user: local, LDAP, or of another provider | Admin must resolve the conflict (change the other account's email or delete it) |
 | `missing_email` | The OAuth provider did not return an email address | Check provider configuration and user's account settings |
+| `email_not_verified` | The provider says it did not verify the user's email (`email_verified` false): anyone may have typed it there | Verify the email at the provider; in Keycloak, turn on the user's **Email verified** |
 | `provisioning_failed` | Auto-provisioning failed (database error) | Check server logs for details |
 | `oauth_denied` | User cancelled the SSO login | User should try again |
 | `exchange_failed` | The provider refused the code or the token | Check the client ID, the client secret and the redirect URI |

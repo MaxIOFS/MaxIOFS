@@ -6,7 +6,11 @@
   "loadingClusterData": "Caricamento dati cluster...",
 
   "clusterNotInitialized": "Cluster non inizializzato",
-  "clusterNotInitializedDesc": "Inizializza un nuovo cluster con questo nodo, oppure aggiungi questo nodo a un cluster esistente dalla console di quel cluster: Gestisci nodi, Aggiungi nodo.",
+  "clusterNotInitializedDesc": "Inizializza un nuovo cluster con questo nodo, oppure apri un codice di adesione e aggiungi questo nodo da un nodo di un cluster esistente: Gestisci nodi, Aggiungi nodo.",
+  "openJoinCode": "Codice di adesione",
+  "joinCodeTitle": "Codice di adesione di questo nodo",
+  "joinCodeDesc": "Su un nodo del cluster, Gestisci nodi, Aggiungi nodo: inserisci l'indirizzo di questo nodo e questo codice. Vale una volta, fino alle {{time}}.",
+  "failedToOpenJoinCode": "Impossibile aprire un codice di adesione",
   "initializeCluster": "Inizializza cluster",
 
   "initClusterTitle": "Inizializza cluster",
@@ -122,11 +126,11 @@
   "removeNode": "Rimuovi nodo",
 
   "addNodeTitle": "Aggiungi nodo al cluster",
-  "addNodeDesc": "Inserire l'URL della console e le credenziali amministratore del nodo remoto. Il nodo deve essere in modalità standalone (non già in un cluster).",
+  "addNodeDesc": "Inserisci l'indirizzo del nodo da aggiungere e il codice di adesione aperto su di esso. Il nodo non deve appartenere a nessun cluster né contenere dati.",
   "consoleUrl": "Indirizzo IP del nodo *",
   "consoleUrlHint": "Indirizzo IP del nodo remoto (porta console 8081). La comunicazione cluster utilizzerà automaticamente la porta 8082.",
-  "adminUsername": "Nome utente amministratore *",
-  "adminPassword": "Password amministratore *",
+  "joinCodeLabel": "Codice di adesione *",
+  "joinCodeHint": "Aprilo sul nodo da aggiungere: Cluster, Codice di adesione. Vale una volta, per 15 minuti.",
 
   "editNodeTitle": "Modifica nodo cluster",
   "nodeNameFieldLabel": "Nome nodo",

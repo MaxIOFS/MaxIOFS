@@ -53,6 +53,9 @@ type Manager struct {
 	// rooms is the room of each node, held and free, as the last balance
 	// count found it.
 	rooms sync.Map
+	// placementChanged is when this node last changed the copies of a write,
+	// or was told of a change (unix nanoseconds).
+	placementChanged atomic.Int64
 	// taskObserver is told of each anti-entropy cycle, dead-node check and
 	// initial sync.
 	taskObserver atomic.Pointer[bgwork.TaskObserver]

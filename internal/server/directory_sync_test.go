@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -63,6 +64,7 @@ func (d *memberDirectory) setDown(down bool) {
 }
 
 func (d *memberDirectory) Type() string                               { return "member-directory" }
+func (d *memberDirectory) ReadsDirectory() bool                       { return true }
 func (d *memberDirectory) TestConnection(context.Context) []idp.Check { return nil }
 func (d *memberDirectory) AuthenticateUser(context.Context, string, string) (*idp.ExternalUser, error) {
 	return nil, errors.New("no sign-in")
@@ -233,9 +235,9 @@ func TestTheDirectorySyncReadsTheProvidersSetToSync(t *testing.T) {
 	assert.Equal(t, auth.UserStatusActive, userNamed(t, server, "ds-of-inactive").Status)
 }
 
-// A sync of an OAuth provider asks nothing about its users: there is nothing to
-// ask about a user without the refresh token of its sign-in.
-func TestASyncOfAnOAuthProviderLeavesItsUsers(t *testing.T) {
+// An OAuth provider other than a Keycloak realm has no directory to read: Sync
+// All says so, and asks nothing about its users.
+func TestASyncOfAnOAuthProviderWithoutADirectory(t *testing.T) {
 	n := newSSONode(t)
 	_, failure := n.signIn(t)
 	require.Empty(t, failure)
@@ -243,12 +245,110 @@ func TestASyncOfAnOAuthProviderLeavesItsUsers(t *testing.T) {
 	req := createAuthenticatedRequest("POST", "/", nil, "", "admin-1", true)
 	rr := httptest.NewRecorder()
 	n.server.handleSyncAllMappings(rr, mux.SetURLVars(req, map[string]string{"id": n.provider}))
-	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
-	var result struct{ Data idp.SyncResult }
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &result))
-	assert.Equal(t, idp.SyncResult{}, result.Data)
+	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "no directory")
 
 	alice, err := n.server.authManager.GetUserByUsername(context.Background(), "alice@example.org")
 	require.NoError(t, err)
 	assert.Equal(t, auth.UserStatusActive, alice.Status)
+}
+
+// realm is a Keycloak realm's admin API for the server's tests: its users by
+// email, with whether each is enabled, and the members of one group.
+type realm struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	enabled map[string]bool // email to enabled
+	group   string
+}
+
+func startRealm(t *testing.T, group string, emails ...string) *realm {
+	t.Helper()
+	k := &realm{enabled: map[string]bool{}, group: group}
+	for _, e := range emails {
+		k.enabled[e] = true
+	}
+	user := func(email string, enabled bool) map[string]any {
+		return map[string]any{"id": "id-" + email, "email": email, "firstName": "Ana", "enabled": enabled, "emailVerified": true}
+	}
+	reply := func(w http.ResponseWriter, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	routes := http.NewServeMux()
+	routes.HandleFunc("/realms/empresa/protocol/openid-connect/token", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]any{"access_token": "admin", "token_type": "Bearer", "expires_in": 300})
+	})
+	routes.HandleFunc("/admin/realms/empresa/", func(w http.ResponseWriter, r *http.Request) {
+		k.mu.Lock()
+		defer k.mu.Unlock()
+		path := strings.TrimPrefix(r.URL.Path, "/admin/realms/empresa/")
+		switch {
+		case path == "users":
+			found := []any{}
+			if enabled, ok := k.enabled[r.URL.Query().Get("email")]; ok {
+				found = append(found, user(r.URL.Query().Get("email"), enabled))
+			}
+			reply(w, found)
+		case strings.HasSuffix(path, "/groups") && strings.HasPrefix(path, "users/"):
+			reply(w, []any{map[string]string{"id": "g", "name": k.group, "path": "/" + k.group}})
+		case path == "groups":
+			reply(w, []any{map[string]any{"id": "g", "name": k.group, "path": "/" + k.group}})
+		case path == "groups/g/members":
+			members := []any{}
+			if r.URL.Query().Get("first") == "0" {
+				for e, enabled := range k.enabled {
+					members = append(members, user(e, enabled))
+				}
+			}
+			reply(w, members)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	k.server = httptest.NewServer(routes)
+	t.Cleanup(k.server.Close)
+	return k
+}
+
+// Auto Sync reads a Keycloak realm as it reads an LDAP directory: the members
+// of a mapping set to sync get a user of the provider, signed in through it,
+// and a user the realm disabled, or no longer has, is deactivated.
+func TestAutoSyncReadsAKeycloakRealm(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	k := startRealm(t, "maxiofs-users", "ks-ana@empresa.com", "ks-beto@empresa.com")
+	issuer := k.server.URL + "/realms/empresa"
+	provider := &idp.IdentityProvider{Name: "Keycloak", Type: idp.TypeOAuth2, Status: idp.StatusActive,
+		Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{Preset: "custom", ClientID: "maxiofs", ClientSecret: "secret",
+			AuthURL: issuer + "/protocol/openid-connect/auth", TokenURL: issuer + "/protocol/openid-connect/token",
+			UserInfoURL: issuer + "/protocol/openid-connect/userinfo", Issuer: issuer, ClaimGroups: "groups"}}}
+	require.NoError(t, server.idpManager.CreateProvider(ctx, provider))
+	t.Cleanup(func() { _ = server.idpManager.DeleteProvider(ctx, provider.ID) })
+	require.NoError(t, server.idpManager.CreateGroupMapping(ctx, &idp.GroupMapping{ProviderID: provider.ID,
+		ExternalGroup: "maxiofs-users", Role: auth.RoleUser, AutoSync: true}))
+	gone := &auth.User{ID: "ks-gone", Username: "ks-gone@empresa.com", Email: "ks-gone@empresa.com", Roles: []string{auth.RoleUser},
+		AuthProvider: "oauth:" + provider.ID, ExternalID: "ks-gone@empresa.com"}
+	require.NoError(t, server.authManager.CreateUser(ctx, gone))
+	t.Cleanup(func() {
+		for _, name := range []string{"ks-ana@empresa.com", "ks-beto@empresa.com", "ks-gone@empresa.com"} {
+			if u, err := server.authManager.GetUserByUsername(ctx, name); err == nil {
+				_ = server.authManager.DeleteUser(ctx, u.ID)
+			}
+		}
+	})
+
+	server.syncDirectories(ctx)
+	ana := userNamed(t, server, "ks-ana@empresa.com")
+	assert.Equal(t, "oauth:"+provider.ID, ana.AuthProvider, "signed in through the provider")
+	assert.Equal(t, "ks-ana@empresa.com", ana.ExternalID)
+	assert.Equal(t, auth.UserStatusActive, ana.Status)
+	assert.Equal(t, auth.UserStatusInactive, userNamed(t, server, "ks-gone@empresa.com").Status, "gone from the realm")
+
+	k.mu.Lock()
+	k.enabled["ks-beto@empresa.com"] = false
+	k.mu.Unlock()
+	server.syncDirectories(ctx)
+	assert.Equal(t, auth.UserStatusInactive, userNamed(t, server, "ks-beto@empresa.com").Status, "disabled in the realm")
+	assert.Equal(t, auth.UserStatusActive, userNamed(t, server, "ks-ana@empresa.com").Status)
 }

@@ -58,6 +58,7 @@ import type {
   InitializeClusterRequest,
   InitializeClusterResponse,
   AddNodeRequest,
+  JoinCodeResponse,
   UpdateNodeRequest,
   NodeHealthStatus,
   ListNodesResponse,
@@ -1966,6 +1967,12 @@ export class APIClient {
   // Cluster API
   static async initializeCluster(request: InitializeClusterRequest): Promise<InitializeClusterResponse> {
     const response = await apiClient.post<APIResponse<InitializeClusterResponse>>('/cluster/initialize', request);
+    return response.data.data!;
+  }
+
+  // openJoinCode opens a join code on this node, to be added to a cluster.
+  static async openJoinCode(): Promise<JoinCodeResponse> {
+    const response = await apiClient.post<APIResponse<JoinCodeResponse>>('/cluster/join-code');
     return response.data.data!;
   }
 

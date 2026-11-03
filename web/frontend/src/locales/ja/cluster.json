@@ -6,7 +6,11 @@
   "loadingClusterData": "クラスターデータを読み込み中...",
 
   "clusterNotInitialized": "クラスターが初期化されていません",
-  "clusterNotInitializedDesc": "このノードで新しいクラスターを初期化するか、既存クラスターのコンソールの「ノードを管理」→「ノードを追加」からこのノードを追加します。",
+  "clusterNotInitializedDesc": "このノードで新しいクラスターを初期化するか、参加コードを発行して既存クラスターのノードから追加してください: ノードを管理、ノードを追加。",
+  "openJoinCode": "参加コード",
+  "joinCodeTitle": "このノードの参加コード",
+  "joinCodeDesc": "クラスターのノードで ノードを管理、ノードを追加 を開き、このノードのアドレスとこのコードを入力してください。{{time}} まで一度だけ有効です。",
+  "failedToOpenJoinCode": "参加コードを発行できませんでした",
   "initializeCluster": "クラスターを初期化",
 
   "initClusterTitle": "クラスターを初期化",
@@ -122,11 +126,11 @@
   "removeNode": "ノードを削除",
 
   "addNodeTitle": "クラスターにノードを追加",
-  "addNodeDesc": "リモートノードのコンソールURLと管理者認証情報を入力してください。ノードはスタンドアロンモード（クラスターにまだ参加していない）である必要があります。",
+  "addNodeDesc": "追加するノードのアドレスと、そのノードで発行した参加コードを入力してください。ノードはどのクラスターにも属さず、データを持っていない必要があります。",
   "consoleUrl": "ノードIPアドレス *",
   "consoleUrlHint": "リモートノードのIPアドレス（コンソールポート8081）。クラスター通信は自動的にポート8082を使用します。",
-  "adminUsername": "管理者ユーザー名 *",
-  "adminPassword": "管理者パスワード *",
+  "joinCodeLabel": "参加コード *",
+  "joinCodeHint": "追加するノードで発行します: クラスター、参加コード。15 分間、一度だけ有効です。",
 
   "editNodeTitle": "クラスターノードを編集",
   "nodeNameFieldLabel": "ノード名",

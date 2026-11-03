@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -86,42 +89,95 @@ func (s *Server) handleInitializeCluster(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handleJoinCluster receives the join package pushed by Node A (via this node's port 8081).
-// It generates this node's TLS certificate, starts the cluster TLS listener on port 8082,
-// and only then responds to Node A — so Node A knows the cluster port is ready immediately.
+// joinRequest is the join package as it crosses the network: sealed with the
+// join code the joining node opened, with the salt the adding node chose.
+type joinRequest struct {
+	Salt    string `json:"salt"`
+	Package string `json:"package"`
+}
+
+// joinAnswer is the joining node's answer, sealed with the same key: an
+// APIResponse inside.
+type joinAnswer struct {
+	Sealed string `json:"sealed"`
+}
+
+// handleJoinCluster receives the join package of the node that adds this one,
+// sealed with the join code this node opened: none other opens it, so it needs
+// no session. Its answer is sealed with the same key. It generates this node's
+// TLS certificate and starts the cluster TLS listener before answering, so the
+// adding node knows the cluster port is ready.
 func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
-	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
-		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+	var req joinRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	var pkg cluster.ClusterJoinPackage
-	if err := json.NewDecoder(r.Body).Decode(&pkg); err != nil {
+	salt, err := base64.StdEncoding.DecodeString(req.Salt)
+	if err != nil {
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	sealed, err := base64.StdEncoding.DecodeString(req.Package)
+	if err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	var pkg cluster.ClusterJoinPackage
+	var key []byte
+	err = s.joinCode.use(time.Now(), func(code string) bool {
+		k, err := joinKey(code, salt)
+		if err != nil {
+			return false
+		}
+		plain, err := openJoin(k, sealed)
+		if err != nil || json.Unmarshal(plain, &pkg) != nil {
+			return false
+		}
+		key = k
+		return true
+	})
+	if err != nil {
+		logrus.WithError(err).WithField("from", r.RemoteAddr).Warn("Join package refused")
+		s.writeError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	answer := func(status int, resp APIResponse) {
+		plain, _ := json.Marshal(resp)
+		sealed, err := sealJoin(key, plain)
+		if err != nil {
+			s.writeError(w, "Failed to seal the answer", http.StatusInternalServerError)
+			return
+		}
+		s.writeJSONWithStatus(w, status, joinAnswer{Sealed: base64.StdEncoding.EncodeToString(sealed)})
+	}
+
+	if s.clusterManager.IsClusterEnabled() {
+		answer(http.StatusConflict, APIResponse{Error: "this node is already in a cluster"})
+		return
+	}
 	held, err := s.heldData(r.Context())
 	if err != nil {
-		s.writeError(w, "Failed to check the data this node holds: "+err.Error(), http.StatusInternalServerError)
+		answer(http.StatusInternalServerError, APIResponse{Error: "Failed to check the data this node holds: " + err.Error()})
 		return
 	}
 	if len(held) > 0 {
-		s.writeError(w, "Only a node without data can join a cluster; this node holds "+strings.Join(held, ", "), http.StatusConflict)
+		answer(http.StatusConflict, APIResponse{Error: "Only a node without data can join a cluster; this node holds " + strings.Join(held, ", ")})
 		return
 	}
 
 	// Generate this node's cert using the CA, save config to DB, load TLS into memory.
 	if err := s.clusterManager.AcceptClusterJoin(r.Context(), &pkg); err != nil {
 		logrus.WithError(err).Error("Failed to accept cluster join package")
-		s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
+		answer(http.StatusInternalServerError, APIResponse{Error: "Failed to join cluster: " + err.Error()})
 		return
 	}
 
 	if len(pkg.EncryptionKeys) > 0 && s.kekStore != nil {
 		if err := s.kekStore.AdoptClusterKeys(pkg.EncryptionKeys); err != nil {
 			logrus.WithError(err).Error("Failed to adopt cluster encryption keys")
-			s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusConflict)
+			answer(http.StatusConflict, APIResponse{Error: "Failed to join cluster: " + err.Error()})
 			return
 		}
 	}
@@ -132,7 +188,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		unreadable, err := s.encSecret.Adopt(r.Context(), pkg.EncryptionSecret)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to adopt the cluster encryption secret")
-			s.writeError(w, "Failed to join cluster: "+err.Error(), http.StatusInternalServerError)
+			answer(http.StatusInternalServerError, APIResponse{Error: "Failed to join cluster: " + err.Error()})
 			return
 		}
 		if len(unreadable) > 0 {
@@ -152,7 +208,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 	// this succeeds, so it can immediately treat this node as reachable on 8082.
 	if err := s.enableClusterTLS(); err != nil {
 		logrus.WithError(err).Error("Failed to start cluster TLS after join")
-		s.writeError(w, "Join succeeded but failed to start cluster TLS: "+err.Error(), http.StatusInternalServerError)
+		answer(http.StatusInternalServerError, APIResponse{Error: "Join succeeded but failed to start cluster TLS: " + err.Error()})
 		return
 	}
 
@@ -166,7 +222,7 @@ func (s *Server) handleJoinCluster(w http.ResponseWriter, r *http.Request) {
 		s.startClusterBackgroundServices(bgCtx)
 	})
 
-	s.writeJSON(w, map[string]interface{}{"message": "Join accepted, cluster TLS ready"})
+	answer(http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"message": "Join accepted, cluster TLS ready"}})
 }
 
 // heldData lists what this node holds that keeps it out of a cluster, which
@@ -375,9 +431,9 @@ func (s *Server) compareEncryptionSecrets(ctx context.Context, nodes []clusterNo
 	wg.Wait()
 }
 
-// handleAddClusterNode adds a remote standalone node to this cluster.
-// It authenticates to the remote node using admin credentials, then
-// triggers a cluster join on the remote node.
+// handleAddClusterNode adds a node in no cluster to this cluster with the join
+// code its administrator opened on it: the join package is sealed with the
+// code, and the node's answer is read only when the same code opens it.
 func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
 		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
@@ -386,8 +442,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Endpoint string `json:"endpoint"`
-		Username string `json:"username"`
-		Password string `json:"password"`
+		JoinCode string `json:"join_code"`
 		NodeName string `json:"node_name"`
 	}
 
@@ -396,8 +451,13 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Endpoint == "" || req.Username == "" || req.Password == "" {
-		s.writeError(w, "Endpoint, username, and password are required", http.StatusBadRequest)
+	if req.Endpoint == "" || req.JoinCode == "" {
+		s.writeError(w, "Endpoint and join code are required", http.StatusBadRequest)
+		return
+	}
+	code := normalizeJoinCode(req.JoinCode)
+	if !validJoinCode(code) {
+		s.writeError(w, "The join code is not valid: copy it from the new node's Cluster page", http.StatusBadRequest)
 		return
 	}
 
@@ -422,68 +482,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use insecure TLS — Node B is standalone and may not have TLS at all
-	insecureClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
-		},
-	}
-
 	remoteEndpoint := strings.TrimRight(req.Endpoint, "/")
-
-	// Step 1: Authenticate to Node B via 8081
-	loginPayload, _ := json.Marshal(map[string]string{
-		"username": req.Username,
-		"password": req.Password,
-	})
-	loginResp, err := insecureClient.Post(remoteEndpoint+"/api/v1/auth/login", "application/json", bytes.NewReader(loginPayload))
-	if err != nil {
-		logrus.WithError(err).Error("Failed to connect to remote node")
-		s.writeError(w, "Failed to connect to remote node: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer loginResp.Body.Close()
-	if loginResp.StatusCode != http.StatusOK {
-		s.writeError(w, "Authentication failed on remote node (check credentials)", http.StatusUnauthorized)
-		return
-	}
-	var loginResult struct {
-		Token       string `json:"token"`
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(loginResp.Body).Decode(&loginResult); err != nil {
-		s.writeError(w, "Failed to parse authentication response from remote node", http.StatusBadGateway)
-		return
-	}
-	remoteToken := loginResult.AccessToken
-	if remoteToken == "" {
-		remoteToken = loginResult.Token
-	}
-	if remoteToken == "" {
-		s.writeError(w, "Failed to obtain token from remote node", http.StatusBadGateway)
-		return
-	}
-
-	// Step 2: Verify Node B is in standalone mode
-	configReq, _ := http.NewRequestWithContext(r.Context(), "GET", remoteEndpoint+"/api/v1/cluster/config", nil)
-	configReq.Header.Set("Authorization", "Bearer "+remoteToken)
-	configResp, err := insecureClient.Do(configReq)
-	if err != nil {
-		s.writeError(w, "Failed to check remote node cluster status: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer configResp.Body.Close()
-	if configResp.StatusCode == http.StatusOK {
-		var remoteConfig struct {
-			Data struct {
-				IsClusterEnabled bool `json:"is_cluster_enabled"`
-			} `json:"data"`
-		}
-		if err := json.NewDecoder(configResp.Body).Decode(&remoteConfig); err == nil && remoteConfig.Data.IsClusterEnabled {
-			s.writeError(w, "Remote node is already part of a cluster. It must leave its current cluster before joining a new one.", http.StatusConflict)
-			return
-		}
-	}
 
 	// Step 3: Build the join package
 	// Generate Node B's node ID, name, and TLS cert+key signed by Node A's CA
@@ -547,26 +546,71 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		pkg.EncryptionSecret = s.encSecret.Current()
 	}
 
-	// Step 4: Push the join package to Node B via 8081
-	joinPayload, _ := json.Marshal(pkg)
+	// Step 4: Push the join package to Node B via 8081, sealed with its join
+	// code. A standalone node may serve its console without TLS, or with a
+	// certificate no CA vouches for: the seal, not TLS, keeps the package
+	// secret and tells whether the answer is B's.
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		s.writeError(w, "Failed to seal the join package", http.StatusInternalServerError)
+		return
+	}
+	key, err := joinKey(code, salt)
+	if err != nil {
+		s.writeError(w, "Failed to seal the join package", http.StatusInternalServerError)
+		return
+	}
+	plain, _ := json.Marshal(pkg)
+	sealed, err := sealJoin(key, plain)
+	if err != nil {
+		s.writeError(w, "Failed to seal the join package", http.StatusInternalServerError)
+		return
+	}
+	joinPayload, _ := json.Marshal(joinRequest{
+		Salt:    base64.StdEncoding.EncodeToString(salt),
+		Package: base64.StdEncoding.EncodeToString(sealed),
+	})
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+		},
+	}
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))
 	joinReq.Header.Set("Content-Type", "application/json")
-	joinReq.Header.Set("Authorization", "Bearer "+remoteToken)
-	joinResp, err := insecureClient.Do(joinReq)
+	joinResp, err := client.Do(joinReq)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to send join package to remote node")
 		s.writeError(w, "Failed to send join package to remote node: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer joinResp.Body.Close()
-	if joinResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(joinResp.Body)
+	body, _ := io.ReadAll(joinResp.Body)
+	var sealedAnswer joinAnswer
+	var answer APIResponse
+	if json.Unmarshal(body, &sealedAnswer) != nil || sealedAnswer.Sealed == "" {
+		// Unsealed: B refused the package, or something that is not B answered.
 		var refused APIResponse
-		if joinResp.StatusCode == http.StatusConflict && json.Unmarshal(body, &refused) == nil && refused.Error != "" {
-			s.writeError(w, "Remote node refused to join the cluster: "+refused.Error, http.StatusConflict)
+		if joinResp.StatusCode == http.StatusForbidden && json.Unmarshal(body, &refused) == nil && refused.Error != "" {
+			s.writeError(w, "Remote node refused the join code: "+refused.Error, http.StatusConflict)
 			return
 		}
-		s.writeError(w, "Remote node failed to join cluster: "+string(body), http.StatusBadGateway)
+		s.writeError(w, "The answer did not come from the node with this join code", http.StatusBadGateway)
+		return
+	}
+	opened, err := base64.StdEncoding.DecodeString(sealedAnswer.Sealed)
+	if err == nil {
+		opened, err = openJoin(key, opened)
+	}
+	if err != nil || json.Unmarshal(opened, &answer) != nil {
+		s.writeError(w, "The answer did not come from the node with this join code", http.StatusBadGateway)
+		return
+	}
+	if joinResp.StatusCode != http.StatusOK || !answer.Success {
+		if joinResp.StatusCode == http.StatusConflict {
+			s.writeError(w, "Remote node refused to join the cluster: "+answer.Error, http.StatusConflict)
+			return
+		}
+		s.writeError(w, "Remote node failed to join cluster: "+answer.Error, http.StatusBadGateway)
 		return
 	}
 

@@ -6,7 +6,11 @@
   "loadingClusterData": "正在加载集群数据...",
 
   "clusterNotInitialized": "集群未初始化",
-  "clusterNotInitializedDesc": "使用此节点初始化新集群，或在现有集群的控制台中通过“管理节点”→“添加节点”将此节点加入。",
+  "clusterNotInitializedDesc": "使用此节点初始化新集群，或生成加入码并从现有集群的节点添加此节点：管理节点、添加节点。",
+  "openJoinCode": "加入码",
+  "joinCodeTitle": "此节点的加入码",
+  "joinCodeDesc": "在集群的节点上打开 管理节点、添加节点，输入此节点的地址和此加入码。仅可使用一次，有效期至 {{time}}。",
+  "failedToOpenJoinCode": "无法生成加入码",
   "initializeCluster": "初始化集群",
 
   "initClusterTitle": "初始化集群",
@@ -122,11 +126,11 @@
   "removeNode": "删除节点",
 
   "addNodeTitle": "向集群添加节点",
-  "addNodeDesc": "输入远程节点的控制台 URL 和管理员凭据，节点必须处于独立模式（尚未加入集群）。",
+  "addNodeDesc": "输入要添加的节点地址以及在该节点上生成的加入码。该节点不能属于任何集群，也不能包含数据。",
   "consoleUrl": "节点 IP 地址 *",
   "consoleUrlHint": "远程节点的 IP 地址（控制台端口 8081），集群通信将自动使用端口 8082。",
-  "adminUsername": "管理员用户名 *",
-  "adminPassword": "管理员密码 *",
+  "joinCodeLabel": "加入码 *",
+  "joinCodeHint": "在要添加的节点上生成：集群、加入码。仅可使用一次，有效期 15 分钟。",
 
   "editNodeTitle": "编辑集群节点",
   "nodeNameFieldLabel": "节点名称",

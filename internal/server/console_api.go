@@ -182,7 +182,9 @@ func (s *Server) consoleAuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		publicPaths := []string{"/auth/login", "/auth/refresh", "/auth/2fa/verify", "/health", "/auth/oauth/", "/version",
-			"/sts/ldap-identity", "/sts/web-identity"}
+			"/sts/ldap-identity", "/sts/web-identity",
+			// Sealed with the join code this node opened; see handleJoinCluster.
+			"/cluster/join"}
 		relPath := consoleRelPath(r.URL.Path)
 		for _, pub := range publicPaths {
 			var matched bool
@@ -590,6 +592,7 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	// Cluster endpoints
 	router.HandleFunc("/cluster/initialize", s.handleInitializeCluster).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/join", s.handleJoinCluster).Methods("POST", "OPTIONS")
+	router.HandleFunc("/cluster/join-code", s.handleOpenJoinCode).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/leave", s.handleLeaveCluster).Methods("POST", "OPTIONS")
 	router.HandleFunc("/cluster/status", s.handleGetClusterStatus).Methods("GET", "OPTIONS")
 	router.HandleFunc("/cluster/config", s.handleGetClusterConfig).Methods("GET", "OPTIONS")

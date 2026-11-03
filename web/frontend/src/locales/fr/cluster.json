@@ -6,7 +6,11 @@
   "loadingClusterData": "Chargement des données du cluster...",
 
   "clusterNotInitialized": "Cluster non initialisé",
-  "clusterNotInitializedDesc": "Initialisez un nouveau cluster avec ce nœud, ou ajoutez ce nœud à un cluster existant depuis la console de ce cluster : Gérer les nœuds, Ajouter un nœud.",
+  "clusterNotInitializedDesc": "Initialisez un nouveau cluster avec ce nœud, ou ouvrez un code d'adhésion et ajoutez ce nœud depuis un nœud d'un cluster existant : Gérer les nœuds, Ajouter un nœud.",
+  "openJoinCode": "Code d'adhésion",
+  "joinCodeTitle": "Code d'adhésion de ce nœud",
+  "joinCodeDesc": "Sur un nœud du cluster, Gérer les nœuds, Ajouter un nœud : saisissez l'adresse de ce nœud et ce code. Il sert une fois, jusqu'à {{time}}.",
+  "failedToOpenJoinCode": "Impossible d'ouvrir un code d'adhésion",
   "initializeCluster": "Initialiser le cluster",
 
   "initClusterTitle": "Initialiser le cluster",
@@ -122,11 +126,11 @@
   "removeNode": "Retirer le nœud",
 
   "addNodeTitle": "Ajouter un nœud au cluster",
-  "addNodeDesc": "Saisissez l'URL de la console et les identifiants administrateur du nœud distant. Le nœud doit être en mode autonome (pas déjà dans un cluster).",
+  "addNodeDesc": "Saisissez l'adresse du nœud à ajouter et le code d'adhésion ouvert sur celui-ci. Le nœud ne doit appartenir à aucun cluster ni contenir de données.",
   "consoleUrl": "Adresse IP du nœud *",
   "consoleUrlHint": "Adresse IP du nœud distant (port de la console 8081). La communication de cluster utilisera automatiquement le port 8082.",
-  "adminUsername": "Nom d'utilisateur administrateur *",
-  "adminPassword": "Mot de passe administrateur *",
+  "joinCodeLabel": "Code d'adhésion *",
+  "joinCodeHint": "Ouvrez-le sur le nœud à ajouter : Cluster, Code d'adhésion. Il sert une fois, pendant 15 minutes.",
 
   "editNodeTitle": "Modifier le nœud du cluster",
   "nodeNameFieldLabel": "Nom du nœud",

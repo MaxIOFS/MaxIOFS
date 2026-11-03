@@ -203,6 +203,22 @@ func freeSpace(n *Node) int64 {
 	return n.CapacityTotal - n.CapacityUsed
 }
 
+// NotePlacementChange records that the copies of a write changed now: the
+// free space the nodes reported before does not count them.
+func (m *Manager) NotePlacementChange() {
+	m.placementChanged.Store(time.Now().UnixNano())
+}
+
+// PlacementChanged is when the copies of a write last changed here; zero
+// before any.
+func (m *Manager) PlacementChanged() time.Time {
+	at := m.placementChanged.Load()
+	if at == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, at)
+}
+
 func (m *Manager) noteRooms(rooms map[string]int64) {
 	for id, room := range rooms {
 		m.rooms.Store(id, room)

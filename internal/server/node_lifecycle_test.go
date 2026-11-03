@@ -208,19 +208,13 @@ func TestOutsideAClusterObjectsAreOnlyStored(t *testing.T) {
 	assert.True(t, ok, "the encryption of existing objects runs")
 }
 
-// addNodeThrough adds b to a's cluster from a's console, as the Nodes page
-// does, and returns a's answer.
+// addNodeThrough adds b to a's cluster from a's console with the join code
+// b's administrator opened, as the Nodes page does, and returns a's answer.
 func addNodeThrough(t *testing.T, a, b *Server) *httptest.ResponseRecorder {
 	t.Helper()
 	consoleB := httptest.NewServer(b.consoleRouter)
 	t.Cleanup(consoleB.Close)
-	_, err := a.clusterManager.InitializeCluster(context.Background(), "a", "us-east-1", "https://127.0.0.1:18082")
-	require.NoError(t, err)
-	body, err := json.Marshal(map[string]string{"endpoint": consoleB.URL, "username": "admin", "password": "admin"})
-	require.NoError(t, err)
-	w := httptest.NewRecorder()
-	a.handleAddClusterNode(w, createAuthenticatedRequest(http.MethodPost, "/api/v1/cluster/nodes", strings.NewReader(string(body)), "", "admin", true))
-	return w
+	return addNodeWithCode(t, a, consoleB.URL, openJoinCodeOn(t, b))
 }
 
 // A node that holds data is not added to a cluster: it is told why and
@@ -247,6 +241,7 @@ func TestOnlyANodeWithoutDataJoinsACluster(t *testing.T) {
 	now := time.Now().Unix()
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sts:AssumeRole"}]}`
 	document := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+	a := newClusterTestNode(t)
 	for _, c := range []struct {
 		held string
 		hold func(t *testing.T, s *Server)
@@ -292,10 +287,9 @@ func TestOnlyANodeWithoutDataJoinsACluster(t *testing.T) {
 				Mode: replication.ModeRealTime, ConflictResolution: replication.ConflictLWW}))
 		}},
 	} {
-		s := newClusterTestNode(t)
+		s := newClusterTestNodeWith(t, func(c *config.Config) { c.ClusterListen = "127.0.0.1:0" })
 		c.hold(t, s)
-		w := httptest.NewRecorder()
-		s.handleJoinCluster(w, asGlobalAdmin(httptest.NewRequest(http.MethodPost, "/api/v1/cluster/join", strings.NewReader("{}")), nil))
+		w := addNodeThrough(t, a, s)
 		assert.Equal(t, http.StatusConflict, w.Code, c.held)
 		assert.Contains(t, w.Body.String(), c.held)
 		assert.False(t, s.clusterManager.IsClusterEnabled(), c.held)

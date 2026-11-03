@@ -126,17 +126,7 @@ func TestJoiningNodeTakesTheClusterEncryptionSecret(t *testing.T) {
 		c.Auth.EncryptionSecret = "secret-of-b"
 		c.ClusterListen = "127.0.0.1:0"
 	})
-	ctx := context.Background()
-	consoleB := httptest.NewServer(b.consoleRouter)
-	defer consoleB.Close()
-	_, err := a.clusterManager.InitializeCluster(ctx, "a", "us-east-1", "https://127.0.0.1:18082")
-	require.NoError(t, err)
-
-	body, err := json.Marshal(map[string]string{"endpoint": consoleB.URL, "username": "admin", "password": "admin"})
-	require.NoError(t, err)
-	req := createAuthenticatedRequest(http.MethodPost, "/api/v1/cluster/nodes", strings.NewReader(string(body)), "", "admin", true)
-	w := httptest.NewRecorder()
-	a.handleAddClusterNode(w, req)
+	w := addNodeThrough(t, a, b)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	assert.Equal(t, "secret-of-a", b.encSecret.Current())

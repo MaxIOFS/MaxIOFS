@@ -264,7 +264,7 @@ See [CLUSTER.md](CLUSTER.md) for complete documentation. Quick overview:
 
 1. **Open port 8082 between nodes** (inter-node TLS traffic) — restricted to cluster node IPs, never behind the client load balancer
 2. **Initialize cluster** on Node 1 (Web Console → Cluster → Initialize)
-3. **Join nodes** using the cluster token
+3. **Add the other nodes** from Node 1 (Cluster → Nodes → Add Node), each with the join code opened on it (Cluster → Join code)
 4. **Configure replication** for HA buckets
 5. **Set up load balancer** (HAProxy/Nginx) in front of all nodes — ports 8080/8081 only
 

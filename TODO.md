@@ -9,7 +9,7 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 ## Identity providers
 
 - [ ] SCIM 2.0 (`/scim/v2`): the provider pushes creates, deactivations and group changes.
-- [ ] Directory pull, what "Enable automatic sync" should do: read LDAP or the Keycloak admin API periodically to create, update and deactivate users who do not sign in.
+- [ ] Directory pull for Google and Microsoft (their own admin APIs): a user removed there who uses access keys only keeps S3 access. LDAP and Keycloak are read every hour.
 
 ## Encryption
 

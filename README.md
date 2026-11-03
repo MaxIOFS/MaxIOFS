@@ -180,7 +180,7 @@ Ceph cluster.
 - OAuth2 CSRF state validation
 - CORS allowlist (no wildcard)
 - Replication credentials encrypted at rest
-- Cluster inter-node TLS with auto-generated CA, CSR-based join (CA key never transmitted)
+- Cluster inter-node TLS with auto-generated CA; a node joins with a one-time join code that seals the join package
 - Inter-node requests signed with HMAC and refused on replay or tampering
 - Audit logging — 20+ event types (auth, object ops, admin actions), external syslog forwarding
 - Object Lock enforcement in the console UI — locked objects cannot be deleted or bulk-deleted

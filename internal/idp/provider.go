@@ -17,6 +17,10 @@ var ErrSessionEnded = errors.New("identity provider ended the sign-in")
 // ErrProviderNotFound is the error of an identity provider ID none has.
 var ErrProviderNotFound = errors.New("identity provider not found")
 
+// ErrEmailNotVerified is the error of a sign-in whose email the provider says
+// it did not verify: anyone may have typed it there.
+var ErrEmailNotVerified = errors.New("the identity provider did not verify the email")
+
 // Grant is what a provider gave for a sign-in, kept to ask it again: the
 // user's subject (a DN for LDAP), the provider's session and its refresh token.
 type Grant struct {
@@ -29,6 +33,13 @@ type Grant struct {
 // user, whether a sign-in still stands: ErrSessionEnded when it does not.
 type SessionRevalidator interface {
 	Revalidate(ctx context.Context, grant Grant) (*ExternalUser, error)
+}
+
+// DirectoryReader is implemented by providers whose directory MaxIOFS reads
+// for the users who do not sign in: their group members, and each user looked
+// up by a Grant without a session (see SessionRevalidator).
+type DirectoryReader interface {
+	ReadsDirectory() bool
 }
 
 // LogoutVerifier is implemented by providers that send OpenID Connect

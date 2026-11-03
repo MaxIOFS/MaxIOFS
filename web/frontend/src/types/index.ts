@@ -1174,9 +1174,14 @@ export interface InitializeClusterResponse {
 
 export interface AddNodeRequest {
   endpoint: string;
-  username: string;
-  password: string;
+  // The join code opened on the node to add.
+  join_code: string;
   node_name?: string;
+}
+
+export interface JoinCodeResponse {
+  join_code: string;
+  expires_at: number;
 }
 
 export interface UpdateNodeRequest {

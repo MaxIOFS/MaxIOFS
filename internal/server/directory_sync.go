@@ -42,8 +42,8 @@ func (s *Server) startDirectorySync(ctx context.Context) {
 }
 
 // syncDirectories reads the directory of each active provider with a mapping
-// set to sync. An OAuth provider gives no members, and is asked about a user
-// at the user's sign-in only.
+// set to sync: an LDAP directory, or a Keycloak realm. Another OAuth provider
+// is asked about a user at the user's sign-in only.
 func (s *Server) syncDirectories(ctx context.Context) {
 	if s.idpManager == nil {
 		return
@@ -108,7 +108,7 @@ func (s *Server) syncDirectory(ctx context.Context, provider *idp.IdentityProvid
 		result.Errors++
 		return result
 	}
-	bound := provider.Type + ":" + provider.ID
+	bound := authProviderOf(provider)
 	for i := range users {
 		if users[i].AuthProvider != bound {
 			continue
@@ -157,7 +157,7 @@ func (s *Server) provisionMembers(ctx context.Context, provider *idp.IdentityPro
 	if err != nil {
 		return 0, 0, err
 	}
-	bound := provider.Type + ":" + provider.ID
+	bound := authProviderOf(provider)
 	// A tenant's provider gives users of its tenant only.
 	tenant := provider.TenantID
 	if tenant == "" {
@@ -200,6 +200,14 @@ func (s *Server) provisionMembers(ctx context.Context, provider *idp.IdentityPro
 		imported++
 	}
 	return imported, failed, nil
+}
+
+// authProviderOf is how a user of provider names it: ldap:<id> or oauth:<id>.
+func authProviderOf(provider *idp.IdentityProvider) string {
+	if provider.Type == idp.TypeOAuth2 {
+		return "oauth:" + provider.ID
+	}
+	return provider.Type + ":" + provider.ID
 }
 
 // deactivateForDirectory deactivates an active user the directory no longer

@@ -36,6 +36,10 @@ func (p *Provider) Type() string {
 	return idp.TypeLDAP
 }
 
+// ReadsDirectory reports that the directory is read for the users who do not
+// sign in.
+func (p *Provider) ReadsDirectory() bool { return true }
+
 func (p *Provider) AuthenticateUser(ctx context.Context, username, password string) (*idp.ExternalUser, error) {
 	conn, err := p.client.Connect()
 	if err != nil {

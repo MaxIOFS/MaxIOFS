@@ -254,21 +254,25 @@ Both nodes start on their default ports: S3 on `:8080`, Console on `:8081`, Clus
 # → Cluster token is displayed — COPY AND SAVE IT
 ```
 
-**3. Add Node 2 from Node 1's console**
+**3. Open a join code on Node 2**
 
-This is the recommended method. From Node 1's console:
+```
+# Open http://10.0.1.20:8081 → Cluster → Join code
+# → A join code is displayed, good once for 15 minutes
+```
+
+**4. Add Node 2 from Node 1's console**
 
 ```
 # Cluster → Nodes → Add Node
 # Fill in:
 #   Node IP Address: 10.0.1.20
-#   Admin Username:  admin
-#   Admin Password:  <node 2 password>
+#   Join Code:       <the code Node 2 shows>
 ```
 
-The primary node authenticates to Node 2's console API (port 8081), triggers a cluster join, and Node 2 contacts Node 1's cluster port (8082) to register. A node joins only this way: from the console of a node of the cluster, with the new node's administrator credentials.
+Node 1 sends the join package to Node 2's console (port 8081) sealed with the join code: AES-256-GCM, with a key derived from the code. Only Node 2 opens it, over plain HTTP too, and Node 2 seals its answer with the same key, so Node 1 registers Node 2 only once Node 2 read the package. A node joins only this way: from the console of a node of the cluster, with the join code its administrator opened.
 
-**4. Verify cluster**
+**5. Verify cluster**
 
 Check the Cluster page on either node:
 - Total Nodes: 2
@@ -407,9 +411,8 @@ Environment variable equivalent: `MAXIOFS_CLUSTER_LISTEN=:8082`
 
 | Field | Default port | Description |
 |-------|-------------|-------------|
-| **Node IP Address** | 8081 | IP address of the remote node. The primary node authenticates to its console on port 8081, then tells it to join via port 8082. |
-| **Admin Username** | — | Admin credentials on the remote node |
-| **Admin Password** | — | Admin credentials on the remote node |
+| **Node IP Address** | 8081 | IP address of the remote node. The join package is sent to its console on port 8081; the cluster then reaches it on port 8082. |
+| **Join Code** | — | The code opened on the remote node: Cluster → Join code. Good once, for 15 minutes; five wrong codes close it |
 
 ### Health Check Configuration
 
@@ -501,7 +504,7 @@ a factor of 1 an object has one copy.
 - A node under storage pressure that takes a write passes its copy to the least full node among those holding the entry only, before the request returns; it keeps the copy when no node takes it.
 - The anti-entropy, a catch-up and the first copy to a new node send each node the entries it lacks and the data of the writes it holds. A node that holds a write and lost its data is sent it again.
 - The copies follow the factor. When a node holding copies is removed or marked dead, when the factor changes, and after each full anti-entropy cycle, a write with fewer copies than the factor is copied to the least full healthy nodes; one with more copies keeps the copy of the node that repairs it and those of the least full nodes, and the others remove theirs. Each write is repaired by the first of its living holders by node ID.
-- The copies and shards of each class are spread over its nodes by the room of each: what a node holds plus its free space. When a node is more than 10 points fuller or emptier than its class, as after a join or a return, the repair moves copies and shards to the emptier nodes, each new one made before the old one goes. Nothing moves while a node of the class is out of service or drained. Every node repairs its writes at the next pass of the dead-node reconciler after the nodes of a class change. `ha.rebalance_enabled` (`true`) turns it off.
+- The copies and shards of each class are spread over its nodes by the room of each: what a node holds plus its free space. When a node is more than 10 points fuller or emptier than its class, as after a join or a return, the repair moves copies and shards to the emptier nodes, each new one made before the old one goes. Nothing moves while a node of the class is out of service or drained, nor while a node reported its free space before the copies last moved: the next health check, within 30 seconds, counts them. Every node repairs its writes at the next pass of the dead-node reconciler after the nodes of a class change. `ha.rebalance_enabled` (`true`) turns it off.
 - Each change of where a write's copies are is numbered. Every node keeps the newest, whichever order the changes, entries and copies arrive in: an entry or a copy with older locations does not change them, and a copy is stored only on a node they name. The anti-entropy compares the numbers too and sends a node with older locations the newer entry.
 - Every node acts on a change of the factor, made on it or received from another node; the node where it is made tells the others at once. A higher factor adds the copies once the first syncs end; a lower one removes the copies it does not need.
 - After an update from a version that kept each bucket on one node, each node with a factor of 1 gives the objects it holds itself as their location, once, at start. It then sends the other nodes its buckets and their entries, without their data. Until a node has them all, it answers `NoSuchBucket` for a bucket it lacks and may not list every object of one it has: update every node, and send traffic once the HA page shows the sync jobs done.
@@ -674,9 +677,12 @@ A bucket deleted by a client takes with it its shares, replication rules, invent
 - Node Name, Region (optional), Local S3 API Endpoint (optional — leave empty to use `public_api_url`)
 - Shows the cluster token: the nodes authenticate to each other with it. Other nodes are added with Add Node
 
+**Join code** (on a node in no cluster):
+- Opens a join code, good once for 15 minutes; opening another closes it. Five packages it does not open close it too
+
 **Add Node** (initiated from the primary node):
 - Node IP Address — IP of the remote node; its console is reached on port 8081
-- Admin Username and Admin Password — credentials on the remote node
+- Join Code — the code opened on the remote node
 - The primary node handles the full join handshake automatically
 
 **Edit Node:**
@@ -732,7 +738,7 @@ Primary endpoint groups:
 
 ### Firewall Configuration
 
-Nodes reach each other on port 8082 for everything between nodes, health checks included; on port 8080 to send a multipart upload request to the node the upload was started on; and on port 8081 when Add Node signs in to the new node's console. Clients need ports 8080 and 8081 only.
+Nodes reach each other on port 8082 for everything between nodes, health checks included; on port 8080 to send a multipart upload request to the node the upload was started on; and on port 8081 when Add Node sends the join package to the new node's console. Clients need ports 8080 and 8081 only.
 
 ```bash
 # S3 and console: clients, the load balancer and the other nodes

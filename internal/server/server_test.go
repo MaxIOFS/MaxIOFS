@@ -3083,24 +3083,14 @@ func TestHandleJoinCluster(t *testing.T) {
 	server := newClusterTestNode(t)
 
 	t.Run("should reject incomplete join package (missing token)", func(t *testing.T) {
-		body := `{"cluster_token": "", "ca_cert": "x", "ca_key": "x", "self_endpoint": "https://node2:8082"}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/join", strings.NewReader(body), "", "admin-1", true)
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleJoinCluster(rr, req)
-
+		rr := sealedJoin(t, server, openJoinCodeOn(t, server),
+			map[string]string{"cluster_token": "", "ca_cert": "x", "ca_key": "x", "self_endpoint": "https://node2:8082"})
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 
 	t.Run("should reject incomplete join package (missing self_endpoint)", func(t *testing.T) {
-		body := `{"cluster_token": "some-token", "ca_cert": "x", "ca_key": "x", "self_endpoint": ""}`
-		req := createAuthenticatedRequest("POST", "/api/v1/cluster/join", strings.NewReader(body), "", "admin-1", true)
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		server.handleJoinCluster(rr, req)
-
+		rr := sealedJoin(t, server, openJoinCodeOn(t, server),
+			map[string]string{"cluster_token": "some-token", "ca_cert": "x", "ca_key": "x", "self_endpoint": ""})
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 
@@ -6399,13 +6389,12 @@ func TestHandleJoinClusterEdgeCases(t *testing.T) {
 	})
 
 	t.Run("should reject incomplete join package", func(t *testing.T) {
-		// Current flow: missing required fields in ClusterJoinPackage causes
-		// AcceptClusterJoin to fail, which the handler reports as 500.
+		// A package no join code of this node seals is refused.
 		body := `{"node_endpoint": "http://localhost:8080"}`
 		req := createAuthenticatedRequest("POST", "/api/v1/cluster/join", strings.NewReader(body), "", "admin-1", true)
 		rr := httptest.NewRecorder()
 		server.handleJoinCluster(rr, req)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusInternalServerError}, rr.Code)
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError}, rr.Code)
 	})
 }
 

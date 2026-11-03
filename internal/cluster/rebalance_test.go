@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/stretchr/testify/assert"
@@ -135,7 +136,7 @@ func TestAClassIsSpreadOnlyWithEveryNodeInServiceAndItsRoomKnown(t *testing.T) {
 		node("c", "GLACIER", HealthStatusHealthy), node("d", "GLACIER", HealthStatusDegraded),
 		node("gone", "", HealthStatusDead),
 	}
-	classes := classesToBalance(view, healthy)
+	classes := classesToBalance(view, healthy, time.Time{})
 	assert.Len(t, classes[storageclass.Standard], 2, "a dead node is not counted")
 	assert.Len(t, classes["GLACIER"], 2)
 
@@ -155,11 +156,31 @@ func TestAClassIsSpreadOnlyWithEveryNodeInServiceAndItsRoomKnown(t *testing.T) {
 				nodes[i] = &copied
 			}
 			tt.change(nodes[0])
-			classes := classesToBalance(view, nodes)
+			classes := classesToBalance(view, nodes, time.Time{})
 			assert.NotContains(t, classes, storageclass.Standard)
 			assert.Len(t, classes["GLACIER"], 2, "another class is spread")
 		})
 	}
+}
+
+// A class is spread only on rooms its nodes reported since the copies last
+// moved: an older report's free space does not count them, and the node that
+// took them would look roomier than it is.
+func TestAClassIsSpreadOnlyOnRoomsReportedSinceTheCopiesMoved(t *testing.T) {
+	view := &classView{protection: map[string]Protection{storageclass.Standard: {Factor: 2}}}
+	moved := time.Now()
+	before, after := moved.Add(-time.Second), moved.Add(time.Second)
+	nodes := func(reported ...*time.Time) []*Node {
+		var all []*Node
+		for i, at := range reported {
+			all = append(all, &Node{ID: fmt.Sprintf("n%d", i), HealthStatus: HealthStatusHealthy, CapacityTotal: 100, LastHealthCheck: at})
+		}
+		return all
+	}
+	assert.Contains(t, classesToBalance(view, nodes(&after, &after), moved), storageclass.Standard)
+	assert.NotContains(t, classesToBalance(view, nodes(&after, &before), moved), storageclass.Standard)
+	assert.NotContains(t, classesToBalance(view, nodes(&after, nil), moved), storageclass.Standard)
+	assert.Contains(t, classesToBalance(view, nodes(nil, nil), time.Time{}), storageclass.Standard, "nothing moved")
 }
 
 func TestAWriteLargerThanWhatANodeGivesOrTakesStays(t *testing.T) {

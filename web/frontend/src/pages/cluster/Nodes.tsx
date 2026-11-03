@@ -310,7 +310,7 @@ const getHealthIcon = (status: HealthStatus) => {
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
-              handleAddNode({ endpoint: formData.get('endpoint') as string, username: formData.get('username') as string, password: formData.get('password') as string, node_name: formData.get('node_name') as string || undefined } as AddNodeRequest);
+              handleAddNode({ endpoint: formData.get('endpoint') as string, join_code: formData.get('join_code') as string, node_name: formData.get('node_name') as string || undefined });
             }}>
               <div className="space-y-4">
                 <div>
@@ -324,12 +324,9 @@ const getHealthIcon = (status: HealthStatus) => {
                   <p className="text-xs text-muted-foreground mt-1">{t('nodeNameHint')}</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">{t('adminUsername')}</label>
-                  <input name="username" type="text" required placeholder="admin" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">{t('adminPassword')}</label>
-                  <input name="password" type="password" required placeholder="********" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('joinCodeLabel')}</label>
+                  <input name="join_code" type="text" required autoComplete="off" spellCheck={false} placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" className="w-full border border-border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-foreground font-mono focus:ring-2 focus:ring-brand-500" />
+                  <p className="text-xs text-muted-foreground mt-1">{t('joinCodeHint')}</p>
                 </div>
               </div>
               <div className="flex gap-2 mt-6">

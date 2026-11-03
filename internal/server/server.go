@@ -90,6 +90,8 @@ type Server struct {
 	// clusterJobs tells whether this node runs the jobs that act on the whole
 	// cluster: always outside a cluster, the coordinator only inside one.
 	clusterJobs func() bool
+	// joinCode is the code this node, in no cluster, opened to be added to one.
+	joinCode joinCode
 	// consoleRouter is kept so a configuration write forwarded by another node
 	// can be replayed through the same routes a direct request would take.
 	consoleRouter           *mux.Router

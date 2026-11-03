@@ -20,10 +20,10 @@ import {
 } from 'lucide-react';
 import APIClient from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
-import type { ClusterStatus, ClusterConfig } from '@/types';
+import type { ClusterStatus, ClusterConfig, JoinCodeResponse } from '@/types';
 
 export default function ClusterOverview() {
-  const { t } = useTranslation('cluster');
+  const { t } = useTranslation(['cluster', 'common']);
   const navigate = useNavigate();
   const [status, setStatus] = useState<ClusterStatus | null>(null);
   const [config, setConfig] = useState<ClusterConfig | null>(null);
@@ -34,6 +34,8 @@ export default function ClusterOverview() {
   const [clusterToken, setClusterToken] = useState('');
   const [tokenCopied, setTokenCopied] = useState(false);
   const [nodeIP, setNodeIP] = useState('');
+  const [joinCode, setJoinCode] = useState<JoinCodeResponse | null>(null);
+  const [joinCodeCopied, setJoinCodeCopied] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -76,20 +78,28 @@ export default function ClusterOverview() {
     }
   };
 
-  const copyToken = async () => {
+  const handleOpenJoinCode = async () => {
     try {
-      await navigator.clipboard.writeText(clusterToken);
-      setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 2000);
+      setJoinCode(await APIClient.openJoinCode());
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, t('failedToOpenJoinCode')));
+    }
+  };
+
+  const copyText = async (text: string, setCopied: (copied: boolean) => void) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       const textarea = document.createElement('textarea');
-      textarea.value = clusterToken;
+      textarea.value = text;
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 2000);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -123,6 +133,10 @@ export default function ClusterOverview() {
             >
               <Server className="h-4 w-4" />
               {t('initializeCluster')}
+            </Button>
+            <Button onClick={handleOpenJoinCode} variant="outline">
+              <KeyRound className="h-4 w-4" />
+              {t('openJoinCode')}
             </Button>
           </div>
         </Card>
@@ -207,7 +221,7 @@ export default function ClusterOverview() {
                   <code className="flex-1 bg-gray-100 dark:bg-gray-700 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground break-all select-all">
                     {clusterToken}
                   </code>
-                  <Button type="button" variant="outline" onClick={copyToken} className="shrink-0">
+                  <Button type="button" variant="outline" onClick={() => copyText(clusterToken, setTokenCopied)} className="shrink-0">
                     {tokenCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
@@ -218,6 +232,36 @@ export default function ClusterOverview() {
                   className="w-full bg-brand-600 hover:bg-brand-700 text-white"
                 >
                   {t('iHaveSavedToken')}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Join code: entered in Add Node on a node of the cluster */}
+        {joinCode && (
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+            <Card className="w-full max-w-lg p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-brand-100 dark:bg-brand-900/30">
+                  <KeyRound className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                </div>
+                <h2 className="text-xl font-bold text-foreground">{t('joinCodeTitle')}</h2>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                {t('joinCodeDesc', { time: new Date(joinCode.expires_at * 1000).toLocaleTimeString() })}
+              </p>
+              <div className="flex gap-2">
+                <code className="flex-1 bg-gray-100 dark:bg-gray-700 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground break-all select-all">
+                  {joinCode.join_code}
+                </code>
+                <Button type="button" variant="outline" onClick={() => copyText(joinCode.join_code, setJoinCodeCopied)} className="shrink-0">
+                  {joinCodeCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <div className="mt-6">
+                <Button onClick={() => setJoinCode(null)} className="w-full bg-brand-600 hover:bg-brand-700 text-white">
+                  {t('common:close')}
                 </Button>
               </div>
             </Card>
@@ -331,7 +375,7 @@ export default function ClusterOverview() {
                 <code className="flex-1 bg-gray-100 dark:bg-gray-700 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground break-all select-all">
                   {clusterToken}
                 </code>
-                <Button type="button" variant="outline" onClick={copyToken} className="shrink-0">
+                <Button type="button" variant="outline" onClick={() => copyText(clusterToken, setTokenCopied)} className="shrink-0">
                   {tokenCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>

@@ -116,6 +116,9 @@ func (s *Server) resolveWebIdentity(ctx context.Context, r *http.Request, provid
 	if errors.Is(err, idp.ErrUnavailable) {
 		return nil, err
 	}
+	if errors.Is(err, idp.ErrEmailNotVerified) {
+		return nil, &federationDenied{"the identity provider did not verify the email"}
+	}
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"provider_id": providerID,

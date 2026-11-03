@@ -672,14 +672,29 @@ func TestTheCopiesOfARemovedNodeAreMadeAgain(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, far.holds(t, "placed", "k", ""))
 
+	require.True(t, a.clusterManager.PlacementChanged().IsZero())
+	require.True(t, b.clusterManager.PlacementChanged().IsZero())
+
 	require.NoError(t, a.clusterManager.RemoveNode(ctx, far.id))
+	// b holds its copy, named with number 1, before a tells every node the
+	// holders with number 2.
 	require.Eventually(t, func() bool {
-		return b.holds(t, "placed", "k", "") && slices.Equal([]string{a.id, b.id}, b.entry(t, "placed", "k").Locations)
+		if !b.holds(t, "placed", "k", "") {
+			return false
+		}
+		for _, n := range []*haNode{a, b} {
+			entry := n.entry(t, "placed", "k")
+			if !slices.Equal([]string{a.id, b.id}, entry.Locations) || entry.LocationsGen != 2 {
+				return false
+			}
+		}
+		return true
 	}, 15*time.Second, 50*time.Millisecond)
-	assert.Equal(t, []string{a.id, b.id}, a.entry(t, "placed", "k").Locations)
-	assert.EqualValues(t, 2, a.entry(t, "placed", "k").LocationsGen)
-	assert.EqualValues(t, 2, b.entry(t, "placed", "k").LocationsGen)
 	assert.Equal(t, "data", getBody(t, b.s3, "placed", "k"))
+	// Both know the copies moved, the node that moved them and the node told:
+	// neither spreads the writes again on free space reported before.
+	assert.False(t, a.clusterManager.PlacementChanged().IsZero())
+	assert.False(t, b.clusterManager.PlacementChanged().IsZero())
 }
 
 // A lower replication factor keeps the copies of the nodes with the most free
@@ -1926,9 +1941,11 @@ func putMany(t *testing.T, n *haNode, bucketName string, count, size int) []stri
 
 func (c *haCluster) setFreeOnEveryNode(t *testing.T, free map[*haNode]int64) {
 	t.Helper()
+	// Reported now, as a health check reports it.
+	now := time.Now()
 	for _, n := range c.nodes {
 		for peer, f := range free {
-			_, err := n.db.Exec(`UPDATE cluster_nodes SET capacity_total = ?, capacity_used = 0 WHERE id = ?`, f, peer.id)
+			_, err := n.db.Exec(`UPDATE cluster_nodes SET capacity_total = ?, capacity_used = 0, last_health_check = ? WHERE id = ?`, f, now, peer.id)
 			require.NoError(t, err)
 		}
 	}

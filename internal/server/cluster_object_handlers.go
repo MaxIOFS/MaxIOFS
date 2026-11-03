@@ -1043,7 +1043,11 @@ func (s *Server) applyHAMetadataOp(ctx context.Context, bucket string, op cluste
 		if !ok {
 			return fmt.Errorf("this node keeps no entries")
 		}
-		return writer.SetLocations(ctx, bucket, op.Key, change)
+		if err := writer.SetLocations(ctx, bucket, op.Key, change); err != nil {
+			return err
+		}
+		s.clusterManager.NotePlacementChange()
+		return nil
 
 	case "set-restore-status":
 		var p struct {

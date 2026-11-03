@@ -127,10 +127,14 @@ var errUserInfoRefused = errors.New("userinfo refused the token")
 
 // Revalidate renews the sign-in with the provider's refresh token and reads
 // the user again: a refresh the provider refuses, or a userinfo that refuses
-// the new token, ends the sign-in. Without a refresh token it cannot tell.
+// the new token, ends the sign-in. Without a refresh token it looks the user
+// up in a Keycloak realm's directory, and another provider cannot tell.
 func (p *Provider) Revalidate(ctx context.Context, grant idp.Grant) (*idp.ExternalUser, error) {
 	if grant.RefreshToken == "" {
-		return nil, nil
+		if grant.Subject == "" || !p.ReadsDirectory() {
+			return nil, nil
+		}
+		return p.lookUpUser(ctx, grant.Subject)
 	}
 	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
 	defer cancel()

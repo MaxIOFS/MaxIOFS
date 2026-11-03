@@ -156,6 +156,18 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("public_api_url", "http://localhost:8080")
 	v.SetDefault("public_console_url", "http://localhost:8081")
 
+	// The settings without a default are registered too: viper reads the
+	// MAXIOFS_ environment variable of a key it knows only.
+	v.SetDefault("cluster_listen", "")
+	v.SetDefault("cluster_advertise_address", "")
+	v.SetDefault("website_hostname", "")
+	v.SetDefault("trusted_proxies", []string{})
+	v.SetDefault("storage.encryption_key", "")
+	v.SetDefault("auth.jwt_secret", "")
+	v.SetDefault("auth.encryption_secret", "")
+	v.SetDefault("audit.db_path", "")
+	v.SetDefault("replication.allow_internal_endpoints", false)
+
 	// TLS defaults
 	v.SetDefault("enable_tls", false)
 

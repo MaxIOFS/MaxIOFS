@@ -6,7 +6,11 @@
   "loadingClusterData": "Loading cluster data...",
 
   "clusterNotInitialized": "Cluster Not Initialized",
-  "clusterNotInitializedDesc": "Initialize a new cluster with this node, or add this node to an existing cluster from that cluster's console: Manage Nodes, Add Node.",
+  "clusterNotInitializedDesc": "Initialize a new cluster with this node, or open a join code and add this node from a node of an existing cluster: Manage Nodes, Add Node.",
+  "openJoinCode": "Join code",
+  "joinCodeTitle": "Join code for this node",
+  "joinCodeDesc": "On a node of the cluster, Manage Nodes, Add Node: enter this node's address and this code. It is good once, until {{time}}.",
+  "failedToOpenJoinCode": "Failed to open a join code",
   "initializeCluster": "Initialize Cluster",
 
   "initClusterTitle": "Initialize Cluster",
@@ -122,11 +126,11 @@
   "removeNode": "Remove Node",
 
   "addNodeTitle": "Add Node to Cluster",
-  "addNodeDesc": "Enter the console URL and admin credentials of the remote node. The node must be in standalone mode (not already in a cluster).",
+  "addNodeDesc": "Enter the address of the node to add and the join code opened on it. The node must be in no cluster and hold no data.",
   "consoleUrl": "Node IP Address *",
   "consoleUrlHint": "IP address of the remote node (console port 8081). Cluster communication will use port 8082 automatically.",
-  "adminUsername": "Admin Username *",
-  "adminPassword": "Admin Password *",
+  "joinCodeLabel": "Join Code *",
+  "joinCodeHint": "Open it on the node to add: Cluster, Join code. It is good once, for 15 minutes.",
 
   "editNodeTitle": "Edit Cluster Node",
   "nodeNameFieldLabel": "Node Name",

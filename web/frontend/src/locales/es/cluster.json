@@ -6,7 +6,11 @@
   "loadingClusterData": "Cargando datos del clúster...",
 
   "clusterNotInitialized": "Clúster No Inicializado",
-  "clusterNotInitializedDesc": "Inicializa un clúster nuevo con este nodo, o añade este nodo a un clúster existente desde la consola de ese clúster: Gestionar Nodos, Añadir Nodo.",
+  "clusterNotInitializedDesc": "Inicializa un clúster nuevo con este nodo, o abre un código de unión y añade este nodo desde un nodo de un clúster existente: Gestionar Nodos, Añadir Nodo.",
+  "openJoinCode": "Código de unión",
+  "joinCodeTitle": "Código de unión de este nodo",
+  "joinCodeDesc": "En un nodo del clúster, Gestionar Nodos, Añadir Nodo: introduce la dirección de este nodo y este código. Sirve una vez, hasta las {{time}}.",
+  "failedToOpenJoinCode": "No se pudo abrir un código de unión",
   "initializeCluster": "Inicializar Clúster",
 
   "initClusterTitle": "Inicializar Clúster",
@@ -122,11 +126,11 @@
   "removeNode": "Eliminar Nodo",
 
   "addNodeTitle": "Añadir Nodo al Clúster",
-  "addNodeDesc": "Introduce la URL de consola y las credenciales de administrador del nodo remoto. El nodo debe estar en modo independiente (no pertenecer ya a un clúster).",
+  "addNodeDesc": "Introduce la dirección del nodo que se añade y el código de unión abierto en él. El nodo no debe pertenecer a ningún clúster ni tener datos.",
   "consoleUrl": "IP del Nodo *",
   "consoleUrlHint": "IP del nodo remoto (puerto de consola 8081). La comunicación del clúster usará el puerto 8082 automáticamente.",
-  "adminUsername": "Usuario Administrador *",
-  "adminPassword": "Contraseña de Administrador *",
+  "joinCodeLabel": "Código de unión *",
+  "joinCodeHint": "Ábrelo en el nodo que se añade: Clúster, Código de unión. Sirve una vez, durante 15 minutos.",
 
   "editNodeTitle": "Editar Nodo del Clúster",
   "nodeNameFieldLabel": "Nombre del Nodo",

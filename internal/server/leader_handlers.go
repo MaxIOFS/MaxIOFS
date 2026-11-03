@@ -111,6 +111,11 @@ func coordinatorExemptPath(path string) bool {
 	if signInPaths[consoleRelPath(path)] {
 		return true
 	}
+	// A join, and its join code, are the business of the node being added.
+	switch consoleRelPath(path) {
+	case "/cluster/join", "/cluster/join-code":
+		return true
+	}
 
 	// A bucket's own state is on every node, which sends its changes to the
 	// others, and needs no arbitration.

@@ -191,6 +191,17 @@ func (m *Manager) ListActiveOAuthProviders(ctx context.Context) ([]*IdentityProv
 	return providers, nil
 }
 
+// ReadsDirectory reports whether a provider's directory can be read: an LDAP
+// directory, or a Keycloak realm.
+func (m *Manager) ReadsDirectory(ctx context.Context, providerID string) bool {
+	provider, err := m.getOrCreateProvider(providerID)
+	if err != nil {
+		return false
+	}
+	reader, ok := provider.(DirectoryReader)
+	return ok && reader.ReadsDirectory()
+}
+
 // TestConnection checks a provider's configuration against it, step by step.
 func (m *Manager) TestConnection(ctx context.Context, providerID string) ([]Check, error) {
 	provider, err := m.getOrCreateProvider(providerID)

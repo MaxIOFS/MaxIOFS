@@ -66,6 +66,22 @@ func TestAnEmailSignsInThroughItsOwnProviderOnly(t *testing.T) {
 	assert.Empty(t, alice.TenantID)
 }
 
+// An email the provider says it did not verify signs nobody in, by the console
+// or by STS, and makes no user.
+func TestAnUnverifiedEmailSignsNobodyIn(t *testing.T) {
+	n := newSSONode(t)
+	n.issuer.emailVerified.Store(false)
+	_, failure := n.signIn(t)
+	assert.Equal(t, "email_not_verified", failure)
+
+	_, err := n.server.resolveWebIdentity(context.Background(), httptest.NewRequest("POST", "/", nil), n.provider, "at")
+	var denied *federationDenied
+	require.ErrorAs(t, err, &denied)
+	assert.Equal(t, "the identity provider did not verify the email", denied.Error(), "the audit's reason")
+	_, err = n.server.authManager.GetUserByUsername(context.Background(), "alice@example.org")
+	assert.Error(t, err, "nobody is provisioned")
+}
+
 // A provider provisions a user with its own group mappings only.
 func TestAProviderProvisionsWithItsOwnMappingsOnly(t *testing.T) {
 	n := newSSONode(t)

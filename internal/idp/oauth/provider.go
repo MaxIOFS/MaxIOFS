@@ -78,8 +78,13 @@ func (p *Provider) SearchGroups(ctx context.Context, query string, limit int) ([
 	return nil, fmt.Errorf("OAuth2 provider does not support group search")
 }
 
+// GetGroupMembers are the members of a group of a Keycloak realm; another
+// provider has no directory to read.
 func (p *Provider) GetGroupMembers(ctx context.Context, groupID string) ([]idp.ExternalUser, error) {
-	return nil, fmt.Errorf("OAuth2 provider does not support group member listing")
+	if !p.ReadsDirectory() {
+		return nil, fmt.Errorf("OAuth2 provider does not support group member listing")
+	}
+	return p.keycloakMembers(ctx, groupID)
 }
 
 func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
@@ -199,6 +204,12 @@ func (p *Provider) fetchUserInfo(ctx context.Context, client *http.Client) (*idp
 	email, _ := claims[claimEmail].(string)
 	name, _ := claims[claimName].(string)
 	sub, _ := claims["sub"].(string)
+
+	// An email the provider says it did not verify names nobody: anyone may
+	// have typed it there. Some providers send the claim as a string.
+	if verified, ok := claims["email_verified"]; ok && email != "" && verified != true && verified != "true" {
+		return nil, fmt.Errorf("%w: %s", idp.ErrEmailNotVerified, email)
+	}
 
 	externalID := email
 	if externalID == "" {

@@ -71,6 +71,7 @@ SSO via Google Workspace, Microsoft Entra ID (Azure AD), or custom OIDC provider
 
 - An email belongs to one user, as its username or its email, whichever way it signs in. A user with an email another user has is refused.
 - A provider signs in its own users only, and provisions with its own group mappings. A tenant's provider gives users of its tenant only.
+- An email the provider says it did not verify (`email_verified` false) signs nobody in, by the console or by STS: on a provider where users may set or register any email, it would sign one in as another user. An email the provider says nothing about is taken.
 - A tenant administrator reaches its own tenant's providers only.
 
 > Complete SSO guide: [SSO.md](SSO.md)
@@ -96,6 +97,8 @@ Inter-node communication is both **encrypted** (TLS) and **authenticated** (HMAC
 - All inter-node HTTP communication uses TLS; the calling node verifies the other node's certificate against the internal CA. The caller is authenticated by the HMAC signature below, not by a client certificate
 - No configuration required — fully automatic and transparent
 - Certificate auto-renewal runs monthly; hot-swapped without restart
+
+**Joining a node:** the join package carries the CA's key, the cluster token, the JWT secret, the cluster KEK and the encryption secret. It crosses the network sealed with a join code the new node's administrator opened (160 random bits, good once for 15 minutes, closed by five packages it does not open): AES-256-GCM, with a key derived from the code. The new node seals its answer with the same key. A node in the middle, or at a mistyped address, reads nothing and cannot pass for the new node; no credentials of the new node are sent.
 
 **HMAC-SHA256 Authentication:**
 ```

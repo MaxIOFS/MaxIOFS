@@ -32,6 +32,8 @@ type fakeIssuer struct {
 	// secretIn is how the token endpoint takes the client's secret:
 	// "header", "params", or either when unset.
 	secretIn atomic.Value
+	// emailVerified is the email_verified claim of userinfo; none when unset.
+	emailVerified atomic.Pointer[any]
 }
 
 const (
@@ -151,7 +153,11 @@ func startIssuer(t *testing.T) *fakeIssuer {
 	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Header.Get("Authorization") {
 		case "Bearer at-1", "Bearer at-2":
-			writeJSON(w, http.StatusOK, map[string]any{"sub": "sub-1", "email": "alice@example.org", "name": "Alice", "groups": f.groups})
+			claims := map[string]any{"sub": "sub-1", "email": "alice@example.org", "name": "Alice", "groups": f.groups}
+			if verified := f.emailVerified.Load(); verified != nil {
+				claims["email_verified"] = *verified
+			}
+			writeJSON(w, http.StatusOK, claims)
 		default:
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
 		}
@@ -188,6 +194,25 @@ func (f *fakeIssuer) config() *idp.OAuth2Config {
 
 func (f *fakeIssuer) provider() *Provider {
 	return NewProvider(f.config())
+}
+
+// An email the provider says it did not verify signs nobody in: anyone may
+// have typed it there. One it says nothing about is taken.
+func TestAnUnverifiedEmailSignsNobodyIn(t *testing.T) {
+	f := startIssuer(t)
+	ctx := context.Background()
+	for verified, refused := range map[any]bool{false: true, "false": true, true: false, "true": false} {
+		f.emailVerified.Store(&verified)
+		_, err := f.provider().ExchangeCode(ctx, "good")
+		_, viaToken := f.provider().AuthenticateWithToken(ctx, "at-1")
+		if refused {
+			assert.ErrorIs(t, err, idp.ErrEmailNotVerified, "%v", verified)
+			assert.ErrorIs(t, viaToken, idp.ErrEmailNotVerified, "%v", verified)
+		} else {
+			assert.NoError(t, err, "%v", verified)
+			assert.NoError(t, viaToken, "%v", verified)
+		}
+	}
 }
 
 // An OpenID Connect sign-in keeps what the provider gave to ask about it

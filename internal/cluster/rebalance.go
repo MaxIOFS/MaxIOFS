@@ -9,6 +9,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/erasure"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -158,8 +159,9 @@ func (m *Manager) rebalanceEnabled(ctx context.Context) bool {
 
 // classesToBalance are the nodes of each class that can be spread again. A
 // class is left as it is while one of its nodes is out of service, which may
-// be back soon, drained, or of unknown room.
-func classesToBalance(view *classView, all []*Node) map[string][]*Node {
+// be back soon, drained, of unknown room, or reported its room before the
+// copies last moved, at moved.
+func classesToBalance(view *classView, all []*Node, moved time.Time) map[string][]*Node {
 	classes := make(map[string][]*Node)
 	for _, n := range all {
 		if n.HealthStatus != HealthStatusDead {
@@ -168,7 +170,7 @@ func classesToBalance(view *classView, all []*Node) map[string][]*Node {
 	}
 	for class, nodes := range classes {
 		if len(nodes) < 2 || slices.ContainsFunc(nodes, func(n *Node) bool {
-			return n.Drained || !n.InService() || freeSpace(n) < 0
+			return n.Drained || !n.InService() || freeSpace(n) < 0 || reportedBefore(n, moved)
 		}) {
 			delete(classes, class)
 		}
@@ -176,11 +178,17 @@ func classesToBalance(view *classView, all []*Node) map[string][]*Node {
 	return classes
 }
 
+// reportedBefore reports whether node n reported its room before the copies
+// last moved, at moved: its free space does not count them yet.
+func reportedBefore(n *Node, moved time.Time) bool {
+	return !moved.IsZero() && (n.LastHealthCheck == nil || n.LastHealthCheck.Before(moved))
+}
+
 func (w *HASyncWorker) planBalance(ctx context.Context, r *placementRepair) *balance {
 	if !w.mgr.rebalanceEnabled(ctx) {
 		return nil
 	}
-	classes := classesToBalance(r.view, r.all)
+	classes := classesToBalance(r.view, r.all, w.mgr.PlacementChanged())
 	if len(classes) == 0 {
 		return nil
 	}

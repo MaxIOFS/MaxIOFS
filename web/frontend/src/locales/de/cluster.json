@@ -6,7 +6,11 @@
   "loadingClusterData": "Cluster-Daten werden geladen...",
 
   "clusterNotInitialized": "Cluster nicht initialisiert",
-  "clusterNotInitializedDesc": "Initialisieren Sie einen neuen Cluster mit diesem Knoten oder fügen Sie diesen Knoten über die Konsole eines bestehenden Clusters hinzu: Knoten verwalten, Knoten hinzufügen.",
+  "clusterNotInitializedDesc": "Initialisieren Sie einen neuen Cluster mit diesem Knoten, oder öffnen Sie einen Beitrittscode und fügen Sie diesen Knoten von einem Knoten eines bestehenden Clusters hinzu: Knoten verwalten, Knoten hinzufügen.",
+  "openJoinCode": "Beitrittscode",
+  "joinCodeTitle": "Beitrittscode dieses Knotens",
+  "joinCodeDesc": "Auf einem Knoten des Clusters, Knoten verwalten, Knoten hinzufügen: Geben Sie die Adresse dieses Knotens und diesen Code ein. Er gilt einmal, bis {{time}}.",
+  "failedToOpenJoinCode": "Beitrittscode konnte nicht geöffnet werden",
   "initializeCluster": "Cluster initialisieren",
 
   "initClusterTitle": "Cluster initialisieren",
@@ -122,11 +126,11 @@
   "removeNode": "Knoten entfernen",
 
   "addNodeTitle": "Knoten zum Cluster hinzufügen",
-  "addNodeDesc": "Geben Sie die Konsolen-URL und die Administratoranmeldedaten des Remote-Knotens ein. Der Knoten muss im eigenständigen Modus sein (nicht bereits in einem Cluster).",
+  "addNodeDesc": "Geben Sie die Adresse des hinzuzufügenden Knotens und den dort geöffneten Beitrittscode ein. Der Knoten darf keinem Cluster angehören und keine Daten enthalten.",
   "consoleUrl": "Knoten-IP-Adresse *",
   "consoleUrlHint": "IP-Adresse des Remote-Knotens (Konsolenport 8081). Die Cluster-Kommunikation verwendet automatisch Port 8082.",
-  "adminUsername": "Admin-Benutzername *",
-  "adminPassword": "Admin-Passwort *",
+  "joinCodeLabel": "Beitrittscode *",
+  "joinCodeHint": "Öffnen Sie ihn auf dem hinzuzufügenden Knoten: Cluster, Beitrittscode. Er gilt einmal, 15 Minuten lang.",
 
   "editNodeTitle": "Cluster-Knoten bearbeiten",
   "nodeNameFieldLabel": "Knotenname",

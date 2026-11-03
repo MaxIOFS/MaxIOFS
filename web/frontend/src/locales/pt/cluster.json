@@ -6,7 +6,11 @@
   "loadingClusterData": "Carregando dados do cluster...",
 
   "clusterNotInitialized": "Cluster Não Inicializado",
-  "clusterNotInitializedDesc": "Inicialize um novo cluster com este nó, ou adicione este nó a um cluster existente pelo console desse cluster: Gerenciar Nós, Adicionar Nó.",
+  "clusterNotInitializedDesc": "Inicialize um novo cluster com este nó, ou abra um código de adesão e adicione este nó a partir de um nó de um cluster existente: Gerenciar Nós, Adicionar Nó.",
+  "openJoinCode": "Código de adesão",
+  "joinCodeTitle": "Código de adesão deste nó",
+  "joinCodeDesc": "Em um nó do cluster, Gerenciar Nós, Adicionar Nó: insira o endereço deste nó e este código. Ele vale uma vez, até {{time}}.",
+  "failedToOpenJoinCode": "Falha ao abrir um código de adesão",
   "initializeCluster": "Inicializar Cluster",
 
   "initClusterTitle": "Inicializar Cluster",
@@ -122,11 +126,11 @@
   "removeNode": "Remover Nó",
 
   "addNodeTitle": "Adicionar Nó ao Cluster",
-  "addNodeDesc": "Insira a URL do console e as credenciais de administrador do nó remoto. O nó deve estar no modo autônomo (não já em um cluster).",
+  "addNodeDesc": "Insira o endereço do nó a adicionar e o código de adesão aberto nele. O nó não deve pertencer a nenhum cluster nem conter dados.",
   "consoleUrl": "Endereço IP do Nó *",
   "consoleUrlHint": "Endereço IP do nó remoto (porta do console 8081). A comunicação do cluster usará a porta 8082 automaticamente.",
-  "adminUsername": "Nome de Usuário do Administrador *",
-  "adminPassword": "Senha do Administrador *",
+  "joinCodeLabel": "Código de adesão *",
+  "joinCodeHint": "Abra-o no nó a adicionar: Cluster, Código de adesão. Ele vale uma vez, por 15 minutos.",
 
   "editNodeTitle": "Editar Nó do Cluster",
   "nodeNameFieldLabel": "Nome do Nó",

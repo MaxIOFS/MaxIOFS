@@ -712,13 +712,14 @@ A tenant administrator reaches its own tenant's providers and their mappings onl
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/cluster/initialize` | Initialize cluster on this node |
-| POST | `/api/v1/cluster/join` | Receive the join package from an existing cluster node; `409` when this node holds data |
+| POST | `/api/v1/cluster/join-code` | Open a join code on this node, in no cluster (global admin only): `join_code`, `expires_at`. Good once for 15 minutes; opening another closes it; `409` in a cluster |
+| POST | `/api/v1/cluster/join` | Receive the join package of an existing cluster node, sealed with this node's join code: `{"salt","package"}`, base64. No session: `403` when no code is open or the code does not open it (five such close the code); the answer is sealed with the same key, `{"sealed"}`; `409` inside when this node holds data or is in a cluster |
 | POST | `/api/v1/cluster/leave` | Leave the cluster; the other nodes it reaches remove it |
 | GET | `/api/v1/cluster/status` | Get cluster status |
 | GET | `/api/v1/cluster/config` | Get this node's cluster configuration |
 | GET | `/api/v1/cluster/token` | Get the cluster token (global admin only) |
 | GET | `/api/v1/cluster/nodes` | List all nodes; `is_coordinator` marks the coordinator as the answering node knows it, none while the nodes elect one |
-| POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster; `409` when that node holds data |
+| POST | `/api/v1/cluster/nodes` | Add a standalone node to the cluster: `{"endpoint","join_code","node_name"}`, the join code opened on that node; `409` when that node refuses the code, holds data or is in a cluster; `502` when the answer is not sealed with the code |
 | GET | `/api/v1/cluster/nodes/{id}` | Get node details |
 | PUT | `/api/v1/cluster/nodes/{id}` | Update node |
 | DELETE | `/api/v1/cluster/nodes/{id}` | Remove a node from every node; the node leaves when it next contacts one |

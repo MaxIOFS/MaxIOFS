@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,8 @@ type testIssuer struct {
 	mu     sync.Mutex
 	issued int
 	used   map[string]bool
+	// emailVerified is the email_verified claim of userinfo; none when unset.
+	emailVerified atomic.Value
 }
 
 func startTestIssuer(t *testing.T) *testIssuer {
@@ -91,7 +94,11 @@ func startTestIssuer(t *testing.T) *testIssuer {
 		}
 	})
 	routes.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, http.StatusOK, map[string]any{"sub": "sub-alice", "email": "alice@example.org", "name": "Alice", "groups": f.groups})
+		claims := map[string]any{"sub": "sub-alice", "email": "alice@example.org", "name": "Alice", "groups": f.groups}
+		if verified := f.emailVerified.Load(); verified != nil {
+			claims["email_verified"] = verified
+		}
+		reply(w, http.StatusOK, claims)
 	})
 	return f
 }

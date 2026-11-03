@@ -23,6 +23,7 @@ func (h *HAObjectManager) SetLocations(ctx context.Context, bucket, key string, 
 	if err := writer.SetLocations(ctx, bucket, key, change); err != nil {
 		return err
 	}
+	h.mgr.NotePlacementChange()
 	if isHAReplica(ctx) {
 		return nil
 	}

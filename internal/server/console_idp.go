@@ -488,7 +488,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		req.TenantID = provider.TenantID
 	}
 
-	authProviderValue := provider.Type + ":" + providerID
+	authProviderValue := authProviderOf(provider)
 
 	var results []idp.ImportResult
 	imported := 0
@@ -763,6 +763,10 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		return
 	}
+	if !s.idpManager.ReadsDirectory(r.Context(), provider.ID) {
+		s.writeError(w, "This provider has no directory MaxIOFS can read: Auto Sync reads LDAP directories and Keycloak realms", http.StatusBadRequest)
+		return
+	}
 
 	mappings, err := s.idpManager.ListGroupMappings(r.Context(), provider.ID)
 	if err != nil {
@@ -954,6 +958,11 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	externalUser, err := s.idpManager.HandleOAuthCallback(r.Context(), providerID, code)
+	if errors.Is(err, idp.ErrEmailNotVerified) {
+		logrus.WithError(err).WithField("provider_id", providerID).Warn("OAuth sign-in refused: the provider did not verify the email")
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=email_not_verified"), http.StatusFound)
+		return
+	}
 	if errors.Is(err, idp.ErrUnavailable) {
 		logrus.WithError(err).WithField("provider_id", providerID).Warn("OAuth sign-in: provider unavailable")
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=provider_unavailable"), http.StatusFound)
