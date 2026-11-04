@@ -505,6 +505,12 @@ func (h *Handler) forwardToNode(r *http.Request, node *cluster.Node) (*http.Resp
 		tenantID = user.TenantID
 		roles = strings.Join(user.Roles, ",")
 	}
+	// The node it is forwarded to takes the request as reaching it over
+	// HTTPS when it reached this one so: SSE-C and aws:SecureTransport.
+	r.Header.Del(cluster.SecureTransportHeader)
+	if bucket.RequestFactsFrom(r.Context()).SecureTransport {
+		r.Header.Set(cluster.SecureTransportHeader, "true")
+	}
 	return cluster.NewProxyClient(h.clusterManager.GetTLSConfig()).
 		ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
 }
@@ -1390,8 +1396,12 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	if !ok {
+		return
+	}
 	versionID := r.URL.Query().Get("versionId")
-	obj, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey, versionID)
+	obj, reader, err := h.objectManager.GetObject(object.WithReadKey(r.Context(), customerKey), bucketPath, objectKey, versionID)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			if h.handleVersionedObjectNotFound(w, r, bucketPath, objectKey, versionID) {
@@ -1404,13 +1414,17 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
-		if h.writeDataUnavailable(w, r, objectKey, err) || h.writeObjectNameError(w, r, objectKey, err) {
+		if h.writeCustomerKeyError(w, r, objectKey, err) || h.writeDataUnavailable(w, r, objectKey, err) || h.writeObjectNameError(w, r, objectKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 	defer reader.Close()
+	if h.writeCustomerKeyError(w, r, objectKey, object.CheckCustomerKey(obj, customerKey)) {
+		return
+	}
+	setCustomerKeyHeaders(w.Header(), customerKey)
 
 	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
 		return
@@ -1565,6 +1579,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	customerKey, ok := h.writeCustomerKey(w, r, bucketName, objectKey)
+	if !ok {
+		return
+	}
+
 	bodyReader := h.detectAndDecodeAwsChunked(r, bucketName, objectKey, contentEncoding, decodedContentLength)
 
 	bodyReader = bandwidth.ThrottleReader(r.Context(), bodyReader, h.tenantBandwidthLimiter(r.Context(), r, bucketName))
@@ -1581,7 +1600,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		"bucketPath": bucketPath,
 	}).Info("PutObject: Using bucketPath")
 
-	obj, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, bodyReader, r.Header)
+	obj, err := h.objectManager.PutObject(object.WithWriteKey(r.Context(), customerKey), bucketPath, objectKey, bodyReader, r.Header)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucketName,
@@ -1604,6 +1623,7 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.setPutObjectResponseHeaders(w, obj)
+	setCustomerKeyHeaders(w.Header(), customerKey)
 	w.WriteHeader(http.StatusOK)
 
 	h.fireNotifications(r.Context(), bucketName, tenantID, objectKey, "s3:ObjectCreated:Put", obj.ETag, obj.Size)
@@ -1752,6 +1772,10 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	if !ok {
+		return
+	}
 	// Try to get object metadata - may return NoSuchKey if doesn't exist
 	// If versionId is specified, use GetObject which supports version lookup
 	versionID := r.URL.Query().Get("versionId")
@@ -1773,6 +1797,10 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
+	if h.writeCustomerKeyError(w, r, objectKey, object.CheckCustomerKey(obj, customerKey)) {
+		return
+	}
+	setCustomerKeyHeaders(w.Header(), customerKey)
 
 	// Handle conditional requests (If-Match, If-None-Match, If-Modified-Since, If-Unmodified-Since)
 	if !h.validateConditionalHeaders(w, r, obj.ETag, obj.LastModified) {
@@ -2183,7 +2211,8 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	case "InvalidArgument", "InvalidBucketName", "InvalidRequest", "MalformedXML", "MalformedPolicy",
 		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart", "InvalidPartOrder",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
-		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge":
+		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge",
+		"InvalidEncryptionAlgorithmError":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":

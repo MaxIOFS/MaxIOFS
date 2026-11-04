@@ -2,6 +2,7 @@ package server
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -166,6 +168,11 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 		// Open the object BEFORE creating the ZIP entry so that a missing/unreadable
 		// object does not leave an empty entry in the archive.
 		_, objReader, err := s.objectManager.GetObject(r.Context(), bucketPath, entry.key)
+		if errors.Is(err, object.ErrCustomerKeyRequired) {
+			// Only its client's key reads it: it is left out of the archive.
+			logrus.WithField("key", entry.key).Info("zip: an object encrypted with a customer key is left out")
+			continue
+		}
 		if err != nil {
 			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to open object")
 			zw.Close()

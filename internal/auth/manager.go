@@ -2030,7 +2030,7 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		"method":            method,
 		"uri":               uri,
 		"query":             queryString,
-		"canonical_headers": strings.Split(strings.TrimSuffix(canonicalHeaders, "\n"), "\n"),
+		"canonical_headers": loggedCanonicalHeaders(canonicalHeaders),
 		"signed_headers":    signedHeaders,
 		"payload_hash":      payloadHash,
 	}).Info("Canonical request components")

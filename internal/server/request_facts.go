@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 )
 
 // policyRequestFacts records what bucket policy conditions test about a
@@ -20,6 +22,17 @@ func (s *Server) policyRequestFacts(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(bucket.WithRequestFacts(r.Context(), facts)))
 	})
+}
+
+// withForwardedTransport records, for a request another node forwarded and
+// signed, that it reached that node over HTTPS when that node says so.
+func withForwardedTransport(ctx context.Context, r *http.Request) context.Context {
+	if r.Header.Get(cluster.SecureTransportHeader) != "true" {
+		return ctx
+	}
+	facts := bucket.RequestFactsFrom(ctx)
+	facts.SecureTransport = true
+	return bucket.WithRequestFacts(ctx, facts)
 }
 
 // fromTrustedProxy reports whether the direct peer of the request is a proxy

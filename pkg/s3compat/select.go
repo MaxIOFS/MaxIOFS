@@ -606,19 +606,26 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 
 	// ── Fetch object data ────────────────────────────────────────────────────
 
-	_, reader, err := h.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	if !ok {
+		return
+	}
+	selected, reader, err := h.objectManager.GetObject(object.WithReadKey(r.Context(), customerKey), bucketPath, objectKey)
 	if err != nil {
 		if err == object.ErrObjectNotFound {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
-		if h.writeDataUnavailable(w, r, objectKey, err) {
+		if h.writeCustomerKeyError(w, r, objectKey, err) || h.writeDataUnavailable(w, r, objectKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 	defer reader.Close()
+	if h.writeCustomerKeyError(w, r, objectKey, object.CheckCustomerKey(selected, customerKey)) {
+		return
+	}
 
 	// ── Load into in-memory SQLite ───────────────────────────────────────────
 

@@ -1288,6 +1288,12 @@ export class APIClient {
     await apiClient.put(url, { status });
   }
 
+  // putBucketCustomerKeys allows or blocks writes with SSE-C to a bucket.
+  static async putBucketCustomerKeys(bucketName: string, allowed: boolean, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/encryption?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/encryption`;
+    await apiClient.put(url, { customerKeysAllowed: allowed });
+  }
+
   static async putPublicAccessBlock(bucketName: string, config: PublicAccessBlockConfig, tenantId?: string): Promise<void> {
     const url = tenantId ? `/buckets/${bucketName}/public-access-block?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/public-access-block`;
     await apiClient.put(url, config);

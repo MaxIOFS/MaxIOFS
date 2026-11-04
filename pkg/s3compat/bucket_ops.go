@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -1078,8 +1079,44 @@ type sseConfiguration struct {
 }
 
 type sseRule struct {
-	ApplyServerSideEncryptionByDefault sseDefault `xml:"ApplyServerSideEncryptionByDefault"`
-	BucketKeyEnabled                   bool       `xml:"BucketKeyEnabled,omitempty"`
+	ApplyServerSideEncryptionByDefault *sseDefault `xml:"ApplyServerSideEncryptionByDefault,omitempty"`
+	BlockedEncryptionTypes             *sseBlocked `xml:"BlockedEncryptionTypes,omitempty"`
+	BucketKeyEnabled                   bool        `xml:"BucketKeyEnabled,omitempty"`
+}
+
+// sseBlocked is the encryption types a bucket refuses in writes: SSE-C, or
+// NONE to take every type.
+type sseBlocked struct {
+	EncryptionType []string `xml:"EncryptionType"`
+}
+
+const (
+	blockedSSEC = "SSE-C"
+	blockedNone = "NONE"
+)
+
+// customerKeysAllowed reads the encryption types a rule blocks: SSE-C is
+// taken only when they are NONE. A rule that names none blocks SSE-C, as a
+// bucket does by default.
+func customerKeysAllowed(blocked *sseBlocked) (bool, error) {
+	if blocked == nil || len(blocked.EncryptionType) == 0 {
+		return false, nil
+	}
+	allowed, refused := false, false
+	for _, t := range blocked.EncryptionType {
+		switch t {
+		case blockedNone:
+			allowed = true
+		case blockedSSEC:
+			refused = true
+		default:
+			return false, fmt.Errorf("unknown EncryptionType: %s", t)
+		}
+	}
+	if allowed && refused {
+		return false, fmt.Errorf("NONE cannot be given with another EncryptionType")
+	}
+	return allowed, nil
 }
 
 type sseDefault struct {
@@ -1112,12 +1149,17 @@ func (h *Handler) GetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	blocked := blockedSSEC
+	if encCfg.AllowsCustomerKeys() {
+		blocked = blockedNone
+	}
 	resp := sseConfiguration{
 		Rule: sseRule{
-			ApplyServerSideEncryptionByDefault: sseDefault{
+			ApplyServerSideEncryptionByDefault: &sseDefault{
 				SSEAlgorithm:   encCfg.Type,
 				KMSMasterKeyID: encCfg.KMSKeyID,
 			},
+			BlockedEncryptionTypes: &sseBlocked{EncryptionType: []string{blocked}},
 		},
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -1140,16 +1182,26 @@ func (h *Handler) PutBucketEncryption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	algo := xmlCfg.Rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm
-	if algo != "AES256" && algo != "aws:kms" {
-		h.writeError(w, "InvalidArgument", "Unknown SSEAlgorithm: "+algo, bucketName, r)
+	rule := xmlCfg.Rule
+	if rule.ApplyServerSideEncryptionByDefault == nil && rule.BlockedEncryptionTypes == nil {
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against the published schema", bucketName, r)
 		return
 	}
-
-	encCfg := &bucket.EncryptionConfig{
-		Type:     algo,
-		KMSKeyID: xmlCfg.Rule.ApplyServerSideEncryptionByDefault.KMSMasterKeyID,
+	// A rule that only blocks or allows SSE-C keeps the AES256 default.
+	encCfg := &bucket.EncryptionConfig{Type: "AES256"}
+	if def := rule.ApplyServerSideEncryptionByDefault; def != nil {
+		if def.SSEAlgorithm != "AES256" && def.SSEAlgorithm != "aws:kms" {
+			h.writeError(w, "InvalidArgument", "Unknown SSEAlgorithm: "+def.SSEAlgorithm, bucketName, r)
+			return
+		}
+		encCfg.Type, encCfg.KMSKeyID = def.SSEAlgorithm, def.KMSMasterKeyID
 	}
+	allowed, err := customerKeysAllowed(rule.BlockedEncryptionTypes)
+	if err != nil {
+		h.writeError(w, "InvalidArgument", err.Error(), bucketName, r)
+		return
+	}
+	encCfg.CustomerKeysAllowed = allowed
 	if err := h.bucketManager.SetEncryption(r.Context(), tenantID, bucketName, encCfg); err != nil {
 		if err == bucket.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)

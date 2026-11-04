@@ -467,6 +467,7 @@ func toMetadataEncryption(e *EncryptionConfig) *metadata.EncryptionMetadata {
 		Rules: []metadata.EncryptionRule{
 			{
 				ApplyServerSideEncryptionByDefault: sseConfig,
+				CustomerKeysAllowed:                e.CustomerKeysAllowed,
 			},
 		},
 	}
@@ -483,8 +484,9 @@ func fromMetadataEncryption(e *metadata.EncryptionMetadata) *EncryptionConfig {
 	}
 
 	return &EncryptionConfig{
-		Type:     rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm,
-		KMSKeyID: rule.ApplyServerSideEncryptionByDefault.KMSMasterKeyID,
+		Type:                rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm,
+		KMSKeyID:            rule.ApplyServerSideEncryptionByDefault.KMSMasterKeyID,
+		CustomerKeysAllowed: rule.CustomerKeysAllowed,
 	}
 }
 

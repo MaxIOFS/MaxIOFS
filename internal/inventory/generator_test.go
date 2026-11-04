@@ -1216,3 +1216,12 @@ func TestCollectInventoryItems_ListError(t *testing.T) {
 
 	mockMetadata.AssertExpectations(t)
 }
+
+// TestEncryptionStatusOfEveryKind: an object encrypted with a customer key
+// is SSE-C, one encrypted by the server SSE-S3, a folder marker NONE.
+func TestEncryptionStatusOfEveryKind(t *testing.T) {
+	g := &ReportGenerator{}
+	assert.Equal(t, "SSE-C", g.getEncryptionStatus(&metadata.ObjectMetadata{CustomerDEK: "00", SSEAlgorithm: ""}))
+	assert.Equal(t, "SSE-S3", g.getEncryptionStatus(&metadata.ObjectMetadata{SSEAlgorithm: "AES256"}))
+	assert.Equal(t, "NONE", g.getEncryptionStatus(&metadata.ObjectMetadata{Key: "folder/"}))
+}

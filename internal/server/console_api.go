@@ -69,7 +69,14 @@ type ObjectResponse struct {
 	Metadata     map[string]string       `json:"metadata,omitempty"`
 	Retention    *object.RetentionConfig `json:"retention,omitempty"`
 	LegalHold    *object.LegalHoldConfig `json:"legalHold,omitempty"`
+	// CustomerKey: the object is encrypted with a customer key (SSE-C); the
+	// console cannot read it.
+	CustomerKey bool `json:"customerKey,omitempty"`
 }
+
+// errCustomerKeyConsole answers a console request that has to read an object
+// encrypted with a customer key.
+const errCustomerKeyConsole = "The object is encrypted with a customer key (SSE-C): it is read only through the S3 API, with that key"
 
 type UserResponse struct {
 	ID                  string   `json:"id"`
@@ -1739,6 +1746,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 			Metadata:     obj.Metadata,
 			Retention:    obj.Retention,
 			LegalHold:    obj.LegalHold,
+			CustomerKey:  obj.CustomerEncrypted(),
 		}
 	}
 
@@ -1871,6 +1879,7 @@ func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
 			Metadata:     obj.Metadata,
 			Retention:    obj.Retention,
 			LegalHold:    obj.LegalHold,
+			CustomerKey:  obj.CustomerEncrypted(),
 		}
 	}
 
@@ -1949,6 +1958,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 			Metadata:     metadata.Metadata,
 			Retention:    metadata.Retention,
 			LegalHold:    metadata.LegalHold,
+			CustomerKey:  metadata.CustomerEncrypted(),
 		}
 
 		s.writeJSON(w, response)
@@ -1973,6 +1983,8 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, object.ErrDataUnavailable):
 			w.Header().Set("Retry-After", "1")
 			s.writeError(w, "No node that holds the object's data answered; retry", http.StatusServiceUnavailable)
+		case errors.Is(err, object.ErrCustomerKeyRequired):
+			s.writeError(w, errCustomerKeyConsole, http.StatusConflict)
 		default:
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -7673,6 +7685,9 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Type     string `json:"type"`               // "AES256" or "aws:kms"
 		KMSKeyID string `json:"kmsKeyId,omitempty"` // only for aws:kms
+		// CustomerKeysAllowed: the bucket takes writes with SSE-C; left out,
+		// it keeps what it had.
+		CustomerKeysAllowed *bool `json:"customerKeysAllowed,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
@@ -7680,7 +7695,7 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 	}
 	defer r.Body.Close()
 
-	if req.Type != "AES256" && req.Type != "aws:kms" {
+	if req.Type != "" && req.Type != "AES256" && req.Type != "aws:kms" {
 		s.writeError(w, "Invalid encryption type. Must be 'AES256' or 'aws:kms'", http.StatusBadRequest)
 		return
 	}
@@ -7699,9 +7714,22 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// A request that leaves out the type, as the console's SSE-C switch
+	// does, keeps the one the bucket has.
+	if req.Type == "" {
+		req.Type, req.KMSKeyID = "AES256", ""
+		if current := bucketInfo.Encryption; current != nil && current.Type != "" {
+			req.Type, req.KMSKeyID = current.Type, current.KMSKeyID
+		}
+	}
+	customerKeys := bucketInfo.Encryption.AllowsCustomerKeys()
+	if req.CustomerKeysAllowed != nil {
+		customerKeys = *req.CustomerKeysAllowed
+	}
 	bucketInfo.Encryption = &bucket.EncryptionConfig{
-		Type:     req.Type,
-		KMSKeyID: req.KMSKeyID,
+		Type:                req.Type,
+		KMSKeyID:            req.KMSKeyID,
+		CustomerKeysAllowed: customerKeys,
 	}
 
 	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
@@ -7723,10 +7751,7 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
 		"message": "Encryption configuration updated successfully",
-		"encryption": map[string]string{
-			"type":     req.Type,
-			"kmsKeyId": req.KMSKeyID,
-		},
+		"encryption": bucketInfo.Encryption,
 	})
 }
 

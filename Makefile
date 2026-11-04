@@ -1032,33 +1032,6 @@ help:
 	@echo "  ACCESS_KEY=test SECRET_KEY=pass make perf-test-upload  - Run upload test"
 	@echo "  make perf-test-custom VUS=100 DURATION=5m SCRIPT=mixed_workload.js"
 
-# Docker targets (PowerShell-based for Windows)
-.PHONY: docker-build-ps docker-run-ps docker-up-ps docker-down-ps docker-monitoring-ps docker-clean-ps
-
-docker-build-ps:
-	@echo "Building Docker image with PowerShell script..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1
-
-docker-run-ps:
-	@echo "Building and starting MaxIOFS in Docker..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Up
-
-docker-up-ps:
-	@echo "Starting MaxIOFS with docker-compose..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -NoBuild -Up
-
-docker-down-ps:
-	@echo "Stopping MaxIOFS..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Down
-
-docker-monitoring-ps:
-	@echo "Starting MaxIOFS with monitoring stack..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -ProfileName monitoring -Up
-
-docker-clean-ps:
-	@echo "Cleaning Docker resources..."
-	@pwsh -ExecutionPolicy Bypass -File docker-build.ps1 -Clean
-
 # Docker Compose targets (cross-platform)
 .PHONY: docker-up docker-down docker-logs docker-monitoring docker-ps docker-clean
 

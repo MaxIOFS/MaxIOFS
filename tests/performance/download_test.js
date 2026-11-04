@@ -39,8 +39,7 @@ export const options = {
 
     // Download-specific thresholds
     'download_success': ['rate>0.98'],         // 98% success (higher than uploads)
-    'download_latency_ms': ['p(95)<500'],      // p95 under 500ms (faster than uploads)
-    'download_latency_ms': ['p(99)<1000'],     // p99 under 1s
+    'download_latency_ms': ['p(95)<500', 'p(99)<1000'], // p95 under 500ms, p99 under 1s
     'bytes_downloaded': ['count>10000000'],    // At least 10MB downloaded
   },
 

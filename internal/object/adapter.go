@@ -64,6 +64,8 @@ func toMetadataObject(o *Object) *metadata.ObjectMetadata {
 		ChecksumValue:      o.ChecksumValue,
 		Parts:              o.Parts,
 		SSEAlgorithm:       o.SSEAlgorithm,
+		CustomerDEK:        o.CustomerDEK,
+		CustomerDEKIV:      o.CustomerDEKIV,
 		RestoreStatus:      o.RestoreStatus,
 		RestoreExpiresAt:   o.RestoreExpiresAt,
 	}
@@ -130,6 +132,8 @@ func fromMetadataObject(mo *metadata.ObjectMetadata) *Object {
 		ChecksumValue:      mo.ChecksumValue,
 		Parts:              mo.Parts,
 		SSEAlgorithm:       mo.SSEAlgorithm,
+		CustomerDEK:        mo.CustomerDEK,
+		CustomerDEKIV:      mo.CustomerDEKIV,
 		RestoreStatus:      mo.RestoreStatus,
 		RestoreExpiresAt:   mo.RestoreExpiresAt,
 	}

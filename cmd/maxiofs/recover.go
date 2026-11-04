@@ -100,6 +100,7 @@ func runRecover(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Encrypted (verified):  %d\n", report.EncryptedVerified)
 	fmt.Printf("Encrypted (unverified):%d\n", report.EncryptedUnverified)
 	fmt.Printf("Legacy encrypted:      %d\n", report.LegacyEncrypted)
+	fmt.Printf("Customer key (SSE-C):  %d\n", report.CustomerKey)
 	fmt.Printf("Plaintext:             %d\n", report.Plaintext)
 	fmt.Printf("Skipped files:         %d\n", report.Skipped)
 	fmt.Printf("Encryption keys restored: %d\n", report.KEKsRestored)

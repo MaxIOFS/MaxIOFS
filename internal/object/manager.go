@@ -118,6 +118,12 @@ type Object struct {
 	RestoreExpiresAt *time.Time `json:"restore_expires_at,omitempty"` // when the restored copy expires
 
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"` // "AES256" when server-side encrypted
+
+	// CustomerDEK and CustomerDEKIV: for an object encrypted with a customer
+	// key (SSE-C), its DEK wrapped with that key and the nonce of the wrap,
+	// in hex; internal.
+	CustomerDEK   string `json:"-"`
+	CustomerDEKIV string `json:"-"`
 }
 
 // completionFuture tracks an in-progress CompleteMultipartUpload so concurrent requests
@@ -551,6 +557,12 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 		}
 	}
 
+	if metaObj != nil && metaObj.CustomerDEK != "" {
+		if _, err := unwrapCustomerDEK(metaObj.CustomerDEK, metaObj.CustomerDEKIV, readKeyFrom(ctx)); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	if metaObj != nil && !om.holdsData(metaObj) && !isMetadataDeleteMarker(metaObj) {
 		return nil, nil, &DataElsewhereError{Object: fromMetadataObject(metaObj), Locations: metaObj.Locations}
 	}
@@ -618,6 +630,9 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 			StorageClass: StorageClassStandard,
 		}
 		object.takeStoredHeaders(storageMetadata)
+		if customerSidecar(storageMetadata) {
+			object.CustomerDEK, object.CustomerDEKIV = storageMetadata[sidecarCustomerDEK], storageMetadata[sidecarCustomerDEKIV]
+		}
 	}
 
 	var recorded *Object
@@ -639,7 +654,7 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 	isEncrypted := storageMetadata["encrypted"] == "true"
 
 	// Backfill SSEAlgorithm for objects stored before it was tracked in metadata
-	if isEncrypted && object.SSEAlgorithm == "" {
+	if isEncrypted && object.SSEAlgorithm == "" && !object.CustomerEncrypted() {
 		object.SSEAlgorithm = "AES256"
 	}
 
@@ -658,9 +673,12 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 // decrypting reads the plaintext of a stored file from encryptedReader, which
 // it closes; it stops when ctx ends.
 func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.ReadCloser, storageMetadata map[string]string) (io.ReadCloser, error) {
-	decryptKey, keyErr := om.decryptionKeyFor(storageMetadata)
+	decryptKey, keyErr := om.dataKeyFor(ctx, storageMetadata)
 	if keyErr != nil {
 		encryptedReader.Close()
+		if errors.Is(keyErr, ErrCustomerKeyRequired) || errors.Is(keyErr, ErrCustomerKeyMismatch) {
+			return nil, keyErr
+		}
 		return nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
 	}
 
@@ -711,6 +729,10 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 func (om *objectManager) putObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (result *Object, resultErr error) {
 	if err := om.validateObjectName(key); err != nil {
 		return nil, err
+	}
+
+	if isReplicaCopy(ctx) && writeKeyFrom(ctx) != nil {
+		return nil, fmt.Errorf("a copy of an object encrypted with a customer key moves as stored")
 	}
 
 	// Extract metadata from headers using helper function
@@ -891,11 +913,22 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 	}()
 
 	isFolderMarker := strings.HasSuffix(key, "/")
-	if isFolderMarker {
+	customerKey := writeKeyFrom(ctx)
+	var customerDEK, customerDEKIV string
+	switch {
+	case customerKey != nil:
+		// The content's MD5 and checksum are kept nowhere: the ETag is the
+		// MD5 of the bytes stored, as in S3.
+		if customerDEK, customerDEKIV, err = om.storeCustomerEncryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, customerKey); err != nil {
+			return nil, err
+		}
+		originalETag = storageMetadata["original-etag"]
+		checksumAlgo, checksumValue = "", ""
+	case isFolderMarker:
 		if err := om.storeUnencryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
-	} else {
+	default:
 		if err := om.storeEncryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
@@ -934,7 +967,10 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		LegalHold:         legalHold,
 	}
 	object.takeStoredHeaders(storageMetadata)
-	if !isFolderMarker {
+	switch {
+	case customerKey != nil:
+		object.CustomerDEK, object.CustomerDEKIV = customerDEK, customerDEKIV
+	case !isFolderMarker:
 		object.SSEAlgorithm = "AES256"
 	}
 	applyReplicatedAttributes(ctx, object)
@@ -3062,6 +3098,7 @@ func isProtectedStorageMetadataKey(key string) bool {
 	switch key {
 	case "encrypted", "original-size", "original-etag",
 		"wrapped-dek", "wrapped-dek-iv", "kek-version",
+		sidecarCustomerAlgorithm, sidecarCustomerDEK, sidecarCustomerDEKIV,
 		"size", "etag", "last_modified",
 		"x-amz-server-side-encryption", "x-amz-server-side-encryption-algorithm",
 		storage.MetadataLockModeField, storage.MetadataLockUntilField, storage.MetadataLegalHoldField:

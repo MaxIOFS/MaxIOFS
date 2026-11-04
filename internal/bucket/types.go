@@ -209,6 +209,14 @@ type NotificationFilter struct {
 type EncryptionConfig struct {
 	Type     string `json:"type"` // AES256, aws:kms
 	KMSKeyID string `json:"kmsKeyId,omitempty"`
+	// CustomerKeysAllowed: the bucket takes writes with SSE-C.
+	CustomerKeysAllowed bool `json:"customerKeysAllowed"`
+}
+
+// AllowsCustomerKeys reports whether a bucket with this configuration takes
+// writes with SSE-C: only when it is set, as in AWS since April 2026.
+func (c *EncryptionConfig) AllowsCustomerKeys() bool {
+	return c != nil && c.CustomerKeysAllowed
 }
 
 // PublicAccessBlock represents public access block configuration

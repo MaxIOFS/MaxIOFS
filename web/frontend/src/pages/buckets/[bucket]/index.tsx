@@ -1197,6 +1197,9 @@ export default function BucketDetailsPage() {
   const singleItem = isSingleSelection ? selectedItemsList[0] : null;
   const singleIsFolder = singleItem ? isFolder(singleItem) : false;
   const singleIsFile = singleItem ? !isFolder(singleItem) : false;
+  // Only its client's key reads an object encrypted with a customer key
+  // (SSE-C): the console cannot download, share or rename it.
+  const singleIsCustomerKey = !!(singleItem as any)?.customerKey;
   // True when any selected file has active retention or legal hold — blocks delete
   const hasLockedItems = selectedItemsList.some(isObjectLocked);
 
@@ -1586,7 +1589,7 @@ export default function BucketDetailsPage() {
                           <div className="my-1 border-t border-border" />
                           <button
                             className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket || singleIsCustomerKey}
                             onClick={() => { if (singleItem) handleDownloadObject(singleItem.key); setActionsOpen(false); }}
                           >
                             <DownloadIcon className="h-4 w-4" />
@@ -1611,7 +1614,7 @@ export default function BucketDetailsPage() {
                           <div className="my-1 border-t border-border" />
                           <button
                             className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket || singleIsCustomerKey}
                             onClick={() => { if (singleItem) { handleShareObject(singleItem.key); setActionsOpen(false); } }}
                           >
                             <Share2Icon className="h-4 w-4" />
@@ -1629,7 +1632,7 @@ export default function BucketDetailsPage() {
                           )}
                           <button
                             className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket || singleIsCustomerKey}
                             onClick={() => { if (singleItem) { handleGeneratePresignedURL(singleItem.key); setActionsOpen(false); } }}
                           >
                             <LinkIcon className="h-4 w-4" />
@@ -1663,7 +1666,7 @@ export default function BucketDetailsPage() {
                           <div className="my-1 border-t border-border" />
                           <button
                             className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-                            disabled={!singleIsFile || isGlobalAdminInTenantBucket}
+                            disabled={!singleIsFile || isGlobalAdminInTenantBucket || singleIsCustomerKey}
                             onClick={() => singleItem && openRenameModal(singleItem.key)}
                           >
                             <PencilIcon className="h-4 w-4" />
@@ -1938,6 +1941,14 @@ export default function BucketDetailsPage() {
                             {sharesMap[item.key] && (
                               <span title="This object is shared">
                                 <Share2Icon className="h-4 w-4 text-green-600" />
+                              </span>
+                            )}
+                            {(item as any).customerKey && (
+                              <span
+                                title={t('customerKeyNotice')}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                              >
+                                SSE-C
                               </span>
                             )}
                           </>

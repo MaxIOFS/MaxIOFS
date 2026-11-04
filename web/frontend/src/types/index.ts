@@ -406,9 +406,10 @@ export interface PolicyStatement {
 }
 
 export interface EncryptionConfig {
-  algorithm: string;
-  keySource: 'server' | 'customer' | 'kms';
-  masterKey?: string;
+  type?: string; // AES256 or aws:kms
+  kmsKeyId?: string;
+  // customerKeysAllowed: the bucket takes writes with SSE-C.
+  customerKeysAllowed?: boolean;
 }
 
 // ACL Types

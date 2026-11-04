@@ -264,6 +264,10 @@ const (
 
 // migrationActionFor inspects a sidecar and returns the required action.
 func (om *objectManager) migrationActionFor(meta map[string]string) migrationAction {
+	// A customer key wraps the DEK: neither the server nor the KEK can.
+	if customerSidecar(meta) {
+		return migrationSkip
+	}
 	if meta["encrypted"] != "true" {
 		return migrationEncrypt // plaintext
 	}

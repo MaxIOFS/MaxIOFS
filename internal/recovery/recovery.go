@@ -50,6 +50,7 @@ type Report struct {
 	EncryptedVerified   int // envelope objects whose DEK unwrapped with the bundle keys
 	EncryptedUnverified int // encrypted objects that could not be verified (no bundle / missing version)
 	LegacyEncrypted     int // direct-encrypted objects (no DEK; need KEK v1 at read time)
+	CustomerKey         int // encrypted with a customer key (SSE-C): read with the client's key
 	Plaintext           int
 	Skipped             int // markers, temp files
 	Failures            []string
@@ -561,6 +562,8 @@ func (r *rebuild) file(bkt *bucketEntry, path string) {
 		report.EncryptedUnverified++
 	case classLegacyEncrypted:
 		report.LegacyEncrypted++
+	case classCustomerKey:
+		report.CustomerKey++
 	default:
 		report.Plaintext++
 	}
@@ -677,6 +680,7 @@ const (
 	classEncryptedVerified
 	classEncryptedUnverified
 	classLegacyEncrypted
+	classCustomerKey
 )
 
 // objectFromSidecar builds the Pebble entry for one stored file from its
@@ -741,6 +745,11 @@ func objectFromSidecar(path, bucketPath, key, versionID string, sidecar map[stri
 
 	if !encrypted {
 		return obj, classPlaintext, nil
+	}
+	// The client's key wraps its DEK: it is kept as it is, to be read with it.
+	if dek := sidecar[storage.MetadataCustomerDEKField]; dek != "" {
+		obj.CustomerDEK, obj.CustomerDEKIV = dek, sidecar[storage.MetadataCustomerDEKIVField]
+		return obj, classCustomerKey, nil
 	}
 	if sidecar["wrapped-dek"] == "" {
 		return obj, classLegacyEncrypted, nil

@@ -159,6 +159,12 @@ func (g *ReportGenerator) collectInventoryItems(ctx context.Context, config *Inv
 
 // getEncryptionStatus determines encryption status from metadata
 func (g *ReportGenerator) getEncryptionStatus(obj *metadata.ObjectMetadata) string {
+	switch {
+	case obj.CustomerDEK != "":
+		return "SSE-C"
+	case obj.SSEAlgorithm != "":
+		return "SSE-S3"
+	}
 	if obj.Metadata != nil {
 		if encryption, ok := obj.Metadata["x-amz-server-side-encryption"]; ok && encryption != "" {
 			return "SSE-S3"

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,6 +107,12 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			StoredETag: storedETag,
 			Reason:     "multipart object: ETag is composite, skipping MD5 verification",
 		}, nil
+	}
+
+	// The ETag of an object encrypted with a customer key is the MD5 of the
+	// bytes stored: they are checked without the key.
+	if meta.CustomerDEK != "" {
+		return om.verifyStoredBytes(ctx, bucket, key, meta), nil
 	}
 
 	// GetObject handles decryption transparently
@@ -267,4 +274,35 @@ func (om *objectManager) VerifyBucketIntegrity(ctx context.Context, bucket, pref
 
 	report.Duration = time.Since(start).String()
 	return report, nil
+}
+
+// verifyStoredBytes checks the bytes this node stores of the write entry is
+// against its ETag, the MD5 of those bytes, and their size against the
+// sidecar's.
+func (om *objectManager) verifyStoredBytes(ctx context.Context, bucket, key string, entry *metadata.ObjectMetadata) *IntegrityResult {
+	result := &IntegrityResult{Key: key, StoredETag: entry.ETag}
+	if !om.holdsData(entry) {
+		result.Status, result.Reason = IntegritySkipped, "data held by other nodes of the cluster"
+		return result
+	}
+	reader, sidecar, _, err := om.GetObjectRaw(ctx, bucket, key, entry.VersionID)
+	if err != nil {
+		result.Status, result.Reason = IntegrityMissing, "object data not found on storage"
+		return result
+	}
+	defer reader.Close()
+	result.ExpectedSize, _ = strconv.ParseInt(sidecar["size"], 10, 64)
+	hasher := md5.New()
+	result.ActualSize, err = io.Copy(hasher, reader)
+	if err != nil {
+		result.Status, result.Error = IntegrityError, fmt.Sprintf("failed to read object data: %v", err)
+		return result
+	}
+	result.ComputedETag = fmt.Sprintf("%x", hasher.Sum(nil))
+	if result.ComputedETag != entry.ETag || result.ActualSize != result.ExpectedSize {
+		result.Status, result.Reason = IntegrityCorrupted, "ETag or size mismatch"
+		return result
+	}
+	result.Status = IntegrityOK
+	return result
 }

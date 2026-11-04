@@ -16,14 +16,15 @@ echo "======================================"
 echo ""
 
 # Configuration
-export S3_ENDPOINT="http://localhost:8080"
-export CONSOLE_ENDPOINT="http://localhost:8081"
-export TEST_BUCKET="perf-test-bucket"
+export S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:8080}"
+export CONSOLE_ENDPOINT="${CONSOLE_ENDPOINT:-http://localhost:8081}"
+export TEST_BUCKET="${TEST_BUCKET:-perf-test-bucket}"
 
-# Replace these with your actual credentials
-# You can get these from the MaxIOFS console or use existing AWS CLI credentials
-export ACCESS_KEY="${ACCESS_KEY:-qEfbKkciqT2H7KLMTVt_}"
-export SECRET_KEY="${SECRET_KEY:-dRX6wACNyqOJ13ZAfSX7KCj0_zj7xaI2FnKpYJQv}"
+# The credentials of an access key made in the MaxIOFS console.
+if [ -z "${ACCESS_KEY:-}" ] || [ -z "${SECRET_KEY:-}" ]; then
+    echo "Set ACCESS_KEY and SECRET_KEY to an access key made in the MaxIOFS console." >&2
+    exit 1
+fi
 
 echo "Configuration:"
 echo "  S3 Endpoint:      $S3_ENDPOINT"

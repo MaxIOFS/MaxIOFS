@@ -54,7 +54,7 @@ func (s *Server) syncDirectories(ctx context.Context) {
 		return
 	}
 	for _, provider := range providers {
-		if provider.Status != idp.StatusActive || provider.Type == idp.TypeOAuth2 {
+		if provider.Status != idp.StatusActive || !s.idpManager.ReadsDirectory(ctx, provider.ID) {
 			continue
 		}
 		mappings, err := s.idpManager.ListGroupMappings(ctx, provider.ID)

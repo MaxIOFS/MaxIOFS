@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,7 +52,7 @@ func VerboseLogging() func(http.Handler) http.Handler {
 				logrus.Debug("📋 REQUEST HEADERS:")
 				for name, values := range r.Header {
 					for _, value := range values {
-						logrus.Debugf("  %s: %s", name, value)
+						logrus.Debugf("  %s: %s", name, auth.LoggedHeaderValue(name, value))
 					}
 				}
 			}
@@ -95,7 +96,7 @@ func VerboseLogging() func(http.Handler) http.Handler {
 				logrus.Debug("📋 RESPONSE HEADERS:")
 				for name, values := range rw.Header() {
 					for _, value := range values {
-						logrus.Debugf("  %s: %s", name, value)
+						logrus.Debugf("  %s: %s", name, auth.LoggedHeaderValue(name, value))
 					}
 				}
 

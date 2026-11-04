@@ -300,6 +300,10 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	if !ok {
+		return
+	}
 	// Optional versionId
 	versionID := r.URL.Query().Get("versionId")
 
@@ -312,6 +316,9 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		return
+	}
+	if h.writeCustomerKeyError(w, r, objectKey, object.CheckCustomerKey(obj, customerKey)) {
 		return
 	}
 
@@ -777,19 +784,28 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sourceCustomerKey, ok := h.customerKey(w, r, copySourcePrefix, sourceKey)
+	if !ok {
+		return
+	}
+	destCustomerKey, ok := h.writeCustomerKey(w, r, destBucket, destKey)
+	if !ok {
+		return
+	}
 	sourceBucketPath := h.getBucketPath(r, sourceBucket)
+	sourceCtx := object.WithReadKey(r.Context(), sourceCustomerKey)
 	// Get source object, requesting a specific version if indicated in the copy source.
 	var sourceObj *object.Object
 	var reader io.ReadCloser
 	if copySourceVersionID != "" {
 		var getErr error
-		sourceObj, reader, getErr = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey, copySourceVersionID)
+		sourceObj, reader, getErr = h.objectManager.GetObject(sourceCtx, sourceBucketPath, sourceKey, copySourceVersionID)
 		if getErr != nil {
 			if getErr == object.ErrObjectNotFound {
 				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
 				return
 			}
-			if h.writeDataUnavailable(w, r, sourceKey, getErr) {
+			if h.writeCustomerKeyError(w, r, sourceKey, getErr) || h.writeDataUnavailable(w, r, sourceKey, getErr) {
 				return
 			}
 			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)
@@ -797,13 +813,13 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var getErr error
-		sourceObj, reader, getErr = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+		sourceObj, reader, getErr = h.objectManager.GetObject(sourceCtx, sourceBucketPath, sourceKey)
 		if getErr != nil {
 			if getErr == object.ErrObjectNotFound {
 				h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
 				return
 			}
-			if h.writeDataUnavailable(w, r, sourceKey, getErr) {
+			if h.writeCustomerKeyError(w, r, sourceKey, getErr) || h.writeDataUnavailable(w, r, sourceKey, getErr) {
 				return
 			}
 			h.writeError(w, "InternalError", getErr.Error(), sourceKey, r)
@@ -811,6 +827,9 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer reader.Close()
+	if h.writeCustomerKeyError(w, r, sourceKey, object.CheckCustomerKey(sourceObj, sourceCustomerKey)) {
+		return
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"source_bucket": sourceBucket,
@@ -897,7 +916,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	destBucketPath := h.getBucketPath(r, destBucket)
-	destObj, err := h.objectManager.PutObject(r.Context(), destBucketPath, destKey, reader, headers)
+	destObj, err := h.objectManager.PutObject(object.WithWriteKey(r.Context(), destCustomerKey), destBucketPath, destKey, reader, headers)
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			h.writeError(w, "NoSuchBucket", "The destination bucket does not exist", destBucket, r)
@@ -934,6 +953,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 	if sourceObj.VersionID != "" {
 		w.Header().Set("x-amz-copy-source-version-id", sourceObj.VersionID)
 	}
+	setCustomerKeyHeaders(w.Header(), destCustomerKey)
 
 	type CopyObjectResult struct {
 		XMLName      xml.Name  `xml:"CopyObjectResult"`

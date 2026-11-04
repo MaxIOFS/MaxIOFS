@@ -65,9 +65,12 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 	// 1. Fetch source metadata + open data stream
 	srcObj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
 	if err != nil {
-		if err == object.ErrObjectNotFound {
+		switch {
+		case err == object.ErrObjectNotFound:
 			s.writeError(w, "Object not found", http.StatusNotFound)
-		} else {
+		case errors.Is(err, object.ErrCustomerKeyRequired):
+			s.writeError(w, errCustomerKeyConsole, http.StatusConflict)
+		default:
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
@@ -418,9 +421,12 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 	// Copy the specified version to a new PUT → it becomes the new latest version
 	srcObj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey, req.VersionID)
 	if err != nil {
-		if err == object.ErrObjectNotFound {
+		switch {
+		case err == object.ErrObjectNotFound:
 			s.writeError(w, "Version not found", http.StatusNotFound)
-		} else {
+		case errors.Is(err, object.ErrCustomerKeyRequired):
+			s.writeError(w, errCustomerKeyConsole, http.StatusConflict)
+		default:
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
 		return

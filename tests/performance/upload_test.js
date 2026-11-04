@@ -39,8 +39,7 @@ export const options = {
 
     // Upload-specific thresholds
     'upload_success': ['rate>0.95'],           // 95% success rate
-    'upload_latency_ms': ['p(95)<2000'],       // p95 under 2s
-    'upload_latency_ms': ['p(99)<5000'],       // p99 under 5s
+    'upload_latency_ms': ['p(95)<2000', 'p(99)<5000'], // p95 under 2s, p99 under 5s
     'bytes_uploaded': ['count>1000000'],       // At least 1MB uploaded
     'objects_created': ['count>100'],          // At least 100 objects
   },

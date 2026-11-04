@@ -69,6 +69,11 @@ type ObjectMetadata struct {
 	// Encryption
 	SSEAlgorithm string `json:"sse_algorithm,omitempty"`
 	SSEKeyID     string `json:"sse_key_id,omitempty"`
+	// CustomerDEK and CustomerDEKIV: for an object encrypted with a customer
+	// key (SSE-C), its DEK wrapped with that key and the nonce of the wrap,
+	// in hex. Every node checks a request's key with them.
+	CustomerDEK   string `json:"customer_dek,omitempty"`
+	CustomerDEKIV string `json:"customer_dek_iv,omitempty"`
 
 	// Multipart upload tracking
 	UploadID string `json:"upload_id,omitempty"`
@@ -344,6 +349,9 @@ type EncryptionMetadata struct {
 type EncryptionRule struct {
 	ApplyServerSideEncryptionByDefault *SSEConfig `json:"apply_server_side_encryption_by_default,omitempty"`
 	BucketKeyEnabled                   bool       `json:"bucket_key_enabled,omitempty"`
+	// CustomerKeysAllowed: writes with SSE-C are taken. They are refused
+	// unless it is set, as in AWS since April 2026.
+	CustomerKeysAllowed bool `json:"customer_keys_allowed,omitempty"`
 }
 
 // SSEConfig represents server-side encryption configuration

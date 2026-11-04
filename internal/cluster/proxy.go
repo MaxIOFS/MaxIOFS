@@ -113,7 +113,12 @@ var internalClusterHeaders = []string{
 	"X-MaxIOFS-Forwarded-Tenant",
 	"X-MaxIOFS-Forwarded-Roles",
 	"X-MaxIOFS-STS-Access-Key",
+	SecureTransportHeader,
 }
+
+// SecureTransportHeader marks a request a node forwards that reached it over
+// HTTPS. It is taken only on a request whose forwarding is signed.
+const SecureTransportHeader = "X-MaxIOFS-Secure-Transport"
 
 // StripInternalClusterHeaders removes all X-MaxIOFS-* cluster-internal headers
 func StripInternalClusterHeaders(r *http.Request) {

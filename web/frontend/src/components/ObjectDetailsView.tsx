@@ -141,11 +141,13 @@ type ActionsMenuProps = ObjectViewCallbacks & {
   isReadOnly?:        boolean;
   objectLockEnabled?: boolean;
   legalHoldOn?:       boolean;
+  // customerKey: only its client's key reads the object (SSE-C).
+  customerKey?:       boolean;
   onBack:             () => void;
 };
 
 function ActionsMenu({
-  objectKey, isReadOnly, objectLockEnabled, legalHoldOn,
+  objectKey, isReadOnly, objectLockEnabled, legalHoldOn, customerKey,
   onCopyUrl, onCopyS3Uri, onShare, onUnshare, isShared, onPresignedUrl,
   onRename, onEditTags, onDelete, onToggleLegalHold,
 }: ActionsMenuProps) {
@@ -197,7 +199,7 @@ function ActionsMenu({
             {item(<Copy className="h-4 w-4" />,       t('copyS3Uri'),            () => onCopyS3Uri(objectKey))}
             {item(<LinkIcon className="h-4 w-4" />,   t('copyObjectUrl'),        () => onCopyUrl(objectKey))}
             {sep}
-            {item(<Share2Icon className="h-4 w-4" />, isShared ? t('sharedLinkOptions') : t('sharePublicLink'), () => onShare(objectKey), isReadOnly)}
+            {item(<Share2Icon className="h-4 w-4" />, isShared ? t('sharedLinkOptions') : t('sharePublicLink'), () => onShare(objectKey), isReadOnly || customerKey)}
             {isShared && onUnshare && item(
               <LinkOffIcon className="h-4 w-4" />,
               t('stopSharing'),
@@ -205,7 +207,7 @@ function ActionsMenu({
               isReadOnly,
               true,
             )}
-            {item(<LinkIcon className="h-4 w-4" />,   t('generatePresignedUrl'), () => onPresignedUrl(objectKey), isReadOnly)}
+            {item(<LinkIcon className="h-4 w-4" />,   t('generatePresignedUrl'), () => onPresignedUrl(objectKey), isReadOnly || customerKey)}
             {objectLockEnabled && onToggleLegalHold && (
               item(
                 <ShieldIcon className="h-4 w-4" />,
@@ -215,7 +217,7 @@ function ActionsMenu({
               )
             )}
             {sep}
-            {item(<PencilIcon className="h-4 w-4" />, t('renameObject'), () => onRename(objectKey),   isReadOnly)}
+            {item(<PencilIcon className="h-4 w-4" />, t('renameObject'), () => onRename(objectKey),   isReadOnly || customerKey)}
             {item(<TagIcon className="h-4 w-4" />,    t('editTags'),     () => onEditTags(objectKey), isReadOnly)}
             {sep}
             {/* Note: onBack is NOT called here — deleteObjectMutation.onSuccess handles
@@ -263,6 +265,7 @@ export function ObjectDetailsView({
   const objectUrl  = APIClient.getObjectUrl(bucketName, objectKey);
   const objectName = objectKey.split('/').pop() ?? objectKey;
   const legalHoldOn = obj.legalHold?.status === 'ON' || obj.legalHold?.Status === 'ON';
+  const customerKey = !!objectData.customerKey;
 
   const prefixSegments = currentPrefix.split('/').filter(Boolean);
 
@@ -367,7 +370,7 @@ export function ObjectDetailsView({
             size="sm"
             className="gap-2"
             onClick={() => onDownload(objectKey)}
-            disabled={isReadOnly}
+            disabled={isReadOnly || customerKey}
           >
             <DownloadIcon className="h-4 w-4" />
             {t('download')}
@@ -378,6 +381,7 @@ export function ObjectDetailsView({
             isReadOnly={isReadOnly}
             objectLockEnabled={objectLockEnabled}
             legalHoldOn={legalHoldOn}
+            customerKey={customerKey}
             onBack={onBack}
             onDownload={onDownload}
             onCopyUrl={onCopyUrl}
@@ -393,6 +397,12 @@ export function ObjectDetailsView({
           />
         </div>
       </div>
+
+      {customerKey && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          {t('customerKeyNotice')}
+        </div>
+      )}
 
       {/* ── Tab card ── */}
       <div className="bg-card rounded-lg border border-border">

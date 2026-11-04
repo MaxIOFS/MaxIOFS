@@ -24,6 +24,15 @@ const (
 	MetadataLegalHoldField = "maxiofs-legal-hold"
 )
 
+// Sidecar fields of an object encrypted with a customer key (SSE-C): the
+// algorithm, and its DEK wrapped with that key and the nonce of the wrap, in
+// hex. A metadata store rebuilt from the files gets them back.
+const (
+	MetadataCustomerAlgorithmField = "customer-algorithm"
+	MetadataCustomerDEKField       = "customer-dek"
+	MetadataCustomerDEKIVField     = "customer-dek-iv"
+)
+
 // MetadataGeneratedKey marks a metadata map that was derived from the bytes on
 const MetadataGeneratedKey = "maxiofs-metadata-generated"
 
