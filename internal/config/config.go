@@ -32,8 +32,12 @@ type Config struct {
 	CertFile  string `mapstructure:"cert_file"`
 	KeyFile   string `mapstructure:"key_file"`
 
-	// Trusted proxies (public IPs only — private networks are trusted automatically)
-	TrustedProxies []string `mapstructure:"trusted_proxies"`
+	// TrustedProxies are the proxies (IPs or CIDRs) whose X-Forwarded-For and
+	// X-Forwarded-Proto are taken. TrustPrivateNetworks, unset or true, trusts
+	// every loopback and private address as one too; false, only
+	// TrustedProxies.
+	TrustedProxies       []string `mapstructure:"trusted_proxies"`
+	TrustPrivateNetworks *bool    `mapstructure:"trust_private_networks"`
 
 	// Storage configuration
 	Storage StorageConfig `mapstructure:"storage"`
@@ -162,6 +166,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cluster_advertise_address", "")
 	v.SetDefault("website_hostname", "")
 	v.SetDefault("trusted_proxies", []string{})
+	v.SetDefault("trust_private_networks", true)
 	v.SetDefault("storage.encryption_key", "")
 	v.SetDefault("auth.jwt_secret", "")
 	v.SetDefault("auth.encryption_secret", "")

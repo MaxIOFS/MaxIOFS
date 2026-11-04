@@ -17,6 +17,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
+	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -1085,6 +1086,10 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 	// Served from this node's data only: a node that does not hold it answers
 	// 404 and the reader asks another.
 	ctx := cluster.WithHAReplicaContext(r.Context())
+	if r.URL.Query().Get("stored") == "1" {
+		s.serveStoredBytes(w, r, bucketPath, key)
+		return
+	}
 	obj, reader, err := s.objectManager.GetObject(ctx, bucketPath, key, r.URL.Query().Get("versionId"))
 	if err != nil {
 		var elsewhere *object.DataElsewhereError
@@ -1138,6 +1143,51 @@ func (s *Server) handleHAGetObject(w http.ResponseWriter, r *http.Request) {
 		if obj.Size > 0 {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
 		}
+		w.WriteHeader(http.StatusOK)
+	}
+	io.Copy(w, reader) //nolint:errcheck
+}
+
+// serveStoredBytes serves another node the bytes of a write this node holds
+// as they are stored, from the start of a "bytes=N-" range: those of a write
+// encrypted with a customer key, which the server cannot decrypt.
+func (s *Server) serveStoredBytes(w http.ResponseWriter, r *http.Request, bucketPath, key string) {
+	raw, ok := s.objectManager.(object.RawObjectAccessor)
+	if !ok {
+		http.Error(w, "stored bytes are not served by this node", http.StatusNotImplemented)
+		return
+	}
+	reader, sidecar, entry, err := raw.GetObjectRaw(r.Context(), bucketPath, key, r.URL.Query().Get("versionId"))
+	if err != nil {
+		if errors.Is(err, object.ErrObjectNotFound) || errors.Is(err, storage.ErrObjectNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer reader.Close()
+	size, err := strconv.ParseInt(sidecar["size"], 10, 64)
+	if err != nil {
+		http.Error(w, "the stored bytes have no size", http.StatusInternalServerError)
+		return
+	}
+	offset, err := haRangeStart(r.Header.Get("Range"), size)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	if offset > 0 {
+		if _, err := io.CopyN(io.Discard, reader, offset); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set(cluster.HAETagHeader, entry.ETag)
+	w.Header().Set("Content-Length", strconv.FormatInt(size-offset, 10))
+	if offset > 0 {
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
 		w.WriteHeader(http.StatusOK)
 	}
 	io.Copy(w, reader) //nolint:errcheck

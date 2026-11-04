@@ -282,10 +282,7 @@ func TestFaultPartMetadataFailurePreservesPriorPart(t *testing.T) {
 	require.Equal(t, old.ETag, parts[0].ETag)
 	r, _, err := b.GetPart(t.Context(), u.UploadID, 1)
 	require.NoError(t, err, "ListParts must not claim an acknowledged part that is missing on disk")
-	defer r.Close()
-	data, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.Equal(t, faultOld, string(data))
+	require.Equal(t, faultOld, string(partContent(t, m, u.UploadID, r)))
 }
 
 func TestFaultOverwriteCost(t *testing.T) {

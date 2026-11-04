@@ -17,7 +17,7 @@ import (
 // one shard of it.
 func heldBytes(v object.ObjectVersion) int64 {
 	if layout, ok := v.Object.Erasure(); ok {
-		return layout.ShardSize(v.Size)
+		return layout.ShardSize(object.CutSize(&v.Object))
 	}
 	return v.Size
 }
@@ -138,9 +138,14 @@ func (r *placementRepair) joinShards(ctx context.Context, bucket, key string, v 
 		}
 		gen++
 		named := append(slices.Clone(locations), n.ID)
-		if n.ID == r.localID {
+		// A write encrypted with a customer key is joined as stored, sent to
+		// each node this one too.
+		switch {
+		case v.Object.CustomerEncrypted():
+			err = sendStoredCopyOf(ctx, r.client, n, r.localID, bucket, key, &v.Object, data, &newLocations{gen: gen, locations: named})
+		case n.ID == r.localID:
 			err = r.ha.storeCopyHere(ctx, &v.Object, data, gen, named)
-		} else {
+		default:
 			err = sendCopyOf(ctx, r.client, n, r.localID, bucket, key, &v.Object, data, &newLocations{gen: gen, locations: named})
 		}
 		data.Close()

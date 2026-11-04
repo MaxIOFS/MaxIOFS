@@ -190,7 +190,7 @@ func (s *Server) beginSTSFederation(w http.ResponseWriter, r *http.Request, meth
 
 	// These endpoints accept credentials without a session, so they get the same
 	// per-IP budget as the console login endpoint.
-	clientIP := getClientIP(r, s.config.TrustedProxies)
+	clientIP := getClientIP(r, s.proxyTrust())
 	if !s.authManager.CheckRateLimit(clientIP) {
 		logrus.WithFields(logrus.Fields{"ip": clientIP, "method": method}).
 			Warn("STS federation rate limit exceeded")
@@ -217,7 +217,7 @@ func (s *Server) beginSTSFederation(w http.ResponseWriter, r *http.Request, meth
 func (s *Server) resolveFederationProvider(w http.ResponseWriter, r *http.Request, providerID, wantType string) (*idp.IdentityProvider, bool) {
 	provider, err := s.idpManager.GetProvider(r.Context(), providerID)
 	if err != nil || provider == nil {
-		s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
+		s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.proxyTrust()))
 		s.writeError(w, "Identity provider not found", http.StatusNotFound)
 		return nil, false
 	}
@@ -276,7 +276,7 @@ func (s *Server) completeSTSFederation(
 		ResourceName: session.TempAccessKeyID,
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":      method,
@@ -321,7 +321,7 @@ func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error
 
 // denySTSFederation audits a rejected exchange and answers with a single opaque
 func (s *Server) denySTSFederation(w http.ResponseWriter, r *http.Request, method, providerID, subject, reason string) {
-	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
+	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.proxyTrust()))
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,
@@ -329,7 +329,7 @@ func (s *Server) denySTSFederation(w http.ResponseWriter, r *http.Request, metho
 		ResourceName: subject,
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusFailed,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":      method,

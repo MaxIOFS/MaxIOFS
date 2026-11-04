@@ -188,6 +188,13 @@
     "ignoredByPublicAccess": "Il blocco dell'accesso pubblico ignora questo ACL: le richieste senza credenziali vengono negate.",
     "blockedByPublicAccess": "\"Blocca ACL pubblici\" è attivo: disattivalo in Blocco dell'accesso pubblico per scegliere un ACL pubblico."
   },
+  "customerKeys": {
+    "title": "Chiavi del cliente (SSE-C)",
+    "description": "Con SSE-C il client invia la propria chiave a ogni richiesta; MaxIOFS cifra l'oggetto con essa e non ne conserva copia. Sono accettate solo richieste HTTPS. Bloccato per impostazione predefinita, come in AWS.",
+    "allow": "Consenti SSE-C",
+    "allowHelp": "Le scritture con chiave del cliente sono accettate. Bloccarlo di nuovo impedisce solo le nuove scritture: gli oggetti già scritti restano leggibili con la loro chiave.",
+    "savedSuccess": "Impostazione SSE-C aggiornata"
+  },
   "publicAccess": {
     "title": "Blocco dell'accesso pubblico",
     "description": "Annulla le concessioni pubbliche dell'ACL e della politica del bucket qui sotto. Non concede nulla da solo. I link di condivisione, gli URL prefirmati e l'hosting di siti web statici non sono interessati.",

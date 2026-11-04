@@ -599,52 +599,82 @@ func sendRawReplica(ctx context.Context, client *ProxyClient, raw object.RawObje
 		return false, nil
 	}
 
-	sidecarJSON, jErr := json.Marshal(sidecar)
-	if jErr != nil {
+	size, _ := strconv.ParseInt(sidecar["size"], 10, 64)
+	status, err := sendStoredBytes(ctx, client, n, localID, bucket, key, reader, sidecar, metaObj, size)
+	if err != nil {
+		return true, err
+	}
+	if status == http.StatusPreconditionFailed {
+		// Replica cannot decrypt this KEK version (should not happen once the
+		// join distributed the cluster keys) — fall back to legacy transfer.
 		return false, nil
 	}
-	metaJSON, jErr := json.Marshal(metaObj)
-	if jErr != nil {
-		return false, nil
+	if status < 200 || status >= 300 {
+		return true, fmt.Errorf("raw replica status %d", status)
+	}
+	return true, nil
+}
+
+// sendStoredBytes sends n a whole copy whose bytes reader gives as stored,
+// size of them when known, with their sidecar and entry; it gives the status
+// n answers.
+func sendStoredBytes(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key string, reader io.Reader,
+	sidecar map[string]string, metaObj *metadata.ObjectMetadata, size int64) (int, error) {
+	sidecarJSON, err := json.Marshal(sidecar)
+	if err != nil {
+		return 0, err
+	}
+	metaJSON, err := json.Marshal(metaObj)
+	if err != nil {
+		return 0, err
 	}
 
 	url := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s", n.Endpoint, escapeHAObjectKey(key))
 	// The sidecar's etag is the MD5 of the bytes on disk, which is exactly what
 	// is being streamed — the digest costs nothing and the peer can check it.
 	var req *http.Request
-	var rErr error
 	if etag := sidecar["etag"]; etag != "" {
-		req, rErr = client.CreateAuthenticatedRequestWithDigest(ctx, "PUT", url, reader, localID, n.NodeToken, "md5:"+etag)
+		req, err = client.CreateAuthenticatedRequestWithDigest(ctx, "PUT", url, reader, localID, n.NodeToken, "md5:"+etag)
 	} else {
-		req, rErr = client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
+		req, err = client.CreateAuthenticatedRequest(ctx, "PUT", url, reader, localID, n.NodeToken)
 	}
-	if rErr != nil {
-		return true, rErr
+	if err != nil {
+		return 0, err
 	}
 	req.Header.Set("X-MaxIOFS-HA-Replica", "true")
 	req.Header.Set(HABucketHeader, bucket)
 	req.Header.Set(HARawHeader, "true")
 	req.Header.Set(HARawSidecarHeader, base64.StdEncoding.EncodeToString(sidecarJSON))
 	req.Header.Set(HARawObjectMetaHeader, base64.StdEncoding.EncodeToString(metaJSON))
-	if ciphertextSize, pErr := strconv.ParseInt(sidecar["size"], 10, 64); pErr == nil {
-		req.ContentLength = ciphertextSize
+	if size > 0 {
+		req.ContentLength = size
 	}
 
-	resp, dErr := client.DoAuthenticatedRequest(req)
-	if dErr != nil {
-		return true, dErr
+	resp, err := client.DoAuthenticatedRequest(req)
+	if err != nil {
+		return 0, err
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
+	return resp.StatusCode, nil
+}
 
-	if resp.StatusCode == http.StatusPreconditionFailed {
-		// Replica cannot decrypt this KEK version (should not happen once the
-		// join distributed the cluster keys) — fall back to legacy transfer.
-		return false, nil
+// sendStoredCopyOf sends n a whole copy of obj, encrypted with a customer
+// key, whose bytes as stored data gives, naming the locations as.
+func sendStoredCopyOf(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key string, obj *object.Object, data io.Reader, as *newLocations) error {
+	named := *obj
+	named.ECData, named.ECParity, named.ECBlock = 0, 0, 0
+	if as != nil {
+		named.Locations, named.LocationsGen = as.locations, as.gen
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return true, fmt.Errorf("raw replica status %d", resp.StatusCode)
+	sidecar, entry := object.StoredCopy(&named)
+	status, err := sendStoredBytes(ctx, client, n, localID, bucket, key, data, sidecar, entry, object.CutSize(&named))
+	if err != nil {
+		return err
 	}
-	return true, nil
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("stored copy status %d", status)
+	}
+	return nil
 }
 
 // fanoutDelete replicates a delete made here of a write of storage class sc

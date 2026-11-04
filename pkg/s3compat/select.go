@@ -606,7 +606,7 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 
 	// ── Fetch object data ────────────────────────────────────────────────────
 
-	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	customerKey, ok := h.customerKey(w, r, objectKeyHeaders, objectKey)
 	if !ok {
 		return
 	}

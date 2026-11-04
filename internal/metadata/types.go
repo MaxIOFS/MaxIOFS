@@ -406,6 +406,14 @@ type MultipartUploadMetadata struct {
 	ContentType  string            `json:"content_type,omitempty"`
 	TenantID     string            `json:"tenant_id,omitempty"`
 	OwnerID      string            `json:"owner_id"`
+	// PartDEK, PartDEKIV and PartKEKVersion: the upload's DEK wrapped with
+	// the KEK; its parts are encrypted with it. CustomerDEK and CustomerDEKIV:
+	// for an upload with a customer key (SSE-C), the same DEK wrapped with it.
+	PartDEK        string `json:"part_dek,omitempty"`
+	PartDEKIV      string `json:"part_dek_iv,omitempty"`
+	PartKEKVersion int    `json:"part_kek_version,omitempty"`
+	CustomerDEK    string `json:"customer_dek,omitempty"`
+	CustomerDEKIV  string `json:"customer_dek_iv,omitempty"`
 }
 
 // FinishedUpload is what is kept of a multipart upload once it is completed or

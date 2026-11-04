@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "Mit einem Kundenschlüssel verschlüsselt (SSE-C): nur die S3-API liest es, mit diesem Schlüssel. Die Konsole kann es weder herunterladen, teilen noch umbenennen.",
   "title": "Buckets",
   "manageBuckets": "Verwalten Sie Ihre S3-Buckets und deren Konfigurationen",
   "createBucket": "Bucket erstellen",

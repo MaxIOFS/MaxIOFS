@@ -188,7 +188,7 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 // bytes must decrypt and match the size and digest they were stored with.
 func (om *objectManager) verifyShard(ctx context.Context, entry *metadata.ObjectMetadata, index int) *IntegrityResult {
 	info := ShardOf(fromMetadataObject(entry), index, entry.LocationsGen)
-	result := &IntegrityResult{Key: entry.Key, StoredETag: entry.ETag, ExpectedSize: info.Layout.ShardSize(entry.Size)}
+	result := &IntegrityResult{Key: entry.Key, StoredETag: entry.ETag, ExpectedSize: info.Layout.ShardSize(info.CutSize())}
 	sidecar, err := om.storage.GetMetadata(ctx, om.shardRef(info))
 	if err != nil {
 		result.Status, result.Reason = IntegrityMissing, "the shard this node holds is not on its disk"

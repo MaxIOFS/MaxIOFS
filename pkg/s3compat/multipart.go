@@ -127,13 +127,19 @@ func (h *Handler) CreateMultipartUpload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	customerKey, ok := h.writeCustomerKey(w, r, bucketName, objectKey)
+	if !ok {
+		return
+	}
+
 	bucketPath := h.getBucketPath(r, bucketName)
 	// Create multipart upload
-	upload, err := h.objectManager.CreateMultipartUpload(r.Context(), bucketPath, objectKey, r.Header)
+	upload, err := h.objectManager.CreateMultipartUpload(object.WithWriteKey(r.Context(), customerKey), bucketPath, objectKey, r.Header)
 	if err != nil {
 		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
 	}
+	setCustomerKeyHeaders(w.Header(), customerKey)
 
 	result := InitiateMultipartUploadResult{
 		Bucket:   bucketName,
@@ -315,7 +321,11 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, bodyReader)
+	customerKey, ok := h.writeCustomerKey(w, r, bucketName, objectKey)
+	if !ok {
+		return
+	}
+	part, err := h.objectManager.UploadPart(object.WithWriteKey(r.Context(), customerKey), uploadID, partNumber, bodyReader)
 	if err != nil {
 		if err == object.ErrUploadNotFound {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
@@ -327,6 +337,7 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 
 	// Return ETag in response header
 	w.Header().Set("ETag", QuoteETag(part.ETag))
+	setCustomerKeyHeaders(w.Header(), customerKey)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -969,13 +980,23 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 		}
 	}
 
+	sourceCustomerKey, ok := h.customerKey(w, r, copySourceKeyHeaders, sourceKey)
+	if !ok {
+		return
+	}
+	uploadCustomerKey, ok := h.writeCustomerKey(w, r, destBucket, destKey)
+	if !ok {
+		return
+	}
+	sourceCtx := object.WithReadKey(r.Context(), sourceCustomerKey)
+
 	// Get source object
 	var sourceObj *object.Object
 	var reader io.ReadCloser
 	if copySourceVersionID != "" {
-		sourceObj, reader, err = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey, copySourceVersionID)
+		sourceObj, reader, err = h.objectManager.GetObject(sourceCtx, sourceBucketPath, sourceKey, copySourceVersionID)
 	} else {
-		sourceObj, reader, err = h.objectManager.GetObject(r.Context(), sourceBucketPath, sourceKey)
+		sourceObj, reader, err = h.objectManager.GetObject(sourceCtx, sourceBucketPath, sourceKey)
 	}
 	if err != nil {
 		if err == object.ErrObjectNotFound {
@@ -986,13 +1007,16 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 			h.writeError(w, "NoSuchKey", "The specified source key does not exist", sourceKey, r)
 			return
 		}
-		if h.writeDataUnavailable(w, r, sourceKey, err) {
+		if h.writeCustomerKeyError(w, r, sourceKey, err) || h.writeDataUnavailable(w, r, sourceKey, err) {
 			return
 		}
 		h.writeError(w, "InternalError", err.Error(), sourceKey, r)
 		return
 	}
 	defer reader.Close()
+	if h.writeCustomerKeyError(w, r, sourceKey, object.CheckCustomerKey(sourceObj, sourceCustomerKey)) {
+		return
+	}
 
 	if !h.validateCopySourceConditionals(w, r, sourceObj, sourceKey) {
 		return
@@ -1045,15 +1069,19 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	}).Debug("UploadPartCopy: Uploading part with streaming")
 
 	// Upload the part with streaming reader - no memory loading
-	part, err := h.objectManager.UploadPart(r.Context(), uploadID, partNumber, partReader)
+	part, err := h.objectManager.UploadPart(object.WithWriteKey(r.Context(), uploadCustomerKey), uploadID, partNumber, partReader)
 	if err != nil {
 		if err == object.ErrUploadNotFound {
 			h.writeError(w, "NoSuchUpload", "The specified multipart upload does not exist", uploadID, r)
 			return
 		}
+		if h.writeCustomerKeyError(w, r, destKey, err) {
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), uploadID, r)
 		return
 	}
+	setCustomerKeyHeaders(w.Header(), uploadCustomerKey)
 
 	// Return copy part result
 	type CopyPartResult struct {

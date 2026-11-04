@@ -16,32 +16,33 @@ import (
 func (s *Server) policyRequestFacts(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		facts := bucket.RequestFacts{
-			SourceIP: getClientIP(r, s.config.TrustedProxies),
-			SecureTransport: r.TLS != nil || (fromTrustedProxy(r, s.config.TrustedProxies) &&
+			SourceIP: getClientIP(r, s.proxyTrust()),
+			SecureTransport: r.TLS != nil || (fromTrustedProxy(r, s.proxyTrust()) &&
 				strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")),
 		}
 		next.ServeHTTP(w, r.WithContext(bucket.WithRequestFacts(r.Context(), facts)))
 	})
 }
 
-// withForwardedTransport records, for a request another node forwarded and
-// signed, that it reached that node over HTTPS when that node says so.
-func withForwardedTransport(ctx context.Context, r *http.Request) context.Context {
-	if r.Header.Get(cluster.SecureTransportHeader) != "true" {
-		return ctx
-	}
+// withForwardedFacts records, for a request another node forwarded and
+// signed, what that node found of it: its client's address, and whether it
+// came over HTTPS.
+func withForwardedFacts(ctx context.Context, r *http.Request) context.Context {
 	facts := bucket.RequestFactsFrom(ctx)
-	facts.SecureTransport = true
+	if ip := net.ParseIP(r.Header.Get(cluster.ClientIPHeader)); ip != nil {
+		facts.SourceIP = ip.String()
+	}
+	facts.SecureTransport = r.Header.Get(cluster.SecureTransportHeader) == "true"
 	return bucket.WithRequestFacts(ctx, facts)
 }
 
 // fromTrustedProxy reports whether the direct peer of the request is a proxy
 // whose forwarding headers are honoured.
-func fromTrustedProxy(r *http.Request, trustedProxies []string) bool {
+func fromTrustedProxy(r *http.Request, trust proxyTrust) bool {
 	host := r.RemoteAddr
 	if idx := strings.LastIndex(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && isIPTrusted(ip, trustedProxies)
+	return ip != nil && isIPTrusted(ip, trust)
 }

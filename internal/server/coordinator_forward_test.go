@@ -105,7 +105,7 @@ func TestForward_TheCoordinatorSeesTheUser(t *testing.T) {
 				facts = bucket.RequestFactsFrom(r.Context())
 			})).ServeHTTP(httptest.NewRecorder(), replay)
 
-			assert.Equal(t, tc.address, getClientIP(replay, server.config.TrustedProxies))
+			assert.Equal(t, tc.address, getClientIP(replay, server.proxyTrust()))
 			assert.Equal(t, tc.address, facts.SourceIP)
 			assert.Equal(t, tc.secure, facts.SecureTransport)
 			assert.Equal(t, "Bearer user-token", replay.Header.Get("Authorization"))

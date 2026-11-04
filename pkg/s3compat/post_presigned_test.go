@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -359,4 +361,47 @@ func TestPresignedPost_Redirect(t *testing.T) {
 	assert.Contains(t, loc, "bucket="+bucketName, "Redirect should contain bucket")
 	assert.Contains(t, loc, "key="+objectKey, "Redirect should contain key")
 	assert.Contains(t, loc, "etag=", "Redirect should contain etag")
+}
+
+// TestPresignedPost_CustomerKey: SSE-C fields of a form are taken as the
+// headers of a PUT: refused where the bucket blocks SSE-C and over HTTP; the
+// object stored is read only with the key.
+func TestPresignedPost_CustomerKey(t *testing.T) {
+	env := setupPresignedPostEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "blocked", env.userID))
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "allowed", env.userID))
+	require.NoError(t, env.bucketManager.SetEncryption(ctx, env.tenantID, "allowed",
+		&bucket.EncryptionConfig{Type: "AES256", CustomerKeysAllowed: true}))
+
+	content := []byte("form upload under the customer's key")
+	fields := customerKeyHeaders("", keyA)
+	var conditions []interface{}
+	for name, value := range fields {
+		conditions = append(conditions, map[string]string{name: value})
+	}
+	post := func(bucketName string, secure bool) int {
+		req := buildPostPresignedRequest(t, bucketName, "doc.txt", content, "text/plain", env.accessKey, env.secretKey, conditions, fields)
+		if secure {
+			req = req.WithContext(bucket.WithRequestFacts(req.Context(), bucket.RequestFacts{SecureTransport: true}))
+		}
+		w := httptest.NewRecorder()
+		env.router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	assert.Equal(t, http.StatusForbidden, post("blocked", true))
+	assert.Equal(t, http.StatusBadRequest, post("allowed", false))
+	require.Equal(t, http.StatusNoContent, post("allowed", true))
+
+	path := env.tenantID + "/allowed"
+	_, _, err := env.objectManager.GetObject(ctx, path, "doc.txt")
+	assert.ErrorIs(t, err, object.ErrCustomerKeyRequired)
+	_, body, err := env.objectManager.GetObject(object.WithReadKey(ctx, keyA), path, "doc.txt")
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	body.Close()
+	require.NoError(t, err)
+	assert.Equal(t, content, data)
 }

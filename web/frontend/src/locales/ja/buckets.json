@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "顧客キーで暗号化されています (SSE-C)：そのキーを使って S3 API でのみ読み取れます。コンソールではダウンロード、共有、名前の変更はできません。",
   "title": "バケット",
   "manageBuckets": "S3バケットとその設定を管理",
   "createBucket": "バケット作成",

@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/sirupsen/logrus"
@@ -145,7 +146,7 @@ func (s *Server) handleCreateIDP(w http.ResponseWriter, r *http.Request) {
 		ResourceName: provider.Name,
 		Action:       "create_identity_provider",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 	})
 
@@ -296,7 +297,7 @@ func (s *Server) handleDeleteIDP(w http.ResponseWriter, r *http.Request) {
 		ResourceName: existing.Name,
 		Action:       "delete_identity_provider",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"linked_users": linkedCount,
@@ -561,7 +562,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		ResourceName: provider.Name,
 		Action:       "import_users",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"imported": imported,
@@ -1056,7 +1057,7 @@ func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user 
 		ResourceName: user.Username,
 		Action:       audit.ActionLogin,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":      "oauth",
@@ -1403,7 +1404,7 @@ func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, provider
 		ResourceName: newUser.Username,
 		Action:       "auto_provision_oauth",
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"provider_id": provider.ID,
@@ -1455,11 +1456,5 @@ func resolveRoleFromMappings(userGroups []string, mappings []*idp.GroupMapping) 
 // isHTTPS returns true when the request was received over a TLS connection
 // or when a trusted reverse-proxy forwarded it as HTTPS.
 func isHTTPS(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		return true
-	}
-	return false
+	return r.TLS != nil || bucket.RequestFactsFrom(r.Context()).SecureTransport
 }

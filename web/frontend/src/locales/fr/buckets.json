@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "Chiffré avec une clé client (SSE-C) : seule l'API S3 le lit, avec cette clé. La console ne peut ni le télécharger, ni le partager, ni le renommer.",
   "title": "Buckets",
   "manageBuckets": "Gérer vos buckets S3 et leurs configurations",
   "createBucket": "Créer un bucket",

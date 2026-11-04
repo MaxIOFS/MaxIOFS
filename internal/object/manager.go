@@ -682,12 +682,22 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 		return nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
 	}
 
-	pipeReader, pipeWriter := io.Pipe()
-
 	sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
 	if sseAlgorithm == "" {
 		sseAlgorithm = "AES-256-CTR" // assume legacy CTR for unmarked objects
 	}
+	return om.decryptingWith(ctx, encryptedReader, decryptKey, sseAlgorithm), nil
+}
+
+// decryptingWith reads the plaintext encryptedReader gives, encrypted with
+// decryptKey by sseAlgorithm; it closes encryptedReader and stops when ctx
+// ends.
+func (om *objectManager) decryptingWith(ctx context.Context, encryptedReader io.ReadCloser, decryptKey []byte, sseAlgorithm string) io.ReadCloser {
+	return decryptingWith(ctx, om.encryptor, encryptedReader, decryptKey, sseAlgorithm)
+}
+
+func decryptingWith(ctx context.Context, encryptor encryption.Encryptor, encryptedReader io.ReadCloser, decryptKey []byte, sseAlgorithm string) io.ReadCloser {
+	pipeReader, pipeWriter := io.Pipe()
 	encryptionMeta := &encryption.EncryptionMetadata{
 		Algorithm: sseAlgorithm,
 	}
@@ -707,7 +717,7 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 			}
 		}()
 
-		err := om.encryptor.DecryptStream(encryptedReader, pipeWriter, decryptKey, encryptionMeta)
+		err := encryptor.DecryptStream(encryptedReader, pipeWriter, decryptKey, encryptionMeta)
 		close(done)
 
 		if err != nil {
@@ -722,7 +732,7 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 		pipeWriter.Close()
 	}()
 
-	return pipeReader, nil
+	return pipeReader
 }
 
 // putObject stores an object
@@ -2207,6 +2217,9 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		Metadata:     metadata,
 		Parts:        []Part{},
 	}
+	if err := om.newUploadKey(ctx, multipart); err != nil {
+		return nil, err
+	}
 
 	// Save multipart upload metadata to the metadata store.
 	metaMU := toMetadataMultipartUpload(multipart)
@@ -2225,20 +2238,37 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	// Replacing a part in between would assemble bytes the ETag never described.
 	defer om.lockUploadPart(uploadID, partNumber)()
 
-	if _, err := om.metadataStore.GetMultipartUpload(ctx, uploadID); err != nil {
+	stored, err := om.metadataStore.GetMultipartUpload(ctx, uploadID)
+	if err != nil {
 		if err == metadata.ErrUploadNotFound {
 			return nil, ErrUploadNotFound
 		}
 		return nil, err
 	}
-
-	// Create part path
+	upload := fromMetadataMultipartUpload(stored)
+	if err := checkUploadKey(upload, writeKeyFrom(ctx)); err != nil {
+		return nil, err
+	}
+	partKey, err := om.uploadKey(upload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the upload's key: %w", err)
+	}
 
 	// Store part data
 	partMetadata := map[string]string{
 		"upload-id":    uploadID,
 		"part-number":  strconv.Itoa(partNumber),
 		"content-type": "application/octet-stream",
+	}
+	// A part is stored encrypted with the upload's key; its ETag and size are
+	// those of what was sent, but for an upload with a customer key, whose
+	// ETag is the MD5 of the bytes stored.
+	plain := &countingMD5{r: data, hash: md5.New()}
+	if partKey != nil {
+		partMetadata["encrypted"] = "true"
+		encrypted := om.encrypting(plain, partKey)
+		defer encrypted.Close()
+		data = encrypted
 	}
 
 	// Replacing a part that was already acknowledged: the write lands on the
@@ -2286,11 +2316,18 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 
 	size, _ := strconv.ParseInt(storageMetadata["size"], 10, 64)
 	lastModified, _ := strconv.ParseInt(storageMetadata["last_modified"], 10, 64)
+	partETag := storageMetadata["etag"]
+	if partKey != nil {
+		size = plain.n
+		if upload.CustomerDEK == "" {
+			partETag = hex.EncodeToString(plain.hash.Sum(nil))
+		}
+	}
 
 	partMeta := &metadata.PartMetadata{
 		UploadID:     uploadID,
 		PartNumber:   partNumber,
-		ETag:         storageMetadata["etag"],
+		ETag:         partETag,
 		Size:         size,
 		LastModified: time.Unix(lastModified, 0),
 	}
@@ -2315,7 +2352,7 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 
 	part := &Part{
 		PartNumber:   partNumber,
-		ETag:         storageMetadata["etag"],
+		ETag:         partETag,
 		Size:         size,
 		LastModified: time.Unix(lastModified, 0),
 	}
@@ -2530,6 +2567,10 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 		StorageClass: multipart.StorageClass,
 		VersionID:    versionID,
 		SSEAlgorithm: "AES256",
+	}
+	if multipart.CustomerDEK != "" {
+		object.SSEAlgorithm = ""
+		object.CustomerDEK, object.CustomerDEKIV = multipart.CustomerDEK, multipart.CustomerDEKIV
 	}
 	object.takeStoredHeaders(multipart.Metadata)
 

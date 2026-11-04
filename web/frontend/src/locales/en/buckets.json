@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "Encrypted with a customer key (SSE-C): only the S3 API reads it, with that key. The console cannot download, share or rename it.",
   "title": "Buckets",
   "manageBuckets": "Manage your S3 buckets and their configurations",
   "createBucket": "Create Bucket",

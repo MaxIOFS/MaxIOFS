@@ -373,7 +373,9 @@ encrypted with its own random Data Encryption Key (DEK) using authenticated
 AES-256-GCM in 64 KB chunks — any tampered chunk is detected and rejected on
 read. Each object's DEK is wrapped with the Key Encryption Key (KEK) and
 stored in the object's on-disk `.metadata` sidecar, so objects remain
-recoverable from the filesystem alone given a KEK backup.
+recoverable from the filesystem alone given a KEK backup. The parts of a
+multipart upload in progress are stored encrypted with a key of the upload,
+wrapped with the KEK.
 
 **Key management:**
 - The KEK lives in the database and is **generated automatically** on first
@@ -415,7 +417,33 @@ listings. See `maxiofs recover --help` and the runbook in
 - Mixed mode: pre-existing plaintext/legacy objects keep reading correctly
 - Performance: ~5-10% latency increase for large files
 - S3 API compatible: No client changes needed
-- SSE-C / external KMS (Vault, AWS KMS) are planned on top of the envelope
+- External KMS (Vault, AWS KMS) is planned on top of the envelope
+
+### Customer-Provided Keys (SSE-C)
+
+A client can send its own key with each request. The object's DEK is wrapped
+with that key instead of the KEK, in its entry and sidecar; MaxIOFS keeps no
+copy of the key.
+
+- Per bucket, blocked by default as in AWS since April 2026:
+  `PutBucketEncryption` with `BlockedEncryptionTypes` `NONE` allows it, `SSE-C`
+  blocks it; in the console, Bucket → Security → Customer-provided keys.
+  Blocking stops writes; objects written stay readable with their key.
+- Over HTTPS only: TLS on the S3 port, or `X-Forwarded-Proto: https` from a
+  trusted proxy. A node that forwards a request to another passes on how it
+  was received.
+- The server cannot read such an object without its key: the console does not
+  download, share or rename it, a folder ZIP leaves it out, and bucket
+  replication does not copy it. The integrity scrub checks its stored bytes
+  against its ETag, their MD5; KEK rotation leaves it as it is; `maxiofs
+  recover` restores its entry.
+- In a cluster its bytes move as stored: whole copies are copied and parity
+  cuts them in shards without the key. A node that holds none decrypts what it
+  reads from another with the key of the request.
+- A multipart upload's key stays wrapped with the KEK until the upload is
+  completed or aborted, as `CompleteMultipartUpload` carries no customer key;
+  the object keeps only the wrap with the customer's key.
+- Logs give the key headers and the STS session token as `[redacted]`.
 
 ### Stored Credentials Encryption (AES-256-GCM)
 
@@ -556,9 +584,12 @@ user of another tenant, nor beyond what a session policy allows.
 - **Requests without credentials**: only a statement naming `"*"` applies. A
   `Deny` refuses them even when the bucket ACL is public.
 - **Conditions**: `aws:SourceIp` and `aws:SecureTransport`. The source address
-  is the client address the server logs: behind a proxy in a private range or in
-  `trusted_proxies`, the `X-Forwarded-For` address; TLS includes a trusted
-  proxy's `X-Forwarded-Proto: https`.
+  is the client address the server logs: behind a trusted proxy, the rightmost
+  `X-Forwarded-For` entry past the proxies of `trusted_proxies`; TLS includes a
+  trusted proxy's `X-Forwarded-Proto: https`. Trusted proxies are those of
+  `trusted_proxies` and, unless `trust_private_networks` is `false`, every
+  loopback and private address. A request a cluster node forwards to another
+  is evaluated with its client's address and transport, carried signed.
 - **Refused when saved** (`MalformedPolicy`): `NotPrincipal`, `NotAction`,
   `NotResource`, other principal types or ARNs, actions outside S3, resources
   outside the bucket, other condition keys or operators. A policy is never read

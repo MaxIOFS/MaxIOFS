@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "使用客户密钥加密 (SSE-C)：只有 S3 API 能用该密钥读取。控制台无法下载、共享或重命名它。",
   "title": "存储桶",
   "manageBuckets": "管理您的 S3 存储桶及其配置",
   "createBucket": "创建存储桶",

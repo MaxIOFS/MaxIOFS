@@ -32,6 +32,17 @@ type ShardInfo struct {
 	WrittenAt    int64          `json:"written_at,omitempty"`
 	Layout       erasure.Layout `json:"layout"`
 	Gen          int64          `json:"gen"`
+	// Sealed: the write is encrypted with a customer key, and its shards are
+	// cut from the bytes it is stored as, which the server cannot decrypt.
+	Sealed bool `json:"sealed,omitempty"`
+}
+
+// CutSize is the number of bytes of the write cut in shards.
+func (s ShardInfo) CutSize() int64 {
+	if s.Sealed {
+		return storedSize(s.Size)
+	}
+	return s.Size
 }
 
 // ShardStore keeps the shards this node holds of writes cut in shards.
@@ -70,7 +81,7 @@ func ShardOf(o *Object, index int, gen int64) ShardInfo {
 	return ShardInfo{
 		Bucket: o.Bucket, Key: o.Key, VersionID: o.VersionID, Index: index,
 		ETag: o.ETag, Size: o.Size, LastModified: o.LastModified.Unix(), WrittenAt: o.WrittenAt,
-		Layout: layout, Gen: gen,
+		Layout: layout, Gen: gen, Sealed: o.CustomerEncrypted(),
 	}
 }
 
@@ -183,7 +194,7 @@ func (om *objectManager) PutShard(ctx context.Context, info ShardInfo, data io.R
 	if err != nil {
 		return fmt.Errorf("failed to receive the shard: %w", err)
 	}
-	if want := info.Layout.ShardSize(info.Size); n != want {
+	if want := info.Layout.ShardSize(info.CutSize()); n != want {
 		return fmt.Errorf("a shard of %d bytes is %d bytes long", want, n)
 	}
 	if err := errors.Join(tempFile.Sync(), tempFile.Close()); err != nil {

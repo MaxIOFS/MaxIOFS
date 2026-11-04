@@ -176,7 +176,8 @@ func runStagingCost(t *testing.T, multipart, overwrite bool, partCount, partSize
 		require.True(t, probe.writes[0].Encrypted)
 		require.Zero(t, probe.writes[0].StagedBytes, "completion must not stage plaintext")
 		require.Zero(t, probe.plaintextBytes.Load())
-		require.Equal(t, int64(total), probe.partBytes.Load())
+		// Each part is read once, as stored: encrypted with the upload's key.
+		require.Equal(t, int64(partCount)*storedSize(int64(partSize)), probe.partBytes.Load())
 		require.Equal(t, int64(1), probe.peakParts.Load())
 		digest := md5.Sum(partDigests)
 		require.Equal(t, fmt.Sprintf("%s-%d", hex.EncodeToString(digest[:]), partCount), obj.ETag)

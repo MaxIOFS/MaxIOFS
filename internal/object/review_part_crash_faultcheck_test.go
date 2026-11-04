@@ -2,7 +2,8 @@ package object
 
 import (
 	"bytes"
-	"io"
+	"crypto/md5"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"os/exec"
@@ -71,11 +72,11 @@ func TestReviewAcknowledgedPartSurvivesProcessKill(t *testing.T) {
 	require.Empty(t, report.Failures)
 	row, err := s.GetPart(t.Context(), u.UploadID, 1)
 	require.NoError(t, err)
-	r, sidecar, err := m.storage.GetPart(t.Context(), u.UploadID, 1)
+	r, _, err := m.storage.GetPart(t.Context(), u.UploadID, 1)
 	require.NoError(t, err)
-	defer r.Close()
-	data, err := io.ReadAll(r)
-	require.NoError(t, err)
+	// The row describes what was sent; the part is stored encrypted.
+	data := partContent(t, m, u.UploadID, r)
 	require.Equal(t, int64(len(data)), row.Size, "successful UploadPart lost its row and has no backup to restore")
-	require.Equal(t, sidecar["etag"], row.ETag)
+	sum := md5.Sum(data)
+	require.Equal(t, hex.EncodeToString(sum[:]), row.ETag)
 }

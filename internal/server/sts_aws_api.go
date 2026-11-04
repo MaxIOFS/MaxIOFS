@@ -355,7 +355,7 @@ func (s *Server) stsFederationReady(w http.ResponseWriter, r *http.Request, meth
 		return false
 	}
 
-	clientIP := getClientIP(r, s.config.TrustedProxies)
+	clientIP := getClientIP(r, s.proxyTrust())
 	if !s.authManager.CheckRateLimit(clientIP) {
 		logrus.WithFields(logrus.Fields{"ip": clientIP, "method": method}).
 			Warn("STS federation rate limit exceeded (XML surface)")
@@ -409,7 +409,7 @@ func (s *Server) afterSTSXMLIssue(r *http.Request, user *auth.User, session *aut
 		ResourceName: session.TempAccessKeyID,
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":      "aws-sts",
@@ -423,7 +423,7 @@ func (s *Server) afterSTSXMLIssue(r *http.Request, user *auth.User, session *aut
 // auditSTSXMLDenial records a rejection. As on the JSON endpoints the caller
 // only ever sees an opaque error; the reason stays in the audit log.
 func (s *Server) auditSTSXMLDenial(r *http.Request, action, subject, reason string) {
-	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.config.TrustedProxies))
+	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.proxyTrust()))
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,
@@ -431,7 +431,7 @@ func (s *Server) auditSTSXMLDenial(r *http.Request, action, subject, reason stri
 		ResourceName: subject,
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusFailed,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method":     "aws-sts",

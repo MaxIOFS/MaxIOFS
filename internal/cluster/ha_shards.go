@@ -61,7 +61,7 @@ func sendShard(ctx context.Context, client *ProxyClient, n *Node, localID string
 	}
 	req.Header.Set(HABucketHeader, info.Bucket)
 	req.Header.Set(HAShardHeader, EncodeShardInfo(info))
-	req.ContentLength = info.Layout.ShardSize(info.Size)
+	req.ContentLength = info.Layout.ShardSize(info.CutSize())
 	resp, err := client.DoAuthenticatedRequest(req)
 	if err != nil {
 		return err
@@ -189,7 +189,7 @@ func (h *HAObjectManager) openShards(ctx context.Context, obj *object.Object) (i
 		if err != nil {
 			return nil, err
 		}
-		r := erasure.NewReader(layout, obj.Size, source)
+		r := erasure.NewReader(layout, object.CutSize(obj), source)
 		err = r.Ready()
 		if err == nil {
 			return r, nil
@@ -254,7 +254,7 @@ func (s *shardSink) finish(writeErr error) error {
 	return errors.Join(writeErr, <-s.done)
 }
 
-// stageShards cuts the size bytes data gives of obj by layout and stores
+// stageShards cuts the bytes data gives of obj, object.CutSize of them, by layout and stores
 // shard i on nodes[i] for the placement gen, without changing the entry of
 // the write anywhere. It returns each shard's error.
 func (h *HAObjectManager) stageShards(ctx context.Context, client *ProxyClient, obj *object.Object, data io.Reader,
@@ -266,7 +266,7 @@ func (h *HAObjectManager) stageShards(ctx context.Context, client *ProxyClient, 
 		sinks[i] = h.sinkTo(ctx, client, n, localID, object.ShardOf(cut, i, gen))
 		dst[i] = sinks[i].w
 	}
-	failed, err := erasure.Encode(layout, data, obj.Size, dst)
+	failed, err := erasure.Encode(layout, data, object.CutSize(obj), dst)
 	errs := make([]error, len(nodes))
 	for i, s := range sinks {
 		writeErr := err
@@ -302,7 +302,7 @@ func (h *HAObjectManager) rebuildShards(ctx context.Context, client *ProxyClient
 		sinks[i] = h.sinkTo(ctx, client, n, localID, object.ShardOf(cut, i, gen))
 		dst[i] = sinks[i].w
 	}
-	err = erasure.Rebuild(layout, obj.Size, source, dst)
+	err = erasure.Rebuild(layout, object.CutSize(obj), source, dst)
 	for i, s := range sinks {
 		errs[i] = s.finish(err)
 	}

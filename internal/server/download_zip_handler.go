@@ -220,7 +220,7 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 		ResourceName: zipName + ".zip",
 		Action:       audit.ActionDownload,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":     bucketName,

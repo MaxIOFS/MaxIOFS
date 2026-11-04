@@ -13,7 +13,6 @@ Pending work only. Completed work belongs in `CHANGELOG.md`.
 
 ## Encryption
 
-- [ ] Implement SSE-C.
 - [ ] Implement SSE-KMS.
 - [ ] Evaluate recovery-key escrow.
 - [ ] Evaluate Shamir split for recovery bundles.

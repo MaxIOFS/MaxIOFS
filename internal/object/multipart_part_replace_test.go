@@ -74,12 +74,25 @@ func setupPartReplacement(t *testing.T) (*objectManager, storage.Backend, metada
 
 func requireStoredPart(t *testing.T, om *objectManager, backend storage.Backend, uploadID string, partNumber int, want string) {
 	t.Helper()
-	reader, _, err := backend.GetPart(t.Context(), uploadID, partNumber)
+	reader, partMeta, err := backend.GetPart(t.Context(), uploadID, partNumber)
 	require.NoError(t, err, "a part advertised by ListParts must exist on disk")
-	defer reader.Close()
-	data, err := io.ReadAll(reader)
+	require.Equal(t, "true", partMeta["encrypted"], "a part is stored encrypted")
+	require.Equal(t, want, string(partContent(t, om, uploadID, reader)))
+}
+
+// partContent is what was sent of a part reader gives as stored, encrypted
+// with the key of upload uploadID.
+func partContent(t *testing.T, om *objectManager, uploadID string, reader io.ReadCloser) []byte {
+	t.Helper()
+	stored, err := om.metadataStore.GetMultipartUpload(t.Context(), uploadID)
 	require.NoError(t, err)
-	require.Equal(t, want, string(data))
+	key, err := om.uploadKey(fromMetadataMultipartUpload(stored))
+	require.NoError(t, err)
+	plain := om.decryptingWith(t.Context(), reader, key, "AES-256-GCM-STREAM")
+	defer plain.Close()
+	data, err := io.ReadAll(plain)
+	require.NoError(t, err)
+	return data
 }
 
 func requirePartList(t *testing.T, om *objectManager, uploadID string, want *Part) {

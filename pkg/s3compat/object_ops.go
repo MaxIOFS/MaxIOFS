@@ -300,7 +300,7 @@ func (h *Handler) GetObjectAttributes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	customerKey, ok := h.customerKey(w, r, objectKeyHeaders, objectKey)
 	if !ok {
 		return
 	}
@@ -784,7 +784,7 @@ func (h *Handler) CopyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourceCustomerKey, ok := h.customerKey(w, r, copySourcePrefix, sourceKey)
+	sourceCustomerKey, ok := h.customerKey(w, r, copySourceKeyHeaders, sourceKey)
 	if !ok {
 		return
 	}

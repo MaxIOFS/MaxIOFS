@@ -444,6 +444,13 @@ func (h *HAObjectManager) getObject(ctx context.Context, bucket, key string, tak
 	if err != nil {
 		return nil, nil, err
 	}
+	// The data of a write encrypted with a customer key comes as stored and
+	// is decrypted here, with the key the request gives.
+	if elsewhere.Object.CustomerEncrypted() {
+		if data, err = object.DecryptCustomer(ctx, data, elsewhere.Object); err != nil {
+			return nil, nil, err
+		}
+	}
 	return elsewhere.Object, data, nil
 }
 
@@ -527,7 +534,7 @@ func (h *HAObjectManager) openRemote(ctx context.Context, bucket, key string, ob
 		return cmp.Compare(boolRank(a.HealthStatus != HealthStatusHealthy), boolRank(b.HealthStatus != HealthStatusHealthy))
 	})
 	client := NewProxyClient(h.mgr.GetTLSConfig())
-	r := &remoteReader{size: obj.Size, open: func(offset int64) (io.ReadCloser, error) {
+	r := &remoteReader{size: object.CutSize(obj), open: func(offset int64) (io.ReadCloser, error) {
 		for _, n := range holders {
 			body, err := readObjectData(ctx, client, n, localID, bucket, key, obj, offset)
 			if err == nil {
@@ -552,11 +559,15 @@ func boolRank(b bool) int {
 }
 
 // readObjectData opens the data of obj on n from offset. The data must be that
-// of obj: a node that holds another write of the key does not serve it.
+// of obj: a node that holds another write of the key does not serve it. The
+// data of a write encrypted with a customer key comes as stored.
 func readObjectData(ctx context.Context, client *ProxyClient, n *Node, localID, bucket, key string, obj *object.Object, offset int64) (io.ReadCloser, error) {
 	target := fmt.Sprintf("%s/api/internal/cluster/ha/objects/%s?bucket=%s", n.Endpoint, escapeHAObjectKey(key), url.QueryEscape(bucket))
 	if obj.VersionID != "" {
 		target += "&versionId=" + url.QueryEscape(obj.VersionID)
+	}
+	if obj.CustomerEncrypted() {
+		target += "&stored=1"
 	}
 	req, err := client.CreateAuthenticatedRequest(ctx, http.MethodGet, target, nil, localID, n.NodeToken)
 	if err != nil {

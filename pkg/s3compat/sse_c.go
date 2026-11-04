@@ -16,18 +16,28 @@ const (
 	sseCAlgorithmHeader = "x-amz-server-side-encryption-customer-algorithm"
 	sseCKeyHeader       = "x-amz-server-side-encryption-customer-key"
 	sseCKeyMD5Header    = "x-amz-server-side-encryption-customer-key-MD5"
-	// copySourcePrefix names the key of a copy's source.
-	copySourcePrefix = "x-amz-copy-source-"
+
+	sseCSourceAlgorithmHeader = "x-amz-copy-source-server-side-encryption-customer-algorithm"
+	sseCSourceKeyHeader       = "x-amz-copy-source-server-side-encryption-customer-key"
+	sseCSourceKeyMD5Header    = "x-amz-copy-source-server-side-encryption-customer-key-MD5"
 )
 
-// customerKey is the SSE-C key a request gives under prefix: "" for the object
-// it names, copySourcePrefix for the source of a copy. It is nil when the
+// sseCHeaders are the headers that give the key of the object a request names
+// or, for copySource, of a copy's source.
+type sseCHeaders struct{ algorithm, key, keyMD5 string }
+
+var (
+	objectKeyHeaders     = sseCHeaders{sseCAlgorithmHeader, sseCKeyHeader, sseCKeyMD5Header}
+	copySourceKeyHeaders = sseCHeaders{sseCSourceAlgorithmHeader, sseCSourceKeyHeader, sseCSourceKeyMD5Header}
+)
+
+// customerKey is the SSE-C key a request gives in headers. It is nil when the
 // request gives none. A request that gives one wrongly, or not over HTTPS, is
 // answered, and ok is false.
-func (h *Handler) customerKey(w http.ResponseWriter, r *http.Request, prefix, resource string) (key []byte, ok bool) {
-	algorithm := r.Header.Get(prefix + sseCAlgorithmHeader)
-	encoded := r.Header.Get(prefix + sseCKeyHeader)
-	digest := r.Header.Get(prefix + sseCKeyMD5Header)
+func (h *Handler) customerKey(w http.ResponseWriter, r *http.Request, headers sseCHeaders, resource string) (key []byte, ok bool) {
+	algorithm := r.Header.Get(headers.algorithm)
+	encoded := r.Header.Get(headers.key)
+	digest := r.Header.Get(headers.keyMD5)
 	if algorithm == "" && encoded == "" && digest == "" {
 		return nil, true
 	}
@@ -58,7 +68,7 @@ func (h *Handler) customerKey(w http.ResponseWriter, r *http.Request, prefix, re
 	if digest != base64.StdEncoding.EncodeToString(sum[:]) {
 		return fail("InvalidArgument", "The calculated MD5 hash of the key did not match the hash that was provided.")
 	}
-	if prefix == "" && r.Header.Get("x-amz-server-side-encryption") != "" {
+	if headers == objectKeyHeaders && r.Header.Get("x-amz-server-side-encryption") != "" {
 		return fail("InvalidArgument", "Server Side Encryption with Customer provided key is incompatible with the encryption method specified")
 	}
 	return key, true
@@ -68,7 +78,7 @@ func (h *Handler) customerKey(w http.ResponseWriter, r *http.Request, prefix, re
 // SSE-C unless its encryption configuration allows it, as in AWS since April
 // 2026: 403 AccessDenied.
 func (h *Handler) writeCustomerKey(w http.ResponseWriter, r *http.Request, bucketName, resource string) ([]byte, bool) {
-	key, ok := h.customerKey(w, r, "", resource)
+	key, ok := h.customerKey(w, r, objectKeyHeaders, resource)
 	if !ok || key == nil {
 		return key, ok
 	}

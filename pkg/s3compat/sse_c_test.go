@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/bucket"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -40,13 +41,21 @@ func (env *s3TestEnv) sendSSEC(method, path string, body []byte, headers map[str
 	return w
 }
 
-// customerKeyHeaders are the headers that give key, under prefix.
+// copySource names the headers of a copy's source key.
+const copySource = "x-amz-copy-source-"
+
+// customerKeyHeaders are the headers that give key, named as AWS names them:
+// of the object for "", of a copy's source for copySource.
 func customerKeyHeaders(prefix string, key []byte) map[string]string {
 	sum := md5.Sum(key)
+	base := "x-amz-server-side-encryption-customer-"
+	if prefix == copySource {
+		base = "x-amz-copy-source-server-side-encryption-customer-"
+	}
 	return map[string]string{
-		prefix + sseCAlgorithmHeader: "AES256",
-		prefix + sseCKeyHeader:       base64.StdEncoding.EncodeToString(key),
-		prefix + sseCKeyMD5Header:    base64.StdEncoding.EncodeToString(sum[:]),
+		base + "algorithm": "AES256",
+		base + "key":       base64.StdEncoding.EncodeToString(key),
+		base + "key-MD5":   base64.StdEncoding.EncodeToString(sum[:]),
 	}
 }
 
@@ -269,16 +278,16 @@ func TestCustomerKeyCopy(t *testing.T) {
 	content := []byte("copied under another key")
 	require.Equal(t, http.StatusOK, env.sendSSEC("PUT", "/ssec/src.txt", content, customerKeyHeaders("", keyA), true).Code)
 
-	copySource := map[string]string{"x-amz-copy-source": "/ssec/src.txt"}
-	noSourceKey := env.sendSSEC("PUT", "/ssec/dst.txt", nil, joinHeaders(copySource, customerKeyHeaders("", keyB)), true)
+	source := map[string]string{"x-amz-copy-source": "/ssec/src.txt"}
+	noSourceKey := env.sendSSEC("PUT", "/ssec/dst.txt", nil, joinHeaders(source, customerKeyHeaders("", keyB)), true)
 	assert.Equal(t, http.StatusBadRequest, noSourceKey.Code, noSourceKey.Body.String())
 
 	wrongSourceKey := env.sendSSEC("PUT", "/ssec/dst.txt", nil,
-		joinHeaders(copySource, customerKeyHeaders(copySourcePrefix, keyB), customerKeyHeaders("", keyB)), true)
+		joinHeaders(source, customerKeyHeaders(copySource, keyB), customerKeyHeaders("", keyB)), true)
 	assert.Equal(t, http.StatusForbidden, wrongSourceKey.Code, wrongSourceKey.Body.String())
 
 	copied := env.sendSSEC("PUT", "/ssec/dst.txt", nil,
-		joinHeaders(copySource, customerKeyHeaders(copySourcePrefix, keyA), customerKeyHeaders("", keyB)), true)
+		joinHeaders(source, customerKeyHeaders(copySource, keyA), customerKeyHeaders("", keyB)), true)
 	require.Equal(t, http.StatusOK, copied.Code, copied.Body.String())
 	assert.Equal(t, customerKeyHeaders("", keyB)[sseCKeyMD5Header], copied.Header().Get(sseCKeyMD5Header))
 
@@ -288,7 +297,7 @@ func TestCustomerKeyCopy(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, env.sendSSEC("GET", "/ssec/dst.txt", nil, customerKeyHeaders("", keyA), true).Code)
 
 	// A copy without a destination key is encrypted as any other object.
-	plain := env.sendSSEC("PUT", "/ssec/plain.txt", nil, joinHeaders(copySource, customerKeyHeaders(copySourcePrefix, keyA)), true)
+	plain := env.sendSSEC("PUT", "/ssec/plain.txt", nil, joinHeaders(source, customerKeyHeaders(copySource, keyA)), true)
 	require.Equal(t, http.StatusOK, plain.Code, plain.Body.String())
 	read := env.sendSigned("GET", "/ssec/plain.txt", nil, nil)
 	require.Equal(t, http.StatusOK, read.Code, read.Body.String())
@@ -345,4 +354,68 @@ func TestCustomerKeyIsNotLogged(t *testing.T) {
 	require.Contains(t, logged.String(), "Canonical request components", "the signature is logged")
 	assert.Contains(t, logged.String(), "x-amz-server-side-encryption-customer-key:[redacted]")
 	assert.NotContains(t, logged.String(), base64.StdEncoding.EncodeToString(keyA))
+}
+
+// TestCustomerKeyMultipart: an upload started with a customer key takes its
+// parts with that key, completes without it, as in S3, and is read with it.
+func TestCustomerKeyMultipart(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	env.customerKeyBucket(t, "ssec")
+	require.NoError(t, env.bucketManager.CreateBucket(context.Background(), env.tenantID, "plain", env.userID))
+	key := customerKeyHeaders("", keyA)
+
+	refused := env.sendSSEC("POST", "/plain/big?uploads", nil, key, true)
+	assert.Equal(t, http.StatusForbidden, refused.Code, "a bucket that blocks SSE-C refuses the upload")
+
+	created := env.sendSSEC("POST", "/ssec/big?uploads", nil, key, true)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	assert.Equal(t, "AES256", created.Header().Get(sseCAlgorithmHeader))
+	var upload InitiateMultipartUploadResult
+	require.NoError(t, xml.Unmarshal(created.Body.Bytes(), &upload))
+
+	first := bytes.Repeat([]byte("first-part-"), 5*1024*1024/11+1)
+	second := []byte("second part")
+	partPath := func(n int) string { return "/ssec/big?partNumber=" + string(rune('0'+n)) + "&uploadId=" + upload.UploadId }
+
+	assert.Equal(t, http.StatusBadRequest, env.sendSSEC("PUT", partPath(1), first, nil, true).Code, "a part without the key")
+	assert.Equal(t, http.StatusForbidden, env.sendSSEC("PUT", partPath(1), first, customerKeyHeaders("", keyB), true).Code, "a part with another key")
+
+	var complete strings.Builder
+	complete.WriteString("<CompleteMultipartUpload>")
+	for n, body := range [][]byte{first, second} {
+		w := env.sendSSEC("PUT", partPath(n+1), body, key, true)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		complete.WriteString("<Part><PartNumber>" + string(rune('1'+n)) + "</PartNumber><ETag>" + w.Header().Get("ETag") + "</ETag></Part>")
+	}
+	complete.WriteString("</CompleteMultipartUpload>")
+
+	done := env.sendSSEC("POST", "/ssec/big?uploadId="+upload.UploadId, []byte(complete.String()), nil, true)
+	require.Equal(t, http.StatusOK, done.Code, done.Body.String())
+
+	assert.Equal(t, http.StatusBadRequest, env.sendSSEC("GET", "/ssec/big", nil, nil, true).Code)
+	get := env.sendSSEC("GET", "/ssec/big", nil, key, true)
+	require.Equal(t, http.StatusOK, get.Code, get.Body.String())
+	assert.True(t, bytes.Equal(append(first, second...), get.Body.Bytes()), "the content read is the content sent")
+
+	part2 := env.sendSSEC("GET", "/ssec/big?partNumber=2", nil, key, true)
+	require.Equal(t, http.StatusPartialContent, part2.Code, part2.Body.String())
+	assert.Equal(t, second, part2.Body.Bytes())
+}
+
+// TestForwardedFactsAreSet: a request forwarded to another node carries its
+// client's address and transport as this node found them, whatever the
+// client wrote in the same headers.
+func TestForwardedFactsAreSet(t *testing.T) {
+	r := httptest.NewRequest("PUT", "/b/k", nil)
+	r.Header.Set(cluster.SecureTransportHeader, "true")
+	r.Header.Set(cluster.ClientIPHeader, "10.0.0.1")
+	r = r.WithContext(bucket.WithRequestFacts(r.Context(), bucket.RequestFacts{SourceIP: "198.51.100.7"}))
+	setForwardedFacts(r)
+	assert.Equal(t, "198.51.100.7", r.Header.Get(cluster.ClientIPHeader))
+	assert.Empty(t, r.Header.Get(cluster.SecureTransportHeader), "the client came over HTTP")
+
+	r = r.WithContext(bucket.WithRequestFacts(r.Context(), bucket.RequestFacts{SourceIP: "198.51.100.7", SecureTransport: true}))
+	setForwardedFacts(r)
+	assert.Equal(t, "true", r.Header.Get(cluster.SecureTransportHeader))
 }

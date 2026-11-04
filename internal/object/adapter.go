@@ -257,6 +257,12 @@ func toMetadataMultipartUpload(mu *MultipartUpload) *metadata.MultipartUploadMet
 		Initiated:    mu.Initiated,
 		StorageClass: mu.StorageClass,
 		Metadata:     mu.Metadata,
+
+		PartDEK:        mu.PartDEK,
+		PartDEKIV:      mu.PartDEKIV,
+		PartKEKVersion: mu.PartKEKVersion,
+		CustomerDEK:    mu.CustomerDEK,
+		CustomerDEKIV:  mu.CustomerDEKIV,
 	}
 
 	return metaMU
@@ -276,6 +282,12 @@ func fromMetadataMultipartUpload(mu *metadata.MultipartUploadMetadata) *Multipar
 		StorageClass: mu.StorageClass,
 		Metadata:     mu.Metadata,
 		Parts:        []Part{}, // Parts must be fetched separately via ListParts
+
+		PartDEK:        mu.PartDEK,
+		PartDEKIV:      mu.PartDEKIV,
+		PartKEKVersion: mu.PartKEKVersion,
+		CustomerDEK:    mu.CustomerDEK,
+		CustomerDEKIV:  mu.CustomerDEKIV,
 	}
 
 	return objMU

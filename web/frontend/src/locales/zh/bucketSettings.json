@@ -188,6 +188,13 @@
     "ignoredByPublicAccess": "阻止公共访问设置会忽略此 ACL：没有凭证的请求将被拒绝。",
     "blockedByPublicAccess": "“阻止公共 ACL”已开启：请在阻止公共访问中将其关闭，才能选择公共 ACL。"
   },
+  "customerKeys": {
+    "title": "客户提供的密钥 (SSE-C)",
+    "description": "使用 SSE-C 时，客户端在每个请求中发送自己的密钥；MaxIOFS 用它加密对象，不保留任何副本。只接受 HTTPS 请求。与 AWS 一样，默认阻止。",
+    "allow": "允许 SSE-C",
+    "allowHelp": "接受使用客户密钥的写入。再次阻止只会停止新的写入：已写入的对象仍可用其密钥读取。",
+    "savedSuccess": "SSE-C 设置已更新"
+  },
   "publicAccess": {
     "title": "阻止公共访问",
     "description": "覆盖下方 ACL 和存储桶策略中的公共授权。它本身不授予任何权限。共享链接、预签名 URL 和静态网站托管不受影响。",

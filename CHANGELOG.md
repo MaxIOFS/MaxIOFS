@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SSO: users made by a group mapping follow the provider's groups.
 - Auto Sync reads LDAP directories and Keycloak realms every hour: it creates, deactivates and reactivates users.
 - A node joins a cluster with a one-time join code opened on it (Cluster → Join code).
+- SSE-C: keys sent by the client, over HTTPS; blocked per bucket by default, as in AWS (`PutBucketEncryption` `BlockedEncryptionTypes`, Bucket → Security).
+- `trust_private_networks` (default `true`): `false` takes `X-Forwarded-For` and `X-Forwarded-Proto` from the proxies of `trusted_proxies` only.
 
 ### Changed
 - Test Connection checks each step against the provider.
@@ -40,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Signed chunks and the digests of a write (`Content-MD5`, checksums, `x-amz-content-sha256`) were not checked.
 - A COMPLIANCE retention could be turned into GOVERNANCE and bypassed.
 - A folder downloaded as a ZIP could hold entries outside the folder.
+- A write with SSE-C headers was stored with the server's key and read without the client's.
+- The parts of a multipart upload in progress were stored unencrypted.
+- The debug log of request headers and the signature log gave the STS session token.
+- Behind a trusted proxy a client could choose its address: the leftmost `X-Forwarded-For` entry was taken (limits per address, `aws:SourceIp`, audit).
 
 ### Fixed
 - Multipart: `x-amz-version-id` and errors of `CompleteMultipartUpload`, retried completions and aborts, `If-Match`/`If-None-Match`, headers and tags kept, `EntityTooSmall`.
@@ -48,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SigV4 with a header sent twice or runs of spaces; `aws-chunked` with another `Content-Encoding`; ACL `xsi:type`; `PutObjectLockConfiguration` without `xmlns`.
 - Versioning: objects written before it was enabled, or while suspended, are kept as version `null`.
 - Lifecycle rules that deleted or expired the wrong objects; the console no longer replaces rules set through S3.
+- Inventory reports gave `NONE` as the encryption status of every object.
+- Cluster: a request forwarded to another node lost its client's address and `aws:SecureTransport`.
 - `PutObject` with `If-Match` or `If-None-Match` under concurrent writes.
 - A PUT no longer holds its key's lock while receiving data; signed requests are about 10 times faster.
 - Websites: the root index, and an S3 host under the website's host.

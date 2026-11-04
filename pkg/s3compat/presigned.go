@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bandwidth"
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
 
@@ -921,10 +922,24 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SSE-C comes in form fields, read as the headers of a PUT are.
+	for name, values := range form.Value {
+		switch lower := strings.ToLower(name); lower {
+		case sseCAlgorithmHeader, sseCKeyHeader, strings.ToLower(sseCKeyMD5Header):
+			if len(values) > 0 {
+				r.Header.Set(lower, values[0])
+			}
+		}
+	}
+	customerKey, ok := h.writeCustomerKey(w, r, bucketName, objectKey)
+	if !ok {
+		return
+	}
+
 	// Determine bucket path including tenant.
 	bucketPath := h.getBucketPath(r, bucketName)
 
-	result, err := h.objectManager.PutObject(r.Context(), bucketPath, objectKey, src, syntheticHeaders)
+	result, err := h.objectManager.PutObject(object.WithWriteKey(r.Context(), customerKey), bucketPath, objectKey, src, syntheticHeaders)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketName, "key": objectKey}).Error("POST presigned: PutObject failed")
 		h.writeObjectWriteError(w, r, err, bucketName, objectKey)

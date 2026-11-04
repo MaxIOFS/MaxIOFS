@@ -703,7 +703,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get client IP address
-	clientIP := getClientIP(r, s.config.TrustedProxies)
+	clientIP := getClientIP(r, s.proxyTrust())
 
 	// Log login attempt
 	logrus.WithFields(logrus.Fields{
@@ -962,7 +962,7 @@ func (s *Server) auditLoginSuccess(r *http.Request, user *auth.User, method stri
 		ResourceName: user.Username,
 		Action:       audit.ActionLogin,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"method": method,
@@ -1071,8 +1071,8 @@ func (s *Server) renewHere(ctx context.Context, w http.ResponseWriter, refreshTo
 	})
 }
 
-// privateIPNets contains the CIDR ranges that are always considered trusted
-// (loopback, RFC-1918 private, and IPv6 equivalents).
+// privateIPNets are the loopback and private ranges trust_private_networks
+// trusts as proxies (RFC 1918 and their IPv6 equivalents).
 var privateIPNets = func() []*net.IPNet {
 	ranges := []string{
 		"127.0.0.0/8",    // IPv4 loopback
@@ -1092,13 +1092,36 @@ var privateIPNets = func() []*net.IPNet {
 	return nets
 }()
 
-// isIPTrusted returns true if ip is in a private/loopback range or in the
-// user-supplied trustedProxies list (IPs or CIDRs).
-func isIPTrusted(ip net.IP, trustedProxies []string) bool {
-	for _, n := range privateIPNets {
-		if n.Contains(ip) {
-			return true
+// proxyTrust is which direct peers a request's X-Forwarded-For and
+// X-Forwarded-Proto are taken from: those of trusted_proxies, and every
+// loopback and private address while trust_private_networks is on.
+type proxyTrust struct {
+	proxies []string
+	private bool
+}
+
+func (s *Server) proxyTrust() proxyTrust {
+	private := s.config.TrustPrivateNetworks == nil || *s.config.TrustPrivateNetworks
+	return proxyTrust{proxies: s.config.TrustedProxies, private: private}
+}
+
+// isIPTrusted reports whether a peer at ip is a proxy whose forwarding
+// headers are taken.
+func isIPTrusted(ip net.IP, trust proxyTrust) bool {
+	if trust.private {
+		for _, n := range privateIPNets {
+			if n.Contains(ip) {
+				return true
+			}
 		}
+	}
+	return isListedProxy(ip, trust.proxies)
+}
+
+// isListedProxy reports whether ip is one of trusted_proxies.
+func isListedProxy(ip net.IP, trustedProxies []string) bool {
+	if ip == nil {
+		return false
 	}
 	for _, entry := range trustedProxies {
 		if strings.Contains(entry, "/") {
@@ -1132,7 +1155,7 @@ func sanitizeFilename(name string) string {
 }
 
 // getClientIP extracts the real client IP address from the request.
-func getClientIP(r *http.Request, trustedProxies []string) string {
+func getClientIP(r *http.Request, trust proxyTrust) string {
 	// Parse the direct upstream IP from RemoteAddr
 	remoteHost := r.RemoteAddr
 	if idx := strings.LastIndex(remoteHost, ":"); idx != -1 {
@@ -1142,14 +1165,17 @@ func getClientIP(r *http.Request, trustedProxies []string) string {
 	remoteHost = strings.Trim(remoteHost, "[]")
 
 	// Only honour proxy headers when the direct peer is trusted
-	if fromTrustedProxy(r, trustedProxies) {
-		// X-Forwarded-For may contain a comma-separated chain; the leftmost
-		// entry is the original client IP as reported by the first proxy.
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ips := strings.Split(forwarded, ",")
-			if candidate := strings.TrimSpace(ips[0]); candidate != "" {
-				return candidate
+	if fromTrustedProxy(r, trust) {
+		// Each proxy appends the address it took the request from: the
+		// rightmost entry is the one the trusted peer added, those left of it
+		// a client can write. Proxies of trusted_proxies are walked past.
+		hops := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			hop := strings.TrimSpace(hops[i])
+			if hop == "" || (i > 0 && isListedProxy(net.ParseIP(hop), trust.proxies)) {
+				continue
 			}
+			return hop
 		}
 		if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
 			return realIP
@@ -1171,7 +1197,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
 	if userExists {
 		// Log audit event for logout
-		clientIP := getClientIP(r, s.config.TrustedProxies)
+		clientIP := getClientIP(r, s.proxyTrust())
 		s.logAuditEvent(r.Context(), &audit.AuditEvent{
 			TenantID:     user.TenantID,
 			UserID:       user.ID,
@@ -2002,7 +2028,7 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionDownload,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":       bucketName,
@@ -2137,7 +2163,7 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionUpload,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":       bucketName,
@@ -2222,10 +2248,8 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 		} else {
 			protocol := "http"
-			if r.TLS != nil {
+			if bucket.RequestFactsFrom(r.Context()).SecureTransport {
 				protocol = "https"
-			} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-				protocol = proto
 			}
 			host := r.Host
 			if !strings.Contains(host, ":") {
@@ -2304,7 +2328,7 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionShare,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":   bucketName,
@@ -2319,10 +2343,8 @@ func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
 		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
 	} else {
 		protocol := "http"
-		if r.TLS != nil {
+		if bucket.RequestFactsFrom(r.Context()).SecureTransport {
 			protocol = "https"
-		} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			protocol = proto
 		}
 		host := r.Host
 		if !strings.Contains(host, ":") {
@@ -2434,7 +2456,7 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionDelete,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details:      details,
 	})
@@ -6724,7 +6746,7 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := getClientIP(r, s.config.TrustedProxies)
+	clientIP := getClientIP(r, s.proxyTrust())
 	if !s.authManager.CheckRateLimit(clientIP) {
 		s.writeError(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
 		return

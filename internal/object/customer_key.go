@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
+	"github.com/maxiofs/maxiofs/pkg/encryption"
 )
 
 // SSE-C: an object encrypted with a key its client sends with each request.
@@ -218,4 +222,136 @@ func (om *objectManager) dataKeyFor(ctx context.Context, sidecar map[string]stri
 		return unwrapCustomerDEK(sidecar[sidecarCustomerDEK], sidecar[sidecarCustomerDEKIV], readKeyFrom(ctx))
 	}
 	return om.decryptionKeyFor(sidecar)
+}
+
+// newUploadKey gives mu a DEK of its own for its parts, wrapped with the KEK,
+// and also with the customer key writes in ctx give, if any: the object the
+// upload completes is encrypted with it.
+func (om *objectManager) newUploadKey(ctx context.Context, mu *MultipartUpload) error {
+	dek, envelope, err := om.newEnvelope()
+	if err != nil {
+		return err
+	}
+	mu.PartDEK, mu.PartDEKIV = envelope["wrapped-dek"], envelope["wrapped-dek-iv"]
+	if mu.PartKEKVersion, err = strconv.Atoi(envelope["kek-version"]); err != nil {
+		return fmt.Errorf("corrupt KEK version: %w", err)
+	}
+	if key := writeKeyFrom(ctx); key != nil {
+		if mu.CustomerDEK, mu.CustomerDEKIV, err = wrapCustomerDEK(dek, key); err != nil {
+			return fmt.Errorf("failed to wrap DEK with the customer key: %w", err)
+		}
+	}
+	return nil
+}
+
+// uploadKey is the DEK mu's parts are encrypted with; nil for an upload
+// started before parts were encrypted, whose parts are stored as sent.
+func (om *objectManager) uploadKey(mu *MultipartUpload) ([]byte, error) {
+	if mu.PartDEK == "" {
+		return nil, nil
+	}
+	return om.decryptionKeyFor(map[string]string{
+		"wrapped-dek":    mu.PartDEK,
+		"wrapped-dek-iv": mu.PartDEKIV,
+		"kek-version":    strconv.Itoa(mu.PartKEKVersion),
+	})
+}
+
+// checkUploadKey reports whether key is the one mu was started with:
+// ErrCustomerKeyRequired, ErrCustomerKeyMismatch or, for a key given to an
+// upload started without one, ErrCustomerKeyNotApplicable.
+func checkUploadKey(mu *MultipartUpload, key []byte) error {
+	if mu.CustomerDEK == "" {
+		if key != nil {
+			return ErrCustomerKeyNotApplicable
+		}
+		return nil
+	}
+	_, err := unwrapCustomerDEK(mu.CustomerDEK, mu.CustomerDEKIV, key)
+	return err
+}
+
+// countingMD5 hashes and counts the bytes read through it.
+type countingMD5 struct {
+	r    io.Reader
+	hash hash.Hash
+	n    int64
+}
+
+func (c *countingMD5) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.hash.Write(p[:n])
+	c.n += int64(n)
+	return n, err
+}
+
+// encrypting gives the bytes of src encrypted with dek, as EncryptStream
+// writes them; closing it stops the encryption.
+func (om *objectManager) encrypting(src io.Reader, dek []byte) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		_, err := om.encryptor.EncryptStream(src, pw, dek)
+		pw.CloseWithError(err)
+	}()
+	return pr
+}
+
+// storedSize is the size n bytes are stored as, encrypted by EncryptStream:
+// a 12-byte nonce, then each chunk of up to 64 KiB with a 4-byte length and
+// a 16-byte tag.
+func storedSize(n int64) int64 {
+	const chunk = 64 * 1024
+	return 12 + n + (n+chunk-1)/chunk*20
+}
+
+// CutSize is the number of bytes of o's write that parity cuts in shards and
+// a whole copy carries between nodes: its content, or, for an object
+// encrypted with a customer key, which the server cannot decrypt, the bytes
+// it is stored as.
+func CutSize(o *Object) int64 {
+	if o.CustomerEncrypted() {
+		return storedSize(o.Size)
+	}
+	return o.Size
+}
+
+// DecryptCustomer gives the content of o, encrypted with a customer key,
+// from stored, the bytes it is stored as; the key reads in ctx give opens
+// it. It closes stored.
+func DecryptCustomer(ctx context.Context, stored io.ReadCloser, o *Object) (io.ReadCloser, error) {
+	dek, err := unwrapCustomerDEK(o.CustomerDEK, o.CustomerDEKIV, readKeyFrom(ctx))
+	if err != nil {
+		stored.Close()
+		return nil, err
+	}
+	return decryptingWith(ctx, encryption.NewAESGCMEncryptor(nil), stored, dek, "AES-256-GCM-STREAM"), nil
+}
+
+// StoredCopy is what a whole copy of o, encrypted with a customer key, is
+// stored as with the bytes it is stored as: its sidecar and its entry.
+func StoredCopy(o *Object) (map[string]string, *metadata.ObjectMetadata) {
+	sidecar := map[string]string{
+		"encrypted":                              "true",
+		"x-amz-server-side-encryption-algorithm": "AES-256-GCM-STREAM",
+		sidecarCustomerAlgorithm:                 CustomerAlgorithm,
+		sidecarCustomerDEK:                       o.CustomerDEK,
+		sidecarCustomerDEKIV:                     o.CustomerDEKIV,
+		"original-size":                          strconv.FormatInt(o.Size, 10),
+		"original-etag":                          o.ETag,
+		"content-type":                           o.ContentType,
+	}
+	if strings.Contains(o.ETag, "-") {
+		sidecar["multipart-etag"] = o.ETag
+	}
+	if o.StorageClass != "" {
+		sidecar["storage-class"] = o.StorageClass
+	}
+	stored := http.Header{}
+	o.SetStoredHeaders(stored)
+	for _, name := range StoredHeaders {
+		if v := stored.Get(name); v != "" {
+			sidecar[strings.ToLower(name)] = v
+		}
+	}
+	return sidecar, toMetadataObject(o)
 }

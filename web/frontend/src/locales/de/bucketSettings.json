@@ -188,6 +188,13 @@
     "ignoredByPublicAccess": "Die Blockierung des öffentlichen Zugriffs ignoriert diese ACL: Anfragen ohne Anmeldedaten werden abgelehnt.",
     "blockedByPublicAccess": "„Öffentliche ACLs blockieren“ ist aktiv: Deaktivieren Sie es unter „Öffentlichen Zugriff blockieren“, um eine öffentliche ACL zu wählen."
   },
+  "customerKeys": {
+    "title": "Kundenschlüssel (SSE-C)",
+    "description": "Bei SSE-C sendet der Client bei jeder Anfrage seinen eigenen Schlüssel; MaxIOFS verschlüsselt das Objekt damit und behält keine Kopie. Nur Anfragen über HTTPS werden angenommen. Standardmäßig gesperrt, wie bei AWS.",
+    "allow": "SSE-C erlauben",
+    "allowHelp": "Schreibvorgänge mit Kundenschlüssel werden angenommen. Erneutes Sperren verhindert nur neue Schreibvorgänge: bereits geschriebene Objekte bleiben mit ihrem Schlüssel lesbar.",
+    "savedSuccess": "SSE-C-Einstellung aktualisiert"
+  },
   "publicAccess": {
     "title": "Öffentlichen Zugriff blockieren",
     "description": "Hebt die öffentlichen Freigaben der ACL und der Bucket-Richtlinie unten auf. Selbst gewährt es nichts. Freigabelinks, vorsignierte URLs und statisches Website-Hosting sind nicht betroffen.",

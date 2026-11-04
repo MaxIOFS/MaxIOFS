@@ -106,6 +106,7 @@ Ceph cluster.
 - Static website hosting — subdomain routing, index document, error document, routing rules
 - Replication — to AWS S3, any S3-compatible endpoint, or other MaxIOFS instances (realtime, scheduled, batch)
 - Server-side encryption (SSE-S3 / AES256) — per-bucket configuration via `GetBucketEncryption`/`PutBucketEncryption`, `x-amz-server-side-encryption` response headers on GET/PUT/HEAD
+- SSE-C — *nightly builds only, not in v1.8.0:* keys sent by the client with each request, over HTTPS; blocked per bucket by default as in AWS, allowed with `PutBucketEncryption` or in the console
 - Server access logging — async delivery to target bucket in AWS S3 access log format (`GetBucketLogging`/`PutBucketLogging`)
 - `PublicAccessBlock` — the four flags enforced as in AWS: public ACLs and public bucket policies refused when set or voided for requests without credentials
 - `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
@@ -364,7 +365,7 @@ cd web/frontend && npm run test        # 140 frontend tests
 - **No erasure coding in v1.8.0** — a cluster keeps whole copies of each object, one per node up to the factor; parity across nodes is in the nightly builds only. A single node's redundancy relies on filesystem/RAID
 - **No tiering in v1.8.0** — lifecycle rules expire objects but do not move them; in the nightly builds transitions move objects to storage classes kept on nodes of the cluster. There is no transition to an external cloud
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
-- **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); SSE-C and external KMS/HSM integration are planned
+- **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); external KMS/HSM integration is planned. SSE-C (client-provided keys) is in the nightly builds only
 - **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead

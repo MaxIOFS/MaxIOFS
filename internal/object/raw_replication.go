@@ -26,6 +26,10 @@ type RawObjectAccessor interface {
 
 // CanReplicateRaw: the object must be envelope-encrypted and its wrapping KEK
 func (om *objectManager) CanReplicateRaw(sidecar map[string]string) bool {
+	// A customer key, not the KEK, wraps its DEK: every node stores it as is.
+	if customerSidecar(sidecar) {
+		return true
+	}
 	if sidecar["encrypted"] != "true" || sidecar["wrapped-dek"] == "" {
 		return false
 	}

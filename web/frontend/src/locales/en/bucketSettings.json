@@ -188,6 +188,13 @@
     "ignoredByPublicAccess": "Block Public Access ignores this ACL: requests without credentials are denied.",
     "blockedByPublicAccess": "\"Block public ACLs\" is on: turn it off in Block Public Access to choose a public ACL."
   },
+  "customerKeys": {
+    "title": "Customer-provided keys (SSE-C)",
+    "description": "With SSE-C a client sends its own key with each request; MaxIOFS encrypts the object with it and keeps no copy. Only requests over HTTPS are taken. Blocked by default, as in AWS.",
+    "allow": "Allow SSE-C",
+    "allowHelp": "Writes with a customer key are taken. Blocking it again stops new writes only: objects already written stay readable with their key.",
+    "savedSuccess": "SSE-C setting updated"
+  },
   "publicAccess": {
     "title": "Block Public Access",
     "description": "Overrides the public grants of the ACL and the bucket policy below. It grants nothing itself. Share links, presigned URLs and static website hosting are not affected.",

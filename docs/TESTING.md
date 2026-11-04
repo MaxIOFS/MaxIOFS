@@ -355,7 +355,7 @@ npx vitest run --coverage
 | `performance_test.go` | Performance metrics tracking |
 | `system_metrics_test.go` | System resource metrics (CPU, memory, disk) |
 
-### `internal/middleware/` — 4 test files
+### `internal/middleware/` — 5 test files
 
 | File | Description |
 |------|-------------|
@@ -363,6 +363,7 @@ npx vitest run --coverage
 | `cluster_auth_test.go` | HMAC inter-node authentication middleware |
 | `middleware_test.go` | Auth, CORS, rate limit middleware chain |
 | `tracing_test.go` | Request tracing and request ID propagation; an operation's errors are its 5xx answers, not its refusals |
+| `verbose_logging_test.go` | The debug dump of request headers gives the SSE-C keys and the STS session token redacted |
 
 ### `internal/notifications/` — 2 test files
 
@@ -371,13 +372,14 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 56 test files
+### `internal/object/` — 58 test files
 
 | File | Description |
 |------|-------------|
 | `accounting_property_test.go` | Bucket size/count accounting agrees with the object set after any sequence of operations, across versioning states too; a replaced null version gives its bytes back |
 | `adapter_test.go` | Storage adapter abstraction |
 | `backup_restore_test.go` | A retained overwrite/multipart backup survives a failed restore and is removed after a successful one |
+| `customer_key_test.go` | SSE-C: a read needs the key; no checksum of the content is kept; a copy between nodes is never written with a customer key; the scrubber checks the stored bytes against the ETag; the encryption worker leaves the object as it is |
 | `delete_key_fidelity_test.go` | `DeleteObject` deletes only the key it was given |
 | `encryption_migration_test.go` | Background worker converts plaintext to envelope encryption; multipart ETag preserved; a KEK rotation re-wraps the key of each shard held |
 | `faultcheck_test.go` | Kills a subprocess mid-write (before/after data, before/after metadata) and checks what the next start recovers; also covers the retained-backup rollback path and the cost of an overwrite's backup copy |
@@ -399,6 +401,7 @@ npx vitest run --coverage
 | `manager_versioning_acl_test.go` | Versioning + ACL interaction |
 | `multipart_cleanup_test.go` | Abort/complete leave no upload directory behind; the record survives when parts can't be removed |
 | `multipart_complete_rollback_test.go` | A multipart completion that fails after publishing the assembled object restores the previous one |
+| `multipart_encryption_test.go` | Parts are stored encrypted with their upload's key, with the ETag and size of what was sent; an upload started before keeps its parts as sent; an SSE-C upload takes parts with its key only, completes without it and keeps no MD5 of the content |
 | `multipart_finish_test.go` | A completion's `If-Match` and `If-None-Match` are decided under the key's lock, and a refused one leaves the upload; a finished upload is kept with its result and part list, and aborting it again does nothing; a completion is logged with its bucket, key, parts and version; it names its version before it waits for the key's lock, and the same completion sent again is told it |
 | `multipart_lock_test.go` | Independent parts upload concurrently; conflicting operations exclude each other |
 | `multipart_part_race_test.go` | A part cannot be replaced while completion is assembling it |
@@ -438,10 +441,11 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/recovery/` — 7 test files
+### `internal/recovery/` — 8 test files
 
 | File | Description |
 |------|-------------|
+| `customer_key_recovery_test.go` | `maxiofs recover` rebuilds the entry of an SSE-C object, which the client's key still opens |
 | `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off |
 | `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk; a shard is passed over by reconcile and the offline rebuild |
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
@@ -473,7 +477,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 70 test files
+### `internal/server/` — 73 test files
 
 | File | Description |
 |------|-------------|
@@ -492,7 +496,10 @@ npx vitest run --coverage
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
+| `console_customer_key_test.go` | The console marks an SSE-C object and answers 409 to its download; an object of the same bucket without one downloads |
 | `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked; the connection test answers each check, and the first that failed as its message |
+| `forwarded_transport_test.go` | A signed forwarded request is evaluated with its client's address and transport; X-Forwarded-For is read from the right past the listed proxies; `trust_private_networks` off trusts `trusted_proxies` alone |
+| `ha_customer_key_test.go` | SSE-C in a cluster: parity cuts the stored bytes, no shard holds the content, a read without the key asks no node; whole copies, cuts and joins move the bytes as stored |
 | `idp_isolation_test.go` | A provider signs in its own users only, by the console and by STS, and provisions with its own mappings; a local user's email is not provisioned; a tenant administrator reaches its tenant's providers and their mappings only; a tenant's provider maps, imports and syncs into its tenant, with the email, and not an email another user has; the console answers `409`; an unverified email signs nobody in, by the console or by STS |
 | `idp_sessions_test.go` | A provider's session follows the provider at each renewal (role from the groups, kept through an outage, ended on a refused refresh at once); renewals of one session that arrive together keep it with a provider that rotates refresh tokens; in a cluster the node that started a session renews it, a node the session has not reached passes the renewal there, another node keeps it without the provider while that one does not answer or is seen down, and the coordinator renews the sessions of a removed node; a user out of its groups loses its session and a user an administrator made does not; a back-channel logout ends the session; a sign-out ends the session; an administrator marks a user as following its groups; sessions reach every node of a cluster |
 | `idp_sign_in_test.go` | A user whose ID is not its name signs in; a sign-in its directory cannot answer is `503` and locks neither the account nor the address; one its SSO provider cannot answer goes back to the login page with `provider_unavailable` |
@@ -592,7 +599,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 48 test files
+### `pkg/s3compat/` — 49 test files
 
 | File | Description |
 |------|-------------|
@@ -638,6 +645,7 @@ npx vitest run --coverage
 | `s3_test.go` | S3 protocol compatibility tests; in a cluster, capacity.xml takes the usage of the bucket's tenant on every node and, with no quota, the room of the cluster; a delete removes only the key it names; the subresources of a missing bucket answer `NoSuchBucket`; a grantee is typed with `xsi:type` and a policy given back is taken as it is |
 | `select_streaming_test.go` | `SelectObjectContent` loaders don't scale memory with input size; schema can grow mid-stream |
 | `select_test.go` | `SelectObjectContent` — event stream encoding, CSV/JSON loaders, SQL queries, batch flushing |
+| `sse_c_test.go` | SSE-C: blocked per bucket unless `NONE`, HTTPS only, header errors, PUT/GET/HEAD/range/copy/multipart with the key, refusals without it or with another, nothing of the content or the key on disk or in the log; forwarded requests carry the client's facts |
 | `sts_compound_test.go` | Compound operations within one STS session |
 | `tenant_boundary_test.go` | The tenant boundary holds in both directions; a super-admin crosses it read-only; a refused upload, and a refused bucket listing, note who asked for what and why |
 | `tenant_isolation_test.go` | Tenant membership is not itself a permission — another tenant, even a member, is refused |

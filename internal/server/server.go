@@ -1428,7 +1428,7 @@ func (s *Server) setupRoutes() error {
 								}
 								ctx = context.WithValue(r.Context(), "user", stsUser)
 							}
-							next.ServeHTTP(w, r.WithContext(withForwardedTransport(ctx, r)))
+							next.ServeHTTP(w, r.WithContext(withForwardedFacts(ctx, r)))
 							return
 						}
 					}

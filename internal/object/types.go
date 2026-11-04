@@ -23,6 +23,18 @@ type MultipartUpload struct {
 	StorageClass string            `json:"storage_class"`
 	Metadata     map[string]string `json:"metadata"`
 	Parts        []Part            `json:"parts,omitempty"`
+
+	// PartDEK, PartDEKIV and PartKEKVersion: the upload's DEK wrapped with
+	// the KEK, the nonce of the wrap and the KEK's version; its parts are
+	// encrypted with it. Empty for an upload started before they were;
+	// internal.
+	PartDEK        string `json:"-"`
+	PartDEKIV      string `json:"-"`
+	PartKEKVersion int    `json:"-"`
+	// CustomerDEK and CustomerDEKIV: for an upload with a customer key
+	// (SSE-C), the same DEK wrapped with that key; internal.
+	CustomerDEK   string `json:"-"`
+	CustomerDEKIV string `json:"-"`
 }
 
 // Part represents a part of a multipart upload

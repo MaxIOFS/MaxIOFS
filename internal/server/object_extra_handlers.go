@@ -114,7 +114,7 @@ func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 		ResourceName: req.NewKey,
 		Action:       audit.ActionUpdate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":  bucketName,
@@ -207,7 +207,7 @@ func (s *Server) handleSetObjectTags(w http.ResponseWriter, r *http.Request) {
 		ResourceName: objectKey,
 		Action:       audit.ActionUpdate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":    bucketName,
@@ -406,7 +406,7 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 			ResourceName: objectKey,
 			Action:       audit.ActionDelete,
 			Status:       audit.StatusSuccess,
-			IPAddress:    getClientIP(r, s.config.TrustedProxies),
+			IPAddress:    getClientIP(r, s.proxyTrust()),
 			UserAgent:    r.Header.Get("User-Agent"),
 			Details: map[string]interface{}{
 				"bucket":         bucketName,
@@ -448,7 +448,7 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 		ResourceName: objectKey,
 		Action:       audit.ActionUpdate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details: map[string]interface{}{
 			"bucket":           bucketName,

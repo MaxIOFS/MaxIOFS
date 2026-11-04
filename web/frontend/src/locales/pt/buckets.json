@@ -1,4 +1,5 @@
 {
+  "customerKeyNotice": "Criptografado com uma chave do cliente (SSE-C): só a API S3 o lê, com essa chave. O console não pode baixá-lo, compartilhá-lo nem renomeá-lo.",
   "title": "Buckets",
   "manageBuckets": "Gerenciar seus buckets S3 e suas configurações",
   "createBucket": "Criar Bucket",

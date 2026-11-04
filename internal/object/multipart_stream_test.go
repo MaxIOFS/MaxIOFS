@@ -139,7 +139,9 @@ func TestMultipartStreamFailuresKeepPreviousObject(t *testing.T) {
 			case "cancel":
 				require.ErrorIs(t, err, context.Canceled)
 			case "short":
-				require.Contains(t, err.Error(), "multipart size mismatch")
+				// A part cut short ends, as stored encrypted, mid-chunk or
+				// at a chunk's end.
+				require.Regexp(t, "multipart size mismatch|decryption failed", err.Error())
 			default:
 				require.ErrorIs(t, err, injected)
 			}

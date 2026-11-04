@@ -115,3 +115,18 @@ func TestCustomerKeyMigrationLeavesItAlone(t *testing.T) {
 	assert.Equal(t, obj.ETag, got.ETag)
 	assert.Equal(t, obj.CustomerDEK, got.CustomerDEK)
 }
+
+// TestCustomerKeyKeepsNoChecksumOfTheContent: a checksum sent with a write
+// with a customer key is checked, and not kept.
+func TestCustomerKeyKeepsNoChecksumOfTheContent(t *testing.T) {
+	om := customerKeyManager(t)
+	headers := http.Header{}
+	headers.Set("x-amz-checksum-algorithm", "CRC32")
+	obj, err := om.PutObject(WithWriteKey(context.Background(), customerKeyA), "ssec", "doc", bytes.NewReader([]byte("content")), headers)
+	require.NoError(t, err)
+	assert.Empty(t, obj.ChecksumAlgorithm)
+	assert.Empty(t, obj.ChecksumValue)
+	head, err := om.GetObjectMetadata(context.Background(), "ssec", "doc")
+	require.NoError(t, err)
+	assert.Empty(t, head.ChecksumValue)
+}

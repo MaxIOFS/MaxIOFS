@@ -67,7 +67,7 @@ func (s *Server) handleHAGetShard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	size := info.Layout.ShardSize(info.Size)
+	size := info.Layout.ShardSize(info.CutSize())
 	offset, err := haRangeStart(r.Header.Get("Range"), size)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)

@@ -505,14 +505,24 @@ func (h *Handler) forwardToNode(r *http.Request, node *cluster.Node) (*http.Resp
 		tenantID = user.TenantID
 		roles = strings.Join(user.Roles, ",")
 	}
-	// The node it is forwarded to takes the request as reaching it over
-	// HTTPS when it reached this one so: SSE-C and aws:SecureTransport.
-	r.Header.Del(cluster.SecureTransportHeader)
-	if bucket.RequestFactsFrom(r.Context()).SecureTransport {
-		r.Header.Set(cluster.SecureTransportHeader, "true")
-	}
+	setForwardedFacts(r)
 	return cluster.NewProxyClient(h.clusterManager.GetTLSConfig()).
 		ProxyToNodeAPIURL(r.Context(), node, r, nodeID, clusterToken, userID, tenantID, roles)
+}
+
+// setForwardedFacts gives r, forwarded to another node, what this node found
+// of it: its client's address, and whether it came over HTTPS. The node it
+// reaches evaluates it so (aws:SourceIp, aws:SecureTransport, SSE-C).
+func setForwardedFacts(r *http.Request) {
+	facts := bucket.RequestFactsFrom(r.Context())
+	r.Header.Del(cluster.SecureTransportHeader)
+	r.Header.Del(cluster.ClientIPHeader)
+	if facts.SecureTransport {
+		r.Header.Set(cluster.SecureTransportHeader, "true")
+	}
+	if facts.SourceIP != "" {
+		r.Header.Set(cluster.ClientIPHeader, facts.SourceIP)
+	}
 }
 
 // proxyUploadRequest sends a request about a multipart upload to the node the
@@ -1396,7 +1406,7 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	customerKey, ok := h.customerKey(w, r, objectKeyHeaders, objectKey)
 	if !ok {
 		return
 	}
@@ -1772,7 +1782,7 @@ func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	customerKey, ok := h.customerKey(w, r, "", objectKey)
+	customerKey, ok := h.customerKey(w, r, objectKeyHeaders, objectKey)
 	if !ok {
 		return
 	}
@@ -3445,6 +3455,9 @@ func (h *Handler) detectAndDecodeAwsChunked(
 // writeObjectWriteError answers a failed object write with the S3 error that
 // names its cause.
 func (h *Handler) writeObjectWriteError(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) {
+	if h.writeCustomerKeyError(w, r, objectKey, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, cluster.ErrClusterDegraded):
 		w.Header().Set("Retry-After", "30")

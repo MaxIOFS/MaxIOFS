@@ -1090,7 +1090,7 @@ func (s *Server) auditIAMChange(r *http.Request, caller *auth.User, action, targ
 		ResourceName: target,
 		Action:       audit.ActionCreate,
 		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.config.TrustedProxies),
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
 		Details:      map[string]interface{}{"method": "aws-iam", "iam_action": action},
 	})

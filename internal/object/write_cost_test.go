@@ -270,9 +270,11 @@ func runWriteCost(t *testing.T, mode string, size, clients, operations int) {
 		var r io.ReadCloser
 		if part {
 			r, _, err = b.GetPart(t.Context(), uploadID, i+1)
-		} else {
-			_, r, err = m.GetObject(t.Context(), "cost", fmt.Sprint(i))
+			require.NoError(t, err)
+			require.Equal(t, payload, partContent(t, m, uploadID, r))
+			continue
 		}
+		_, r, err = m.GetObject(t.Context(), "cost", fmt.Sprint(i))
 		require.NoError(t, err)
 		data, readErr := io.ReadAll(r)
 		closeErr := r.Close()

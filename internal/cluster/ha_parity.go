@@ -82,6 +82,9 @@ func (h *HAObjectManager) stageWrite(ctx context.Context, client *ProxyClient, p
 // openHeld opens the whole copy this node holds of the write obj is;
 // errSuperseded when the write here is a later one.
 func (h *HAObjectManager) openHeld(ctx context.Context, obj *object.Object) (io.ReadCloser, error) {
+	if obj.CustomerEncrypted() {
+		return h.openHeldStored(ctx, obj)
+	}
 	var held *object.Object
 	var data io.ReadCloser
 	var err error
@@ -92,6 +95,28 @@ func (h *HAObjectManager) openHeld(ctx context.Context, obj *object.Object) (io.
 	}
 	if err != nil {
 		if obj.VersionID == "" && (errors.Is(err, object.ErrObjectNotFound) || errors.As(err, new(*object.DataElsewhereError))) {
+			return nil, errSuperseded
+		}
+		return nil, fmt.Errorf("re-read the write: %w", err)
+	}
+	if held.ETag != obj.ETag || held.LastModified.Unix() != obj.LastModified.Unix() || held.WrittenAt != obj.WrittenAt {
+		data.Close()
+		return nil, errSuperseded
+	}
+	return data, nil
+}
+
+// openHeldStored opens, as stored, the whole copy this node holds of the
+// write obj is, encrypted with a customer key the server does not have;
+// errSuperseded when the write here is a later one.
+func (h *HAObjectManager) openHeldStored(ctx context.Context, obj *object.Object) (io.ReadCloser, error) {
+	raw, ok := h.Manager.(object.RawObjectAccessor)
+	if !ok {
+		return nil, fmt.Errorf("this node cannot read stored bytes")
+	}
+	data, _, held, err := raw.GetObjectRaw(ctx, obj.Bucket, obj.Key, obj.VersionID)
+	if err != nil {
+		if obj.VersionID == "" && errors.Is(err, object.ErrObjectNotFound) {
 			return nil, errSuperseded
 		}
 		return nil, fmt.Errorf("re-read the write: %w", err)

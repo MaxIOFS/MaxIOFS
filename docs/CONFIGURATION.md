@@ -46,8 +46,12 @@ enable_tls: false
 cert_file: ""
 key_file: ""
 
-# Trusted proxies (private networks trusted automatically)
+# Proxies whose X-Forwarded-For and X-Forwarded-Proto are taken (IPs or CIDRs)
 trusted_proxies: []
+# Also every loopback and private address (true by default); false trusts
+# trusted_proxies alone. Cluster nodes need neither: a request one forwards to
+# another carries its client's address and transport signed.
+trust_private_networks: true
 
 # Storage
 storage:

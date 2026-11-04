@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Package,
   Gauge,
+  KeyRound,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatBytes } from '@/lib/utils';
@@ -277,6 +278,20 @@ export default function BucketSettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
       setPublicAccessEdits(null);
       ModalManager.toast('success', t('publicAccess.savedSuccess'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
+  // SSE-C: writes with a customer key are refused unless the bucket allows
+  // them, as in AWS since April 2026.
+  const customerKeysAllowed = !!bucketData?.encryption?.customerKeysAllowed;
+  const saveCustomerKeysMutation = useMutation({
+    mutationFn: (allowed: boolean) => APIClient.putBucketCustomerKeys(bucketName, allowed, tenantId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bucket', bucketName, tenantId] });
+      ModalManager.toast('success', t('customerKeys.savedSuccess'));
     },
     onError: (error: Error) => {
       ModalManager.apiError(error);
@@ -1512,6 +1527,32 @@ export default function BucketSettingsPage() {
             {/* SECURITY TAB */}
             {activeTab === 'security' && (
               <>
+        {/* Customer-provided keys (SSE-C) */}
+        <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-muted-foreground" />
+              {t('customerKeys.title')}
+            </h3>
+          </div>
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-muted-foreground">{t('customerKeys.description')}</p>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={customerKeysAllowed}
+                disabled={isGlobalAdminInTenantBucket || saveCustomerKeysMutation.isPending}
+                onChange={(e) => saveCustomerKeysMutation.mutate(e.target.checked)}
+                className="mt-1 rounded border-border"
+              />
+              <div>
+                <div className="text-sm font-medium text-foreground">{t('customerKeys.allow')}</div>
+                <div className="text-xs text-muted-foreground">{t('customerKeys.allowHelp')}</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
         {/* Block Public Access */}
         <div className="bg-card rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow">
           <div className="px-6 py-4 border-b border-border">
