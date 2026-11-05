@@ -26,7 +26,7 @@
 | Audit logging | ✅ | 20+ event types, SQLite storage |
 | Real-time notifications | ✅ | SSE push for security events |
 | Multi-tenant isolation | ✅ | Complete data and API isolation |
-| Vulnerability scanning | ✅ | govulncheck and gosec on each nightly |
+| Vulnerability scanning | ✅ | govulncheck, npm audit and gosec on each nightly |
 
 ---
 
@@ -336,7 +336,7 @@ that has not yet heard about a delete cannot resurrect the entity.
 - A sign-in starts a session kept on the server and replicated to every node. Its access token lasts `security.access_token_lifetime` (15 minutes) and its refresh token `security.session_timeout` (24 hours), renewed at each refresh.
 - A sign-out ends the session on every node: its access and refresh tokens are refused from then on.
 - A session of an identity provider's user is asked about again at each renewal, and ended by the provider's back-channel logout; see [SSO.md](SSO.md#sessions-follow-the-provider). A provider that cannot be reached ends no session.
-- The users of an LDAP provider with a mapping set to Auto Sync are asked about every hour, signed in or not: one gone from the directory or disabled there is deactivated, its access keys refused; see [SSO.md](SSO.md#directory-sync).
+- The users of a provider with a mapping set to Auto Sync are asked about every hour, signed in or not: one gone from the directory or disabled there is deactivated, its access keys refused; see [SSO.md](SSO.md#directory-sync).
 - The provider's refresh token kept with a session is encrypted with the encryption secret.
 - In a cluster only the node that started an OAuth session uses the provider's refresh token: another node passes the renewal there over the cluster port, and while that node does not answer keeps the session without asking the provider. The coordinator renews the sessions of a node removed from the cluster. Renewals that arrive together share one question to the provider.
 - A session ended during a renewal stays ended.
@@ -671,7 +671,7 @@ MaxIOFS is not certified against any of these standards. Certification is given 
 | 8.2 Privileged access rights | Global administrator, tenant administrator and capabilities; `security.require_2fa_admin` | Keeps few administrators, with 2FA |
 | 8.3 Information access restriction | Tenants isolated in data and API | — |
 | 8.5 Secure authentication | TOTP 2FA; account lockout; limit of failed sign-ins per IP; 15-minute access tokens; AWS Signature V4 | Tunes `security.*` |
-| 8.8 Technical vulnerabilities | Each nightly scans the dependencies (govulncheck) and the code (gosec) | Applies releases |
+| 8.8 Technical vulnerabilities | Each nightly scans the dependencies (govulncheck, npm audit) and the code (gosec) | Applies releases |
 | 8.9 Configuration management | Changes to settings are audited | Keeps the configuration file under change control |
 | 8.10 Information deletion | Lifecycle expiration; deletion of objects and versions | Sets lifecycle rules |
 | 8.12 Data leakage prevention | Block Public Access on for buckets created in the console | Reviews public buckets |
@@ -683,7 +683,7 @@ MaxIOFS is not certified against any of these standards. Certification is given 
 | 8.20 Network security | Inter-node TLS 1.2+ with the cluster's CA; HMAC-signed inter-node requests | Firewalls the ports |
 | 8.24 Use of cryptography | AES-256-GCM envelope encryption, always on; KEK rotation; SSE-C, blocked per bucket until enabled, HTTPS only; TLS (`cert_file`) | Keeps the KEK backup; clients keep their SSE-C keys |
 | 8.26 Application security requirements | Console Content-Security-Policy without foreign inline script; HSTS; `X-Frame-Options`; `nosniff` | Serves over HTTPS |
-| 8.25, 8.28, 8.29 Secure development and testing | Go and frontend test suites, govulncheck and gosec on each nightly | — |
+| 8.25, 8.28, 8.29 Secure development and testing | Go and frontend test suites, govulncheck, npm audit and gosec on each nightly | — |
 | 8.32 Change management | Versioned releases; [CHANGELOG.md](../CHANGELOG.md) | Tests a release before upgrading |
 
 ### ISO/IEC 27017:2015 (cloud services)
@@ -714,7 +714,7 @@ MaxIOFS keeps these personal data: usernames, email addresses and display names;
 ISO 9001 certifies the organization that makes the product. The development of MaxIOFS keeps this evidence:
 
 - Each user-visible change is recorded in [CHANGELOG.md](../CHANGELOG.md), by version.
-- Each nightly runs the Go and frontend test suites, govulncheck and gosec. A failure stops the build and publishes nothing.
+- Each nightly runs the Go and frontend test suites, govulncheck, npm audit on what ships in the console, and gosec. A failure stops the build and publishes nothing.
 - Binaries, `.deb` and `.rpm` packages and the Docker image are built by CI from the commit they name.
 - Documentation in `docs/` changes with the feature.
 - Security issues are reported privately; see [Reporting Security Issues](#reporting-security-issues).

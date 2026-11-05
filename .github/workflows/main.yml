@@ -113,6 +113,13 @@ jobs:
           cd web/frontend
           npm ci
 
+      - name: Scan frontend dependencies for known vulnerabilities
+        if: steps.check_skip.outputs.skip_build != 'true'
+        run: |
+          cd web/frontend
+          # What ships in the bundle only: dev tools never reach a browser.
+          npm audit --omit=dev --audit-level=high
+
       - name: Run frontend tests
         if: steps.check_skip.outputs.skip_build != 'true'
         run: |

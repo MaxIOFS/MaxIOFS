@@ -225,3 +225,16 @@ func TestTheMembersOfAKeycloakGroup(t *testing.T) {
 	_, err = k.provider().GetGroupMembers(context.Background(), "nobody-group")
 	assert.Error(t, err)
 }
+
+// A Keycloak sign-in takes its groups from the claim: reading them would need
+// the client's service account, which a realm used only to sign in has not.
+func TestAKeycloakSignInDoesNotReadTheRealm(t *testing.T) {
+	k := startKeycloak(t)
+	k.add(person("id-ana", "ana@empresa.com"), "maxiofs-users")
+	cfg := *k.provider().config
+	cfg.ClaimGroups = ""
+
+	user := &idp.ExternalUser{Email: "ana@empresa.com"}
+	require.NoError(t, NewProvider(&cfg).directoryGroups(context.Background(), user))
+	assert.Empty(t, user.Groups)
+}

@@ -47,12 +47,20 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 | Client ID | From [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
 | Client Secret | From Google Cloud Console |
 | Redirect URI | `https://your-maxiofs-domain/api/v1/auth/oauth/callback` |
-| Scopes | `openid email profile` (add `https://www.googleapis.com/auth/admin.directory.group.readonly` for group-based access) |
+| Scopes | `openid email profile` |
+| Service account key | The JSON key of the service account that reads the directory (optional) |
 
 **Google Cloud Console setup:**
 1. Create a new OAuth 2.0 Client ID (Web application)
 2. Add the redirect URI: `https://your-maxiofs-domain/api/v1/auth/oauth/callback`
-3. Enable the Google People API (and Admin SDK if using groups)
+3. Enable the Google People API
+
+**Group mappings and Auto Sync** need the directory: Google's userinfo gives no groups.
+1. Enable the **Admin SDK API** in the Google Cloud project.
+2. Create a service account and a JSON key for it. It needs no domain-wide delegation.
+3. In the Google Admin console, make an administrator role that only reads users and groups, and assign it to the service account by its email.
+4. Paste the JSON key in **Service account key**. MaxIOFS keeps it encrypted and does not show it again.
+5. Name each group in its mapping by its email. Only direct members count: the members of a group inside it do not.
 
 #### Microsoft Entra ID (Azure AD)
 
@@ -63,13 +71,19 @@ MaxIOFS supports Single Sign-On (SSO) via OAuth2/OIDC providers. Users authentic
 | Client ID | From [Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) |
 | Client Secret | From Azure Portal |
 | Redirect URI | `https://your-maxiofs-domain/api/v1/auth/oauth/callback` |
-| Scopes | `openid email profile` (add `GroupMember.Read.All` for group-based access) |
+| Scopes | `openid email profile` |
+| Issuer URL | `https://login.microsoftonline.com/<tenant-id>/v2.0` |
 
 **Azure Portal setup:**
 1. Register a new application in Azure AD
 2. Add the redirect URI as a Web platform redirect
 3. Create a client secret under "Certificates & secrets"
 4. Under "API Permissions", add Microsoft Graph: `openid`, `email`, `profile`
+
+**Group mappings and Auto Sync** need the directory: Microsoft's userinfo gives no groups.
+1. Set the **Issuer URL** with the tenant's ID, not a domain. Only that tenant can then sign in.
+2. Under "API Permissions", add the **application** permissions `User.Read.All` and `GroupMember.Read.All` of Microsoft Graph, and grant an administrator's consent. MaxIOFS reads with the client's own ID and secret.
+3. Name each group in its mapping by its **Object ID**. The members of a group inside it count too.
 
 #### Keycloak (or another OpenID Connect provider)
 
@@ -199,14 +213,18 @@ Google gives a refresh token only on the first consent of a user: later sign-ins
 
 ### Directory Sync
 
-A user who never signs in to the console, such as one who uses access keys only, is not asked about at a renewal. The directory sync asks for them: every hour, on the coordinator in a cluster, MaxIOFS reads the directory of each active LDAP provider, and the realm of each Keycloak provider, with a mapping set to **Auto Sync**. **Sync All** in the provider's group mappings reads it at once and says what it did.
+A user who never signs in to the console, such as one who uses access keys only, is not asked about at a renewal. The directory sync asks for them: every hour, on the coordinator in a cluster, MaxIOFS reads the directory of each active provider with a mapping set to **Auto Sync**: an LDAP directory, a Keycloak realm, a Google Workspace or a Microsoft tenant. **Sync All** in the provider's group mappings reads it at once and says what it did.
 
 - The members of the mappings set to Auto Sync that have no user get one, following their groups.
-- Each user of the provider is asked about as at a renewal: with the service account in LDAP, through the admin API in Keycloak. A user gone from the directory or disabled there, or in Keycloak whose email is not verified, is **deactivated**: no console, no access keys. A user that follows its groups gets the role they map to now, and is deactivated in no group mapped.
+- Each user of the provider is asked about as at a renewal: with the service account in LDAP, through the admin API in Keycloak, the Directory API in Google and Microsoft Graph in Microsoft. A user gone from the directory or disabled there, suspended or archived in Google, or in Keycloak whose email is not verified, is **deactivated**: no console, no access keys. A user that follows its groups gets the role they map to now, and is deactivated in no group mapped.
 - A user the sync deactivated is activated again once the directory lets it in. A user an administrator deactivated stays so.
 - A directory that does not answer changes nobody.
 
-Users are deactivated, never deleted: a configuration mistake, such as a wrong user search base, is undone by the next sync after it is fixed. A Keycloak provider is one whose Issuer URL names a realm (`https://keycloak/realms/<realm>`). Another OAuth provider gives no members and cannot be asked about a user without the user's sign-in: **Sync All** says it has no directory.
+Users are deactivated, never deleted: a configuration mistake, such as a wrong user search base, is undone by the next sync after it is fixed. A Keycloak provider is one whose Issuer URL names a realm (`https://keycloak/realms/<realm>`), a Microsoft provider one whose Issuer URL names a tenant, and a Google provider one with a service account key. Another OAuth provider gives no members and cannot be asked about a user without the user's sign-in: **Sync All** says it has no directory.
+
+**Test Connection** reads one user of the directory, and warns when it cannot: sign-ins work without it.
+
+With Google and Microsoft a sign-in and a renewal read the user's groups from the directory too. If the directory refuses, a sign-in goes on without groups: only a user who needs them is refused. A renewal keeps the session. Microsoft Graph answers a group's members from an index, so a new member may take a moment to appear; the groups of a user are read at once.
 
 ---
 

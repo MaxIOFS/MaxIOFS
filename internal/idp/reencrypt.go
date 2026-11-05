@@ -68,6 +68,9 @@ func ReencryptSecrets(ctx context.Context, tx *sql.Tx, from, to string) ([]strin
 			}
 		}
 		if config.OAuth2 != nil {
+			if err := rewrite(&config.OAuth2.DirectoryKey, "directory key"); err != nil {
+				return nil, err
+			}
 			if err := rewrite(&config.OAuth2.ClientSecret, "OAuth client secret"); err != nil {
 				return nil, err
 			}

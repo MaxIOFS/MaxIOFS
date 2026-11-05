@@ -192,7 +192,7 @@ func (m *Manager) ListActiveOAuthProviders(ctx context.Context) ([]*IdentityProv
 }
 
 // ReadsDirectory reports whether a provider's directory can be read: an LDAP
-// directory, or a Keycloak realm.
+// directory, a Keycloak realm, a Google Workspace or a Microsoft tenant.
 func (m *Manager) ReadsDirectory(ctx context.Context, providerID string) bool {
 	provider, err := m.getOrCreateProvider(providerID)
 	if err != nil {
@@ -447,6 +447,14 @@ func (m *Manager) encryptConfig(config *ProviderConfig) error {
 		config.OAuth2.ClientSecret = encrypted
 	}
 
+	if config.OAuth2 != nil && config.OAuth2.DirectoryKey != "" {
+		encrypted, err := Encrypt(config.OAuth2.DirectoryKey, m.cryptoSecret())
+		if err != nil {
+			return err
+		}
+		config.OAuth2.DirectoryKey = encrypted
+	}
+
 	return nil
 }
 
@@ -469,6 +477,15 @@ func (m *Manager) decryptConfig(config *ProviderConfig) {
 		}
 		config.OAuth2.ClientSecret = decrypted
 	}
+
+	if config.OAuth2 != nil && config.OAuth2.DirectoryKey != "" {
+		decrypted, err := Decrypt(config.OAuth2.DirectoryKey, m.cryptoSecret())
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to decrypt the directory key")
+			return
+		}
+		config.OAuth2.DirectoryKey = decrypted
+	}
 }
 
 // maskConfig replaces sensitive fields with a masked value
@@ -479,5 +496,9 @@ func (m *Manager) maskConfig(config *ProviderConfig) {
 
 	if config.OAuth2 != nil && config.OAuth2.ClientSecret != "" {
 		config.OAuth2.ClientSecret = "********"
+	}
+
+	if config.OAuth2 != nil && config.OAuth2.DirectoryKey != "" {
+		config.OAuth2.DirectoryKey = "********"
 	}
 }

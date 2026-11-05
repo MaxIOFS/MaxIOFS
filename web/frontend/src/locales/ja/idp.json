@@ -124,7 +124,7 @@
   "syncNow": "今すぐ同期",
   "noGroupMappings": "グループマッピングが設定されていません。",
   "addGroupMapping": "グループマッピングを追加",
-  "externalGroupLabel": "外部グループ（DNまたはID）",
+  "externalGroupLabel": "外部グループ（DN、ID、またはメール）",
   "maxIOFSRole": "MaxIOFSロール",
   "enableAutoSync": "自動同期を有効化",
   "mappingCreatedSuccess": "グループマッピングが正常に作成されました",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "発行者 URL (Issuer)",
   "issuerUrlHelp": "任意。発行者を設定すると、MaxIOFS は ID トークンを検証し、プロバイダーのバックチャネル ログアウトを受け付けます。",
+  "issuerUrlMicrosoftHelp": "テナントの発行者 https://login.microsoftonline.com/<tenant-id>/v2.0 を指定すると、そのテナントのみサインインでき、Auto Sync がそのディレクトリを読み取ります。",
+  "directoryKey": "サービス アカウント キー (JSON)",
+  "directoryKeyHelp": "任意。読み取り専用の管理者ロールを持つサービス アカウントのキーを設定すると、Auto Sync が Workspace のディレクトリを読み取り、サインイン時にユーザーのグループを取得します。",
   "backchannelLogoutUrl": "バックチャネル ログアウト URL",
   "backchannelLogoutHelp": "プロバイダーのクライアントに設定してください。そちらでのサインアウトでここのセッションが直ちに終了します。",
   "backchannelAfterSave": "バックチャネル ログアウト URL はプロバイダーの保存後に表示されます。"

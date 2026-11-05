@@ -1285,6 +1285,7 @@ export interface OAuth2Config {
   claim_name: string;
   claim_groups: string;
   issuer?: string;
+  directory_key?: string;
 }
 
 export interface IDPProviderConfig {

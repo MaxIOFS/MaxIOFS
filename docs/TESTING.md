@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **393 Go test files**, **21 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **395 Go test files**, **21 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -256,7 +256,7 @@ npx vitest run --coverage
 |------|-------------|
 | `erasure_test.go` | The layout of a cluster of nodes; the size of a shard; an object read back with any parity's worth of shards missing, whatever its size against the stripes; too few shards refused; a shard failing mid-read replaced from its stripe; ranges and Seeks, a Seek while reading reopening the shards; each shard opened once in a sequential read; a missing shard rebuilt byte for byte without reading its stale bytes; a failed destination written no more; a short object refused; `Ready` reads the first stripe ahead |
 
-### `internal/idp/` — 14 test files
+### `internal/idp/` — 16 test files
 
 | File | Description |
 |------|-------------|
@@ -271,7 +271,9 @@ npx vitest run --coverage
 | `ldap/provider_directory_test.go` | The connection test passes with more users than it reads; a search gives the first matches beyond its limit; a user signs in by DN or by name and is that user; a directory that does not answer, or is not there, is unavailable within the timeouts; a sign-in gives the user's groups found by member and its DN; a revalidation ends the sign-in of a user gone or disabled, and a directory that does not answer ends nothing |
 | `oauth/provider_test.go` | OAuth2/OIDC flow, token exchange, user mapping; a configuration without a field a sign-in needs fails the connection test naming it |
 | `oauth/connection_test.go` | The connection test checks the OpenID configuration and keys, the sign-in page for the client and redirect URI, the client secret by an invented code (`invalid_grant` takes it; `invalid_client` and `unauthorized_client` refuse it, in the header or the form) and the userinfo endpoint; a provider that does not answer, or is not there, fails each check within the timeout |
-| `oauth/keycloak_test.go` | Only a Keycloak realm has a directory; a user is looked up by email or ID, and one gone, disabled or unverified is no longer let in; a realm that refuses the client or does not answer ends nothing; a group's members are read page by page, without those disabled or unverified |
+| `oauth/google_directory_test.go` | A provider has a directory once its key, tenant or realm is named; a Google user is looked up by email or ID, and one gone, suspended or archived is no longer let in; a directory that refuses or does not answer ends nothing; a group's direct members are read page by page; a sign-in and a renewal read the groups userinfo does not give; one token serves many requests; a broken key ends nobody, a refused service account says why, and a directory that limits requests is unavailable; the connection test warns of a directory that refuses |
+| `oauth/microsoft_directory_test.go` | A Microsoft user is looked up by email or user principal name, and one gone or disabled is no longer let in; a pairwise subject cannot tell; a quote stays in the filter; a group's members are read with Graph's advanced parameters, page by page; the application's token comes from the tenant; a next page elsewhere is not followed; a renewal reads the groups; the connection test says which permissions are missing |
+| `oauth/keycloak_test.go` | Only a Keycloak realm has a directory among custom providers; a user is looked up by email or ID, and one gone, disabled or unverified is no longer let in; a realm that refuses the client or does not answer ends nothing; a group's members are read page by page, without those disabled or unverified; a sign-in does not read the realm |
 | `oauth/oidc_test.go` | An OpenID Connect sign-in keeps the subject and session of its checked ID token and the refresh token, and refuses an ID token for another client; a revalidation renews the grant and the groups, ends on a refused refresh or userinfo, and ends nothing for a failing provider or a refused client; a back-channel logout token is taken as the standard says; an email the provider says it did not verify, as a boolean or a string, signs nobody in |
 | `oauth/provider_unavailable_test.go` | A provider that does not answer at its token or userinfo endpoint, or is not there, is unavailable within the timeout; one that refuses the code is not |
 
@@ -509,7 +511,7 @@ npx vitest run --coverage
 | `console_tenant_boundary_test.go` | A global administrator cannot change another tenant's bucket from the console |
 | `coordinator_forward_test.go` | An already-forwarded cluster request is not forwarded again; a coordinator write requires cluster auth; the coordinator sees the user's address and TLS |
 | `deletion_semantics_test.go` | A received deletion keeps its time; a re-created bucket keeps its owner's policy; a key written again reaches the node that missed it; synchronized copies and IAM deletions are ordered against deletions; local deletions are dated after the last change and record the IAM policies of deleted users, tenants and groups; a deletion from the log removes the copy of every kind of entity with what goes with it; a revoked session reaches the other node with its time |
-| `directory_sync_test.go` | The directory sync makes the members of the mappings set to sync, gives the role their groups map to, deactivates a user gone, disabled or in no group mapped (its access key refused) and activates it again when back, leaves alone a user an administrator deactivated, changes nobody while the directory does not answer, reads only active providers with a mapping set to sync, reads a Keycloak realm as an LDAP directory, binding its users to the provider, and refuses Sync All of an OAuth provider with no directory |
+| `directory_sync_test.go` | The directory sync makes the members of the mappings set to sync, gives the role their groups map to, deactivates a user gone, disabled or in no group mapped (its access key refused) and activates it again when back, leaves alone a user an administrator deactivated, changes nobody while the directory does not answer, reads only active providers with a mapping set to sync, reads a Keycloak realm as an LDAP directory, binding its users to the provider, refuses Sync All of an OAuth provider with no directory, and an edit keeps a directory key sent masked |
 | `download_token_test.go` | A download token is only valid on the two download routes it was minted for; a folder ZIP names no entry out of its folder (`..`, a leading `/`, a backslash, a drive letter) and names the archive by the folder or the bucket |
 | `encryption_recovery_handlers_test.go` | Encryption recovery status and recovery-bundle download endpoints; in a cluster every node shows the download, and a rotation asks every node for a new bundle |
 | `encryption_secret_test.go` | Stored credentials survive a restart with the default configuration; a node joining a cluster (real join) takes its encryption secret; the coordinator gives its secret and no other node can; the Nodes list shows a differing secret; the settings never show the JWT secret |
@@ -931,6 +933,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **393** | |
+| **Total Go** | **395** | |
 | Frontend | 21 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
 | Performance | 4 | Upload, download, mixed, common |

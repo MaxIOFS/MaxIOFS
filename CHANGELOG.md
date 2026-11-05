@@ -5,6 +5,14 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Auto Sync reads Google Workspace (with a service account key) and Microsoft tenants (named by the Issuer URL) every hour, as LDAP directories and Keycloak realms.
+
+### Fixed
+- Google and Microsoft sign-ins had no groups, so a group mapping refused them; with the directory set they read them from it.
+
 ## [1.9.0] - 2026-11-05
 
 ### Added

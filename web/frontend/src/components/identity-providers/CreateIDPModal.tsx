@@ -345,9 +345,27 @@ function OAuthFields({ config, onChange, onPresetChange, providerId }: { config:
       </div>
       <div>
         <label className="block text-xs font-medium text-muted-foreground mb-1">{t('issuerUrl')}</label>
-        <Input value={config.issuer || ''} onChange={(e) => update('issuer', e.target.value)} placeholder="https://sso.example.com/realms/company" />
-        <p className="text-xs text-muted-foreground mt-1">{t('issuerUrlHelp')}</p>
+        <Input
+          value={config.issuer || ''}
+          onChange={(e) => update('issuer', e.target.value)}
+          placeholder={config.preset === 'microsoft' ? 'https://login.microsoftonline.com/<tenant-id>/v2.0' : 'https://sso.example.com/realms/company'}
+        />
+        <p className="text-xs text-muted-foreground mt-1">{t(config.preset === 'microsoft' ? 'issuerUrlMicrosoftHelp' : 'issuerUrlHelp')}</p>
       </div>
+      {config.preset === 'google' && (
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">{t('directoryKey')}</label>
+          <textarea
+            value={config.directory_key || ''}
+            onChange={(e) => update('directory_key', e.target.value)}
+            rows={3}
+            spellCheck={false}
+            placeholder='{ "type": "service_account", ... }'
+            className="w-full rounded-button border border-input bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          />
+          <p className="text-xs text-muted-foreground mt-1">{t('directoryKeyHelp')}</p>
+        </div>
+      )}
       {config.issuer && (
         <div>
           <label className="block text-xs font-medium text-muted-foreground mb-1">{t('backchannelLogoutUrl')}</label>

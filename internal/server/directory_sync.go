@@ -42,8 +42,9 @@ func (s *Server) startDirectorySync(ctx context.Context) {
 }
 
 // syncDirectories reads the directory of each active provider with a mapping
-// set to sync: an LDAP directory, or a Keycloak realm. Another OAuth provider
-// is asked about a user at the user's sign-in only.
+// set to sync: an LDAP directory, a Keycloak realm, a Google Workspace or a
+// Microsoft tenant. Another OAuth provider is asked about a user at the user's
+// sign-in only.
 func (s *Server) syncDirectories(ctx context.Context) {
 	if s.idpManager == nil {
 		return

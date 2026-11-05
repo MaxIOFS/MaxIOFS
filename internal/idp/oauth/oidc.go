@@ -128,13 +128,14 @@ var errUserInfoRefused = errors.New("userinfo refused the token")
 // Revalidate renews the sign-in with the provider's refresh token and reads
 // the user again: a refresh the provider refuses, or a userinfo that refuses
 // the new token, ends the sign-in. Without a refresh token it looks the user
-// up in a Keycloak realm's directory, and another provider cannot tell.
+// up in the provider's directory; a provider without one cannot tell.
 func (p *Provider) Revalidate(ctx context.Context, grant idp.Grant) (*idp.ExternalUser, error) {
 	if grant.RefreshToken == "" {
-		if grant.Subject == "" || !p.ReadsDirectory() {
+		dir := p.directory()
+		if grant.Subject == "" || dir == nil {
 			return nil, nil
 		}
-		return p.lookUpUser(ctx, grant.Subject)
+		return dir.lookUp(ctx, grant.Subject)
 	}
 	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
 	defer cancel()
@@ -160,6 +161,11 @@ func (p *Provider) Revalidate(ctx context.Context, grant idp.Grant) (*idp.Extern
 	}
 	if grant.Subject != "" && user.Grant.Subject != "" && user.Grant.Subject != grant.Subject {
 		return nil, fmt.Errorf("%w: the provider answered for another subject", idp.ErrSessionEnded)
+	}
+	// A failure keeps the session on the refresh token it has: neither Google
+	// nor Entra ID revokes one by using it.
+	if err := p.directoryGroups(ctx, user); err != nil {
+		return nil, err
 	}
 	subject := grant.Subject
 	if subject == "" {

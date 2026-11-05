@@ -124,7 +124,7 @@
   "syncNow": "Sincronizza ora",
   "noGroupMappings": "Nessuna mappatura di gruppo configurata.",
   "addGroupMapping": "Aggiungi mappatura di gruppo",
-  "externalGroupLabel": "Gruppo esterno (DN o ID)",
+  "externalGroupLabel": "Gruppo esterno (DN, ID o e-mail)",
   "maxIOFSRole": "Ruolo MaxIOFS",
   "enableAutoSync": "Abilita sincronizzazione automatica",
   "mappingCreatedSuccess": "Mappatura di gruppo creata con successo",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "URL dell'emittente (Issuer)",
   "issuerUrlHelp": "Facoltativo. Con l'emittente, MaxIOFS verifica l'ID token e accetta i logout back-channel del provider.",
+  "issuerUrlMicrosoftHelp": "L'emittente del tuo tenant, https://login.microsoftonline.com/<tenant-id>/v2.0: accede solo il tuo tenant e Auto Sync ne legge la directory.",
+  "directoryKey": "Chiave dell'account di servizio (JSON)",
+  "directoryKeyHelp": "Facoltativo. Con la chiave di un account di servizio con un ruolo di amministratore di sola lettura, Auto Sync legge la directory di Workspace e gli accessi ottengono i gruppi dell'utente.",
   "backchannelLogoutUrl": "URL di logout back-channel",
   "backchannelLogoutHelp": "Impostala nel client del provider: un logout lì termina subito la sessione qui.",
   "backchannelAfterSave": "L'URL di logout back-channel viene mostrata dopo aver salvato il provider."

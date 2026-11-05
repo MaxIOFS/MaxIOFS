@@ -55,6 +55,9 @@ type OAuth2Config struct {
 	// Issuer is the provider's OpenID Connect issuer: with it the ID token is
 	// checked, and the provider's back-channel logouts are taken.
 	Issuer string `json:"issuer,omitempty"`
+	// DirectoryKey is the JSON key of the Google service account that reads the
+	// Workspace directory; encrypted at rest.
+	DirectoryKey string `json:"directory_key,omitempty"`
 }
 
 // ExternalUser represents a user found in an external directory

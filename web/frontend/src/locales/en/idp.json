@@ -124,7 +124,7 @@
   "syncNow": "Sync Now",
   "noGroupMappings": "No group mappings configured.",
   "addGroupMapping": "Add Group Mapping",
-  "externalGroupLabel": "External Group (DN or ID)",
+  "externalGroupLabel": "External Group (DN, ID or email)",
   "maxIOFSRole": "MaxIOFS Role",
   "enableAutoSync": "Enable automatic sync",
   "mappingCreatedSuccess": "Group mapping created successfully",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "Issuer URL",
   "issuerUrlHelp": "Optional. With the issuer, MaxIOFS checks the ID token and accepts the provider's back-channel logouts.",
+  "issuerUrlMicrosoftHelp": "Your tenant's issuer, https://login.microsoftonline.com/<tenant-id>/v2.0: only your tenant signs in, and Auto Sync reads its directory.",
+  "directoryKey": "Service account key (JSON)",
+  "directoryKeyHelp": "Optional. With the key of a service account that has a read-only administrator role, Auto Sync reads the Workspace directory and sign-ins get the user's groups.",
   "backchannelLogoutUrl": "Back-channel logout URL",
   "backchannelLogoutHelp": "Set it in the provider's client: a sign-out there ends the session here at once.",
   "backchannelAfterSave": "The back-channel logout URL is shown once the provider is saved."

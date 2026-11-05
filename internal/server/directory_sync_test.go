@@ -213,6 +213,34 @@ func TestTheDirectorySyncFollowsTheDirectory(t *testing.T) {
 	})
 }
 
+// An edit in the console sends the directory key masked: it is kept, a new one
+// replaces it, and what the console gets back stays masked.
+func TestAnEditKeepsTheDirectoryKey(t *testing.T) {
+	server := getSharedServer()
+	ctx := context.Background()
+	provider := &idp.IdentityProvider{Name: "edit-google", Type: idp.TypeOAuth2, Status: idp.StatusTesting, CreatedBy: "admin-1",
+		Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{Preset: "google", ClientSecret: "secret", DirectoryKey: "the-key"}}}
+	require.NoError(t, server.idpManager.CreateProvider(ctx, provider))
+	t.Cleanup(func() { _ = server.idpManager.DeleteProvider(ctx, provider.ID) })
+
+	edit := func(key string) string {
+		t.Helper()
+		body, err := json.Marshal(idp.IdentityProvider{Name: "edit-google", Type: idp.TypeOAuth2, Status: idp.StatusTesting,
+			Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{Preset: "google", ClientSecret: "********", DirectoryKey: key}}})
+		require.NoError(t, err)
+		req := createAuthenticatedRequest("PUT", "/", strings.NewReader(string(body)), "", "admin-1", true)
+		rr := httptest.NewRecorder()
+		server.handleUpdateIDP(rr, mux.SetURLVars(req, map[string]string{"id": provider.ID}))
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		assert.NotContains(t, rr.Body.String(), "-key")
+		stored, err := server.idpManager.GetProvider(ctx, provider.ID)
+		require.NoError(t, err)
+		return stored.Config.OAuth2.DirectoryKey
+	}
+	assert.Equal(t, "the-key", edit("********"))
+	assert.Equal(t, "another-key", edit("another-key"))
+}
+
 // The sync reads the directories of the active providers with a mapping set to
 // sync only.
 func TestTheDirectorySyncReadsTheProvidersSetToSync(t *testing.T) {

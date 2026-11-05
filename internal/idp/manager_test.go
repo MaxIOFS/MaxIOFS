@@ -41,6 +41,35 @@ func setupTestManager(t *testing.T) (*Manager, func()) {
 	return manager, cleanup
 }
 
+// A provider's directory key is a secret as its client secret is: encrypted in
+// the store, and masked in what the console reads.
+func TestTheDirectoryKeyIsASecret(t *testing.T) {
+	mgr, cleanup := setupTestManager(t)
+	defer cleanup()
+	ctx := context.Background()
+	const key = `{"private_key":"the-key"}`
+	provider := &IdentityProvider{Name: "Google", Type: TypeOAuth2, CreatedBy: "admin",
+		Config: ProviderConfig{OAuth2: &OAuth2Config{Preset: "google", ClientSecret: "secret", DirectoryKey: key}}}
+	require.NoError(t, mgr.CreateProvider(ctx, provider))
+
+	stored, err := mgr.Store().GetProvider(provider.ID)
+	require.NoError(t, err)
+	assert.NotContains(t, stored.Config.OAuth2.DirectoryKey, "the-key")
+
+	got, err := mgr.GetProvider(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, key, got.Config.OAuth2.DirectoryKey)
+
+	masked, err := mgr.GetProviderMasked(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "********", masked.Config.OAuth2.DirectoryKey)
+
+	listed, err := mgr.ListProviders(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, "********", listed[0].Config.OAuth2.DirectoryKey)
+}
+
 // --- Provider CRUD via Manager ---
 
 func TestManager_CreateAndGetProvider(t *testing.T) {

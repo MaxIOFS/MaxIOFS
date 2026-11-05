@@ -229,6 +229,11 @@ func (s *Server) handleUpdateIDP(w http.ResponseWriter, r *http.Request) {
 			updated.Config.OAuth2.ClientSecret = existing.Config.OAuth2.ClientSecret
 		}
 	}
+	if updated.Config.OAuth2 != nil && updated.Config.OAuth2.DirectoryKey == "********" {
+		if existing.Config.OAuth2 != nil {
+			updated.Config.OAuth2.DirectoryKey = existing.Config.OAuth2.DirectoryKey
+		}
+	}
 
 	// Auto-fill redirect_uri for OAuth providers if not set
 	if updated.Type == idp.TypeOAuth2 && updated.Config.OAuth2 != nil && updated.Config.OAuth2.RedirectURI == "" {
@@ -765,7 +770,7 @@ func (s *Server) handleSyncAllMappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.idpManager.ReadsDirectory(r.Context(), provider.ID) {
-		s.writeError(w, "This provider has no directory MaxIOFS can read: Auto Sync reads LDAP directories and Keycloak realms", http.StatusBadRequest)
+		s.writeError(w, "This provider has no directory MaxIOFS can read: Auto Sync reads LDAP directories, Keycloak realms, Google Workspace with a service account key, and Microsoft tenants named by the Issuer URL", http.StatusBadRequest)
 		return
 	}
 

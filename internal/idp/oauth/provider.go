@@ -13,6 +13,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/maxiofs/maxiofs/internal/idp"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -29,6 +30,9 @@ type Provider struct {
 	oidcProvider *oidc.Provider
 	// seenLogouts holds the IDs of the logout tokens taken, by when.
 	seenLogouts sync.Map
+
+	directoryOnce sync.Once
+	dir           directory
 }
 
 func init() {
@@ -78,13 +82,13 @@ func (p *Provider) SearchGroups(ctx context.Context, query string, limit int) ([
 	return nil, fmt.Errorf("OAuth2 provider does not support group search")
 }
 
-// GetGroupMembers are the members of a group of a Keycloak realm; another
-// provider has no directory to read.
+// GetGroupMembers are the members of a group of the provider's directory.
 func (p *Provider) GetGroupMembers(ctx context.Context, groupID string) ([]idp.ExternalUser, error) {
-	if !p.ReadsDirectory() {
+	dir := p.directory()
+	if dir == nil {
 		return nil, fmt.Errorf("OAuth2 provider does not support group member listing")
 	}
-	return p.keycloakMembers(ctx, groupID)
+	return dir.members(ctx, groupID)
 }
 
 func (p *Provider) GetAuthURL(state string, loginHint string) (string, error) {
@@ -135,6 +139,14 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.External
 	}
 	user.Grant.Session = session
 	user.Grant.RefreshToken = token.RefreshToken
+
+	// A user who needs its groups is refused without them; anyone else signs in.
+	if err := p.directoryGroups(ctx, user); err != nil {
+		if errors.Is(err, idp.ErrUnavailable) {
+			return nil, err
+		}
+		logrus.WithError(err).WithField("email", user.Email).Warn("OAuth sign-in: failed to read the user's groups from the directory")
+	}
 	return user, nil
 }
 

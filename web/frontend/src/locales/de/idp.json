@@ -124,7 +124,7 @@
   "syncNow": "Jetzt synchronisieren",
   "noGroupMappings": "Keine Gruppenzuordnungen konfiguriert.",
   "addGroupMapping": "Gruppenzuordnung hinzufügen",
-  "externalGroupLabel": "Externe Gruppe (DN oder ID)",
+  "externalGroupLabel": "Externe Gruppe (DN, ID oder E-Mail)",
   "maxIOFSRole": "MaxIOFS-Rolle",
   "enableAutoSync": "Automatische Synchronisation aktivieren",
   "mappingCreatedSuccess": "Gruppenzuordnung erfolgreich erstellt",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "Aussteller-URL (Issuer)",
   "issuerUrlHelp": "Optional. Mit dem Aussteller prüft MaxIOFS das ID-Token und nimmt Back-Channel-Abmeldungen des Anbieters an.",
+  "issuerUrlMicrosoftHelp": "Der Aussteller Ihres Mandanten, https://login.microsoftonline.com/<tenant-id>/v2.0: Nur Ihr Mandant kann sich anmelden, und Auto Sync liest dessen Verzeichnis.",
+  "directoryKey": "Schlüssel des Dienstkontos (JSON)",
+  "directoryKeyHelp": "Optional. Mit dem Schlüssel eines Dienstkontos mit schreibgeschützter Administratorrolle liest Auto Sync das Workspace-Verzeichnis, und Anmeldungen erhalten die Gruppen des Benutzers.",
   "backchannelLogoutUrl": "Back-Channel-Abmelde-URL",
   "backchannelLogoutHelp": "Im Client des Anbieters eintragen: Eine Abmeldung dort beendet die Sitzung hier sofort.",
   "backchannelAfterSave": "Die Back-Channel-Abmelde-URL wird angezeigt, sobald der Anbieter gespeichert ist."

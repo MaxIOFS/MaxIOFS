@@ -124,7 +124,7 @@
   "syncNow": "立即同步",
   "noGroupMappings": "未配置组映射。",
   "addGroupMapping": "添加组映射",
-  "externalGroupLabel": "外部组（DN 或 ID）",
+  "externalGroupLabel": "外部组（DN、ID 或邮箱）",
   "maxIOFSRole": "MaxIOFS 角色",
   "enableAutoSync": "启用自动同步",
   "mappingCreatedSuccess": "组映射创建成功",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "颁发者 URL (Issuer)",
   "issuerUrlHelp": "可选。设置颁发者后，MaxIOFS 会校验 ID 令牌，并接受提供方的后端通道注销。",
+  "issuerUrlMicrosoftHelp": "您租户的颁发者 https://login.microsoftonline.com/<tenant-id>/v2.0：仅您的租户可以登录，Auto Sync 将读取其目录。",
+  "directoryKey": "服务账号密钥 (JSON)",
+  "directoryKeyHelp": "可选。使用具有只读管理员角色的服务账号密钥，Auto Sync 将读取 Workspace 目录，登录时可获取用户的组。",
   "backchannelLogoutUrl": "后端通道注销 URL",
   "backchannelLogoutHelp": "请在提供方的客户端中配置：在那里注销会立即结束这里的会话。",
   "backchannelAfterSave": "保存提供方后会显示后端通道注销 URL。"

@@ -24,7 +24,8 @@ const testCode = "maxiofs-connection-test"
 
 // TestConnection checks the provider without a user, within the provider
 // timeout: its OpenID configuration and keys, its sign-in page for the client
-// and the redirect URI, the client's secret, and the userinfo endpoint.
+// and the redirect URI, the client's secret, the userinfo endpoint, and its
+// directory.
 func (p *Provider) TestConnection(ctx context.Context) []idp.Check {
 	var missing []string
 	for _, field := range []struct{ label, value string }{
@@ -45,6 +46,9 @@ func (p *Provider) TestConnection(ctx context.Context) []idp.Check {
 	steps := []func(context.Context) idp.Check{p.checkSignInPage, p.checkClientSecret, p.checkUserInfo}
 	if p.config.Issuer != "" {
 		steps = append([]func(context.Context) idp.Check{p.checkDiscovery}, steps...)
+	}
+	if p.ReadsDirectory() {
+		steps = append(steps, p.checkDirectory)
 	}
 	checks := make([]idp.Check, len(steps))
 	var wg sync.WaitGroup

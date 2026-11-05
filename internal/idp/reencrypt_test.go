@@ -8,6 +8,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Re-encryption rewrites a Google provider's directory key too.
+func TestReencryptRewritesTheDirectoryKey(t *testing.T) {
+	store, cleanup := setupTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	sealed, err := Encrypt(`{"private_key":"key"}`, "old")
+	require.NoError(t, err)
+	p := makeTestProvider("google", "google", TypeOAuth2, "")
+	p.Config.OAuth2.ClientSecret = ""
+	p.Config.OAuth2.DirectoryKey = sealed
+	require.NoError(t, store.CreateProvider(p))
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	names, err := ReencryptSecrets(ctx, tx, "old", "new")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	assert.Empty(t, names)
+
+	stored, err := store.GetProvider("google")
+	require.NoError(t, err)
+	plain, err := Decrypt(stored.Config.OAuth2.DirectoryKey, "new")
+	require.NoError(t, err)
+	assert.Equal(t, `{"private_key":"key"}`, plain)
+}
+
 // Re-encryption rewrites the bind passwords and client secrets the old secret
 // encrypted, leaves the ones the new secret encrypted and every other field,
 // and names the ones neither decrypts. A check names them and writes nothing.

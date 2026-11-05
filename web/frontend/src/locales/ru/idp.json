@@ -124,7 +124,7 @@
   "syncNow": "Синхронизировать сейчас",
   "noGroupMappings": "Сопоставления групп не настроены.",
   "addGroupMapping": "Добавить сопоставление группы",
-  "externalGroupLabel": "Внешняя группа (DN или ID)",
+  "externalGroupLabel": "Внешняя группа (DN, ID или email)",
   "maxIOFSRole": "Роль MaxIOFS",
   "enableAutoSync": "Включить автоматическую синхронизацию",
   "mappingCreatedSuccess": "Сопоставление группы успешно создано",
@@ -140,6 +140,9 @@
   "badgeSSO": "SSO",
   "issuerUrl": "URL издателя (Issuer)",
   "issuerUrlHelp": "Необязательно. С издателем MaxIOFS проверяет ID-токен и принимает back-channel выходы провайдера.",
+  "issuerUrlMicrosoftHelp": "Издатель вашего клиента, https://login.microsoftonline.com/<tenant-id>/v2.0: входить может только ваш клиент, и Auto Sync читает его каталог.",
+  "directoryKey": "Ключ сервисного аккаунта (JSON)",
+  "directoryKeyHelp": "Необязательно. С ключом сервисного аккаунта с ролью администратора только для чтения Auto Sync читает каталог Workspace, а при входе пользователь получает свои группы.",
   "backchannelLogoutUrl": "URL back-channel выхода",
   "backchannelLogoutHelp": "Укажите его в клиенте провайдера: выход там сразу завершает сеанс здесь.",
   "backchannelAfterSave": "URL back-channel выхода появится после сохранения провайдера."
