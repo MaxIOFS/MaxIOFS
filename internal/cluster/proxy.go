@@ -162,7 +162,7 @@ func (p *ProxyClient) ProxyRequest(ctx context.Context, node *Node, originalReq 
 	}
 
 	// Create new request to remote node
-	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, remoteURL, bodyReader)
+	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, remoteURL, bodyReader) //nolint:gosec // G704: a cluster node's URL
 	if err != nil {
 		return nil, fmt.Errorf("failed to create proxy request: %w", err)
 	}
@@ -552,7 +552,7 @@ func (p *ProxyClient) ProxyToNodeAPIURL(ctx context.Context, node *Node, origina
 		bodyReader = originalReq.Body
 	}
 
-	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, targetURL, bodyReader)
+	proxyReq, err := http.NewRequestWithContext(ctx, originalReq.Method, targetURL, bodyReader) //nolint:gosec // G704: a cluster node's URL
 	if err != nil {
 		return nil, fmt.Errorf("failed to create proxy request: %w", err)
 	}

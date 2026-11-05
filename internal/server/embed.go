@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"io/fs"
 	"net/http"
@@ -112,13 +114,17 @@ func (s *Server) setupEmbeddedFrontend() (http.Handler, error) {
 	}
 
 	baseTag := []byte(`<base href="` + basePath + `">`)
-	scriptTag := []byte(`<script>
+	script := `
 		window.__BASE_PATH__ = "` + basePath + `";
 		window.BASE_PATH = "` + basePath + `";
 		if (typeof globalThis !== 'undefined') {
 			globalThis.BASE_PATH = "` + basePath + `";
 		}
-	</script>`)
+	`
+	scriptTag := []byte(`<script>` + script + `</script>`)
+	// The Content-Security-Policy allows this script, and no other inline one.
+	digest := sha256.Sum256([]byte(script))
+	s.consoleScriptHash = "'sha256-" + base64.StdEncoding.EncodeToString(digest[:]) + "'"
 
 	headEnd := bytes.Index(indexBytes, []byte("<head>"))
 	if headEnd != -1 {

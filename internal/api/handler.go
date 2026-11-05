@@ -320,7 +320,7 @@ func (h *Handler) S3ClientMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "console URL not configured", http.StatusServiceUnavailable)
 				return
 			}
-			http.Redirect(w, r, loc, http.StatusTemporaryRedirect)
+			http.Redirect(w, r, loc, http.StatusTemporaryRedirect) //nolint:gosec // G710: the console URL from the config
 			return
 		}
 		next.ServeHTTP(w, r)

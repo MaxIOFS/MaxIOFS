@@ -9,7 +9,10 @@ import (
 )
 
 // ConsoleHeaders adds security headers to all console (web UI) responses.
-func ConsoleHeaders() func(http.Handler) http.Handler {
+// scripts are the CSP sources of the inline scripts the console's page has,
+// as 'sha256-...': no other inline script runs.
+func ConsoleHeaders(scripts ...string) func(http.Handler) http.Handler {
+	scriptSrc := strings.Join(append([]string{"'self'"}, scripts...), " ")
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
@@ -25,8 +28,8 @@ func ConsoleHeaders() func(http.Handler) http.Handler {
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			h.Set("Content-Security-Policy",
 				"default-src 'self'; "+
-					// NEW-01: 'unsafe-eval' removed — Vite/React production builds never use eval()
-					"script-src 'self' 'unsafe-inline'; "+
+					// No eval and no inline script but those named.
+					"script-src "+scriptSrc+"; "+
 					"style-src 'self' 'unsafe-inline'; "+
 					"img-src 'self' data: blob:; "+
 					"font-src 'self' data:; "+

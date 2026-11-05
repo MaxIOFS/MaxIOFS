@@ -371,7 +371,7 @@ MaxIOFS supports **five authentication methods**:
 
 | Component | Technology | Version |
 |-----------|-----------|---------|
-| **Language** | Go | 1.26+ |
+| **Language** | Go | 1.27.3+ |
 | **Frontend** | React + TypeScript | React 19, Vite 7 |
 | **CSS** | TailwindCSS | 4 (Oxide) |
 | **State Management** | TanStack Query | v5 |

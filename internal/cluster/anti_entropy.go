@@ -253,7 +253,7 @@ func (s *AntiEntropyScrubber) run(ctx context.Context) {
 
 	// Random jitter (5-60 min) before the first cycle so multi-node clusters
 	// do not all start scanning at the same instant after a synchronized boot.
-	jitter := time.Duration(5+rand.Intn(56)) * time.Minute
+	jitter := time.Duration(5+rand.Intn(56)) * time.Minute //nolint:gosec // G404: timing jitter
 	logrus.WithField("first_run_in", jitter).Info("AntiEntropyScrubber: scheduled first cycle")
 
 	// On boot, if a checkpoint exists immediately resume — the previous
@@ -450,7 +450,7 @@ func (s *AntiEntropyScrubber) beginCycle(ctx context.Context, resume *ScrubCheck
 	for _, b := range buckets {
 		order = append(order, bucketPath(b))
 	}
-	rand.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+	rand.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] }) //nolint:gosec // G404: scan order
 
 	cycleID := uuid.New().String()
 	now := time.Now()

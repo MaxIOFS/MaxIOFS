@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -775,7 +776,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 <Error>
   <Code>MethodNotAllowed</Code>
   <Message>Bucket creation not supported</Message>
-  <Resource>/` + bucketName + `</Resource>
+  <Resource>/` + html.EscapeString(bucketName) + `</Resource>
   <RequestId>veeam-disable-autoprov</RequestId>
 </Error>`
 
@@ -2760,7 +2761,7 @@ func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request
 	w.Header().Set("ETag", `"sosapi-virtual-object"`)
 	w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	w.Write(data) //nolint:gosec // G705: XML the server generates
 	return true
 }
 

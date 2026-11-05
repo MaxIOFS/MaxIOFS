@@ -65,10 +65,10 @@ func replaceObjectFile(oldPath, newPath string) error {
 	name = name[:len(name)-1]
 	size := int(unsafe.Offsetof(layout.FileName)) + (len(name)+1)*2
 	buffer := make([]byte, size)
-	info := (*renameInfo)(unsafe.Pointer(&buffer[0]))
+	info := (*renameInfo)(unsafe.Pointer(&buffer[0])) //nolint:gosec // G103: FILE_RENAME_INFO layout
 	info.Flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS
 	info.FileNameLength = uint32(len(name) * 2)
-	copy(unsafe.Slice(&info.FileName[0], len(name)), name)
+	copy(unsafe.Slice(&info.FileName[0], len(name)), name) //nolint:gosec // G103: FILE_RENAME_INFO layout
 	err = windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buffer[0], uint32(size))
 	if err != nil {
 		return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: err}

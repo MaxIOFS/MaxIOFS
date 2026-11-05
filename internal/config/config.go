@@ -225,7 +225,7 @@ func validate(cfg *Config) error {
 	}
 
 	// Ensure data directory exists
-	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -245,7 +245,7 @@ func validate(cfg *Config) error {
 
 	if _, err := os.Stat(cfg.Storage.Root); os.IsNotExist(err) {
 		logrus.Debugf("Creating storage root: %s", cfg.Storage.Root)
-		if err := os.MkdirAll(cfg.Storage.Root, 0755); err != nil {
+		if err := os.MkdirAll(cfg.Storage.Root, 0750); err != nil {
 			return fmt.Errorf("failed to create storage root: %w", err)
 		}
 	}

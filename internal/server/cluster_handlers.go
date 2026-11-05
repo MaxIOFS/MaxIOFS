@@ -560,7 +560,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Failed to seal the join package", http.StatusInternalServerError)
 		return
 	}
-	plain, _ := json.Marshal(pkg)
+	plain, _ := json.Marshal(pkg) //nolint:gosec // G117: sealed before it is sent
 	sealed, err := sealJoin(key, plain)
 	if err != nil {
 		s.writeError(w, "Failed to seal the join package", http.StatusInternalServerError)
@@ -572,7 +572,7 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 	})
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec // G402: the join package is sealed with the join code
 		},
 	}
 	joinReq, _ := http.NewRequestWithContext(r.Context(), "POST", remoteEndpoint+"/api/v1/cluster/join", bytes.NewReader(joinPayload))

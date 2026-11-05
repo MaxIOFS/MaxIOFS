@@ -1,0 +1,27 @@
+version: "2"
+
+# make lint runs the standard linters and gosec. The nightly runs gosec only
+# (--enable-only gosec) and fails on any finding. A reviewed finding is marked
+# at its line with //nolint:gosec and the reason.
+linters:
+  default: standard
+  enable:
+    - gosec
+  settings:
+    gosec:
+      excludes:
+        - G104 # unchecked errors: not a security rule
+        - G115 # integer conversions of sizes and counts
+        - G304 # file paths the server builds under its own directories
+        - G703 # the same, by taint analysis
+        - G306 # data files are 0640, like their 0750 directories
+        - G401 # MD5 and SHA-1: S3 requires them (ETag, Content-MD5, SigV2, checksums)
+        - G501
+        - G505
+  exclusions:
+    paths:
+      - web/frontend/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec

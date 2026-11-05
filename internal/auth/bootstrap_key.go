@@ -12,7 +12,7 @@ import (
 
 const (
 	BootstrapAccessKeyEnv = "MAXIOFS_BOOTSTRAP_ACCESS_KEY"
-	BootstrapSecretKeyEnv = "MAXIOFS_BOOTSTRAP_SECRET_KEY"
+	BootstrapSecretKeyEnv = "MAXIOFS_BOOTSTRAP_SECRET_KEY" //nolint:gosec // G101: an environment variable name
 
 	bootstrapAccessKeyMinLen = 3
 	bootstrapSecretKeyMinLen = 8

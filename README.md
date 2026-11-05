@@ -8,7 +8,7 @@
 [![Version](https://img.shields.io/badge/version-1.8.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.8.0)
 [![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/go-1.27+-00ADD8?logo=go)](https://go.dev)
 [![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](docs/API.md)
 [![Security Audited](https://img.shields.io/badge/security-audited-brightgreen)](docs/SECURITY.md)
 
@@ -309,7 +309,7 @@ sudo systemctl enable --now maxiofs
 
 ## Build from Source
 
-Go 1.26+ and Node.js 24+ required to build. The resulting binary has no runtime dependencies.
+Go 1.27.3+ and Node.js 24+ required to build (an older Go downloads 1.27.3 itself). The resulting binary has no runtime dependencies.
 
 ```bash
 git clone https://github.com/MaxioFS/MaxioFS.git

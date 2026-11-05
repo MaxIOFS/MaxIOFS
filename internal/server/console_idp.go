@@ -850,7 +850,7 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 
 	state := providerID + ":" + csrfToken
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request's scheme
 		Name:     "oauth_state",
 		Value:    csrfToken,
 		Path:     "/",
@@ -873,7 +873,7 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 		"auth_url":    authURL,
 	}).Info("OAuth: redirecting to provider")
 
-	http.Redirect(w, r, authURL, http.StatusFound)
+	http.Redirect(w, r, authURL, http.StatusFound) //nolint:gosec // G710: the provider's URL from its configuration
 }
 
 // handleBackchannelLogout ends the console sessions an identity provider signs
@@ -950,12 +950,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request's scheme
 		Name:     "oauth_state",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   isHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	externalUser, err := s.idpManager.HandleOAuthCallback(r.Context(), providerID, code)

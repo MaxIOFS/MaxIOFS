@@ -28,7 +28,7 @@ func MigrateFromPebbleV1IfNeeded(dataDir string, logger *logrus.Logger) error {
 			if err := os.Rename(v2TmpDir, metaDir); err != nil {
 				return fmt.Errorf("failed to recover Pebble v2 migration: %w", err)
 			}
-			_ = os.WriteFile(filepath.Join(metaDir, PebbleV2SentinelFile), []byte("v2\n"), 0644)
+			_ = os.WriteFile(filepath.Join(metaDir, PebbleV2SentinelFile), []byte("v2\n"), 0640)
 			logger.Info("Pebble v1→v2 migration recovery complete")
 			return nil
 		}
@@ -69,7 +69,7 @@ func MigrateFromPebbleV1IfNeeded(dataDir string, logger *logrus.Logger) error {
 	}
 
 	// Write sentinel so future starts skip this check
-	_ = os.WriteFile(filepath.Join(metaDir, PebbleV2SentinelFile), []byte("v2\n"), 0644)
+	_ = os.WriteFile(filepath.Join(metaDir, PebbleV2SentinelFile), []byte("v2\n"), 0640)
 
 	logger.WithFields(logrus.Fields{
 		"migrated_keys": migrated,
@@ -93,7 +93,7 @@ func runPebbleV1toV2Migration(v1Dir, v2Dir string, logger *logrus.Logger) (int64
 	defer v1db.Close() //nolint:errcheck
 
 	// ── Open v2 (write destination) ───────────────────────────────────────────
-	if err := os.MkdirAll(v2Dir, 0755); err != nil {
+	if err := os.MkdirAll(v2Dir, 0750); err != nil {
 		return 0, fmt.Errorf("failed to create v2 migration directory: %w", err)
 	}
 

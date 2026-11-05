@@ -295,7 +295,7 @@ const (
 	// Object Lock actions
 	ActionGetObjectRetention        = "s3:GetObjectRetention"
 	ActionPutObjectRetention        = "s3:PutObjectRetention"
-	ActionBypassGovernanceRetention = "s3:BypassGovernanceRetention"
+	ActionBypassGovernanceRetention = "s3:BypassGovernanceRetention" //nolint:gosec // G101: an S3 action name
 	ActionGetObjectLegalHold        = "s3:GetObjectLegalHold"
 	ActionPutObjectLegalHold        = "s3:PutObjectLegalHold"
 

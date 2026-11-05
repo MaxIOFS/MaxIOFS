@@ -83,12 +83,7 @@ func TestUndoChoosesPartCopyForCurrentCommit(t *testing.T) {
 	require.NoError(t, err)
 	report := f.undo(t)
 	require.Equal(t, 1, report.PartsRestored)
-	r, _, err := f.backend.GetPart(t.Context(), u.UploadID, 1)
-	require.NoError(t, err)
-	defer r.Close()
-	data, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.Equal(t, committed, string(data))
+	require.Equal(t, committed, f.completedWith(t, u.UploadID, "key"))
 }
 
 func TestReviewUndoChoosesBackupForCurrentCommit(t *testing.T) {
@@ -121,11 +116,6 @@ func TestReviewDurablePartAfterBackupCleanup(t *testing.T) {
 	f.undo(t)
 	row, err := f.store.GetPart(t.Context(), u.UploadID, 1)
 	require.NoError(t, err)
-	r, meta, err := f.backend.GetPart(t.Context(), u.UploadID, 1)
-	require.NoError(t, err)
-	defer r.Close()
-	data, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.Equal(t, int64(len(data)), row.Size)
-	require.Equal(t, meta["etag"], row.ETag)
+	require.Equal(t, int64(len(newBody)), row.Size)
+	require.Equal(t, newBody, f.completedWith(t, u.UploadID, "key"))
 }

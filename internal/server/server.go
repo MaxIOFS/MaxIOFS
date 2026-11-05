@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,19 +54,22 @@ import (
 
 // Server represents the MaxIOFS server
 type Server struct {
-	config          *config.Config
-	httpServer      *http.Server
-	consoleServer   *http.Server
-	clusterServer   *http.Server // dedicated inter-node communication port
-	clusterServerMu sync.Mutex
-	storageBackend  storage.Backend
-	metadataStore   metadata.Store
-	bucketManager   bucket.Manager
-	objectManager   object.Manager
-	authManager     auth.Manager
-	db              *sql.DB
-	auditManager    *audit.Manager
-	metricsManager  metrics.Manager
+	config        *config.Config
+	httpServer    *http.Server
+	consoleServer *http.Server
+	// consoleScriptHash is the CSP source of the one inline script the
+	// console's page has.
+	consoleScriptHash string
+	clusterServer     *http.Server // dedicated inter-node communication port
+	clusterServerMu   sync.Mutex
+	storageBackend    storage.Backend
+	metadataStore     metadata.Store
+	bucketManager     bucket.Manager
+	objectManager     object.Manager
+	authManager       auth.Manager
+	db                *sql.DB
+	auditManager      *audit.Manager
+	metricsManager    metrics.Manager
 	// taskObserver is told of each run of a background task.
 	taskObserver        bgwork.TaskObserver
 	settingsManager     *settings.Manager
@@ -1520,7 +1525,7 @@ func (s *Server) setupRoutes() error {
 			consoleRouter.ServeHTTP(w, r)
 		})
 	}
-	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders()(consoleHandler))
+	s.consoleServer.Handler = handlers.RecoveryHandler()(middleware.ConsoleHeaders(s.consoleScriptHash)(consoleHandler))
 
 	// Setup cluster inter-node routes (dedicated port, not exposed to clients)
 	if s.clusterServer != nil {
@@ -1916,7 +1921,7 @@ func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bu
 			if redirect.HTTPRedirectCode == "302" {
 				code = http.StatusFound
 			}
-			http.Redirect(w, r, targetScheme+"://"+targetHost+"/"+targetPath, code)
+			http.Redirect(w, r, targetScheme+"://"+targetHost+"/"+targetPath, code) //nolint:gosec // G710: the bucket's routing rule
 			return
 		}
 	}
@@ -1972,7 +1977,7 @@ func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bu
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
 	if r.Method != http.MethodHead {
-		fmt.Fprintf(w, "<html><body><h1>404 Not Found</h1><p>The requested resource %q was not found.</p></body></html>", r.URL.Path)
+		fmt.Fprintf(w, "<html><body><h1>404 Not Found</h1><p>The requested resource %s was not found.</p></body></html>", html.EscapeString(strconv.Quote(r.URL.Path)))
 	}
 }
 

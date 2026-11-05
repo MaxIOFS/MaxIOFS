@@ -533,7 +533,7 @@ func upsertRow(ctx context.Context, tx *sql.Tx, table string, row map[string]Row
 			updates = append(updates, names[i]+" = excluded."+names[i])
 		}
 	}
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(id) DO `, table,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(id) DO `, table, //nolint:gosec // G201: this schema's table and columns; values are parameters
 		strings.Join(names, ", "), strings.TrimSuffix(strings.Repeat("?, ", len(names)), ", "))
 	if len(updates) == 0 {
 		query += `NOTHING`

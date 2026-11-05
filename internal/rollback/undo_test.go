@@ -134,6 +134,19 @@ func (f *undoFixture) undo(t *testing.T) *rollback.Report {
 	return report
 }
 
+// completedWith completes upload uploadID of key with the parts the index
+// lists and gives the content of the object it makes. A part is stored
+// encrypted with its upload's key: what was sent is read this way.
+func (f *undoFixture) completedWith(t *testing.T, uploadID, key string) string {
+	t.Helper()
+	parts, err := f.manager.ListParts(t.Context(), uploadID)
+	require.NoError(t, err)
+	_, err = f.manager.CompleteMultipartUpload(t.Context(), uploadID, parts)
+	require.NoError(t, err, "the index describes the parts stored")
+	_, data := f.readObject(t, key)
+	return data
+}
+
 func (f *undoFixture) readObject(t *testing.T, key string) (*object.Object, string) {
 	t.Helper()
 	obj, reader, err := f.manager.GetObject(t.Context(), "undo", key)

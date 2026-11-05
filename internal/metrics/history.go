@@ -51,7 +51,7 @@ func NewHistoryStore(dataDir string, retentionDays int) (*HistoryStore, error) {
 
 	// Ensure the db directory exists
 	dbDir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	if err := os.MkdirAll(dbDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 

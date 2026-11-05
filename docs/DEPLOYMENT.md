@@ -16,7 +16,7 @@
 
 ### Build Requirements (source only)
 
-- **Go** 1.26+
+- **Go** 1.27.3+
 - **Node.js** 24+ (for frontend build)
 
 The compiled binary is self-contained and requires neither Go nor Node at runtime.

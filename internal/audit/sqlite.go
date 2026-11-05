@@ -260,13 +260,14 @@ func (s *SQLiteStore) LogEvent(ctx context.Context, event *AuditEvent) error {
 func (s *SQLiteStore) GetLogs(ctx context.Context, filters *AuditLogFilters) ([]*AuditLog, int, error) {
 	whereClause, args := s.buildWhereClause(filters)
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", whereClause) //nolint:gosec // G201: fixed clauses; values are parameters
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count audit logs: %w", err)
 	}
 
 	offset := (filters.Page - 1) * filters.PageSize
+	//nolint:gosec // G201: fixed clauses; values are parameters
 	query := fmt.Sprintf(`
 		SELECT id, timestamp, tenant_id, user_id, username, event_type,
 		       resource_type, resource_id, resource_name, action, status,

@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The parts of a multipart upload in progress were stored unencrypted.
 - The debug log of request headers and the signature log gave the STS session token.
 - Behind a trusted proxy a client could choose its address: the leftmost `X-Forwarded-For` entry was taken (limits per address, `aws:SourceIp`, audit).
+- Built with Go 1.27.3: eleven standard-library advisories of Go 1.26.6 closed (HTTP/2, `Range` headers, MIME headers, TLS, x509).
+- The console's Content-Security-Policy runs no inline script but its own.
+- New data, metadata and metrics directories are created `0750`, not `0755`.
+- The 404 page of a bucket website ran script put in the link's path.
 
 ### Fixed
 - Multipart: `x-amz-version-id` and errors of `CompleteMultipartUpload`, retried completions and aborts, `If-Match`/`If-None-Match`, headers and tags kept, `EntityTooSmall`.

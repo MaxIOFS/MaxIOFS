@@ -688,7 +688,7 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	}{bandwidth.ThrottleReader(r.Context(), r.Body, h.tenantBandwidthLimiter(r.Context(), r, bucketName)), r.Body}
 
 	// Parse multipart form — 32 MB in memory, rest on disk.
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	if err := r.ParseMultipartForm(32 << 20); err != nil { //nolint:gosec // G120: the body is capped by system.max_upload_size_mb
 		h.writeError(w, "MalformedPOSTRequest", "Unable to parse multipart form: "+err.Error(), bucketName, r)
 		return
 	}

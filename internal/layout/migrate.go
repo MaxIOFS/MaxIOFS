@@ -355,7 +355,7 @@ func refName(ref storage.ObjectRef) string {
 func dropFolderMarkers(dir string) {
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && info.Name() == ".maxiofs-folder" {
-			os.Remove(p) //nolint:errcheck
+			os.Remove(p) //nolint:errcheck,gosec // G122: the server's own data directory
 		}
 		return nil
 	})

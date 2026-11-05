@@ -58,7 +58,7 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	}
 
 	dbPath := filepath.Join(opts.DataDir, "metadata")
-	if err := os.MkdirAll(dbPath, 0755); err != nil {
+	if err := os.MkdirAll(dbPath, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create metadata directory: %w", err)
 	}
 
@@ -106,7 +106,7 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 	// Write sentinel so MigrateFromPebbleV1IfNeeded can identify this as v2 on future starts.
 	sentinelPath := filepath.Join(dbPath, PebbleV2SentinelFile)
 	if _, statErr := os.Stat(sentinelPath); os.IsNotExist(statErr) {
-		_ = os.WriteFile(sentinelPath, []byte("v2\n"), 0644)
+		_ = os.WriteFile(sentinelPath, []byte("v2\n"), 0640)
 	}
 
 	store := &PebbleStore{
@@ -824,7 +824,7 @@ func (s *PebbleStore) closeStore() error {
 	if err == nil {
 		// Mark the shutdown clean so the next open skips reconciliation.
 		sentinel := filepath.Join(s.dbPath, cleanShutdownSentinelFile)
-		if wErr := os.WriteFile(sentinel, []byte("clean\n"), 0644); wErr != nil {
+		if wErr := os.WriteFile(sentinel, []byte("clean\n"), 0640); wErr != nil {
 			s.logger.WithError(wErr).Warn("Failed to write clean-shutdown sentinel")
 		}
 	}

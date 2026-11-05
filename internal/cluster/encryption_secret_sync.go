@@ -14,7 +14,7 @@ import (
 
 // encryptionSecretPath is where a node answers with the fingerprint of its
 // encryption secret (GET) and is given the coordinator's (POST).
-const encryptionSecretPath = "/api/internal/cluster/encryption-secret"
+const encryptionSecretPath = "/api/internal/cluster/encryption-secret" //nolint:gosec // G101: a URL path
 
 // EncryptionSecretHolder is this node's encryption secret for stored
 // credentials.

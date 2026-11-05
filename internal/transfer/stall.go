@@ -16,7 +16,7 @@ const DefaultStallTimeout = 60 * time.Second
 // Do sends req and cancels it if its transfer stops making progress for stall.
 func Do(client *http.Client, req *http.Request, stall time.Duration) (*http.Response, error) {
 	if stall <= 0 {
-		return client.Do(req)
+		return client.Do(req) //nolint:gosec // G704: callers send to cluster nodes
 	}
 
 	ctx, cancel := context.WithCancel(req.Context())
@@ -27,7 +27,7 @@ func Do(client *http.Client, req *http.Request, stall time.Duration) (*http.Resp
 		req.Body = &progressBody{ReadCloser: req.Body, watchdog: w}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: callers send to cluster nodes
 	if err != nil {
 		// Nothing will read a body, so the watchdog has to be released here or
 		// it outlives the request it was watching.

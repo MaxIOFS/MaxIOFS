@@ -14,7 +14,7 @@ COPY web/frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go binary — always runs on the build host (native, cross-compiles for target)
-FROM --platform=$BUILDPLATFORM golang:1.26 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27 AS go-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 

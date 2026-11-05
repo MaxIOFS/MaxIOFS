@@ -653,27 +653,92 @@ aws s3api get-public-access-block \
 
 ---
 
+## Standards: ISO/IEC 27001, 27017, 27018 and ISO 9001
+
+MaxIOFS is not certified against any of these standards. Certification is given to an organization's management system, not to a product. The tables list what MaxIOFS provides as evidence for an operator's certification, and what the operator does. Organizational, people and physical controls are the operator's.
+
+### ISO/IEC 27001:2022 Annex A (controls of ISO/IEC 27002:2022)
+
+| Control | MaxIOFS | Operator |
+|---------|---------|----------|
+| 5.15 Access control | IAM policies (managed, inline, roles), bucket policies, ACLs, Block Public Access | Writes the access policy |
+| 5.16 Identity management | Local, LDAP and OIDC users; group mappings; LDAP directory sync deactivates users gone from the directory; one email belongs to one user | Runs the joiner, mover and leaver steps |
+| 5.17 Authentication information | Bcrypt; password policy (`security.password_*`); identity-provider secrets and replication keys encrypted at rest; a warning while `admin` keeps its default password | Changes the default `admin` password |
+| 5.18 Access rights | Access keys revocable; a sign-out ends the session on every node; STS credentials expire | Reviews rights periodically |
+| 5.33 Protection of records | Object Lock (COMPLIANCE, GOVERNANCE, legal hold); versioning | Sets retention per bucket |
+| 8.2 Privileged access rights | Global administrator, tenant administrator and capabilities; `security.require_2fa_admin` | Keeps few administrators, with 2FA |
+| 8.3 Information access restriction | Tenants isolated in data and API | — |
+| 8.5 Secure authentication | TOTP 2FA; account lockout; limit of failed sign-ins per IP; 15-minute access tokens; AWS Signature V4 | Tunes `security.*` |
+| 8.8 Technical vulnerabilities | Each nightly scans the dependencies (govulncheck) and the code (gosec) | Applies releases |
+| 8.9 Configuration management | Changes to settings are audited | Keeps the configuration file under change control |
+| 8.10 Information deletion | Lifecycle expiration; deletion of objects and versions | Sets lifecycle rules |
+| 8.12 Data leakage prevention | Block Public Access on for buckets created in the console | Reviews public buckets |
+| 8.13 Information backup | Bucket replication to another S3 endpoint; KEK recovery bundle and `maxiofs recover` | Keeps the recovery bundle offline; tests restores |
+| 8.14 Redundancy | Cluster replication factor; erasure coding; storage classes | Sizes the cluster |
+| 8.15 Logging | Audit log of 20+ event types, on by default (`audit.enabled`), read-only through the API, kept `audit.retention_days` (90); syslog and HTTP shipping | Keeps it on; ships logs to its SIEM and reviews them |
+| 8.16 Monitoring activities | Prometheus metrics; console alerts (lockouts, disk, quota); email alerts (disk, quota) | Sets alert rules |
+| 8.17 Clock synchronization | Signatures and tokens are checked against the clock | Runs NTP on every node |
+| 8.20 Network security | Inter-node TLS 1.2+ with the cluster's CA; HMAC-signed inter-node requests | Firewalls the ports |
+| 8.24 Use of cryptography | AES-256-GCM envelope encryption, always on; KEK rotation; SSE-C, blocked per bucket until enabled, HTTPS only; TLS (`cert_file`) | Keeps the KEK backup; clients keep their SSE-C keys |
+| 8.26 Application security requirements | Console Content-Security-Policy without foreign inline script; HSTS; `X-Frame-Options`; `nosniff` | Serves over HTTPS |
+| 8.25, 8.28, 8.29 Secure development and testing | Go and frontend test suites, govulncheck and gosec on each nightly | — |
+| 8.32 Change management | Versioned releases; [CHANGELOG.md](../CHANGELOG.md) | Tests a release before upgrading |
+
+### ISO/IEC 27017:2015 (cloud services)
+
+| Control | MaxIOFS | Operator |
+|---------|---------|----------|
+| CLD.6.3.1 Shared roles and responsibilities | The Operator columns of these tables | Tells its customers which controls are its own |
+| CLD.8.1.5 Removal of customer assets | A tenant is deleted only once it holds no buckets | Empties the tenant's buckets when the contract ends |
+| CLD.9.5.1 Segregation in virtual computing environments | Per tenant: data path, users, identity providers, quotas and bandwidth caps | — |
+| CLD.12.1.5 Administrator's operational security | Administrative actions audited; maintenance mode blocks writes | Documents its procedures |
+| CLD.12.4.5 Monitoring of cloud services | A tenant administrator sees the tenant's audit log | — |
+
+### ISO/IEC 27018:2019 (personal data in the cloud)
+
+MaxIOFS keeps these personal data: usernames, email addresses and display names; in the audit log and the server logs, IP addresses and user agents. Object content is the customer's and is not read.
+
+| Need | MaxIOFS | Operator |
+|------|---------|----------|
+| Protection at rest | Objects always encrypted; stored credentials encrypted; passwords as bcrypt hashes. User records in `maxiofs.db` are not encrypted | Encrypts the disks |
+| Retention | Audit records deleted after `audit.retention_days`; the username of a deleted user stays in them until then | Sets the retention its policy needs |
+| Access | Global administrators see all tenants; tenant administrators only theirs | — |
+| Requests from a person | Audit log export to CSV, filtered by user; user records in the console and the API | Answers within its legal terms |
+| Disclosure to third parties | The console's version check asks `https://maxiofs.com/version.json` and sends no user data. Every other outbound connection is configured by the operator: identity providers, SMTP, syslog and HTTP log shipping, replication targets | Lists its subprocessors |
+| Location | Data stays on the operator's nodes; replication goes only where configured | Chooses where nodes run |
+
+### ISO 9001 (quality)
+
+ISO 9001 certifies the organization that makes the product. The development of MaxIOFS keeps this evidence:
+
+- Each user-visible change is recorded in [CHANGELOG.md](../CHANGELOG.md), by version.
+- Each nightly runs the Go and frontend test suites, govulncheck and gosec. A failure stops the build and publishes nothing.
+- Binaries, `.deb` and `.rpm` packages and the Docker image are built by CI from the commit they name.
+- Documentation in `docs/` changes with the feature.
+- Security issues are reported privately; see [Reporting Security Issues](#reporting-security-issues).
+
+---
+
 ## Security Best Practices
 
 1. **Change default credentials immediately** (admin/admin)
 2. **Use HTTPS** — reverse proxy with TLS for all traffic
-3. **Enable encryption at rest** — protect data on disk
-4. **Enable 2FA** for all admin accounts
-5. **Configure rate limiting** — adjust thresholds for your environment
-6. **Run as non-root** — use dedicated service account
-7. **Restrict file permissions** — `chmod 700` on data directory
-8. **Configure firewall** — expose only necessary ports
-9. **Enable audit logging** — review logs regularly
-10. **Inter-node TLS is automatic** — cluster nodes encrypt all communication using auto-generated certificates
-11. **Back up encryption keys** — data is irrecoverable without them
-12. **Enable PublicAccessBlock** — turn on all four flags on any bucket that should never be public; buckets created in the console have them on
-13. **Monitor** — set up Prometheus alerts for security events
+3. **Enable 2FA** for all admin accounts
+4. **Configure rate limiting** — adjust thresholds for your environment
+5. **Run as non-root** — use dedicated service account
+6. **Restrict file permissions** — `chmod 700` on data directory
+7. **Configure firewall** — expose only necessary ports
+8. **Keep audit logging on** (`audit.enabled`) — review logs regularly
+9. **Inter-node TLS is automatic** — cluster nodes encrypt all communication using auto-generated certificates
+10. **Back up encryption keys** — data is irrecoverable without them
+11. **Enable PublicAccessBlock** — turn on all four flags on any bucket that should never be public; buckets created in the console have them on
+12. **Monitor** — set up Prometheus alerts for security events
 
 ---
 
 ## Known Limitations
 
-1. **No SOC 2 / ISO 27001 certification** — no formal third-party certification exists; internal audits have been performed but are not a substitute for accredited third-party assessment
+1. **No SOC 2 or ISO certification** — no third-party assessment; what MaxIOFS provides to an operator's certification is in [Standards](#standards-isoiec-27001-27017-27018-and-iso-9001)
 2. **Single master encryption key** — no per-tenant keys, no HSM integration
 3. **No SAML SSO** — OAuth2/OIDC recommended instead
 4. **Basic session management** — no device tracking or geographic restrictions

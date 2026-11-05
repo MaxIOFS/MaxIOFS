@@ -439,7 +439,7 @@ func (m *LeaderManager) hasPeers(ctx context.Context) bool {
 
 // electionDelay is how long a node waits before campaigning once it notices the
 func electionDelay() time.Duration {
-	return time.Duration(rand.Int63n(int64(RenewInterval * 2)))
+	return time.Duration(rand.Int63n(int64(RenewInterval * 2))) //nolint:gosec // G404: election jitter
 }
 
 // GrantLease is the answer this node gives a candidate.
