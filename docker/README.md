@@ -182,7 +182,7 @@ Common issues:
 
 ## Version Information
 
-- **MaxIOFS**: 1.8.0
+- **MaxIOFS**: 1.9.0
 - **Prometheus**: 3.0.1
 - **Grafana**: 11.5.0
 - **Docker Compose**: v2.x required

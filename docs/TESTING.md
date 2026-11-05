@@ -1,20 +1,20 @@
 # Testing
 
-**Version**: 1.8.0
-**Last Updated**: October 13, 2026
+**Version**: 1.9.0
+**Last Updated**: November 5, 2026
 
 ---
 
 ## Overview
 
-MaxIOFS has **382 Go test files**, **20 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **393 Go test files**, **21 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
 | Layer | Tool | Assertion Library |
 |-------|------|-------------------|
 | Backend unit/integration | `go test` | `stretchr/testify` (require + assert) |
-| Frontend unit | Vitest 4 + jsdom | `@testing-library/react` |
+| Frontend unit | Vitest 5 + jsdom | `@testing-library/react` |
 | Performance/load | K6 | Built-in K6 checks |
 | Benchmarks | `go test -bench` | Standard `testing.B` |
 
@@ -355,12 +355,13 @@ npx vitest run --coverage
 | `performance_test.go` | Performance metrics tracking |
 | `system_metrics_test.go` | System resource metrics (CPU, memory, disk) |
 
-### `internal/middleware/` — 5 test files
+### `internal/middleware/` — 6 test files
 
 | File | Description |
 |------|-------------|
 | `body_digest_test.go` | A verified request body passes declared content through and rejects substituted, truncated, or unknown-algorithm content |
 | `cluster_auth_test.go` | HMAC inter-node authentication middleware |
+| `console_headers_test.go` | The console's Content-Security-Policy allows no inline script but those it names by digest |
 | `middleware_test.go` | Auth, CORS, rate limit middleware chain |
 | `tracing_test.go` | Request tracing and request ID propagation; an operation's errors are its 5xx answers, not its refusals |
 | `verbose_logging_test.go` | The debug dump of request headers gives the SSE-C keys and the STS session token redacted |
@@ -477,7 +478,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 73 test files
+### `internal/server/` — 75 test files
 
 | File | Description |
 |------|-------------|
@@ -496,6 +497,7 @@ npx vitest run --coverage
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
 | `console_api_test.go` | Console REST API endpoint tests |
+| `console_csp_test.go` | The inline script of the console's page is the one its Content-Security-Policy names by digest, at both console URLs |
 | `console_customer_key_test.go` | The console marks an SSE-C object and answers 409 to its download; an object of the same bucket without one downloads |
 | `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked; the connection test answers each check, and the first that failed as its message |
 | `forwarded_transport_test.go` | A signed forwarded request is evaluated with its client's address and transport; X-Forwarded-For is read from the right past the listed proxies; `trust_private_networks` off trusts `trusted_proxies` alone |
@@ -554,6 +556,7 @@ npx vitest run --coverage
 | `tenant_usage_test.go` | Tenant synchronisation keeps each node's usage; the bucket limit and the console count the tenant's buckets on every node; the statistics pass corrects the tenant's storage; an overwrite, smaller or larger, keeps the tenant's storage equal to its bucket's; a tenant deletion from another node keeps a tenant changed after it |
 | `two_factor_login_test.go` | A two-factor code alone signs no one in; the first step's token is not a session and a session token is not one; a user disabled between the steps, the account locked after the configured number of wrong codes, the limit per address; the sign-in is audited; in a cluster a user's two-factor authentication reaches the other node with the user |
 | `worker_shutdown_test.go` | `goWorker` shutdown waits for every tracked worker and refuses new ones once shutdown starts |
+| `website_404_test.go` | The website's own 404 page shows the requested path as text, never as markup |
 
 ### `internal/settings/` — 1 test file
 
@@ -670,7 +673,7 @@ npx vitest run --coverage
 
 ## Frontend Tests
 
-Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** environment and **@testing-library/react**.
+Located in `web/frontend/src/__tests__/`, using **Vitest 5** with **jsdom** environment and **@testing-library/react**.
 
 | File | Description |
 |------|-------------|
@@ -692,6 +695,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 4** with **jsdom** envi
 | `Login.test.tsx` | Login form, OAuth redirect, 2FA prompt |
 | `OAuthComplete.test.tsx` | The OAuth completion page keeps the session the exchange gives, or asks for the second factor and sends it with the first step's token |
 | `Modal.test.tsx` | Modal keeps focus inside the dialog, returns it to the opener, announces itself as a dialog; a success or error message given as HTML is laid out, sanitized |
+| `ObjectDetailsCustomerKey.test.tsx` | An object encrypted with a customer key says the console cannot read it and turns off download, share and rename; another object is left as it was |
 | `Users.test.tsx` | User management CRUD UI |
 | `useIdleTimer.test.ts` | The idle timer ignores background token refreshes and resets on real activity |
 
@@ -908,25 +912,25 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 56 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 67 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Object | 58 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 75 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
-| S3 Compat | 48 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
-| Auth | 34 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
+| S3 Compat | 49 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
+| Auth | 35 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 19 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
 | Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
 | Replication | 11 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 5 | Prometheus, history, system, performance |
 | Bucket | 9 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
-| IDP | 11 | LDAP against a test directory, OAuth, crypto, storage |
-| Recovery | 7 | Offline recover and its resumption, reconcile (restore + repair) |
+| IDP | 14 | LDAP against a test directory, OAuth, crypto, storage |
+| Recovery | 8 | Offline recover and its resumption, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
-| Middleware | 4 | Auth, CORS, tracing, body digest |
+| Middleware | 6 | Auth, CORS, tracing, body digest, console headers, header redaction |
 | Inventory | 6 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **375** | |
-| Frontend | 19 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, storage classes, lifecycle rules, time axis |
+| **Total Go** | **393** | |
+| Frontend | 21 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
 | Performance | 4 | Upload, download, mixed, common |

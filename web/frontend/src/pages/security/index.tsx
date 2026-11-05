@@ -19,6 +19,7 @@ import {
   HardDrive,
   Bell,
   FileText,
+  Info,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
@@ -376,6 +377,13 @@ export default function SecurityPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                 <div>
+                  <p className="font-medium text-foreground">{t('customerKeys')}</p>
+                  <p className="text-sm text-muted-foreground">{t('customerKeysDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
                   <p className="font-medium text-foreground">{t('tlsClusterReplication')}</p>
                   <p className="text-sm text-muted-foreground">{t('tlsClusterReplicationDesc')}</p>
                 </div>
@@ -521,6 +529,20 @@ export default function SecurityPage() {
                 <div>
                   <p className="font-medium text-foreground">{t('csvExport')}</p>
                   <p className="text-sm text-muted-foreground">{t('csvExportDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <a
+                    href="https://github.com/MaxioFS/MaxioFS/blob/main/docs/SECURITY.md#standards-isoiec-27001-27017-27018-and-iso-9001"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:underline"
+                  >
+                    {t('isoStandards')}
+                  </a>
+                  <p className="text-sm text-muted-foreground">{t('isoStandardsDesc')}</p>
                 </div>
               </div>
             </div>

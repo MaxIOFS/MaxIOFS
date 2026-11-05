@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.8.0 | **Last Updated**: October 13, 2026
+**Version**: 1.9.0 | **Last Updated**: November 5, 2026
 
 ## Security Overview
 
@@ -15,9 +15,10 @@
 | Cluster HMAC auth | ✅ | HMAC-SHA256 with timestamp/nonce |
 | Inter-node TLS | ✅ | Auto-generated internal CA, ECDSA P-256 |
 | Role-Based Access Control | ✅ | 5 roles (admin, tenant-admin, user, readonly, guest) |
-| Rate limiting | ✅ | IP-based login throttling |
+| Rate limiting | ✅ | Failed sign-ins per IP |
 | Account lockout | ✅ | Configurable threshold and duration |
 | Encryption at rest | ✅ | AES-256-GCM authenticated encryption (64 KB chunks) |
+| Customer-provided keys (SSE-C) | ✅ | Per bucket, blocked by default, HTTPS only |
 | IDP secrets encryption | ✅ | AES-256-GCM for stored OAuth secrets |
 | Object Lock (WORM) | ✅ | COMPLIANCE and GOVERNANCE modes |
 | ACLs | ✅ | S3-compatible canned + custom ACLs |
@@ -25,6 +26,7 @@
 | Audit logging | ✅ | 20+ event types, SQLite storage |
 | Real-time notifications | ✅ | SSE push for security events |
 | Multi-tenant isolation | ✅ | Complete data and API isolation |
+| Vulnerability scanning | ✅ | govulncheck and gosec on each nightly |
 
 ---
 

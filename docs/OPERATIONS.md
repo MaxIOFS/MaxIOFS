@@ -1,7 +1,7 @@
 # MaxIOFS Operations Guide
 
-**Version**: 1.8.0  
-**Last Updated**: October 13, 2026  
+**Version**: 1.9.0  
+**Last Updated**: November 5, 2026  
 **Audience**: SRE / Ops / On-call engineers
 
 This document describes day‑to‑day operations, runbooks, and best practices for running MaxIOFS in production (single node and clusters).
@@ -485,6 +485,8 @@ MaxIOFS supports a **maintenance mode** that:
 5. Repeat for remaining nodes.
 
 > Always upgrade all nodes in a cluster to the same version as soon as practical.
+>
+> Turn on parity or keep a storage class only once every node runs the same version.
 
 ---
 

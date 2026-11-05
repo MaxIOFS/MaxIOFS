@@ -254,7 +254,7 @@ func (m *Manager) insertDefaults() error {
 			Value:       "5",
 			Type:        string(TypeInt),
 			Category:    string(CategorySecurity),
-			Description: "Maximum login attempts per minute per IP",
+			Description: "Maximum failed sign-ins per minute per IP",
 			Editable:    true,
 		},
 		{

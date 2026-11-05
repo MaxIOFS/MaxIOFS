@@ -1,8 +1,8 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.8.0
+**Version**: 1.9.0
 **Status**: Production-Ready
-**Last Updated**: October 13, 2026
+**Last Updated**: November 5, 2026
 
 ---
 
@@ -34,8 +34,8 @@ MaxIOFS provides complete multi-node cluster support for high availability (HA) 
 - ✅ **Inter-node TLS encryption** — automatic, zero-configuration (v0.9.1)
 - ✅ HMAC-authenticated node-to-node replication
 - ✅ Synchronous replication (factor 1–3): a factor of 2 is a mirror that keeps writing with its peer down; a factor of 3 needs one of its two peers
-- 🧪 **Parity** — nightly builds only, not in v1.8.0 (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
-- 🧪 **Storage classes** — nightly builds only, not in v1.8.0: groups of nodes keep the data of a storage class (`GLACIER`, `DEEP_ARCHIVE`…), each class with its own factor or parity; lifecycle transitions move the objects to a colder class
+- ✅ **Parity** (Reed-Solomon erasure coding across nodes): each object is cut in data and parity shards, one per node; up to 4 nodes it survives 1 node down, from 5 nodes 2; 3 nodes of 1 TB hold 2 TB
+- ✅ **Storage classes**: groups of nodes keep the data of a storage class (`GLACIER`, `DEEP_ARCHIVE`…), each class with its own factor or parity; lifecycle transitions move the objects to a colder class
 - ✅ A node that comes back is caught up at once with the writes and deletes it missed
 - ✅ Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - ✅ Elected coordinator for configuration changes; a surviving node takes over
@@ -74,8 +74,7 @@ While a node is down, reads of its objects answer `503 ServiceUnavailable`
 with `Retry-After`; when it is back they are served again. An object whose node
 is lost is lost. For redundancy, use a factor of 2 or 3, or parity.
 
-**Parity is like RAID 5, and from five nodes like RAID 6** (nightly builds
-only, not in v1.8.0). Each object is cut
+**Parity is like RAID 5, and from five nodes like RAID 6**. Each object is cut
 in data shards and parity shards, each on its own node: 2+1 on three nodes, 3+1
 on four, 3+2 on five, 4+2 on six, up to 8+2. Any of its shards as many as its
 data shards read it: up to four nodes an object survives one node down, from
@@ -513,8 +512,6 @@ a factor of 1 an object has one copy.
 
 ### Objects with parity
 
-> Nightly builds only: v1.8.0 has no parity.
-
 With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page) every node holds the entry of each write, and the nodes it names hold one shard each.
 
 - The layout follows the nodes that hold data, those neither dead nor drained: one parity shard up to four of them, two from five, and data shards for the others, eight at most. Each entry keeps the layout it was cut with.
@@ -528,8 +525,6 @@ With parity on (`PUT /api/v1/cluster/ha` with `{"parity":true}`, or the HA page)
 - Every node runs the same version before parity is turned on.
 
 ### Storage classes
-
-> Nightly builds only: v1.8.0 has no storage classes.
 
 A storage class with an S3 name (`REDUCED_REDUNDANCY`, `STANDARD_IA`, `INTELLIGENT_TIERING`, `ONEZONE_IA`, `GLACIER_IR`, `GLACIER`, `DEEP_ARCHIVE`) can be kept on nodes of its own, with a protection of its own: whole copies (a factor of 1 to 3) or parity. STANDARD is every node in no other class; its protection is the one set on the HA page. The classes and the class of each node are set on the Storage classes page (Cluster → Storage classes).
 
@@ -892,12 +887,12 @@ docker logs -f maxiofs-node1
 
 ---
 
-For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalcluster--28-test-files). The live SQLite schema is maintained by `internal/db/migrations`; avoid duplicating full schema definitions in this guide.
+For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalcluster--43-test-files). The live SQLite schema is maintained by `internal/db/migrations`; avoid duplicating full schema definitions in this guide.
 
 ---
 
-**Version**: 1.8.0
-**Last Updated**: October 13, 2026
+**Version**: 1.9.0
+**Last Updated**: November 5, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

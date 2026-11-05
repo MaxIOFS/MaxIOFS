@@ -9,7 +9,7 @@ Vcs-Git: https://github.com/maxiofs/maxiofs.git
 Vcs-Browser: https://github.com/maxiofs/maxiofs
  .
 Package: maxiofs
-Version: 1:1.8.0
+Version: 1:1.9.0
 Architecture: amd64
 Depends: libc6, adduser
 Recommends: nginx, logrotate
@@ -23,17 +23,14 @@ Description: High-Performance S3-Compatible Object Storage
  and complete API documentation.
  .
  Features:
-  * Full S3 API compatibility (100% S3 core compatible)
-  * Server-Side Encryption (SSE) with AES-256-GCM authenticated encryption
-  * Comprehensive audit logging system (v0.4.0+)
-  * Two-Factor Authentication (2FA) with TOTP
-  * Multi-tenancy with resource isolation and quotas
-  * Object Lock (WORM) and versioning support
-  * Built-in web console for management
-  * Pebble metadata store (crash-safe WAL, CockroachDB engine) for high performance
-  * Support for multipart uploads and presigned URLs
-  * Lifecycle policies and CORS configuration
-  * JWT and S3 signature authentication
-  * Prometheus/Grafana monitoring integration
-  * Real-time metrics and monitoring
-  * Single binary deployment
+  * S3 API with AWS Signature V2 and V4, multipart uploads and presigned URLs
+  * Always-on encryption at rest (AES-256-GCM envelope encryption) and SSE-C
+  * Cluster: replication factor or Reed-Solomon parity across nodes
+  * Storage classes on groups of nodes; lifecycle transitions and expiration
+  * IAM and STS (AWS protocols), bucket policies, ACLs and Block Public Access
+  * Multi-tenancy with isolation, quotas and bandwidth caps
+  * Object Lock (WORM) and versioning
+  * LDAP and OpenID Connect sign-in; two-factor authentication (TOTP)
+  * Audit log, Prometheus metrics and Grafana dashboard
+  * Pebble metadata store (crash-safe WAL)
+  * Built-in web console; single binary deployment

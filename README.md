@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.8.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.8.0)
+[![Version](https://img.shields.io/badge/version-1.9.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.9.0)
 [![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27+-00ADD8?logo=go)](https://go.dev)
@@ -48,9 +48,9 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution | AGPL-3.0 | LGPL |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary | Monitors, managers, OSDs and RGW daemons, usually through cephadm or Rook |
 | **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
-| **Erasure coding** | 🧪 Nightly builds only, not in v1.8.0: Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
+| **Erasure coding** | ✅ Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
 | **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ⚠️ Enterprise only (site, bucket, batch) | ❌ No replication API | ⚠️ Between zones of a multisite configuration |
-| **Tiering** (lifecycle transitions to colder storage) | 🧪 Nightly builds only, not in v1.8.0: storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
+| **Tiering** (lifecycle transitions to colder storage) | ✅ Storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
 | **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys | ❌ Separate deployments per tenant | ❌ | ✅ RGW tenants |
 | **Access control** | ✅ AWS IAM protocol — users, versioned policies, roles, `AssumeRole`; bucket policies and ACLs | ✅ IAM-style policies | ⚠️ Per-access-key-per-bucket permissions; no bucket policies or ACLs | ✅ Users, bucket and user policies, roles, ACLs |
 | **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ | ❌ | ✅ |
@@ -58,7 +58,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **SSO / identity providers** | ✅ LDAP/AD and OAuth2/OIDC, auto-provisioning, group mappings | ✅ LDAP and OIDC | ❌ | ✅ LDAP, Keystone, OIDC |
 | **Versioning** | ✅ | ✅ | ❌ | ✅ |
 | **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, legal hold, Veeam B&R validated | ✅ | ❌ | ✅ |
-| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; 🧪 transitions to storage classes in nightly builds | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
+| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; transitions to storage classes | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
 | **Bucket notifications** | ✅ Webhook | ✅ Webhook, Kafka, NATS, Redis and more | ❌ | ✅ HTTP, Kafka, AMQP |
 | **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, no redirects | ✅ |
 | **S3 Select** | ✅ SQL on CSV/JSON | ✅ | ❌ | ✅ CSV, JSON, Parquet |
@@ -100,13 +100,13 @@ Ceph cluster.
 - Object Lock — COMPLIANCE and GOVERNANCE modes, legal hold, per-version enforcement; retention and legal hold sent with a PUT are stored in the same metadata write as the object
 - Bucket policies — evaluated with the caller's IAM policies, AWS-style; `"*"` grants requests without credentials; conditions on `aws:SourceIp` and `aws:SecureTransport`
 - CORS — stored and enforced on actual requests, OPTIONS preflight handled before auth
-- Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker; *nightly builds only:* `Transition` and `NoncurrentVersionTransition` to storage classes, filters by tags and size
+- Lifecycle rules — `Expiration.Days/Date` and `AbortIncompleteMultipartUpload` executed by background worker; `Transition` and `NoncurrentVersionTransition` to storage classes; filters by tags and size
 - Object tagging, object ACLs, bucket tagging
 - Bucket notifications — webhook dispatch after PutObject, DeleteObject, CopyObject, CompleteMultipartUpload
 - Static website hosting — subdomain routing, index document, error document, routing rules
 - Replication — to AWS S3, any S3-compatible endpoint, or other MaxIOFS instances (realtime, scheduled, batch)
 - Server-side encryption (SSE-S3 / AES256) — per-bucket configuration via `GetBucketEncryption`/`PutBucketEncryption`, `x-amz-server-side-encryption` response headers on GET/PUT/HEAD
-- SSE-C — *nightly builds only, not in v1.8.0:* keys sent by the client with each request, over HTTPS; blocked per bucket by default as in AWS, allowed with `PutBucketEncryption` or in the console
+- SSE-C — keys sent by the client with each request, over HTTPS; blocked per bucket by default as in AWS, allowed with `PutBucketEncryption` or in the console
 - Server access logging — async delivery to target bucket in AWS S3 access log format (`GetBucketLogging`/`PutBucketLogging`)
 - `PublicAccessBlock` — the four flags enforced as in AWS: public ACLs and public bucket policies refused when set or voided for requests without credentials
 - `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
@@ -117,7 +117,7 @@ Ceph cluster.
 - Object search & filters — content-type, size range, date range, tags
 - AWS IAM and STS protocols on the S3 endpoint — `aws iam` and `aws sts` work with `--endpoint-url`
 - Works with `aws s3`, `aws s3api`, the `mc` client, and the S3 SDKs
-- Hadoop and Spark through S3A — *nightly builds only, not in v1.8.0:* checked with the hadoop-aws integration and scale tests of Hadoop 3.4.3, and with Spark 3.5 (AWS SDK v1) and 4.1 (AWS SDK v2) writing and reading Parquet through the file and magic committers on a cluster
+- Hadoop and Spark through S3A — checked with the hadoop-aws integration and scale tests of Hadoop 3.4.3, and with Spark 3.5 (AWS SDK v1) and 4.1 (AWS SDK v2) writing and reading Parquet through the file and magic committers on a cluster
 
 </details>
 
@@ -185,6 +185,8 @@ Ceph cluster.
 - Inter-node requests signed with HMAC and refused on replay or tampering
 - Audit logging — 20+ event types (auth, object ops, admin actions), external syslog forwarding
 - Object Lock enforcement in the console UI — locked objects cannot be deleted or bulk-deleted
+- Every nightly scans the dependencies (govulncheck) and the code (gosec)
+- ISO/IEC 27001, 27017, 27018 and ISO 9001 — MaxIOFS is not certified; [docs/SECURITY.md](docs/SECURITY.md#standards-isoiec-27001-27017-27018-and-iso-9001) lists what it provides to an operator's certification
 
 </details>
 
@@ -195,8 +197,8 @@ Ceph cluster.
 - **Dedicated cluster port 8082** — inter-node coordination fully separated from S3 (8080) and Console (8081)
 - Automatic failover and health monitoring
 - Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
-- **Parity** — *nightly builds only, not in v1.8.0* (Reed-Solomon erasure coding across nodes, like RAID 5, and RAID 6 from five nodes): each object is cut in data and parity shards, one per node; it survives 1 node down up to 4 nodes and 2 from 5, and 3 nodes of 1 TB hold 2 TB
-- **Storage classes** — *nightly builds only, not in v1.8.0*: a storage class (`GLACIER`, `DEEP_ARCHIVE`…) is kept on nodes of its own, with its own copies or parity; lifecycle transitions move objects to it, and every node still reads them
+- **Parity** (Reed-Solomon erasure coding across nodes, like RAID 5, and RAID 6 from five nodes): each object is cut in data and parity shards, one per node; it survives 1 node down up to 4 nodes and 2 from 5, and 3 nodes of 1 TB hold 2 TB
+- **Storage classes**: a storage class (`GLACIER`, `DEEP_ARCHIVE`…) is kept on nodes of its own, with its own copies or parity; lifecycle transitions move objects to it, and every node still reads them
 - A node that comes back is caught up at once with the writes and deletes it missed
 - Ciphertext replication with a cluster-shared KEK; retention and legal hold travel with the object
 - Anti-entropy, dead-node redistribution, storage-pressure health state
@@ -295,13 +297,13 @@ aws --profile maxiofs --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
 
 **Debian / Ubuntu**
 ```bash
-sudo dpkg -i maxiofs_1.8.0_amd64.deb
+sudo dpkg -i maxiofs_1.9.0_amd64.deb
 sudo systemctl enable --now maxiofs
 ```
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.8.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.9.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -354,18 +356,18 @@ Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hard
 ## Testing
 
 ```bash
-go test ./...                          # 4,400+ backend tests (352 files)
-cd web/frontend && npm run test        # 140 frontend tests
+go test ./...                          # 4,400+ backend tests (393 files)
+cd web/frontend && npm run test        # 161 frontend tests
 ```
 
 ---
 
 ## Known Limitations
 
-- **No erasure coding in v1.8.0** — a cluster keeps whole copies of each object, one per node up to the factor; parity across nodes is in the nightly builds only. A single node's redundancy relies on filesystem/RAID
-- **No tiering in v1.8.0** — lifecycle rules expire objects but do not move them; in the nightly builds transitions move objects to storage classes kept on nodes of the cluster. There is no transition to an external cloud
+- **No erasure coding within one node** — parity is across nodes; a single node's redundancy relies on filesystem/RAID
+- **No transition to an external cloud** — lifecycle transitions move objects to storage classes kept on nodes of the cluster
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
-- **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); external KMS/HSM integration is planned. SSE-C (client-provided keys) is in the nightly builds only
+- **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); external KMS/HSM integration is planned; SSE-C keys are the client's
 - **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time
 - **Cluster tested up to 5 nodes**
 - **No SAML** — use OAuth2/OIDC instead
@@ -377,7 +379,8 @@ cd web/frontend && npm run test        # 140 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.8.0** *(stable)* | **Cluster data placement**: every node holds every bucket and reads every object; a replication factor of 1 keeps one copy of each object, so a bucket is no longer limited to one node's disk; draining a node moves its objects before it leaves service. **Bucket policies and Block Public Access as in AWS**: policies are evaluated again with the caller's IAM policies, public ACLs and policies are refused or voided as AWS does, and the console edits a policy as rules instead of JSON. **Security**: a two-factor sign-in needs the password step; any node serves a sign-in; an OAuth sign-in asks for the two-factor code, and its code, identity provider changes and an administrator's unlock work on every node; the secret for stored credentials lives in the database and is shared by the cluster. **Monitoring**: every metric reaches Prometheus, labelled by S3 operation instead of path; the Grafana dashboard shows S3 operations and errors, storage, sign-ins, Object Lock and background tasks per node and bucket; new alert rules. Copies between nodes keep versions, Object Lock and metadata changes; quotas refuse growth but never deletes. |
+| **v1.9.0** *(stable)* | **Parity**: Reed-Solomon erasure coding across nodes from three nodes, like RAID 5, and RAID 6 from five. **Storage classes**: groups of nodes keep a class (`GLACIER`, `DEEP_ARCHIVE`…) with their own copies or parity; lifecycle transitions move objects to them, with filters by tags and size. **SSE-C as in AWS**: keys sent by the client over HTTPS, blocked per bucket until allowed. **Identity providers**: a session follows its provider, back-channel logout, Auto Sync reads LDAP directories and Keycloak realms every hour, one email belongs to one user. **A node joins with a one-time join code** that seals the cluster's keys. **Security**: digests and signed chunks of a write are checked, a COMPLIANCE retention cannot be turned into GOVERNANCE, multipart parts in progress are encrypted, `X-Forwarded-For` is read from the right, built with Go 1.27.3, the console's CSP runs no foreign inline script. S3 errors, ETags and null versions as AWS; Hadoop and Spark through S3A verified; signed PUTs about 10 times faster. |
+| **v1.8.0** | **Cluster data placement**: every node holds every bucket and reads every object; a replication factor of 1 keeps one copy of each object, so a bucket is no longer limited to one node's disk; draining a node moves its objects before it leaves service. **Bucket policies and Block Public Access as in AWS**: policies are evaluated again with the caller's IAM policies, public ACLs and policies are refused or voided as AWS does, and the console edits a policy as rules instead of JSON. **Security**: a two-factor sign-in needs the password step; any node serves a sign-in; an OAuth sign-in asks for the two-factor code, and its code, identity provider changes and an administrator's unlock work on every node; the secret for stored credentials lives in the database and is shared by the cluster. **Monitoring**: every metric reaches Prometheus, labelled by S3 operation instead of path; the Grafana dashboard shows S3 operations and errors, storage, sign-ins, Object Lock and background tasks per node and bucket; new alert rules. Copies between nodes keep versions, Object Lock and metadata changes; quotas refuse growth but never deletes. |
 | **v1.7.0** | **New on-disk storage layout**: an object is one file named by a digest of its key, so two keys differing only in case, a key and its own name plus a slash, and a key ending in `.metadata` are all distinct — an existing installation migrates on first start. **Interrupted writes are undone or confirmed at the next start**, before the server serves traffic — a killed overwrite, multipart completion or part replacement no longer leaves an object whose size and ETag disagree with what a GET delivers. **Security**: a session policy is now consulted for every resource an operation touches, not only the one in the URL; 21 console mutation routes and 5 IAM routes resolved the wrong tenant; `/debug/pprof/*` answered any authenticated request instead of a global administrator only. The S3 rate limit answers `SlowDown` in an XML document instead of a bare `429`. |
 | **v1.6.0** | **IAM is the authorization model** — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins); existing permissions are converted once on upgrade. **AWS STS and IAM protocols** on `POST /` of the S3 endpoint, so `aws sts` and `aws iam --endpoint-url` work unmodified; short-lived `ASIA` credentials with optional session policies and federation for headless clients. **Large security pass**: inter-node request forgery and replay, five endpoints that authorized nothing, tenant-boundary escapes, ACLs overruling policies. Shutdown no longer risks a Pebble panic. |
 | **v1.5.2** | **Urgent fix: listing pagination lost one object per page of 1,000** (present since the Pebble migration; made backup verify/repair tools see existing files as missing — critical for Veeam/Duplicati targets); **Pebble hard-kill durability** (per-second WAL fsync, synchronous deletes, non-destructive metadata re-indexing after unclean shutdown); `maxiofs repair-pointers` recovery tool; dead-code sweep across backend and frontend. *(v1.5.1 was withdrawn shortly after publication and is not available.)* |

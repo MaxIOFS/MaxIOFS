@@ -222,7 +222,7 @@ export default function AboutPage() {
             <FeatureCard
               icon={Network}
               title="High Availability Cluster"
-              description="Multi-node cluster with intelligent routing, HMAC-authenticated HA replication, health monitoring, and automatic failover"
+              description="Every node serves every bucket; replication factor or Reed-Solomon parity across nodes; storage classes on groups of nodes; HMAC-signed requests over TLS, health monitoring and automatic failover"
             />
             <FeatureCard
               icon={Layers}
@@ -258,7 +258,7 @@ export default function AboutPage() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  Go 1.26+
+                  Go 1.27+
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
@@ -310,7 +310,7 @@ export default function AboutPage() {
                 </li>
                 <li className="flex items-center">
                   <span className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full mr-3"></span>
-                  Vitest 4 (Testing Framework)
+                  Vitest 5 (Testing Framework)
                 </li>
               </ul>
             </div>
@@ -328,91 +328,87 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                One Copy per Object, Every Bucket on Every Node
+                Parity Across Nodes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Every node of a cluster holds every bucket and lists and reads every object. A
-                replication factor of 1 keeps one copy of each object, on the node that takes the
-                write or on the one with the most free space, so a bucket is no longer limited to one
-                node's disk. Draining a node moves its objects to the others before it leaves
-                service; the HA page shows the progress and the expected end.
+                Reed-Solomon erasure coding, as an alternative to the replication factor, from three
+                nodes: each object is cut in data and parity shards, one per node. Up to four nodes it
+                survives one node down, from five nodes two; three nodes of 1 TB hold 2 TB. It is set on
+                the HA page.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Bucket Policies and Block Public Access, as in AWS
+                Storage Classes
               </h3>
               <p className="text-sm text-muted-foreground">
-                Bucket policies are evaluated again, with the caller's IAM policies: a
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Deny</code> in either refuses, an
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Allow</code> in either grants. Block Public Access
-                refuses and voids public ACLs and policies as AWS does. The console edits a policy as
-                rules — who, what, where and when — instead of JSON. An anonymous read of a
-                public-read bucket no longer needs a share link.
+                Groups of nodes keep a storage class, such as <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GLACIER</code> or
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">DEEP_ARCHIVE</code>, with their own copies or parity. Lifecycle
+                transitions move objects to them, and every node still reads them. Lifecycle rules filter
+                by tags and size. Classes are set under Cluster → Storage classes.
               </p>
             </div>
 
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Two-Factor Sign-In Needs the Password
+                Customer-Provided Keys (SSE-C)
               </h3>
               <p className="text-sm text-muted-foreground">
-                The second step of a sign-in accepted a user ID and a code, without the password.
-                It now takes only the token the password step returns. A wrong code counts as a
-                failed sign-in, as a wrong password does: the account locks after the configured
-                number of failures, 5 by default. Any node of a cluster serves a sign-in, with or
-                without a coordinator. An OAuth sign-in asks for the code too.
+                A client can send its own key with each request, over HTTPS, as in AWS. SSE-C is blocked
+                on every bucket until it is allowed in the bucket's Security tab or with
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code>. The key is not stored: without it the
+                object cannot be read. The console neither uploads nor reads such objects, as the AWS
+                console.
               </p>
             </div>
 
             <div className="border-l-4 border-emerald-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Copies Between Nodes Keep Everything
+                Sessions Follow the Identity Provider
               </h3>
               <p className="text-sm text-muted-foreground">
-                Tags, ACLs, retention and legal hold reach the other nodes before the request
-                returns, in order, and a node that was down gets them when it is back. A new replica
-                is sent every version with its version ID; a returning node is caught up at once;
-                a delete is never undone by an older copy. Only a node without data joins a
-                cluster.
+                A user deleted or disabled at the provider is signed out at the next renewal, and OpenID
+                Connect back-channel logout ends the session at once. Auto Sync reads LDAP directories
+                and Keycloak realms every hour: it creates, deactivates and reactivates users. An email
+                belongs to one user. Test Connection checks each step against the provider.
               </p>
             </div>
 
             <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Stored Credentials Keep Their Key
+                Joining a Cluster with a Join Code
               </h3>
               <p className="text-sm text-muted-foreground">
-                The secret that encrypts identity provider secrets, replication destination keys
-                and share link keys lives in the database, as the KEK does, and every node of a
-                cluster holds the same one. Without a configured secret, a restart made share links,
-                replication destination keys and identity provider secrets unreadable.
+                A node joins with a one-time join code opened on it (Cluster → Join code). The cluster's
+                keys travel sealed with that code; Add Node sent them over unverified TLS. A sign-out
+                ends the console session on every node.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Quotas Refuse Growth, Never Deletes
+                Security Hardening
               </h3>
               <p className="text-sm text-muted-foreground">
-                Concurrent writes reserve their room before they store anything. A delete, or an
-                overwrite that shrinks an object, is always allowed, even over the quota, and a
-                tenant's storage goes down at once when an object is overwritten by a smaller one.
-                The tenant bandwidth cap paces browser form uploads too.
+                The digests of a write (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Content-MD5</code>, checksums,
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-content-sha256</code>) and signed chunks are checked. A
+                COMPLIANCE retention can no longer be turned into GOVERNANCE. The parts of a multipart
+                upload in progress are encrypted. Behind a proxy the client's address is read from the
+                right of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-Forwarded-For</code>. Built with Go 1.27.3; the
+                console's Content-Security-Policy runs no inline script but its own.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Prometheus and Grafana See Everything
+                S3 as AWS Answers It
               </h3>
               <p className="text-sm text-muted-foreground">
-                Every metric MaxIOFS declares reaches Prometheus: S3 operations and errors by S3
-                code, storage and object operations, sign-ins, bucket and Object Lock changes,
-                retained objects, background tasks and the metadata cache. Requests are counted by
-                S3 operation instead of path, so the number of objects no longer multiplies the
-                series. The Grafana dashboard shows all of it, per node and bucket.
+                Error codes, quoted ETags, key and bucket names, and objects written before versioning
+                (version <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">null</code>) as in AWS. Hadoop and Spark run through S3A. A
+                signed PUT no longer holds its key's lock while it receives data: about 10 times
+                faster.
               </p>
             </div>
 

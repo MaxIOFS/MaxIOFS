@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.8.0}
+%{!?version: %define version 1.9.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -37,21 +37,18 @@ MaxIOFS is a high-performance, S3-compatible object storage system
 built in Go with an embedded React web interface.
 
 Features:
-* Full S3 API compatibility (100% S3 core compatible)
-* Server-Side Encryption (SSE) with AES-256-CTR
-* Comprehensive audit logging system
-* Two-Factor Authentication (2FA) with TOTP
-* Multi-tenancy with resource isolation and quotas
-* Advanced ACL system with S3 canned ACLs
-* Lifecycle management for automatic data archival
-* Real-time metrics and monitoring
-* Web-based management console
-* Cross-region replication
-* Versioning support
-* Pre-signed URLs for temporary access
-* Inter-node TLS encryption with auto-generated certificates
-* Automatic certificate renewal and hot-swapping without restart
-* Strict CA validation for secure cluster communication
+* S3 API with AWS Signature V2 and V4, multipart uploads and presigned URLs
+* Always-on encryption at rest (AES-256-GCM envelope encryption) and SSE-C
+* Cluster: replication factor or Reed-Solomon parity across nodes
+* Storage classes on groups of nodes; lifecycle transitions and expiration
+* IAM and STS (AWS protocols), bucket policies, ACLs and Block Public Access
+* Multi-tenancy with isolation, quotas and bandwidth caps
+* Object Lock (WORM) and versioning
+* LDAP and OpenID Connect sign-in; two-factor authentication (TOTP)
+* Audit log, Prometheus metrics and Grafana dashboard
+* Bucket replication to other S3 endpoints
+* Inter-node TLS with an auto-generated CA and automatic certificate renewal
+* Web-based management console in a single binary
 
 %prep
 %setup -q
@@ -192,6 +189,28 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Thu Nov 05 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.9.0-1
+- Release v1.9.0 — parity, storage classes, SSE-C, identity providers that follow
+  the directory, security hardening
+- Reed-Solomon parity across nodes as an alternative to the replication factor,
+  from three nodes
+- Storage classes kept on groups of nodes, each with its own copies or parity;
+  lifecycle transitions move objects to them; lifecycle rules filter by tags and size
+- SSE-C: keys sent by the client over HTTPS, blocked per bucket until allowed, as
+  in AWS
+- A session follows its identity provider; OpenID Connect back-channel logout;
+  Auto Sync reads LDAP directories and Keycloak realms every hour; an email
+  belongs to one user
+- A node joins a cluster with a one-time join code that seals the cluster's keys;
+  a sign-out ends the session on every node
+- The digests and signed chunks of a write are checked; a COMPLIANCE retention
+  cannot be turned into GOVERNANCE; multipart parts in progress are encrypted;
+  X-Forwarded-For is read from the right
+- Built with Go 1.27.3; the console's Content-Security-Policy runs no inline script
+  but its own; new data directories are created 0750
+- S3 errors, ETags and null versions as in AWS; Hadoop and Spark through S3A
+  verified; signed PUTs about 10 times faster
+
 * Tue Oct 13 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.8.0-1
 - Release v1.8.0 — cluster data placement, bucket policies and Block Public Access
   as in AWS, sign-in security, monitoring
