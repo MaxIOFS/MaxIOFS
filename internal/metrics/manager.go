@@ -330,7 +330,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "operations_total",
-			Help:      "S3 operations, by bucket and outcome: success below HTTP 400, refused 4xx, error 5xx",
+			Help:      "S3 operations, by bucket and outcome: success below HTTP 400, refused 4xx and SlowDown, error any other 5xx",
 		},
 		[]string{"operation", "bucket", "status"},
 	)
@@ -361,7 +361,7 @@ func (m *metricsManager) initializeMetrics() {
 			Namespace: namespace,
 			Subsystem: "s3",
 			Name:      "refused_total",
-			Help:      "S3 requests refused as the client's (4xx), by S3 error code: a key that is not there, an access denied, a bad signature",
+			Help:      "S3 requests refused (4xx, and SlowDown: send less), by S3 error code: a key that is not there, an access denied, a bad signature",
 		},
 		[]string{"operation", "bucket", "error_type"},
 	)
@@ -770,11 +770,12 @@ func (m *metricsManager) recordS3Request(r *http.Request, rec *responseRecorder,
 		code = rec.errorCode()
 	}
 	bucket := bucketLabel(r, status, code)
-	// A refusal (4xx), a probe for a key that is not there among them, is
-	// the client's: only what the server failed (5xx) is an error.
+	// A refusal (4xx), a probe for a key that is not there among them, is the
+	// client's, and SlowDown is the server answering as it should: send less.
+	// Only what the server failed is an error.
 	outcome := "success"
 	switch {
-	case status >= 500:
+	case status >= 500 && code != "SlowDown":
 		outcome = "error"
 		m.s3ErrorsTotal.WithLabelValues(operation, bucket, code).Inc()
 		atomic.AddUint64(&m.totalErrors, 1)
@@ -1062,12 +1063,14 @@ func (m *metricsManager) Middleware() func(http.Handler) http.Handler {
 // Lifecycle Implementation
 
 // persistedCounters are the counters kept across restarts. ServerErrorsOnly
-// marks a TotalErrors that counts server errors (5xx) alone.
+// marks a TotalErrors that counts server errors (5xx) alone, and SlowDownApart
+// one that does not count SlowDown either.
 type persistedCounters struct {
 	TotalRequests    uint64    `json:"total_requests"`
 	TotalErrors      uint64    `json:"total_errors"`
 	TotalRefused     uint64    `json:"total_refused"`
 	ServerErrorsOnly bool      `json:"server_errors_only"`
+	SlowDownApart    bool      `json:"slowdown_apart"`
 	TotalLatencyMs   uint64    `json:"total_latency_ms"`
 	LatencyCount     uint64    `json:"latency_count"`
 	ServerStartTime  time.Time `json:"server_start_time"`
@@ -1099,7 +1102,7 @@ func (m *metricsManager) restorePersistedCounters() error {
 		return fmt.Errorf("failed to unmarshal persisted state: %w", err)
 	}
 
-	if !persistedState.ServerErrorsOnly {
+	if !persistedState.ServerErrorsOnly || !persistedState.SlowDownApart {
 		// Kept before refusals were counted apart: the total mixed them in.
 		persistedState.TotalErrors = 0
 	}
@@ -1135,6 +1138,7 @@ func (m *metricsManager) persistCounters() error {
 		TotalErrors:      atomic.LoadUint64(&m.totalErrors),
 		TotalRefused:     atomic.LoadUint64(&m.totalRefused),
 		ServerErrorsOnly: true,
+		SlowDownApart:    true,
 		TotalLatencyMs:   atomic.LoadUint64(&m.totalLatencyMs),
 		LatencyCount:     atomic.LoadUint64(&m.latencyCount),
 		ServerStartTime:  m.serverStartTime,
@@ -1424,11 +1428,14 @@ func (w *responseRecorder) Flush() {
 
 var s3ErrorCode = regexp.MustCompile(`<Code>([A-Za-z0-9.]{1,64})</Code>`)
 
-// errorCode is the S3 error code of the response, or its HTTP status when the
-// body names none (a HEAD answer has no body).
+// errorCode is the S3 error code of the response, from its body or, as a HEAD
+// answer has none, from its header; or its HTTP status when neither names one.
 func (w *responseRecorder) errorCode() string {
 	if match := s3ErrorCode.FindSubmatch(w.errorBody); match != nil {
 		return string(match[1])
+	}
+	if code := w.Header().Get("x-amz-error-code"); code != "" {
+		return code
 	}
 	return strconv.Itoa(w.status)
 }

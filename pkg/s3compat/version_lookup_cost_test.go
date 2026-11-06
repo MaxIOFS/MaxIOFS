@@ -30,9 +30,9 @@ func (c *countingVersionStore) GetObjectVersions(ctx context.Context, bucket, ke
 	return out, nil
 }
 
-func (c *countingVersionStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error) {
+func (c *countingVersionStore) ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*metadata.VersionsPage, error) {
 	c.bucketWideCalls++
-	return c.versions, nil
+	return &metadata.VersionsPage{Versions: c.versions}, nil
 }
 
 func (c *countingVersionStore) GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error) {

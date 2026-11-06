@@ -313,6 +313,8 @@ Each node stores:
 - Monitor disk usage and set alerts at 80% and 90%.
 - Plan **vertical scaling** (bigger disks) or **horizontal scaling** (more nodes) before you reach 90%.
 
+Object writes stop at **99.5%** of the disk of `objects/` or of `--data-dir`, answered `507 InsufficientStorage`. The rest stays for Pebble and SQLite: reads, deletes and retention changes go on working, and deleting is how writes come back. Veeam's `capacity.xml` leaves that reserve out of the free space. Keep logs off that disk, or they eat the reserve.
+
 ### Quotas
 
 - Tenants can have:
@@ -538,9 +540,11 @@ MaxIOFS provides mechanisms to verify the integrity of stored objects.
 
 ### Background Integrity Scrubber
 
-- Periodically scans objects and verifies:
-  - Checksums / ETags.
+- Scans every version of every bucket once a day, one object at a time, and verifies:
+  - Checksums / ETags, the composite ETag of an object written in parts included.
+  - That the data reads back: data at rest is authenticated, so a byte changed on disk fails the read.
   - Presence of object data on disk.
+- The first scan runs a day after the server starts. It reads all the data: on several terabytes it takes hours and shares the disks with what runs meanwhile.
 - Logs:
   - Corrupted or missing objects as error events.
   - Summary metrics for integrity checks.

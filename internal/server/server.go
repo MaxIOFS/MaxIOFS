@@ -289,7 +289,7 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 
-	objectManager := object.NewManager(storageBackend, metadataStore, cfg.Storage, object.WithKEKProvider(kekStore))
+	objectManager := object.NewManager(storageBackend, metadataStore, cfg.Storage, object.WithKEKProvider(kekStore), object.WithDataDir(cfg.DataDir))
 
 	// Connect object manager to bucket manager for metrics updates
 	if om, ok := objectManager.(interface {
@@ -839,6 +839,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.undoInterruptedWrites(ctx); err != nil {
 		return err
 	}
+	s.removeUploadLeftovers()
 
 	s.backfillBucketOwnerPolicies(ctx)
 
@@ -850,10 +851,10 @@ func (s *Server) Start(ctx context.Context) error {
 		logrus.WithField("objects", adopted).Info("Object ACLs moved to their objects")
 	}
 
-	// Enable runtime profiling
-	runtime.SetBlockProfileRate(1)     // Enable block profiling
-	runtime.SetMutexProfileFraction(1) // Enable mutex profiling
-	logrus.Info("Runtime profiling enabled (block, mutex)")
+	// The block and mutex profiles are sampled: recording every event takes a
+	// fifth of the CPU of a busy server.
+	runtime.SetBlockProfileRate(1_000_000) // one sample per millisecond blocked
+	runtime.SetMutexProfileFraction(1000)
 
 	// Start metrics collection
 	if s.config.Metrics.Enable {

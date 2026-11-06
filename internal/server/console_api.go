@@ -2121,10 +2121,8 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == object.ErrBucketNotFound {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else if isQuotaExceeded(err) {
-			s.writeError(w, err.Error(), http.StatusForbidden)
 		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			s.writeError(w, err.Error(), writeErrorStatus(err))
 		}
 		return
 	}

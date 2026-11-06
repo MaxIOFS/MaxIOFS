@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -46,6 +47,16 @@ type DeleteError struct {
 	Code      string `xml:"Code"`
 	Message   string `xml:"Message"`
 	VersionId string `xml:"VersionId,omitempty"`
+}
+
+// deleteErrorCode is the S3 code of a key a batch delete could not delete: an
+// object Object Lock protects is refused, as a single delete refuses it.
+func deleteErrorCode(err error) string {
+	var retained *object.RetentionError
+	if errors.As(err, &retained) || errors.Is(err, object.ErrObjectUnderLegalHold) {
+		return "AccessDenied"
+	}
+	return "InternalError"
 }
 
 // DeleteObjects handles batch delete operations (S3 POST /?delete)
@@ -102,6 +113,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	bypassRequested := r.Header.Get("x-amz-bypass-governance-retention") == "true"
 
 	// A missing bucket answers for the whole request, as in S3 — not once per key.
 	if _, err := h.bucketManager.GetBucketInfo(ctx, tenantID, bucketName); err != nil {
@@ -134,14 +146,26 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// The bypass is decided for each key, as a policy may grant it for some.
+		if bypassRequested {
+			if err := h.validateBypassGovernance(ctx, user, userExists, tenantID, bucketName, obj.Key); err != nil {
+				result.Errors = append(result.Errors, DeleteError{
+					Key:       obj.Key,
+					Code:      "AccessDenied",
+					Message:   err.Error(),
+					VersionId: obj.VersionId,
+				})
+				continue
+			}
+		}
+
 		// Delete object with optional version ID.
-		// Batch delete doesn't support bypass governance.
 		var deleteMarkerVersionID string
 		var err error
 		if obj.VersionId != "" {
-			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false, obj.VersionId)
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, bypassRequested, obj.VersionId)
 		} else {
-			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, false)
+			deleteMarkerVersionID, err = h.objectManager.DeleteObject(ctx, bucketPath, obj.Key, bypassRequested)
 		}
 
 		if err != nil {
@@ -163,7 +187,7 @@ func (h *Handler) DeleteObjects(w http.ResponseWriter, r *http.Request) {
 
 				result.Errors = append(result.Errors, DeleteError{
 					Key:       obj.Key,
-					Code:      "InternalError",
+					Code:      deleteErrorCode(err),
 					Message:   err.Error(),
 					VersionId: obj.VersionId,
 				})

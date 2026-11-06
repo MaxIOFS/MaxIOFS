@@ -1383,6 +1383,7 @@ export type IntegrityStatus = 'ok' | 'corrupted' | 'missing' | 'skipped' | 'erro
 
 export interface IntegrityResult {
   key: string;
+  versionId?: string;
   status: IntegrityStatus;
   storedETag?: string;
   computedETag?: string;

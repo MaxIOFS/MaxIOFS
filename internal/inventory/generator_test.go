@@ -375,6 +375,14 @@ func (m *MockMetadataStore) GetObjectVersions(ctx context.Context, bucket, key s
 	return args.Get(0).([]*metadata.ObjectVersion), args.Error(1)
 }
 
+func (m *MockMetadataStore) ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*metadata.VersionsPage, error) {
+	args := m.Called(ctx, bucket, prefix, delimiter, keyMarker, versionIDMarker, maxKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*metadata.VersionsPage), args.Error(1)
+}
+
 func (m *MockMetadataStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error) {
 	args := m.Called(ctx, bucket, prefix, maxKeys)
 	if args.Get(0) == nil {

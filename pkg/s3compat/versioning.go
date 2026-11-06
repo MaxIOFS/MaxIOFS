@@ -3,13 +3,12 @@ package s3compat
 import (
 	"encoding/xml"
 	"net/http"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
 )
 
@@ -93,138 +92,51 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		return s
 	}
 
-	// Get all versions directly from metadata (don't rely on ListObjects which excludes deleted objects).
-	// The response is truncated after sorting and delimiter grouping below; passing 0 avoids silently
-	// dropping versions before the final S3 pagination rules are applied.
-	allObjectVersions, err := h.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, 0)
+	page, err := h.metadataStore.ListObjectVersionsPage(r.Context(), bucketPath, prefix, delimiter, keyMarker, versionIDMarker, maxKeys)
 	if err != nil {
 		h.writeError(w, "InternalError", err.Error(), bucketName, r)
 		return
-	}
-
-	// versionItem is a unified type for sorting versions and delete markers together
-	type versionItem struct {
-		key            string
-		versionID      string
-		lastModified   time.Time
-		isDeleteMarker bool
-		// fields for VersionEntry
-		isLatest     bool
-		etag         string
-		size         int64
-		storageClass string
-		commonPrefix string
-	}
-
-	var unified []versionItem
-	seenCommonPrefixes := make(map[string]struct{})
-
-	for _, ver := range allObjectVersions {
-		if delimiter != "" {
-			remaining := strings.TrimPrefix(ver.Key, prefix)
-			if idx := strings.Index(remaining, delimiter); idx >= 0 {
-				commonPrefix := prefix + remaining[:idx+len(delimiter)]
-				if _, seen := seenCommonPrefixes[commonPrefix]; seen {
-					continue
-				}
-				seenCommonPrefixes[commonPrefix] = struct{}{}
-				unified = append(unified, versionItem{
-					key:          commonPrefix,
-					commonPrefix: commonPrefix,
-				})
-				continue
-			}
-		}
-
-		versionID := ver.VersionID
-		if versionID == "" {
-			versionID = "null"
-		}
-
-		isDeleteMarker := ver.Size == 0 && ver.ETag == ""
-
-		unified = append(unified, versionItem{
-			key:            ver.Key,
-			versionID:      versionID,
-			lastModified:   ver.LastModified,
-			isDeleteMarker: isDeleteMarker,
-			isLatest:       ver.IsLatest,
-			etag:           ver.ETag,
-			size:           ver.Size,
-			storageClass:   ver.StorageClass,
-		})
-	}
-
-	// Sort: by Key ASC, then LastModified DESC (newest first within same key) — matches AWS S3 ordering
-	sort.Slice(unified, func(i, j int) bool {
-		if unified[i].key != unified[j].key {
-			return unified[i].key < unified[j].key
-		}
-		return unified[i].lastModified.After(unified[j].lastModified)
-	})
-
-	if keyMarker != "" {
-		resumeAt := len(unified)
-		for i, item := range unified {
-			if item.key < keyMarker {
-				continue
-			}
-			if item.key > keyMarker {
-				resumeAt = i
-				break
-			}
-			// Same key: the version marker picks which of its versions resumes.
-			if versionIDMarker == "" || item.versionID == versionIDMarker {
-				resumeAt = i
-				break
-			}
-		}
-		unified = unified[resumeAt:]
-	}
-
-	// Truncate the unified list to maxKeys, then split into versions and delete markers
-	isTruncated := len(unified) > maxKeys
-	nextKeyMarker := ""
-	nextVersionIDMarker := ""
-	if isTruncated {
-		nextKeyMarker = unified[maxKeys].key
-		nextVersionIDMarker = unified[maxKeys].versionID
-		unified = unified[:maxKeys]
 	}
 
 	var allVersions []VersionEntry
 	var allDeleteMarkers []DeleteMarker
 	var commonPrefixes []CommonPrefix
 
-	for _, item := range unified {
-		if item.commonPrefix != "" {
-			commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStr(item.commonPrefix)})
-		} else if item.isDeleteMarker {
-			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
-				Key:          encodeStr(item.key),
-				VersionId:    item.versionID,
-				IsLatest:     item.isLatest,
-				LastModified: item.lastModified,
-				Owner: Owner{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-			})
-		} else {
-			allVersions = append(allVersions, VersionEntry{
-				Key:          encodeStr(item.key),
-				VersionId:    item.versionID,
-				IsLatest:     item.isLatest,
-				LastModified: item.lastModified,
-				ETag:         QuoteETag(item.etag),
-				Size:         item.size,
-				Owner: Owner{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-				StorageClass: storageClassOrStandard(item.storageClass),
-			})
+	owner := Owner{ID: "maxiofs", DisplayName: "MaxIOFS"}
+	for _, ver := range page.Versions {
+		versionID := ver.VersionID
+		if versionID == "" {
+			versionID = metadata.NullVersionID
 		}
+		if ver.Size == 0 && ver.ETag == "" {
+			allDeleteMarkers = append(allDeleteMarkers, DeleteMarker{
+				Key:          encodeStr(ver.Key),
+				VersionId:    versionID,
+				IsLatest:     ver.IsLatest,
+				LastModified: ver.LastModified,
+				Owner:        owner,
+			})
+			continue
+		}
+		allVersions = append(allVersions, VersionEntry{
+			Key:          encodeStr(ver.Key),
+			VersionId:    versionID,
+			IsLatest:     ver.IsLatest,
+			LastModified: ver.LastModified,
+			ETag:         QuoteETag(ver.ETag),
+			Size:         ver.Size,
+			Owner:        owner,
+			StorageClass: storageClassOrStandard(ver.StorageClass),
+		})
+	}
+	for _, common := range page.CommonPrefixes {
+		commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: encodeStr(common)})
+	}
+
+	// The markers of a page that is not the last name where the next one starts.
+	nextKeyMarker, nextVersionIDMarker := "", ""
+	if page.IsTruncated {
+		nextKeyMarker, nextVersionIDMarker = page.NextKeyMarker, page.NextVersionIDMarker
 	}
 
 	result := ListVersionsResult{
@@ -237,7 +149,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 		MaxKeys:             maxKeys,
 		Delimiter:           encodeStr(delimiter),
 		EncodingType:        encodingType,
-		IsTruncated:         isTruncated,
+		IsTruncated:         page.IsTruncated,
 		Versions:            allVersions,
 		DeleteMarkers:       allDeleteMarkers,
 		CommonPrefixes:      commonPrefixes,

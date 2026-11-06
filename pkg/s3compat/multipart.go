@@ -876,6 +876,8 @@ func completionErrorCode(err error) string {
 		return "ServiceUnavailable"
 	case isQuotaExceeded(err):
 		return "QuotaExceeded"
+	case object.IsDiskFull(err):
+		return "InsufficientStorage"
 	}
 	return "InternalError"
 }

@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -643,13 +644,183 @@ func (s *PebbleStore) GetObjectVersions(ctx context.Context, bucket, key string)
 	return versions, nil
 }
 
-// ListAllObjectVersions lists all versions of all objects in a bucket.
+// ListObjectVersionsPage reads one page of the versions of a bucket, as S3 lists
+// them. It walks the current entries, which order keys as S3 does, and reads
+// the versions of each key, so a page costs what it returns whatever the bucket
+// holds. Every key with versions has a current entry: DeleteObjectVersion
+// removes it with the last one.
+//
+// keyMarker and versionIDMarker are the last entry returned: the page starts
+// after them. keyMarker alone starts after that key, or after that common prefix.
+func (s *PebbleStore) ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*VersionsPage, error) {
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+	current, err := s.pebbleIter(objectPrefixKey(bucket, prefix))
+	if err != nil {
+		return nil, err
+	}
+	defer current.Close() //nolint:errcheck
+	versions, err := s.pebbleIter([]byte(fmt.Sprintf("version:%s:", bucket)))
+	if err != nil {
+		return nil, err
+	}
+	defer versions.Close() //nolint:errcheck
+
+	var start []byte
+	switch {
+	case keyMarker == "":
+		start = objectPrefixKey(bucket, prefix)
+	case versionIDMarker != "":
+		start = objectKey(bucket, keyMarker)
+	case delimiter != "" && strings.HasSuffix(keyMarker, delimiter):
+		start = prefixEnd(objectKey(bucket, keyMarker))
+	default:
+		start = append(objectKey(bucket, keyMarker), 0)
+	}
+
+	page := &VersionsPage{}
+	returned := 0
+	full := func() bool {
+		if returned < maxKeys {
+			returned++
+			return false
+		}
+		page.IsTruncated = true
+		return true
+	}
+	listPrefix := len(objectListPrefix(bucket))
+	for valid := current.SeekGE(start); valid; {
+		key := string(current.Key()[listPrefix:])
+		if delimiter != "" {
+			if at := strings.Index(key[len(prefix):], delimiter); at >= 0 {
+				common := key[:len(prefix)+at+len(delimiter)]
+				if full() {
+					return page, nil
+				}
+				page.CommonPrefixes = append(page.CommonPrefixes, common)
+				page.NextKeyMarker, page.NextVersionIDMarker = common, ""
+				valid = current.SeekGE(prefixEnd(objectKey(bucket, common)))
+				continue
+			}
+		}
+		var head ObjectMetadata
+		if err := json.Unmarshal(current.Value(), &head); err != nil {
+			s.logger.WithError(err).WithField("key", key).Warn("Failed to unmarshal object")
+			valid = current.Next()
+			continue
+		}
+		entries, err := s.versionsOfKey(versions, bucket, key, &head)
+		if err != nil {
+			return nil, err
+		}
+		if key == keyMarker && versionIDMarker != "" {
+			entries = versionsAfter(entries, versionIDMarker)
+		}
+		for _, entry := range entries {
+			if full() {
+				return page, nil
+			}
+			page.Versions = append(page.Versions, entry)
+			page.NextKeyMarker, page.NextVersionIDMarker = key, versionLabel(entry)
+		}
+		valid = current.Next()
+	}
+	if err := current.Error(); err != nil {
+		return nil, fmt.Errorf("failed iterating objects: %w", err)
+	}
+	return page, nil
+}
+
+// versionsOfKey is every version of key, newest first, read with iter, an
+// iterator over the versions of the bucket: head is the key's current entry.
+func (s *PebbleStore) versionsOfKey(iter *pebble.Iterator, bucket, key string, head *ObjectMetadata) ([]*ObjectVersion, error) {
+	var found []*ObjectVersion
+	prefix := objectVersionKey(bucket, key, "")
+	for valid := iter.SeekGE(prefix); valid && bytes.HasPrefix(iter.Key(), prefix); valid = iter.Next() {
+		var entry ObjectMetadata
+		if err := json.Unmarshal(iter.Value(), &entry); err != nil {
+			s.logger.WithError(err).WithField("key", key).Warn("Failed to unmarshal version")
+			continue
+		}
+		// A key that goes on after a colon shares the prefix.
+		if entry.Key == key {
+			found = append(found, versionEntry(&entry))
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("failed iterating versions: %w", err)
+	}
+	switch {
+	case head.VersionID == "":
+		// While a null object is current, it is the latest and no entry says so.
+		for _, entry := range found {
+			entry.IsLatest = false
+		}
+		null := versionEntry(head)
+		null.IsLatest = true
+		found = append(found, null)
+	case len(found) == 0:
+		found = append(found, versionEntry(head))
+	}
+	sort.Slice(found, func(i, j int) bool {
+		a, b := found[i], found[j]
+		if !a.LastModified.Equal(b.LastModified) {
+			return a.LastModified.After(b.LastModified)
+		}
+		if a.WrittenAt != b.WrittenAt {
+			return a.WrittenAt > b.WrittenAt
+		}
+		return a.VersionID > b.VersionID
+	})
+	return found, nil
+}
+
+func versionEntry(obj *ObjectMetadata) *ObjectVersion {
+	return &ObjectVersion{
+		VersionID:    obj.VersionID,
+		IsLatest:     obj.IsLatest,
+		Key:          obj.Key,
+		Size:         obj.Size,
+		ETag:         obj.ETag,
+		LastModified: obj.LastModified,
+		WrittenAt:    obj.WrittenAt,
+		StorageClass: obj.StorageClass,
+	}
+}
+
+// versionLabel is how S3 names a version: the null version has no ID here.
+func versionLabel(v *ObjectVersion) string {
+	if v.VersionID == "" {
+		return NullVersionID
+	}
+	return v.VersionID
+}
+
+// versionsAfter is the part of entries after the version marker names. A marker
+// deleted since is placed by its ID, which grows with time.
+func versionsAfter(entries []*ObjectVersion, marker string) []*ObjectVersion {
+	for i, entry := range entries {
+		if versionLabel(entry) == marker {
+			return entries[i+1:]
+		}
+	}
+	for i, entry := range entries {
+		if versionLabel(entry) < marker {
+			return entries[i:]
+		}
+	}
+	return nil
+}
+
+// ListAllObjectVersions lists all versions of all objects in a bucket. It holds
+// them all in memory: a client's listing goes through ListObjectVersionsPage.
 func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error) {
 	var allVersions []*ObjectVersion
 	keysWithVersions := make(map[string]bool)
 
 	// First pass: collect versioned entries
-	versionPrefix := []byte(fmt.Sprintf("version:%s:", bucket))
+	versionPrefix := []byte(fmt.Sprintf("version:%s:%s", bucket, prefix))
 	vIter, err := s.pebbleIter(versionPrefix)
 	if err != nil {
 		return nil, err
@@ -692,8 +863,7 @@ func (s *PebbleStore) ListAllObjectVersions(ctx context.Context, bucket, prefix 
 
 	// Second pass: non-versioned objects (no version entry, just an obj: entry)
 	if maxKeys <= 0 || len(allVersions) < maxKeys {
-		objectPrefix := []byte(fmt.Sprintf("obj:%s:", bucket))
-		oIter, err := s.pebbleIter(objectPrefix)
+		oIter, err := s.pebbleIter(objectPrefixKey(bucket, prefix))
 		if err != nil {
 			return nil, err
 		}
@@ -828,10 +998,18 @@ func (s *PebbleStore) HasActiveComplianceRetention(ctx context.Context, bucket s
 }
 
 // DeleteObjectVersion removes a specific version of an object, and promotes the
-func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) error {
+func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, versionID string) (err error) {
 	mu := s.getBucketMutationMutex(bucket)
 	mu.Lock()
-	defer mu.Unlock()
+	// Sync: a delete that is not durable resurrects the object on the next boot.
+	// The wait comes after the bucket lock, so concurrent deletes and writes of
+	// the bucket share one fsync instead of queueing for it.
+	defer func() {
+		mu.Unlock()
+		if err == nil {
+			err = s.db.LogData(nil, pebble.Sync)
+		}
+	}()
 
 	versionKey := objectVersionKey(bucket, key, versionID)
 	objKey := objectKey(bucket, key)
@@ -897,8 +1075,7 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 		}
 	}
 
-	// Sync: a delete that is not durable resurrects the object on the next boot.
-	return batch.Commit(pebble.Sync)
+	return s.commitNoSync(batch)
 }
 
 // newestRemainingVersion returns the newest version of an object other than the

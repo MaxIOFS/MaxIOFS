@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/sirupsen/logrus"
 )
@@ -220,7 +221,7 @@ func (h *Handler) getSOSAPIVirtualObject(ctx context.Context, bucketName, tenant
 				logrus.WithError(err).Warn("Failed to get disk usage, using defaults")
 			} else {
 				totalCapacity = int64(diskInfo.Total)
-				availableCapacity = int64(diskInfo.Free)
+				availableCapacity = int64(object.WritableBytes(diskInfo.Used, diskInfo.Free))
 				logrus.WithFields(logrus.Fields{
 					"total_bytes": totalCapacity,
 					"free_bytes":  availableCapacity,

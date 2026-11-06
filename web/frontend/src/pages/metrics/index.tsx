@@ -26,6 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import type { StorageMetrics, SystemMetrics, S3Metrics, LatenciesResponse, ThroughputResponse } from '@/types';
 import { MetricLineChart, TimeRangeSelector, TIME_RANGES, type TimeRange } from '@/components/charts';
+import { withChangeBetweenPoints } from './history';
 
 export default function MetricsPage() {
   const { t } = useTranslation('metrics');
@@ -105,7 +106,7 @@ export default function MetricsPage() {
         overview: 'system',
         system: 'system',
         api: 's3',
-        performance: 'system',
+        performance: 's3',
       };
 
       const result = await APIClient.getHistoricalMetrics({
@@ -214,7 +215,7 @@ export default function MetricsPage() {
       }
     }
 
-    return processed;
+    return withChangeBetweenPoints(processed);
   };
 
   const formatBytes = (bytes: number) => {

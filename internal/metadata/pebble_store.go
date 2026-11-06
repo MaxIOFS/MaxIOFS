@@ -34,6 +34,7 @@ type PebbleStore struct {
 	closeOnce        sync.Once
 	closeErr         error
 	wasCleanShutdown bool
+	reconcileOwed    atomic.Bool // an unclean shutdown's reconciliation has not finished
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -145,6 +146,12 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 // reconcile metadata against the on-disk object tree.
 func (s *PebbleStore) WasCleanShutdown() bool {
 	return s.wasCleanShutdown
+}
+
+// OweReconcile says whether the reconciliation of an unclean shutdown is still
+// to finish: while it is, a close is not clean, and the next start runs it again.
+func (s *PebbleStore) OweReconcile(owed bool) {
+	s.reconcileOwed.Store(owed)
 }
 
 // runWALSyncLoop fsyncs the WAL once per interval while there are unsynced
@@ -714,6 +721,14 @@ func (s *PebbleStore) RecalculateBucketStatsCounting(ctx context.Context, tenant
 	if err != nil {
 		return retained, err
 	}
+	// One iterator serves every key: this runs over the whole bucket every few
+	// minutes, and a new one per key is most of its cost.
+	versions, err := s.pebbleIter([]byte(fmt.Sprintf("version:%s:", fullBucketPath)))
+	if err != nil {
+		_ = iter.Close()
+		return retained, err
+	}
+	defer versions.Close() //nolint:errcheck
 
 	now := time.Now()
 	var objectCount, totalSize int64
@@ -741,21 +756,15 @@ func (s *PebbleStore) RecalculateBucketStatsCounting(ctx context.Context, tenant
 			}
 		}
 
-		versions, vErr := s.GetObjectVersions(ctx, fullBucketPath, obj.Key)
-		if vErr == nil && len(versions) > 0 {
-			for _, v := range versions {
-				if countsTowardBucketStorage(obj.Key, v.ETag, v.Size) {
-					totalSize += v.Size
-				}
-			}
-			if obj.VersionID == "" && countsTowardBucketStorage(obj.Key, obj.ETag, obj.Size) {
-				totalSize += obj.Size
-			}
-			continue
+		entries, vErr := s.versionsOfKey(versions, fullBucketPath, obj.Key, &obj)
+		if vErr != nil {
+			_ = iter.Close()
+			return retained, vErr
 		}
-
-		if countsTowardBucketStorage(obj.Key, obj.ETag, obj.Size) {
-			totalSize += obj.Size
+		for _, v := range entries {
+			if countsTowardBucketStorage(obj.Key, v.ETag, v.Size) {
+				totalSize += v.Size
+			}
 		}
 	}
 	iterErr := iter.Error()
@@ -821,7 +830,7 @@ func (s *PebbleStore) closeStore() error {
 		}
 	}
 	err := s.db.Close()
-	if err == nil {
+	if err == nil && !s.reconcileOwed.Load() {
 		// Mark the shutdown clean so the next open skips reconciliation.
 		sentinel := filepath.Join(s.dbPath, cleanShutdownSentinelFile)
 		if wErr := os.WriteFile(sentinel, []byte("clean\n"), 0640); wErr != nil {

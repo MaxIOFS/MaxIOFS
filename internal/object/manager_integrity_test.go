@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/metadata"
@@ -85,7 +84,9 @@ func TestVerifyObjectIntegrity_DeleteMarker(t *testing.T) {
 	assert.Contains(t, result.Reason, "delete marker")
 }
 
-func TestVerifyObjectIntegrity_MultipartObject(t *testing.T) {
+// An object written in parts is verified as any other: without its data it is
+// missing.
+func TestVerifyObjectIntegrity_MultipartObjectWithoutItsData(t *testing.T) {
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -109,8 +110,7 @@ func TestVerifyObjectIntegrity_MultipartObject(t *testing.T) {
 
 	result, err := om.VerifyObjectIntegrity(ctx, bucket, key)
 	require.NoError(t, err)
-	assert.Equal(t, IntegritySkipped, result.Status)
-	assert.Contains(t, strings.ToLower(result.Reason), "multipart")
+	assert.Equal(t, IntegrityMissing, result.Status)
 }
 
 func TestVerifyObjectIntegrity_OK(t *testing.T) {
@@ -346,7 +346,7 @@ func TestVerifyBucketIntegrity_ReportDurationSet(t *testing.T) {
 	assert.NotEmpty(t, report.Duration, "Duration should always be set")
 }
 
-func TestVerifyBucketIntegrity_SkipsMultipart(t *testing.T) {
+func TestVerifyBucketIntegrity_ChecksMultipart(t *testing.T) {
 	om, metaStore, cleanup := setupTestManagerWithStore(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -367,7 +367,7 @@ func TestVerifyBucketIntegrity_SkipsMultipart(t *testing.T) {
 
 	report, err := om.VerifyBucketIntegrity(ctx, bucket, "", "", 100)
 	require.NoError(t, err)
-	assert.Equal(t, 1, report.Skipped)
+	assert.Equal(t, 0, report.Skipped)
 	assert.Equal(t, 0, report.OK)
-	assert.Equal(t, 0, report.Corrupted)
+	assert.Equal(t, 1, report.Corrupted, "it has no data on storage")
 }

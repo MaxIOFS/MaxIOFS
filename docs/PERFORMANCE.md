@@ -129,7 +129,7 @@ Defined in `docker/prometheus/alerts.yml`:
 | LowSuccessRate | success < 95% for 3m | critical |
 | SLOViolationAvailability | hourly avg < 99.9% | critical |
 | SLOViolationLatencyP95 | hourly avg p95 > 50ms | warning |
-| S3ServerErrors | more than 5% of S3 requests answered 5xx for 5m | warning |
+| S3ServerErrors | more than 5% of S3 requests answered with a server error for 5m; `SlowDown` does not count | warning |
 | StorageFailures | a storage operation failing for 5m | critical |
 
 ### Grafana Dashboard
@@ -239,6 +239,32 @@ Example (Veeam, 40 000 objects, 700 bytes avg):
 For 10 such buckets:
   27 × 10 = 270 MB → 512 MB cache recommended (headroom for indexing overhead)
 ```
+
+---
+
+## Veeam-Shaped Validation, November 6, 2026
+
+One standalone node: Debian 13, 16 vCPU Xeon E5-2699 v4, 62 GB RAM, ext4 on LVM over a Unity SSD pool by FC. One Object Lock bucket, COMPLIANCE retention on every object, encryption at rest, 64 connections, one access key at the default limit of 1,000 requests/s. The disk alone: 890 MB/s write, 1,576 MB/s read, 559 fsync/s.
+
+| Load | Objects | Rate | PUT p50 | PUT p99 | Errors |
+|------|---------|------|---------|---------|--------|
+| 1 MB | 1,501,697 | 345/s | — | — | 0 |
+| 4 MB | 250,000 | 594 MB/s | 362 ms | 724 ms | 0 |
+| 64 KB | 3,000,000 | 667/s | 54 ms | 365 ms | 0 |
+
+At 4.8 million objects and 2.7 TB:
+
+| Check | Result |
+|-------|--------|
+| Server memory | 630 MB RSS, 877 MB peak |
+| Metadata | 1.9 GB, about 440 bytes per object |
+| `ListObjectVersions`, whole bucket | 4,778 pages, p50 64 ms, p99 126 ms, no duplicate, in order |
+| `ListObjectsV2`, whole bucket | p50 31 ms |
+| `PutObjectRetention`, 30,000 extended | no error, every date read back |
+| `DeleteObjects`, 200,000 versions with 120,000 writes alongside | 1,400 versions/s, files gone from the disk |
+| `kill -9` under load, twice | nothing acknowledged lost: 170,085 and 30,245 objects read back |
+| Start | 13 s to serving; the reconciliation after a crash runs behind, about 1,000 objects/s |
+| Disk at 99.5% | 2,679 writes answered `507`, none `500`; reads, deletes and retention go on, `kill -9` included |
 
 ---
 

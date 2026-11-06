@@ -111,7 +111,7 @@ type Handler struct {
 		DeleteConfigByID(ctx context.Context, id, tenantID string) error
 	}
 	metadataStore interface {
-		ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+		ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*metadata.VersionsPage, error)
 		GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 		GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 		GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
@@ -569,7 +569,7 @@ func (h *Handler) tenantBucketCount(ctx context.Context, tenantID string) (int64
 
 // SetMetadataStore sets the metadata store for accessing object versions
 func (h *Handler) SetMetadataStore(ms interface {
-	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*metadata.ObjectVersion, error)
+	ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*metadata.VersionsPage, error)
 	GetObjectVersions(ctx context.Context, bucket, key string) ([]*metadata.ObjectVersion, error)
 	GetBucketByName(ctx context.Context, name string) (*metadata.BucketMetadata, error)
 	GetMultipartUpload(ctx context.Context, uploadID string) (*metadata.MultipartUploadMetadata, error)
@@ -2263,6 +2263,8 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 	// 503 Service Unavailable
 	case "ServiceUnavailable", "SlowDown":
 		statusCode = http.StatusServiceUnavailable
+	case "InsufficientStorage":
+		statusCode = http.StatusInsufficientStorage
 	}
 	if r != nil {
 		auth.NoteError(r.Context(), code, message)
@@ -3453,6 +3455,8 @@ func (h *Handler) detectAndDecodeAwsChunked(
 	return bodyReader
 }
 
+const diskFullMessage = "The disk is full: no more objects can be written until space is freed"
+
 // writeObjectWriteError answers a failed object write with the S3 error that
 // names its cause.
 func (h *Handler) writeObjectWriteError(w http.ResponseWriter, r *http.Request, err error, bucketName, objectKey string) {
@@ -3467,6 +3471,8 @@ func (h *Handler) writeObjectWriteError(w http.ResponseWriter, r *http.Request, 
 		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
 	case isQuotaExceeded(err):
 		h.writeError(w, "QuotaExceeded", err.Error(), objectKey, r)
+	case object.IsDiskFull(err):
+		h.writeError(w, "InsufficientStorage", diskFullMessage, objectKey, r)
 	case errors.Is(err, object.ErrPreconditionFailed):
 		h.writeError(w, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold", objectKey, r)
 	case errors.Is(err, object.ErrObjectNotFound):

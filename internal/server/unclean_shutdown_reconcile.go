@@ -16,8 +16,14 @@ func (s *Server) startUncleanShutdownReconcile(ctx context.Context) {
 	}
 
 	logrus.Warn("Unclean shutdown detected — reconciling metadata store against on-disk objects in the background")
+	ps.OweReconcile(true)
 	s.goWorker("unclean shutdown reconcile", func() {
 		report, err := recovery.ReconcileRoot(ctx, s.config.Storage.Root, s.metadataStore, logrus.StandardLogger())
+		if ctx.Err() != nil {
+			logrus.Info("Unclean-shutdown reconciliation stopped half way: the next start runs it again")
+			return
+		}
+		ps.OweReconcile(false)
 		if err != nil {
 			if report != nil {
 				logReconcileReport(report)

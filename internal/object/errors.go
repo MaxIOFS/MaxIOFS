@@ -11,7 +11,10 @@ var (
 	ErrObjectNotFound = errors.New("object not found")
 	// ErrDataUnavailable: the object exists and no node that holds its data
 	// answered.
-	ErrDataUnavailable     = errors.New("no node that holds the object's data answered")
+	ErrDataUnavailable = errors.New("no node that holds the object's data answered")
+	// ErrObjectUnreadable: the object is recorded and what is on disk no longer
+	// gives it back: its sidecar or its key is lost.
+	ErrObjectUnreadable    = errors.New("object is unreadable")
 	ErrObjectExists        = errors.New("object already exists")
 	ErrBucketNotFound      = errors.New("bucket not found")
 	ErrInvalidObjectName   = errors.New("invalid object name")
@@ -35,6 +38,7 @@ var (
 	ErrTooManyTags         = errors.New("too many tags")
 	ErrAccessDenied        = errors.New("access denied")
 	ErrBucketQuotaExceeded = errors.New("bucket storage quota exceeded")
+	ErrDiskFull            = errors.New("the disk is full")
 
 	// Object Lock errors (simple)
 	ErrObjectUnderLegalHold     = errors.New("object is under legal hold")
@@ -46,6 +50,7 @@ var (
 	ErrInvalidRetentionMode     = errors.New("invalid retention mode")
 	ErrInvalidLegalHoldStatus   = errors.New("invalid legal hold status")
 	ErrRetentionDateInPast      = errors.New("retention date cannot be in the past")
+	ErrDeleteMarkerNotLockable  = errors.New("a delete marker takes no retention or legal hold")
 )
 
 // RetentionError represents an error when trying to delete an object under retention

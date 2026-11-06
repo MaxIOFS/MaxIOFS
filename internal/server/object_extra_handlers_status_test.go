@@ -30,6 +30,7 @@ func TestWriteErrorStatus(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, writeErrorStatus(checkFailed))
 	assert.Equal(t, http.StatusNotFound, writeErrorStatus(object.ErrBucketNotFound))
 	assert.Equal(t, http.StatusServiceUnavailable, writeErrorStatus(cluster.ErrClusterDegraded))
+	assert.Equal(t, http.StatusInsufficientStorage, writeErrorStatus(object.ErrDiskFull))
 }
 
 // A console upload refused by the tenant quota inside the write — after the

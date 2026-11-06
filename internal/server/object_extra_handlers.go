@@ -509,6 +509,8 @@ func writeErrorStatus(err error) int {
 	switch {
 	case isQuotaExceeded(err):
 		return http.StatusForbidden
+	case object.IsDiskFull(err):
+		return http.StatusInsufficientStorage
 	case errors.Is(err, object.ErrBucketNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, cluster.ErrClusterDegraded):

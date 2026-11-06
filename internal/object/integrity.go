@@ -27,6 +27,7 @@ const (
 // IntegrityResult is the per-object result of an integrity check
 type IntegrityResult struct {
 	Key          string          `json:"key"`
+	VersionID    string          `json:"versionId,omitempty"`
 	Status       IntegrityStatus `json:"status"`
 	StoredETag   string          `json:"storedETag,omitempty"`
 	ComputedETag string          `json:"computedETag,omitempty"`
@@ -49,9 +50,15 @@ type BucketIntegrityReport struct {
 	NextMarker string             `json:"nextMarker,omitempty"`
 }
 
-// VerifyObjectIntegrity reads the stored object, recomputes the MD5 of its
-// content (after transparent decryption) and compares it to the stored ETag.
+// VerifyObjectIntegrity verifies the current version of an object.
 func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key string) (*IntegrityResult, error) {
+	return om.verifyObjectVersion(ctx, bucket, key), nil
+}
+
+// verifyObjectVersion reads back a version of an object, the current one without
+// versionID, and compares its content (after transparent decryption) to its
+// stored ETag and size.
+func (om *objectManager) verifyObjectVersion(ctx context.Context, bucket, key string, versionID ...string) *IntegrityResult {
 	// Folder markers (keys ending with "/") are virtual directory placeholders.
 	// They have no content file on storage, so there is nothing to verify.
 	if strings.HasSuffix(key, "/") {
@@ -59,17 +66,17 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			Key:    key,
 			Status: IntegritySkipped,
 			Reason: "folder marker: not a data object",
-		}, nil
+		}
 	}
 
 	// Fetch metadata to get the stored ETag and expected size
-	meta, err := om.metadataStore.GetObject(ctx, bucket, key)
+	meta, err := om.metadataStore.GetObject(ctx, bucket, key, versionID...)
 	if err != nil {
 		return &IntegrityResult{
 			Key:    key,
 			Status: IntegrityError,
 			Error:  fmt.Sprintf("metadata lookup failed: %v", err),
-		}, nil
+		}
 	}
 
 	storedETag := meta.ETag
@@ -80,14 +87,14 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			Key:    key,
 			Status: IntegritySkipped,
 			Reason: "delete marker: not a data object",
-		}, nil
+		}
 	}
 
 	// Of data cut in shards this node checks the shard it holds, against the
 	// digest it was stored with.
 	if index, ok := om.shardHere(meta); ok {
 		meta.Bucket, meta.Key = bucket, key
-		return om.verifyShard(ctx, meta, index), nil
+		return om.verifyShard(ctx, meta, index)
 	}
 	if _, sharded := ErasureLayout(meta); sharded {
 		return &IntegrityResult{
@@ -95,28 +102,26 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			Status:     IntegritySkipped,
 			StoredETag: storedETag,
 			Reason:     "data cut in shards held by other nodes of the cluster",
-		}, nil
-	}
-
-	// Multipart ETags have the form "<md5>-<partCount>"; we cannot verify them
-	// with a simple MD5 of the content, so we skip them.
-	if strings.Contains(storedETag, "-") {
-		return &IntegrityResult{
-			Key:        key,
-			Status:     IntegritySkipped,
-			StoredETag: storedETag,
-			Reason:     "multipart object: ETag is composite, skipping MD5 verification",
-		}, nil
+		}
 	}
 
 	// The ETag of an object encrypted with a customer key is the MD5 of the
-	// bytes stored: they are checked without the key.
+	// bytes stored: they are checked without the key. One written in parts has a
+	// composite ETag, and the content is not readable here to recompute it.
 	if meta.CustomerDEK != "" {
-		return om.verifyStoredBytes(ctx, bucket, key, meta), nil
+		if strings.Contains(storedETag, "-") {
+			return &IntegrityResult{
+				Key:        key,
+				Status:     IntegritySkipped,
+				StoredETag: storedETag,
+				Reason:     "written in parts with a customer key: it cannot be read here",
+			}
+		}
+		return om.verifyStoredBytes(ctx, bucket, key, meta)
 	}
 
 	// GetObject handles decryption transparently
-	_, reader, err := om.GetObject(ctx, bucket, key)
+	_, reader, err := om.GetObject(ctx, bucket, key, versionID...)
 	var elsewhere *DataElsewhereError
 	if errors.As(err, &elsewhere) {
 		return &IntegrityResult{
@@ -124,7 +129,16 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			Status:     IntegritySkipped,
 			StoredETag: storedETag,
 			Reason:     "data held by other nodes of the cluster",
-		}, nil
+		}
+	}
+	if errors.Is(err, ErrObjectUnreadable) {
+		return &IntegrityResult{
+			Key:          key,
+			Status:       IntegrityCorrupted,
+			StoredETag:   storedETag,
+			ExpectedSize: meta.Size,
+			Reason:       err.Error(),
+		}
 	}
 	if err != nil {
 		// Distinguish a missing file from other errors
@@ -138,31 +152,44 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 				StoredETag:   storedETag,
 				ExpectedSize: meta.Size,
 				Reason:       "object data not found on storage",
-			}, nil
+			}
 		}
 		return &IntegrityResult{
 			Key:    key,
 			Status: IntegrityError,
 			Error:  fmt.Sprintf("failed to open object: %v", err),
-		}, nil
+		}
 	}
 	defer reader.Close()
 
-	// Hash the full content
-	hasher := md5.New()
-	actualSize, err := io.Copy(hasher, reader)
+	computedETag, actualSize, err := contentETag(reader, meta.Parts)
 	if err != nil {
+		if ctx.Err() != nil {
+			return &IntegrityResult{Key: key, Status: IntegrityError, Error: fmt.Sprintf("failed to read object data: %v", err)}
+		}
+		// Data at rest is encrypted and authenticated: a byte changed on disk
+		// fails the read, it never reaches the digest.
 		return &IntegrityResult{
-			Key:    key,
-			Status: IntegrityError,
-			Error:  fmt.Sprintf("failed to read object data: %v", err),
-		}, nil
+			Key:          key,
+			Status:       IntegrityCorrupted,
+			StoredETag:   storedETag,
+			ExpectedSize: meta.Size,
+			ActualSize:   actualSize,
+			Reason:       fmt.Sprintf("the data does not read back: %v", err),
+		}
 	}
 
-	computedETag := fmt.Sprintf("%x", hasher.Sum(nil))
+	// An object written in parts before their sizes were kept has a composite
+	// ETag nothing can recompute: its content read back authenticated, and its
+	// size is what counts.
+	sameContent := computedETag == storedETag
+	if strings.Contains(storedETag, "-") && len(meta.Parts) == 0 {
+		sameContent = true
+		computedETag = storedETag
+	}
 
 	// Compare ETag and size
-	if computedETag != storedETag || actualSize != meta.Size {
+	if !sameContent || actualSize != meta.Size {
 		return &IntegrityResult{
 			Key:          key,
 			Status:       IntegrityCorrupted,
@@ -171,7 +198,7 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 			ExpectedSize: meta.Size,
 			ActualSize:   actualSize,
 			Reason:       "ETag or size mismatch",
-		}, nil
+		}
 	}
 
 	return &IntegrityResult{
@@ -181,7 +208,35 @@ func (om *objectManager) VerifyObjectIntegrity(ctx context.Context, bucket, key 
 		ComputedETag: computedETag,
 		ExpectedSize: meta.Size,
 		ActualSize:   actualSize,
-	}, nil
+	}
+}
+
+// contentETag reads an object's content and gives its ETag as S3 computes it and
+// its size: the MD5 of the content or, for an object written in parts, the MD5 of
+// the MD5s of its parts with their count.
+func contentETag(r io.Reader, parts []metadata.PartRun) (string, int64, error) {
+	if len(parts) == 0 {
+		hasher := md5.New()
+		size, err := io.Copy(hasher, r)
+		return fmt.Sprintf("%x", hasher.Sum(nil)), size, err
+	}
+	composite := md5.New()
+	var size int64
+	count := 0
+	for _, run := range parts {
+		for i := 0; i < run.Count; i++ {
+			part := md5.New()
+			n, err := io.CopyN(part, r, run.Size)
+			size += n
+			if err != nil && err != io.EOF {
+				return "", size, err
+			}
+			composite.Write(part.Sum(nil))
+			count++
+		}
+	}
+	rest, err := io.Copy(io.Discard, r)
+	return fmt.Sprintf("%x-%d", composite.Sum(nil), count), size + rest, err
 }
 
 // verifyShard reads back shard index of the write entry is, held here: its
@@ -223,8 +278,9 @@ func (om *objectManager) verifyShard(ctx context.Context, entry *metadata.Object
 	return result
 }
 
-// VerifyBucketIntegrity verifies a page of objects in a bucket.
-// prefix, marker and maxKeys provide S3-compatible pagination.
+// VerifyBucketIntegrity verifies a page of the versions of a bucket: every
+// version, as one that is not the latest is what a restore may need. prefix,
+// marker and maxKeys page through them; NextMarker is opaque.
 func (om *objectManager) VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*BucketIntegrityReport, error) {
 	if maxKeys <= 0 {
 		maxKeys = 1000
@@ -232,30 +288,25 @@ func (om *objectManager) VerifyBucketIntegrity(ctx context.Context, bucket, pref
 
 	start := time.Now()
 
-	objs, nextMarker, err := om.metadataStore.ListObjects(ctx, bucket, prefix, marker, maxKeys)
+	// A version ID has no slash, a key may.
+	versionMarker, keyMarker, _ := strings.Cut(marker, "/")
+	page, err := om.metadataStore.ListObjectVersionsPage(ctx, bucket, prefix, "", keyMarker, versionMarker, maxKeys)
 	if err != nil {
 		return nil, fmt.Errorf("listing objects failed: %w", err)
 	}
 
-	report := &BucketIntegrityReport{
-		Bucket:     bucket,
-		NextMarker: nextMarker,
+	report := &BucketIntegrityReport{Bucket: bucket}
+	if page.IsTruncated {
+		report.NextMarker = page.NextVersionIDMarker + "/" + page.NextKeyMarker
 	}
 
-	for _, obj := range objs {
-		result, err := om.VerifyObjectIntegrity(ctx, bucket, obj.Key)
-		if err != nil {
-			// VerifyObjectIntegrity always returns a non-nil result with an error
-			// embedded; a returned Go error would be unexpected.
-			report.Errors++
-			report.Issues = append(report.Issues, &IntegrityResult{
-				Key:    obj.Key,
-				Status: IntegrityError,
-				Error:  err.Error(),
-			})
-			report.Checked++
-			continue
+	for _, version := range page.Versions {
+		var pinned []string
+		if version.VersionID != "" {
+			pinned = []string{version.VersionID}
 		}
+		result := om.verifyObjectVersion(ctx, bucket, version.Key, pinned...)
+		result.VersionID = version.VersionID
 
 		report.Checked++
 		switch result.Status {

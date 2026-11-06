@@ -786,7 +786,7 @@ the factor, plus 20%.
 </Error>
 ```
 
-Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`; a request forwarded to a node that does not hold the bucket, with `Retry-After: 1`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
+Common codes: `NoSuchBucket`, `NoSuchKey`, `BucketAlreadyExists`, `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `InvalidRequest`, `QuotaExceeded`, `InsufficientStorage` (507: the disk reached 99.5%; reads and deletes go on), `SlowDown` (rate limited — a client should back off and retry, unlike a bare `429`), `ServiceUnavailable` (cluster write quorum unavailable — a replication factor of 3 with both peers down — with `Retry-After: 30`; a request forwarded to a node that does not hold the bucket, with `Retry-After: 1`). A delete blocked by retention or a legal hold answers `AccessDenied`, as in AWS S3.
 
 ### Console API (JSON)
 
@@ -810,10 +810,10 @@ Prometheus format at `/metrics` on the S3 port, without authentication, while `m
 | `maxiofs_http_requests_total` | `method`, `operation`, `status` | S3 API requests, by S3 operation and HTTP status |
 | `maxiofs_http_request_duration_seconds` | `method`, `operation` | S3 API request duration (histogram) |
 | `maxiofs_http_request_size_bytes`, `maxiofs_http_response_size_bytes` | `method`, `operation` | Request and response body sizes (histograms) |
-| `maxiofs_s3_operations_total` | `operation`, `bucket`, `status` | S3 operations by outcome: `success` below HTTP 400, `refused` 4xx, `error` 5xx |
+| `maxiofs_s3_operations_total` | `operation`, `bucket`, `status` | S3 operations by outcome: `success` below HTTP 400, `refused` 4xx and `SlowDown`, `error` any other 5xx |
 | `maxiofs_s3_operation_duration_seconds` | `operation` | S3 operation duration (histogram) |
 | `maxiofs_s3_errors_total` | `operation`, `bucket`, `error_type` | S3 requests the server failed (5xx), by S3 error code; a HEAD, which has no body, by HTTP status |
-| `maxiofs_s3_refused_total` | `operation`, `bucket`, `error_type` | S3 requests refused as the client's (4xx), such as a probe for a key that is not there or an access denied, by S3 error code; a HEAD by HTTP status |
+| `maxiofs_s3_refused_total` | `operation`, `bucket`, `error_type` | S3 requests refused (4xx, and `SlowDown`, the server asking to send less), such as a probe for a key that is not there or an access denied, by S3 error code; a HEAD by HTTP status |
 | `maxiofs_storage_operations_total` | `operation`, `status` | Storage backend operations: `success`, `not_found` or `failure` |
 | `maxiofs_storage_operation_duration_seconds` | `operation` | Storage backend operation duration; a read's time is the time to open the object (histogram) |
 | `maxiofs_object_operations_total` | `operation`, `bucket` | Object operations completed from any entry point: S3 API, console, background tasks |

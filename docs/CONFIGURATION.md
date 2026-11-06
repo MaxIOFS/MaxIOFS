@@ -180,7 +180,7 @@ Runtime-configurable settings via Web Console (`/settings`) or API. Changes take
 | `security.access_token_lifetime` | 900 | Access-token lifetime in seconds |
 | `security.ratelimit_enabled` | true | Enable rate limiting |
 | `security.ratelimit_login_per_minute` | 5 | IP-based login rate limit |
-| `security.ratelimit_api_per_second` | 100 | Per-user API rate limit |
+| `security.ratelimit_api_per_second` | 1000 | S3 requests per second per access key, 0 for no limit; over it the server answers `SlowDown` and the client retries |
 | `security.max_failed_attempts` | 5 | Failed logins before account lockout |
 | `security.lockout_duration` | 900 | Lockout duration (seconds) |
 | `security.password_min_length` | 8 | Minimum password length |

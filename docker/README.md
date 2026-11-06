@@ -85,7 +85,7 @@ Refresh: 30 seconds. Time range: last hour.
 
 **Health** (`maxiofs_health`, 6 rules):
 - MaxIOFSDown: `/metrics` not answering for 2 minutes
-- S3ServerErrors: more than 5% of S3 requests answered 5xx for 5 minutes
+- S3ServerErrors: more than 5% of S3 requests answered with a server error for 5 minutes; `SlowDown` does not count
 - StorageFailures: the storage backend failing an operation for 5 minutes
 - DiskAlmostFull: data disk above 90% for 10 minutes
 - SignInFailureBurst: more than 50 failed sign-ins of one method in 5 minutes

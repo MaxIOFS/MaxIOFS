@@ -380,6 +380,11 @@ func purgeImplicitFolders(ctx context.Context, opts Options, buckets []bucketRef
 	for _, bkt := range buckets {
 		var doomed []string
 		err := raw.RawScan(ctx, "obj:"+bkt.path+":", "", func(key string, val []byte) bool {
+			// This runs at every start, over every object: only a folder's key
+			// is worth decoding.
+			if !strings.HasSuffix(key, "/") {
+				return true
+			}
 			var obj metadata.ObjectMetadata
 			if json.Unmarshal(val, &obj) == nil && isImplicitFolder(&obj) {
 				doomed = append(doomed, key)

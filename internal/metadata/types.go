@@ -441,6 +441,16 @@ type PartMetadata struct {
 }
 
 // ObjectVersion represents a version of an object
+// VersionsPage is one page of the versions of a bucket: keys ascending, the
+// versions of a key newest first. The markers name the last entry returned.
+type VersionsPage struct {
+	Versions            []*ObjectVersion
+	CommonPrefixes      []string
+	IsTruncated         bool
+	NextKeyMarker       string
+	NextVersionIDMarker string
+}
+
 type ObjectVersion struct {
 	VersionID    string    `json:"version_id"`
 	IsLatest     bool      `json:"is_latest"`

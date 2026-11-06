@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCleanShutdownSentinel verifies the sentinel lifecycle: fresh stores and
@@ -107,4 +110,34 @@ func TestWALSyncLoop(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatalf("Close with active WAL sync loop failed: %v", err)
 	}
+}
+
+// A reconciliation stopped half way is still owed: the close that interrupts it
+// is not clean, or the next start would never finish it.
+func TestAStoreOwingItsReconcileDoesNotCloseClean(t *testing.T) {
+	dir := t.TempDir()
+	open := func() *PebbleStore {
+		t.Helper()
+		store, err := NewPebbleStore(PebbleOptions{DataDir: dir, WALSyncInterval: -1})
+		require.NoError(t, err)
+		return store
+	}
+
+	store := open()
+	require.NoError(t, store.Close())
+
+	store = open()
+	assert.True(t, store.WasCleanShutdown())
+	store.OweReconcile(true)
+	require.NoError(t, store.Close())
+
+	store = open()
+	assert.False(t, store.WasCleanShutdown(), "the reconciliation was left to finish")
+	store.OweReconcile(true)
+	store.OweReconcile(false)
+	require.NoError(t, store.Close())
+
+	store = open()
+	assert.True(t, store.WasCleanShutdown(), "it finished")
+	require.NoError(t, store.Close())
 }

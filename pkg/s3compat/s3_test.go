@@ -1752,7 +1752,8 @@ func TestS3ListObjectVersions(t *testing.T) {
 			require.NoError(t, env.metadataStore.PutObjectVersion(ctx, obj, version))
 		}
 
-		req, w := env.makeS3Request("GET", "/"+largeBucket+"?versions&key-marker=bulk-10000&max-keys=1", nil)
+		// A key marker alone starts after that key, as in S3.
+		req, w := env.makeS3Request("GET", "/"+largeBucket+"?versions&key-marker=bulk-09999&max-keys=1", nil)
 		env.router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
@@ -2392,6 +2393,8 @@ func TestObjectRetention(t *testing.T) {
 	// Create bucket
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID)
 	require.NoError(t, err)
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+	require.NoError(t, env.bucketManager.SetObjectLockConfig(ctx, env.tenantID, bucketName, &bucket.ObjectLockConfig{ObjectLockEnabled: true}))
 
 	// Upload object
 	req, w := env.makeS3Request("PUT", "/"+bucketName+"/"+objectKey, objectContent)
@@ -4258,6 +4261,7 @@ func TestObjectLockOperationsHonorVersionID(t *testing.T) {
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, bucketName, &bucket.VersioningConfig{Status: "Enabled"}))
+	require.NoError(t, env.bucketManager.SetObjectLockConfig(ctx, env.tenantID, bucketName, &bucket.ObjectLockConfig{ObjectLockEnabled: true}))
 
 	first, err := env.objectManager.PutObject(ctx, bucketPath, objectKey, bytes.NewReader([]byte("first")), http.Header{
 		"Content-Type": []string{"text/plain"},

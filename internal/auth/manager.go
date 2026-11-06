@@ -2206,6 +2206,10 @@ func writeS3Error(w http.ResponseWriter, r *http.Request, code, message string, 
 	w.Header().Set("X-Amz-Request-Id", requestID)
 	hostID := generateS3AmzId2()
 	w.Header().Set("X-Amz-Id-2", hostID)
+	// A HEAD answer has no body to name its code in.
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("x-amz-error-code", code)
+	}
 	w.WriteHeader(statusCode)
 
 	// HEAD carries no body, as everywhere else in S3.

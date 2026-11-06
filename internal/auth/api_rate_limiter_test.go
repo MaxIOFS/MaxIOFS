@@ -52,6 +52,27 @@ func TestAPIRateLimit_AnswersSlowDownSoClientsRetry(t *testing.T) {
 	assert.Equal(t, "SlowDown", doc.Code)
 }
 
+// A HEAD answer has no body: its code goes in a header, or nothing could tell a
+// SlowDown from a failure.
+func TestAPIRateLimit_NamesSlowDownOnAHead(t *testing.T) {
+	limiter := NewAPIRateLimiter()
+	defer limiter.Stop()
+	handler := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	var rec *httptest.ResponseRecorder
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodHead, "/bucket/object", nil)
+		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260914/us-east-1/s3/aws4_request")
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "SlowDown", rec.Header().Get("x-amz-error-code"))
+	assert.Empty(t, rec.Body.String())
+}
+
 func TestAPIRateLimit_ZeroMeansNoLimit(t *testing.T) {
 	rec := rateLimited(t, fixedSettings{enabled: true, rate: 0}, 50)
 	assert.Equal(t, http.StatusOK, rec.Code)

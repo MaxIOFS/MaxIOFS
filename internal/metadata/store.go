@@ -96,6 +96,10 @@ type Store interface {
 	// ListAllObjectVersions lists all versions of all objects in a bucket (for versioning support)
 	ListAllObjectVersions(ctx context.Context, bucket, prefix string, maxKeys int) ([]*ObjectVersion, error)
 
+	// ListObjectVersionsPage reads one page of the versions of a bucket, as S3
+	// lists them; a page costs what it returns.
+	ListObjectVersionsPage(ctx context.Context, bucket, prefix, delimiter, keyMarker, versionIDMarker string, maxKeys int) (*VersionsPage, error)
+
 	HasActiveComplianceRetention(ctx context.Context, bucket string) (bool, error)
 
 	// DeleteObjectVersion deletes a specific version of an object

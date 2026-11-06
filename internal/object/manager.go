@@ -166,6 +166,9 @@ type objectManager struct {
 
 	// localNode is the cluster node this manager runs on ("" outside one).
 	localNode func() string
+
+	dataDir  string
+	diskUsed func(path string) (float64, error) // diskUsedPercent unless set
 }
 
 // lockKey locks the shard associated with bucket+key and returns the unlock function.
@@ -647,7 +650,7 @@ func (om *objectManager) getObject(ctx context.Context, bucket, key string, vers
 			"reason": verdict.Reason,
 		}).Error("Object has no metadata sidecar and its bytes cannot be identified; refusing to serve")
 		return nil, nil, fmt.Errorf(
-			"object %q is unreadable: its metadata sidecar is missing and %s", key, verdict.Reason)
+			"%w: %q: its metadata sidecar is missing and %s", ErrObjectUnreadable, key, verdict.Reason)
 	}
 
 	// Check if object is encrypted
@@ -679,7 +682,7 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 		if errors.Is(keyErr, ErrCustomerKeyRequired) || errors.Is(keyErr, ErrCustomerKeyMismatch) {
 			return nil, keyErr
 		}
-		return nil, fmt.Errorf("failed to resolve decryption key: %w", keyErr)
+		return nil, fmt.Errorf("%w: failed to resolve decryption key: %w", ErrObjectUnreadable, keyErr)
 	}
 
 	sseAlgorithm := storageMetadata["x-amz-server-side-encryption-algorithm"]
@@ -738,6 +741,9 @@ func decryptingWith(ctx context.Context, encryptor encryption.Encryptor, encrypt
 // putObject stores an object
 func (om *objectManager) putObject(ctx context.Context, bucket, key string, data io.Reader, headers http.Header) (result *Object, resultErr error) {
 	if err := om.validateObjectName(key); err != nil {
+		return nil, err
+	}
+	if err := om.checkDiskSpace(); err != nil {
 		return nil, err
 	}
 
@@ -1248,16 +1254,17 @@ func (om *objectManager) deleteSpecificVersion(ctx context.Context, bucket, key,
 	}
 
 	objMetadata := fromMetadataObject(metaObj)
-	// The lock state of a write being undone was never acknowledged either.
-	rollback := isWriteRollback(ctx)
+	// The lock state of a write being undone was never acknowledged either, and
+	// a delete marker protects nothing: it is always removed.
+	enforced := !isWriteRollback(ctx) && !isMetadataDeleteMarker(metaObj)
 
 	// Check Object Lock - Legal Hold
-	if !rollback && objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
+	if enforced && objMetadata.LegalHold != nil && objMetadata.LegalHold.Status == LegalHoldStatusOn {
 		return ErrObjectUnderLegalHold
 	}
 
 	// Check Object Lock - Retention
-	if !rollback && objMetadata.Retention != nil {
+	if enforced && objMetadata.Retention != nil {
 		if time.Now().Before(objMetadata.Retention.RetainUntilDate) {
 			if objMetadata.Retention.Mode == RetentionModeCompliance {
 				return NewComplianceRetentionError(objMetadata.Retention.RetainUntilDate)
@@ -1928,6 +1935,9 @@ func (om *objectManager) setObjectRetention(ctx context.Context, bucket, key str
 			}
 			return err
 		}
+		if isMetadataDeleteMarker(metaObj) {
+			return ErrDeleteMarkerNotLockable
+		}
 		obj = fromMetadataObject(metaObj)
 	} else {
 		var err error
@@ -1990,6 +2000,9 @@ func (om *objectManager) setObjectLegalHold(ctx context.Context, bucket, key str
 				return ErrObjectNotFound
 			}
 			return err
+		}
+		if isMetadataDeleteMarker(metaObj) {
+			return ErrDeleteMarkerNotLockable
 		}
 		obj = fromMetadataObject(metaObj)
 	} else {
@@ -2234,6 +2247,9 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	if partNumber < 1 || partNumber > 10000 {
 		return nil, fmt.Errorf("part number must be between 1 and 10000")
 	}
+	if err := om.checkDiskSpace(); err != nil {
+		return nil, err
+	}
 	// The completion validates each part's ETag and then opens the part files.
 	// Replacing a part in between would assemble bytes the ETag never described.
 	defer om.lockUploadPart(uploadID, partNumber)()
@@ -2395,6 +2411,9 @@ func (om *objectManager) ListParts(ctx context.Context, uploadID string) ([]Part
 // If a completion for this uploadID is already in progress, the caller waits and
 // receives the same result — preventing race conditions on the filesystem.
 func (om *objectManager) completeMultipartUpload(ctx context.Context, uploadID string, parts []Part) (*Object, error) {
+	if err := om.checkDiskSpace(); err != nil {
+		return nil, err
+	}
 	om.completionMu.Lock()
 	if f, ok := om.completions[uploadID]; ok {
 		om.completionMu.Unlock()

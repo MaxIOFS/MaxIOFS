@@ -222,6 +222,22 @@ func TestAKeptErrorTotalThatMixedRefusalsInIsNotRestored(t *testing.T) {
 	assert.EqualValues(t, 7, snapshot["totalRefused"])
 }
 
+// An error total kept while SlowDown counted in it is not restored: it cannot be
+// split, and a rejection under load is no error.
+func TestAKeptErrorTotalThatMixedSlowDownInIsNotRestored(t *testing.T) {
+	store := createTestPebbleStore(t)
+	kept := `{"total_requests":100,"total_errors":40,"total_refused":5,"server_errors_only":true,"server_start_time":"2026-01-01T00:00:00Z"}`
+	require.NoError(t, store.PutRaw(context.Background(), "metrics:persisted_state", []byte(kept)))
+
+	m, ok := NewManagerWithStore(config.MetricsConfig{Enable: true, Interval: 10}, "", store).(*metricsManager)
+	require.True(t, ok)
+	snapshot, err := m.GetS3MetricsSnapshot()
+	require.NoError(t, err)
+	assert.EqualValues(t, 100, snapshot["totalRequests"])
+	assert.EqualValues(t, 5, snapshot["totalRefused"])
+	assert.EqualValues(t, 0, snapshot["totalErrors"])
+}
+
 // A refused request does not name its bucket: anyone can send any name, and
 // each would be a new series.
 func TestARefusedRequestDoesNotNameItsBucket(t *testing.T) {
@@ -353,6 +369,34 @@ func TestGetMetricsSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, snapshot, "timestamp")
 	assert.Contains(t, snapshot, "namespace")
+}
+
+// SlowDown is the server answering as it should, asking to send less: it counts
+// with the refusals, on a HEAD too, which names it in a header. Any other 5xx is
+// an error.
+func TestSlowDownIsNoError(t *testing.T) {
+	m := newTestManager(t)
+	router := s3Router(m, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "broken"):
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case r.Method == http.MethodHead:
+			w.Header().Set("x-amz-error-code", "SlowDown")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("<Error><Code>SlowDown</Code></Error>"))
+		}
+	})
+	serve(router, "GET", "/media/key", true)
+	serve(router, "HEAD", "/media/key", true)
+	serve(router, "GET", "/media/broken", true)
+
+	snapshot, err := m.GetS3MetricsSnapshot()
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, snapshot["totalRequests"])
+	assert.EqualValues(t, 1, snapshot["totalErrors"], "only the 503 that is no SlowDown")
+	assert.EqualValues(t, 2, snapshot["totalRefused"])
 }
 
 // The console's S3 totals count what the middleware sees.

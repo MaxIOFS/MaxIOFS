@@ -85,6 +85,9 @@ func (om *objectManager) PutObjectRaw(ctx context.Context, bucket, key string, d
 	if metaObj == nil {
 		return fmt.Errorf("raw replication requires object metadata")
 	}
+	if err := om.checkDiskSpace(); err != nil {
+		return err
+	}
 
 	tenantID, bucketName := om.parseBucketPath(bucket)
 	versioned := metaObj.VersionID != ""

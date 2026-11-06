@@ -10,6 +10,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// maxCorruptionEmails is how many objects of one scan get an email; the audit log
+// and the scan's report name them all.
+const maxCorruptionEmails = 10
+
 // startIntegrityScrubber launches a background goroutine that runs a full
 // integrity scan every 24 hours.  It does NOT run immediately on startup —
 // the first scan fires after the initial 24-hour tick.
@@ -45,6 +49,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 
 	totalCorrupted := 0
 	totalChecked := 0
+	emailed := 0
 
 	for _, bkt := range allBuckets {
 		// Objects are stored under "tenantID/bucketName" for tenant buckets
@@ -122,6 +127,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 						"computedETag": issue.ComputedETag,
 						"expectedSize": issue.ExpectedSize,
 						"actualSize":   issue.ActualSize,
+						"reason":       issue.Reason,
 					},
 				})
 
@@ -140,8 +146,11 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 					TenantID:  tenantID,
 				})
 
-				// Email alert
-				s.sendCorruptionAlertEmail(bkt.Name, issue.Key, issue.StoredETag, issue.ComputedETag)
+				// Email alert: a failing disk must not send one per object.
+				if emailed < maxCorruptionEmails {
+					emailed++
+					s.sendCorruptionAlertEmail(bkt.Name, issue)
+				}
 			}
 
 			// Throttle slightly to avoid saturating IO
@@ -176,7 +185,7 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 
 // sendCorruptionAlertEmail sends an email to all active global admins
 // notifying them of a corrupted or missing object.
-func (s *Server) sendCorruptionAlertEmail(bucket, key, storedETag, computedETag string) {
+func (s *Server) sendCorruptionAlertEmail(bucket string, issue *object.IntegrityResult) {
 	enabled, _ := s.settingsManager.GetBool("email.enabled")
 	if !enabled {
 		return
@@ -217,11 +226,12 @@ func (s *Server) sendCorruptionAlertEmail(bucket, key, storedETag, computedETag 
 
 	subject := "[MaxIOFS] ALERT: Data Corruption Detected"
 
-	var detail string
-	if computedETag == "" {
-		detail = fmt.Sprintf("  Status:    missing (object data not found on storage)\n  Bucket:    %s\n  Key:       %s\n  Stored ETag: %s", bucket, key, storedETag)
-	} else {
-		detail = fmt.Sprintf("  Status:      corrupted (ETag mismatch)\n  Bucket:      %s\n  Key:         %s\n  Stored ETag: %s\n  Actual ETag: %s", bucket, key, storedETag, computedETag)
+	detail := fmt.Sprintf("  Status:      %s\n  Bucket:      %s\n  Key:         %s\n  Stored ETag: %s", issue.Status, bucket, issue.Key, issue.StoredETag)
+	if issue.ComputedETag != "" {
+		detail += "\n  Actual ETag: " + issue.ComputedETag
+	}
+	if issue.Reason != "" {
+		detail += "\n  Reason:      " + issue.Reason
 	}
 
 	body := fmt.Sprintf(`MaxIOFS Data Integrity Alert
@@ -246,7 +256,7 @@ This alert is sent automatically by MaxIOFS when data corruption is detected dur
 	}
 	logrus.WithFields(logrus.Fields{
 		"bucket":     bucket,
-		"key":        key,
+		"key":        issue.Key,
 		"recipients": len(recipients),
 	}).Info("Corruption alert email sent")
 }

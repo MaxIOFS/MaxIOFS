@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **395 Go test files**, **21 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **401 Go test files**, **22 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -323,7 +323,7 @@ npx vitest run --coverage
 | `store_test.go` | Log target persistence |
 | `syslog_test.go` | Syslog target output |
 
-### `internal/metadata/` — 19 test files
+### `internal/metadata/` — 20 test files
 
 | File | Description |
 |------|-------------|
@@ -337,7 +337,8 @@ npx vitest run --coverage
 | `objects_test.go` | Object metadata storage and retrieval; a version kept latest beside a current null object is listed as no longer the latest |
 | `pagination_property_test.go` | Every listing, delimited or not, returns every key and prefix exactly once across page boundaries |
 | `pebble_test.go` | Pebble store: object CRUD and bucket deletion race coverage |
-| `pebble_durability_test.go` | WAL sync loop, `CLEAN_SHUTDOWN` sentinel, unclean-shutdown recovery |
+| `versions_page_test.go` | A walk over the pages of the versions of a bucket gives each once, keys in S3 order and newest first within a key, versions of one second included; a page follows its prefix, delimiter and markers, reads what it returns, and lists a current null object as the latest; deletes of one bucket share their fsync |
+| `pebble_durability_test.go` | WAL sync loop, `CLEAN_SHUTDOWN` sentinel, unclean-shutdown recovery; a store owing its reconcile does not close clean |
 | `pebble_group_commit_test.go` | `PutObject`/`PutObjectVersion` release the bucket lock before the WAL-sync wait, so concurrent writers share one fsync |
 | `pebble_group_commit_crash_test.go` | A process killed between the NoSync commit and the WAL sync leaves a rollback copy consistent with the index, not a phantom entry |
 | `pebble_pagination_test.go` | Marker loops over listing, delimited listing and search lose nothing at several page sizes |
@@ -375,7 +376,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 58 test files
+### `internal/object/` — 60 test files
 
 | File | Description |
 |------|-------------|
@@ -395,7 +396,9 @@ npx vitest run --coverage
 | `manager_critical_functions_test.go` | Critical path testing (copy, multipart complete) |
 | `manager_envelope_test.go` | Envelope encryption roundtrip, legacy direct-encrypted objects, folder markers stay plaintext |
 | `manager_final_coverage_test.go` | Final coverage gap tests |
-| `manager_integrity_test.go` | `VerifyObjectIntegrity` / `VerifyBucketIntegrity` — folder markers, delete markers, multipart skip, ETag mismatch |
+| `disk_space_test.go` | Writes, parts and completions stop at 99.5% of either disk while reads and deletes go on; a disk that cannot be read refuses nothing; what SOSAPI reports leaves the reserve out |
+| `integrity_bitrot_test.go` | A byte changed on disk is corruption, in a whole object and in one written in parts, and so is an object that lost its sidecar or whose key does not open; a cancelled scan is not; the composite ETag is recomputed from the part sizes; a scan covers versions that are not the latest, under a delete marker too, and pages through them all |
+| `manager_integrity_test.go` | `VerifyObjectIntegrity` / `VerifyBucketIntegrity` — folder markers, delete markers, an object in parts without its data, ETag mismatch |
 | `manager_internal_test.go` | Internal manager functions |
 | `manager_low_coverage_test.go` | Low-coverage path tests |
 | `manager_metadata_failure_test.go` | A failed metadata save after publishing bytes restores the previous object/backup |
@@ -480,7 +483,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 75 test files
+### `internal/server/` — 76 test files
 
 | File | Description |
 |------|-------------|
@@ -531,6 +534,7 @@ npx vitest run --coverage
 | `iam_tenant_isolation_test.go` | A tenant cannot reach another tenant's IAM role; a global administrator reaches every tenant's |
 | `ingress_headers_test.go` | Internal cluster headers are stripped from every inbound request |
 | `interrupted_writes_test.go` | `Start` refuses to serve traffic when the interrupted-write rollback has unresolved failures |
+| `upload_leftovers_test.go` | A start removes the temporary files of uploads a crash cut short, and nothing else |
 | `kek_rotation_test.go` | KEK rotation endpoint and cluster KEK-sync receive |
 | `kek_shutdown_test.go` | Shutdown waits for a rotating KEK checkpoint; stopping encryption workers cancels the periodic pass |
 | `leader_gate_test.go` | Reads, sign-in (on the router's real paths) and cluster traffic are never blocked by the leader gate; two-factor settings are; a bucket's settings and objects need no coordinator, its permissions do |
@@ -604,7 +608,7 @@ npx vitest run --coverage
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
 
-### `pkg/s3compat/` — 49 test files
+### `pkg/s3compat/` — 51 test files
 
 | File | Description |
 |------|-------------|
@@ -638,6 +642,8 @@ npx vitest run --coverage
 | `null_version_test.go` | The null version through the S3 API: kept, read and listed with `versionId=null`, replaced while suspended, a suspended delete answered `x-amz-version-id: null`, deleted by its ID |
 | `object_headers_test.go` | An object gives back the headers it was written with (`Expires` included) written whole, in parts or copied, and one written in parts the tags it was started with; a signed read is sent the headers its `response-*` parameters ask for, an anonymous one asking for them is refused; an ETag is sent quoted in every header and listing and kept without quotes; HEAD and GET name the storage class of every class but STANDARD |
 | `notifications_test.go` | Bucket notification webhook dispatch |
+| `disk_full_test.go` | A write refused at the limit and one that ran out of disk answer `507 InsufficientStorage` |
+| `object_lock_delete_test.go` | `DeleteObjects` refuses what Object Lock protects with `AccessDenied` and takes the GOVERNANCE bypass; a delete marker takes no retention or legal hold; retention needs Object Lock on the bucket; the pages of `ListObjectVersions` cover the bucket |
 | `object_lock_permissions_test.go` | Object Lock headers on PUT, CreateMultipartUpload and CopyObject need `s3:PutObjectRetention` / `s3:PutObjectLegalHold`; the bucket default needs neither; a copy carries the retention it asked for |
 | `objectlock_config_test.go` | Object Lock configuration needs its own permission; refused anonymously; read with or without the S3 namespace, answered with it |
 | `post_presigned_test.go` | POST presigned URL (HTML form upload + policy validation) |
@@ -681,6 +687,7 @@ Located in `web/frontend/src/__tests__/`, using **Vitest 5** with **jsdom** envi
 |------|-------------|
 | `api-token.test.ts` | JWT payload decoding for refresh scheduling; an object URL escapes each segment of the key |
 | `api-refresh.test.ts` | One session renewal at a time: the scheduled one waits for a renewal in flight |
+| `metricsHistory.test.ts` | The request and latency charts show what happened between two points, not the average since the start; no value for the first point or after the counters went back |
 | `timeTicks.test.ts` | Time axis ticks fall on round times, minutes in real time, local hours and midnights, and name the day or second where needed |
 | `bucketPolicyRules.test.ts` | A bucket policy edited as rules: rules round-trip through the policy, resources follow the actions, earlier template policies are read, what the rules cannot say is shown read-only, rule problems and address ranges |
 | `Buckets.test.tsx` | Bucket list, creation, deletion UI |
@@ -914,18 +921,18 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 58 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 75 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Object | 60 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 76 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
-| S3 Compat | 49 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
+| S3 Compat | 51 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
 | Auth | 35 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
-| Metadata | 19 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
+| Metadata | 20 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
 | Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
 | Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
 | Replication | 11 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 5 | Prometheus, history, system, performance |
 | Bucket | 9 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
-| IDP | 14 | LDAP against a test directory, OAuth, crypto, storage |
+| IDP | 16 | LDAP against a test directory, OAuth, crypto, storage |
 | Recovery | 8 | Offline recover and its resumption, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 6 | Auth, CORS, tracing, body digest, console headers, header redaction |
@@ -933,6 +940,6 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **395** | |
-| Frontend | 21 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
+| **Total Go** | **401** | |
+| Frontend | 22 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
 | Performance | 4 | Upload, download, mixed, common |

@@ -58,6 +58,11 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	// A new connection parses the whole schema: with the two idle connections
+	// database/sql keeps by default, a busy server opens one for most queries.
+	// Open connections stay unlimited: a query inside a row loop needs its own.
+	db.SetMaxIdleConns(64)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	store := &SQLiteStore{db: db}
 

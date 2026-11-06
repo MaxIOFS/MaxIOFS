@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
 )
@@ -100,7 +101,8 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectRetention")
 
-	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention) {
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention) ||
+		!h.requireObjectLockBucket(w, r, bucketName) {
 		return
 	}
 
@@ -147,6 +149,8 @@ func (h *Handler) PutObjectRetention(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, object.ErrObjectNotFound):
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
+		case errors.Is(err, object.ErrDeleteMarkerNotLockable):
+			h.writeError(w, "MethodNotAllowed", "The specified method is not allowed against this resource", objectKey, r)
 		case errors.Is(err, object.ErrRetentionLocked):
 			h.writeError(w, "AccessDenied", "The retention period is locked and cannot be modified", objectKey, r)
 		case errors.Is(err, object.ErrCannotShortenCompliance):
@@ -212,7 +216,8 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: PutObjectLegalHold")
 
-	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold) {
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold) ||
+		!h.requireObjectLockBucket(w, r, bucketName) {
 		return
 	}
 
@@ -243,11 +248,34 @@ func (h *Handler) PutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, "NoSuchKey", "The specified key does not exist", objectKey, r)
 			return
 		}
+		if errors.Is(err, object.ErrDeleteMarkerNotLockable) {
+			h.writeError(w, "MethodNotAllowed", "The specified method is not allowed against this resource", objectKey, r)
+			return
+		}
 		h.writeError(w, "InternalError", err.Error(), objectKey, r)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// requireObjectLockBucket answers the request unless its bucket has Object Lock:
+// only such a bucket keeps a retention or a legal hold.
+func (h *Handler) requireObjectLockBucket(w http.ResponseWriter, r *http.Request, bucketName string) bool {
+	bkt, err := h.bucketManager.GetBucketInfo(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
+	if err != nil {
+		if err == bucket.ErrBucketNotFound {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return false
+		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return false
+	}
+	if bkt.ObjectLock == nil || !bkt.ObjectLock.ObjectLockEnabled {
+		h.writeError(w, "InvalidRequest", "Bucket is missing Object Lock Configuration", bucketName, r)
+		return false
+	}
+	return true
 }
 
 // Object Tagging XML structures

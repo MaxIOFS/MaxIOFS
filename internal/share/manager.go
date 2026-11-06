@@ -65,6 +65,9 @@ func NewManagerWithDB(dataDir string, key func() string) (Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	// A new connection parses the whole schema; keep them while they are used.
+	db.SetMaxIdleConns(16)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	store, err := NewSQLiteStore(db, key)
 	if err != nil {

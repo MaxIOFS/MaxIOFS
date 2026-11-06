@@ -3,10 +3,37 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/maxiofs/maxiofs/internal/rollback"
 	"github.com/sirupsen/logrus"
 )
+
+// removeUploadLeftovers removes the temporary files of the uploads a previous run
+// was cut short in the middle of: no entry names them, and nothing is writing yet.
+func (s *Server) removeUploadLeftovers() {
+	entries, err := os.ReadDir(s.config.Storage.Root)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to read the storage root for upload leftovers")
+		return
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "maxiofs-upload-") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.config.Storage.Root, entry.Name())); err != nil {
+			logrus.WithError(err).WithField("file", entry.Name()).Warn("Failed to remove an upload leftover")
+			continue
+		}
+		removed++
+	}
+	if removed > 0 {
+		logrus.WithField("files", removed).Info("Removed the temporary files of interrupted uploads")
+	}
+}
 
 // undoInterruptedWrites puts back every in-place write that was cut short
 // between publishing its bytes and committing its index entry.

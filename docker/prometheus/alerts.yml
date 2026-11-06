@@ -172,14 +172,14 @@ groups:
           description: "The /metrics endpoint of {{ $labels.instance }} has not answered for 2 minutes."
 
       - alert: S3ServerErrors
-        expr: sum by (instance) (rate(maxiofs_http_requests_total{status=~"5.."}[5m])) / sum by (instance) (rate(maxiofs_http_requests_total[5m])) > 0.05
+        expr: sum by (instance) (rate(maxiofs_s3_operations_total{status="error"}[5m])) / sum by (instance) (rate(maxiofs_s3_operations_total[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
           component: reliability
         annotations:
           summary: "{{ $labels.instance }} answers more than 5% of S3 requests with a server error"
-          description: "{{ $value | humanizePercentage }} of the S3 requests of the last 5 minutes were answered 5xx."
+          description: "{{ $value | humanizePercentage }} of the S3 requests of the last 5 minutes were answered with a server error. A SlowDown is no error: it does not count."
 
       - alert: StorageFailures
         expr: sum by (instance, operation) (rate(maxiofs_storage_operations_total{status="failure"}[5m])) > 0

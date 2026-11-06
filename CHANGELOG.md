@@ -10,8 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Auto Sync reads Google Workspace (with a service account key) and Microsoft tenants (named by the Issuer URL) every hour, as LDAP directories and Keycloak realms.
 
+### Changed
+- Integrity scans cover every version of a bucket and objects written in parts, whose composite ETag is recomputed.
+- `ListObjectVersions` markers name the last entry returned, and `key-marker` alone starts after that key, as in S3.
+- Writes stop at 99.5% of the disk of the objects or of the metadata, and a full disk answers `507 InsufficientStorage`, not `500`: Pebble and SQLite keep room, deletes still work, and SOSAPI reports only what can be written.
+
 ### Fixed
 - Google and Microsoft sign-ins had no groups, so a group mapping refused them; with the directory set they read them from it.
+- `ListObjectVersions` read every version of the bucket for each page: a page now costs what it returns.
+- Under load nearly every request opened a new database connection, which parses the whole schema: S3 writes are about 5 times faster.
+- A byte changed on disk, or a lost sidecar or key, was reported as an error nobody was told of: integrity scans now report it as corruption, with their audit event and alert, and the alert says why.
+- `DeleteObjects` answered `InternalError` for what Object Lock protects: it answers `AccessDenied`, and takes `x-amz-bypass-governance-retention`.
+- A delete marker could be given a retention, which hid its object until the date: it answers `405`, and one locked before is removed.
+- `PutObjectRetention` and `PutObjectLegalHold` were taken on a bucket without Object Lock.
+- Deletes of versions no longer hold the bucket through their fsync.
+- `SlowDown` counted as a server error: it is the server asking to send less, and is counted with the refusals.
+- A start removes the temporary files of uploads a crash cut short.
+- A stop during the reconciliation after a crash marked the shutdown clean, and it was never finished: the next start runs it again.
+- A start decoded every object of every bucket before opening its ports: with millions of objects it took a minute, and now seconds.
+- The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
 
 ## [1.9.0] - 2026-11-05
 

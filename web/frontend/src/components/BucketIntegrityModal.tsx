@@ -431,8 +431,9 @@ function IssueTable({ issues }: { issues: IntegrityResult[] }) {
             <tbody>
               {issues.map((issue, idx) => (
                 <tr key={idx} className="border-t border-gray-100 dark:border-gray-800 hover:bg-secondary/50">
-                  <td className="px-3 py-2 font-mono text-foreground max-w-xs truncate" title={issue.key}>
+                  <td className="px-3 py-2 font-mono text-foreground max-w-xs truncate" title={issue.versionId ? `${issue.key} (${issue.versionId})` : issue.key}>
                     {issue.key}
+                    {issue.versionId && <div className="text-muted-foreground truncate">{issue.versionId}</div>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className="flex items-center gap-1.5">
