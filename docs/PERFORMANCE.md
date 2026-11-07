@@ -266,6 +266,16 @@ At 4.8 million objects and 2.7 TB:
 | Start | 13 s to serving; the reconciliation after a crash runs behind, about 1,000 objects/s |
 | Disk at 99.5% | 2,679 writes answered `507`, none `500`; reads, deletes and retention go on, `kill -9` included |
 
+A real Veeam Backup & Replication 13 over HTTPS, immutability on, to a new Object Lock bucket on the same node:
+
+| Job | Result |
+|-----|--------|
+| Full, 2.43 TB read | 717 GB in 1,042,307 objects in an hour; 1,043,799 PUT, p50 178 ms, p99 643 ms, no `5xx`, no `SlowDown` |
+| Incremental | 7,367 PUT in 44 minutes, no error |
+| Immutability | every data block under COMPLIANCE, the date Veeam asked |
+| Bucket counters | bytes and objects equal to the listing and the disk |
+| Integrity scan, whole bucket | 1,047,851 versions read back, none corrupted, 2 h 34 min |
+
 ---
 
 ## Optimization Guidelines

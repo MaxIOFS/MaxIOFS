@@ -7338,7 +7338,7 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 		ResourceID:   key,
 		Action:       "update",
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 		Details: map[string]interface{}{
 			"key":   key,
@@ -7405,7 +7405,7 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 		ResourceType: "settings",
 		Action:       "bulk_update",
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 		Details: map[string]interface{}{
 			"count":    len(req.Settings),
@@ -7581,7 +7581,7 @@ func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Requ
 		ResourceType: "bucket",
 		ResourceID:   bucketName,
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 	})
 
@@ -7632,7 +7632,7 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 		ResourceType: "bucket",
 		ResourceID:   bucketName,
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 	})
 
@@ -7764,7 +7764,7 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		ResourceType: "bucket",
 		ResourceID:   bucketName,
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 	})
 
@@ -7948,7 +7948,7 @@ func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		ResourceType: "bucket",
 		ResourceID:   bucketName,
 		Status:       "success",
-		IPAddress:    r.RemoteAddr,
+		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.UserAgent(),
 	})
 

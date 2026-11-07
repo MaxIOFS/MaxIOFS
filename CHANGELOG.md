@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A start removes the temporary files of uploads a crash cut short.
 - A stop during the reconciliation after a crash marked the shutdown clean, and it was never finished: the next start runs it again.
 - A start decoded every object of every bucket before opening its ports: with millions of objects it took a minute, and now seconds.
+- A stop waited for the bucket statistics pass to finish, minutes with millions of objects.
+- Behind a trusted proxy, the S3 request log, bucket access logs and the audit of setting and bucket changes named the proxy, not the client; anonymous S3 requests were limited per connection, not per client.
 - The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
 
 ## [1.9.0] - 2026-11-05

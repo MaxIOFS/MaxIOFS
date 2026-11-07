@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -100,7 +101,10 @@ func (rl *APIRateLimiter) Stop() {
 }
 
 // APIRateLimitMiddleware returns a Gorilla Mux middleware that enforces per-user
-func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Handler) http.Handler {
+//
+// clientIP names the client an anonymous request counts against; nil takes the
+// address of the peer.
+func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter, clientIP func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if rate limiting is enabled
@@ -117,7 +121,7 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Ha
 			// Identify user: prefer Authorization header value (access key), fall back to IP
 			key := r.Header.Get("Authorization")
 			if key == "" {
-				key = r.RemoteAddr
+				key = anonymousClient(r, clientIP)
 			}
 			// Use just the first 64 chars to keep map keys small
 			if len(key) > 64 {
@@ -140,4 +144,16 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter) func(http.Ha
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// anonymousClient is who an anonymous request counts against: its client, and
+// never one of its connections, which a client opens as many of as it likes.
+func anonymousClient(r *http.Request, clientIP func(*http.Request) string) string {
+	if clientIP != nil {
+		return clientIP(r)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

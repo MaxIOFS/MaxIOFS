@@ -990,6 +990,9 @@ func (s *Server) reconcileBucketStats(ctx context.Context) error {
 			err = s.metadataStore.RecalculateBucketStats(ctx, b.TenantID, b.Name)
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			logrus.WithFields(logrus.Fields{
 				"bucket": b.Name,
 				"tenant": b.TenantID,
@@ -1462,7 +1465,9 @@ func (s *Server) setupRoutes() error {
 	}
 	// Per-user S3 API rate limiting (security.ratelimit_api_per_second)
 	if s.config.Auth.EnableAuth {
-		s3Router.Use(auth.APIRateLimitMiddleware(s.settingsManager, s.apiRateLimiter))
+		s3Router.Use(auth.APIRateLimitMiddleware(s.settingsManager, s.apiRateLimiter, func(r *http.Request) string {
+			return getClientIP(r, s.proxyTrust())
+		}))
 	}
 
 	// Enforce maximum upload body size (system.max_upload_size_mb)
@@ -1498,7 +1503,7 @@ func (s *Server) setupRoutes() error {
 	// Register API routes on the authenticated subrouter
 	apiHandler.RegisterRoutes(s3Router)
 
-	s.httpServer.Handler = logS3APIRequests(handlers.RecoveryHandler()(
+	s.httpServer.Handler = logS3APIRequests(s.proxyTrust(), handlers.RecoveryHandler()(
 		websiteServingMiddleware(s,
 			virtualHostedStyleMiddleware(apiRouter, s.config.PublicAPIURL),
 		),
@@ -1640,7 +1645,7 @@ func unescapeRouteVars(next http.Handler) http.Handler {
 // who asked it, how it ended and how long it took. Everything needed to follow
 // a client through the log, and nothing repeated from the request itself. A
 // request refused (403) is a warning that says why.
-func logS3APIRequests(next http.Handler) http.Handler {
+func logS3APIRequests(trust proxyTrust, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		recorder := &s3StatusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -1658,7 +1663,7 @@ func logS3APIRequests(next http.Handler) http.Handler {
 			"status":      recorder.status,
 			"bytes":       recorder.written,
 			"duration_ms": time.Since(started).Milliseconds(),
-			"remote":      r.RemoteAddr,
+			"remote":      clientAddr(r, trust),
 			"ua":          r.Header.Get("User-Agent"),
 		}
 		if query := r.URL.RawQuery; query != "" {

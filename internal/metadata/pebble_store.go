@@ -739,6 +739,11 @@ func (s *PebbleStore) RecalculateBucketStatsCounting(ctx context.Context, tenant
 	// version ID: an object written while versioning was suspended is not
 	// among the versions the key kept from before.
 	for iter.First(); iter.Valid(); iter.Next() {
+		// A stop waits for this scan: minutes, at millions of objects.
+		if err := ctx.Err(); err != nil {
+			_ = iter.Close()
+			return retained, err
+		}
 		var obj ObjectMetadata
 		if err := json.Unmarshal(iter.Value(), &obj); err != nil {
 			continue

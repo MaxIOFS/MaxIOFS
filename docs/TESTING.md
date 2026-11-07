@@ -112,7 +112,7 @@ npx vitest run --coverage
 |------|-------------|
 | `access_key_last_used_test.go` | An access key's last-used time skips a write for a second already stored and never moves backwards |
 | `admin_identity_test.go` | Administrator status comes from the role or from an attached policy |
-| `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through |
+| `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through; an anonymous client counts once whatever its connections, and behind a proxy it is the client the proxy names |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
 | `auth_test.go` | Core authentication flows; only failed sign-ins count against an address |
 | `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it; a renewal in the same second reaches the other nodes; an older copy from another node never replaces a renewal |
@@ -338,7 +338,7 @@ npx vitest run --coverage
 | `pagination_property_test.go` | Every listing, delimited or not, returns every key and prefix exactly once across page boundaries |
 | `pebble_test.go` | Pebble store: object CRUD and bucket deletion race coverage |
 | `versions_page_test.go` | A walk over the pages of the versions of a bucket gives each once, keys in S3 order and newest first within a key, versions of one second included; a page follows its prefix, delimiter and markers, reads what it returns, and lists a current null object as the latest; deletes of one bucket share their fsync |
-| `pebble_durability_test.go` | WAL sync loop, `CLEAN_SHUTDOWN` sentinel, unclean-shutdown recovery; a store owing its reconcile does not close clean |
+| `pebble_durability_test.go` | WAL sync loop, `CLEAN_SHUTDOWN` sentinel, unclean-shutdown recovery; a store owing its reconcile does not close clean; a stop cuts the statistics scan short and leaves the counters |
 | `pebble_group_commit_test.go` | `PutObject`/`PutObjectVersion` release the bucket lock before the WAL-sync wait, so concurrent writers share one fsync |
 | `pebble_group_commit_crash_test.go` | A process killed between the NoSync commit and the WAL sync leaves a rollback copy consistent with the index, not a phantom entry |
 | `pebble_pagination_test.go` | Marker loops over listing, delimited listing and search lose nothing at several page sizes |
@@ -553,7 +553,7 @@ npx vitest run --coverage
 | `repair_rerun_test.go` | A factor changed while a repair runs is acted on once that repair ends |
 | `request_facts_test.go` | Bucket policy conditions see the client address and TLS; a trusted proxy's `X-Forwarded-For` and `X-Forwarded-Proto` count, a client's do not |
 | `route_ordering_test.go` | Route priority and matching order |
-| `s3_request_log_test.go` | A refused request (403) is logged as a warning with the user, the action, the resource and why; another error at Info with its code and message, without a refusal that did not answer it; a request gives the bytes it received and the version and ETag of its answer |
+| `s3_request_log_test.go` | A refused request (403) is logged as a warning with the user, the action, the resource and why; another error at Info with its code and message, without a refusal that did not answer it; a request gives the bytes it received and the version and ETag of its answer; behind a trusted proxy the line names the client, not the proxy |
 | `s3_sdk_test.go` | Through the S3 router with the AWS SDK's defaults: a range of an object written with a checksum is sent without it; `a//b`, `a/./b`, `/a` and `a/../b` are keys of their own, on every node in copies or shards and in the console; a key too long is a `400`; bucket names with periods and `--` are taken and reached by their host, on the S3 API and as a website, with either host under the other; a presigned URL reads any key; the console reaches a key named as one of its routes (`x/tags`, `search`) and sends a quoted ETag |
 | `search_api_test.go` | Object search API endpoints |
 | `server_test.go` | Server startup, shutdown, configuration; the console keeps the lifecycle rules it does not send |

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -243,11 +242,8 @@ func (s *Server) s3AccessLoggingMiddleware() mux.MiddlewareFunc {
 				tenantID = user.TenantID
 			}
 
-			// Remote IP (strip port).
-			remoteIP := r.RemoteAddr
-			if ip, _, err := net.SplitHostPort(remoteIP); err == nil {
-				remoteIP = ip
-			}
+			// The client, which a trusted proxy names.
+			remoteIP := getClientIP(r, s.proxyTrust())
 
 			requestID := w.Header().Get("x-amz-request-id")
 

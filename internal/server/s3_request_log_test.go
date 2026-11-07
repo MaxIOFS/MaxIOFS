@@ -37,7 +37,7 @@ func TestARefusedRequestIsLoggedWithWhy(t *testing.T) {
 		return nil
 	}
 
-	refused := logS3APIRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	refused := logS3APIRequests(proxyTrust{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth.NoteRefusal(r.Context(), "admin", auth.ActionPutObject, "arn:aws:s3:::b/k", "the bucket belongs to tenant t1: a global administrator only reads it")
 		auth.NoteError(r.Context(), "AccessDenied", "Access Denied")
 		w.WriteHeader(http.StatusForbidden)
@@ -51,7 +51,7 @@ func TestARefusedRequestIsLoggedWithWhy(t *testing.T) {
 	assert.Equal(t, "arn:aws:s3:::b/k", e.Data["resource"])
 	assert.Equal(t, "the bucket belongs to tenant t1: a global administrator only reads it", e.Data["reason"])
 
-	missing := logS3APIRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	missing := logS3APIRequests(proxyTrust{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth.NoteRefusal(r.Context(), "admin", auth.ActionListBucket, "arn:aws:s3:::other", "no policy of the caller or of the bucket allows it")
 		auth.NoteError(r.Context(), "NoSuchKey", "The specified key does not exist")
 		w.WriteHeader(http.StatusNotFound)
@@ -62,7 +62,7 @@ func TestARefusedRequestIsLoggedWithWhy(t *testing.T) {
 	assert.Equal(t, "NoSuchKey", e.Data["error"])
 	assert.NotContains(t, e.Data, "reason", "a refusal that did not answer the request")
 
-	stored := logS3APIRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	stored := logS3APIRequests(proxyTrust{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("ETag", `"8d777f385d3dfec8815d20f7496026dc"`)
 		w.Header().Set("x-amz-version-id", "1792880382314306100.85328ef1")
@@ -83,4 +83,35 @@ func TestARefusedRequestIsLoggedWithWhy(t *testing.T) {
 	require.NoError(t, json.Unmarshal(line, &written))
 	assert.Equal(t, "The specified key does not exist", written["error_message"])
 	assert.Equal(t, "S3 request", written["message"])
+}
+
+// Behind a proxy the log names the client the proxy forwarded the request for.
+func TestTheS3RequestLogNamesTheClientBehindAProxy(t *testing.T) {
+	logger := logrus.StandardLogger()
+	hook := new(logtest.Hook)
+	formerHooks := logger.ReplaceHooks(logrus.LevelHooks{})
+	formerLevel := logger.GetLevel()
+	logger.AddHook(hook)
+	logger.SetLevel(logrus.InfoLevel)
+	defer func() {
+		logger.ReplaceHooks(formerHooks)
+		logger.SetLevel(formerLevel)
+	}()
+	handler := logS3APIRequests(proxyTrust{private: true}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	remote := func(peer, forwarded string) any {
+		t.Helper()
+		hook.Reset()
+		req := httptest.NewRequest(http.MethodGet, "/b/k", nil)
+		req.RemoteAddr = peer
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		require.NotNil(t, hook.LastEntry())
+		return hook.LastEntry().Data["remote"]
+	}
+
+	assert.Equal(t, "10.200.1.149", remote("127.0.0.1:40000", "10.200.1.149"), "the client nginx names")
+	assert.Equal(t, "10.200.1.149:50000", remote("10.200.1.149:50000", ""), "a client met directly, with its port")
+	assert.Equal(t, "203.0.113.9:443", remote("203.0.113.9:443", "10.0.0.1"), "a peer that is no proxy names no other client")
 }

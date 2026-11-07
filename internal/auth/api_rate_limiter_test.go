@@ -23,7 +23,7 @@ func rateLimited(t *testing.T, settings fixedSettings, requests int) *httptest.R
 	limiter := NewAPIRateLimiter()
 	defer limiter.Stop()
 
-	handler := APIRateLimitMiddleware(settings, limiter)(
+	handler := APIRateLimitMiddleware(settings, limiter, nil)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	var rec *httptest.ResponseRecorder
@@ -57,7 +57,7 @@ func TestAPIRateLimit_AnswersSlowDownSoClientsRetry(t *testing.T) {
 func TestAPIRateLimit_NamesSlowDownOnAHead(t *testing.T) {
 	limiter := NewAPIRateLimiter()
 	defer limiter.Stop()
-	handler := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter)(
+	handler := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter, nil)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	var rec *httptest.ResponseRecorder
@@ -71,6 +71,34 @@ func TestAPIRateLimit_NamesSlowDownOnAHead(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "SlowDown", rec.Header().Get("x-amz-error-code"))
 	assert.Empty(t, rec.Body.String())
+}
+
+// An anonymous client counts once however many connections it opens, and
+// behind a proxy it is the client the proxy names.
+func TestAPIRateLimit_AnonymousRequestsCountPerClient(t *testing.T) {
+	limiter := NewAPIRateLimiter()
+	defer limiter.Stop()
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	direct := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter, nil)(ok)
+	proxied := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter,
+		func(r *http.Request) string { return r.Header.Get("X-Forwarded-For") })(ok)
+	send := func(handler http.Handler, peer, forwarded string) int {
+		req := httptest.NewRequest(http.MethodGet, "/bucket/object", nil)
+		req.RemoteAddr = peer
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	assert.Equal(t, http.StatusOK, send(direct, "10.0.0.1:1000", ""))
+	assert.Equal(t, http.StatusServiceUnavailable, send(direct, "10.0.0.1:2000", ""), "another connection of the same client")
+
+	assert.Equal(t, http.StatusOK, send(proxied, "127.0.0.1:1", "10.0.0.2"))
+	assert.Equal(t, http.StatusOK, send(proxied, "127.0.0.1:2", "10.0.0.3"), "another client behind the same proxy")
+	assert.Equal(t, http.StatusServiceUnavailable, send(proxied, "127.0.0.1:3", "10.0.0.2"))
 }
 
 func TestAPIRateLimit_ZeroMeansNoLimit(t *testing.T) {

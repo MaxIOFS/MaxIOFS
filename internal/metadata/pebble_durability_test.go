@@ -112,6 +112,31 @@ func TestWALSyncLoop(t *testing.T) {
 	}
 }
 
+// A stop does not wait for the scan of a bucket: a scan cut short changes nothing,
+// and the next one counts.
+func TestACancelledStatsScanLeavesTheCounters(t *testing.T) {
+	store, cleanup := setupObjectTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, store.CreateBucket(ctx, &BucketMetadata{Name: "b", OwnerID: "u"}))
+	require.NoError(t, store.PutObject(ctx, &ObjectMetadata{Bucket: "b", Key: "k", Size: 5, ETag: "e"}))
+	pebbleStore := store.(*PebbleStore)
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err := pebbleStore.RecalculateBucketStatsCounting(cancelled, "", "b")
+	assert.ErrorIs(t, err, context.Canceled)
+	meta, err := store.GetBucket(ctx, "", "b")
+	require.NoError(t, err)
+	assert.Zero(t, meta.ObjectCount)
+
+	_, err = pebbleStore.RecalculateBucketStatsCounting(ctx, "", "b")
+	require.NoError(t, err)
+	meta, err = store.GetBucket(ctx, "", "b")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, meta.ObjectCount)
+}
+
 // A reconciliation stopped half way is still owed: the close that interrupts it
 // is not clean, or the next start would never finish it.
 func TestAStoreOwingItsReconcileDoesNotCloseClean(t *testing.T) {
