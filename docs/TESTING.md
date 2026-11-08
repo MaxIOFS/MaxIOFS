@@ -114,7 +114,7 @@ npx vitest run --coverage
 | `admin_identity_test.go` | Administrator status comes from the role or from an attached policy |
 | `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through; an anonymous client counts once whatever its connections, and behind a proxy it is the client the proxy names |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
-| `auth_test.go` | Core authentication flows; only failed sign-ins count against an address |
+| `auth_test.go` | Core authentication flows; only failed sign-ins count against an address; a refused signature is logged with its access key and without the signature |
 | `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it; a renewal in the same second reaches the other nodes; an older copy from another node never replaces a renewal |
 | `bucket_policy_decision_test.go` | The bucket policy decides with the caller's policies: a Deny in either refuses, an Allow in either grants; the tenant boundary, a session policy and an unreadable document bound it |
 | `bootstrap_key_test.go` | The bootstrap key pair seeds the administrator's first S3 key once; ignored when a key exists, when unset, or when unusable |

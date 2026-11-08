@@ -313,7 +313,7 @@ Each node stores:
 - Monitor disk usage and set alerts at 80% and 90%.
 - Plan **vertical scaling** (bigger disks) or **horizontal scaling** (more nodes) before you reach 90%.
 
-Object writes stop at **99.5%** of the disk of `objects/` or of `--data-dir`, answered `507 InsufficientStorage`. The rest stays for Pebble and SQLite: reads, deletes and retention changes go on working, and deleting is how writes come back. Veeam's `capacity.xml` leaves that reserve out of the free space. Keep logs off that disk, or they eat the reserve.
+Object writes stop at **99.5%** of the disk of `objects/` or of `--data-dir`, answered `507 InsufficientStorage`. The rest stays for Pebble and SQLite: reads, deletes and retention changes go on working, and deleting is how writes come back. Veeam's `capacity.xml` leaves that reserve out of the free space. The disk alerts at 80% and 90% are where to act; this limit only guards the metadata when they are ignored.
 
 ### Quotas
 

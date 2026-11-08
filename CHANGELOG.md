@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A stop waited for the bucket statistics pass to finish, minutes with millions of objects.
 - Behind a trusted proxy, the S3 request log, bucket access logs and the audit of setting and bucket changes named the proxy, not the client; anonymous S3 requests were limited per connection, not per client.
 - The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
+- A refused S3 signature was logged whole; the log keeps its access key only.
 
 ## [1.9.0] - 2026-11-05
 

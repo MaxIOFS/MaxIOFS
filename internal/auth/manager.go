@@ -1331,10 +1331,10 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 				// If there WAS an auth header but it's invalid, return error
 				if hasAuth {
 					logrus.WithFields(logrus.Fields{
-						"method": r.Method,
-						"path":   r.URL.Path,
-						"error":  err.Error(),
-						"auth":   r.Header.Get("Authorization"),
+						"method":     r.Method,
+						"path":       r.URL.Path,
+						"error":      err.Error(),
+						"access_key": accessKeyOf(r.Header.Get("Authorization")),
 					}).Warn("Authentication failed")
 
 					switch {
@@ -1387,6 +1387,21 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// accessKeyOf is the access key an Authorization header names. The signature
+// stays out of the log: a request signed ahead of the server's clock is still
+// good once the clock gets there.
+func accessKeyOf(header string) string {
+	if _, credential, ok := strings.Cut(header, "Credential="); ok {
+		key, _, _ := strings.Cut(credential, "/")
+		return key
+	}
+	if rest, ok := strings.CutPrefix(header, "AWS "); ok {
+		key, _, _ := strings.Cut(rest, ":")
+		return key
+	}
+	return ""
 }
 
 // IsReady checks if the auth manager is ready

@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/maxiofs/maxiofs/internal/config"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -709,4 +714,36 @@ func TestAccessKeyGeneration(t *testing.T) {
 	user, err = manager.ValidateCredentials(ctx, accessKey.AccessKeyID, accessKey.SecretAccessKey)
 	assert.Error(t, err)
 	assert.Nil(t, user)
+}
+
+// A refused signature is logged with its access key and without the signature:
+// a request signed ahead of the server's clock is good once the clock gets there.
+func TestAFailedSignatureIsLoggedWithoutIt(t *testing.T) {
+	manager, dir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, dir)
+	logger := logrus.StandardLogger()
+	hook := new(logtest.Hook)
+	formerHooks := logger.ReplaceHooks(logrus.LevelHooks{})
+	logger.AddHook(hook)
+	defer logger.ReplaceHooks(formerHooks)
+
+	const signature = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+	req := httptest.NewRequest(http.MethodDelete, "/bucket/key", nil)
+	req.Header.Set("X-Amz-Date", time.Now().UTC().Format("20060102T150405Z"))
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLEKEY000001/20261107/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature="+signature)
+	manager.Middleware()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), req)
+
+	var logged *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Message == "Authentication failed" {
+			logged = e
+		}
+	}
+	require.NotNil(t, logged)
+	assert.Equal(t, "AKIAEXAMPLEKEY000001", logged.Data["access_key"])
+	for field, value := range logged.Data {
+		if text, ok := value.(string); ok {
+			assert.False(t, strings.Contains(text, signature), "the signature is in %s", field)
+		}
+	}
 }
