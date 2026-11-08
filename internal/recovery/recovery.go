@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/kek"
@@ -95,13 +98,28 @@ func Run(opts Options) (*Report, error) {
 		encryptor:   encryption.NewAESGCMEncryptor(encryption.DefaultEncryptionConfig()),
 		keys:        keys,
 		verbose:     opts.Verbose,
+		dryRun:      opts.DryRun,
+		started:     time.Now(),
 	}
+	r.told = r.started
+	r.total.Store(-1)
+	counting, stopCounting := context.WithCancel(context.Background())
+	counted := make(chan struct{})
+	go func() {
+		defer close(counted)
+		countObjects(counting, buckets, &r.total)
+	}()
+	defer func() {
+		stopCounting()
+		<-counted
+	}()
+
 	if opts.DryRun {
 		r.p = &progress{}
 		if err := r.buckets(context.Background(), buckets); err != nil {
 			return nil, err
 		}
-		logrus.Info("Dry run — nothing written")
+		logrus.WithField("took", time.Since(r.started).Round(time.Second).String()).Info("Dry run — nothing written")
 		return r.report(buckets), nil
 	}
 
@@ -109,6 +127,7 @@ func Run(opts Options) (*Report, error) {
 		return nil, err
 	}
 	p := r.p
+	r.workBefore = p.Done + p.Marked
 
 	if p.Stage == stageBuckets {
 		inner := filepath.Join(opts.OutDB, "metadata")
@@ -118,8 +137,9 @@ func Run(opts Options) (*Report, error) {
 		// NewPebbleStore creates the store under <DataDir>/metadata — it is
 		// built there and hoisted afterwards so outDB matches the server's layout.
 		store, err := metadata.NewPebbleStore(metadata.PebbleOptions{
-			DataDir: opts.OutDB,
-			Logger:  logrus.StandardLogger(),
+			DataDir:   opts.OutDB,
+			Logger:    logrus.StandardLogger(),
+			DeferSync: true, // made durable at each checkpoint
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fresh metadata store at %s: %w", opts.OutDB, err)
@@ -161,7 +181,8 @@ func Run(opts Options) (*Report, error) {
 	if err := hoist(opts.OutDB); err != nil {
 		return nil, err
 	}
-	logrus.WithField("out_db", opts.OutDB).Info("Fresh metadata store rebuilt")
+	logrus.WithFields(logrus.Fields{"out_db": opts.OutDB, "took": time.Since(r.started).Round(time.Second).String()}).
+		Info("Fresh metadata store rebuilt")
 	if err := os.Remove(p.path); err != nil {
 		return nil, fmt.Errorf("failed to remove the recovery progress: %w", err)
 	}
@@ -227,7 +248,13 @@ type progress struct {
 	Last       string `json:"last,omitempty"`
 	Walked     bool   `json:"walked,omitempty"`
 	Versioned  bool   `json:"versioned,omitempty"`
-	Report     Report `json:"report"`
+	// Locked says a version of the bucket has a retention or a legal hold.
+	Locked bool `json:"locked,omitempty"`
+	// Done is how many objects and versions the recovery has walked, Marked
+	// how many keys of the buckets it finished got their newest version current.
+	Done   int64  `json:"done,omitempty"`
+	Marked int64  `json:"marked,omitempty"`
+	Report Report `json:"report"`
 
 	path string // "" on a dry run, which keeps nothing
 }
@@ -312,6 +339,115 @@ type rebuild struct {
 	store       *metadata.PebbleStore
 	p           *progress
 	unsaved     int // files walked since the last record
+
+	dryRun     bool
+	nBuckets   int
+	total      atomic.Int64 // objects and versions of every bucket, -1 until counted
+	started    time.Time    // when this run started
+	workBefore int64        // work done before this run
+	marking    int64        // keys of the bucket being marked made current so far
+	told       time.Time    // the last progress logged
+}
+
+// checkpoint records where the recovery stands, once what it wrote is on
+// disk: the store does not wait for the disk on each write.
+func (r *rebuild) checkpoint() error {
+	if r.store != nil {
+		if err := r.store.Sync(); err != nil {
+			return fmt.Errorf("failed to sync the rebuilt store: %w", err)
+		}
+	}
+	return r.p.save()
+}
+
+// progressEvery is how often a recovery logs how far it is.
+var progressEvery = 30 * time.Second
+
+// tell logs how far the recovery is, at most once per progressEvery, with
+// what it is doing in fields.
+func (r *rebuild) tell(fields logrus.Fields) {
+	now := time.Now()
+	if now.Sub(r.told) < progressEvery {
+		return
+	}
+	r.told = now
+	done, total := r.work()
+	for k, v := range progressFields(done, total, done-r.workBefore, now.Sub(r.started), now) {
+		fields[k] = v
+	}
+	logrus.WithFields(fields).Info("Recovery progress")
+}
+
+// work is the work a recovery has done and the work there is, -1 while the
+// files are being counted. Each object and version is read, then each key of
+// a versioned bucket gets its newest version current: the keys are taken to
+// be as many as the versions, in the share of them read so far.
+func (r *rebuild) work() (done, total int64) {
+	done = r.p.Done + r.p.Marked + r.marking
+	objects := r.total.Load()
+	if objects < 0 {
+		return done, -1
+	}
+	if r.dryRun {
+		return done, objects
+	}
+	share := 1.0
+	if read := r.p.Report.Objects + r.p.Report.Versions; read > 0 {
+		share = float64(r.p.Report.Versions) / float64(read)
+	}
+	return done, objects + int64(share*float64(objects))
+}
+
+// progressFields says how far a recovery is from the work done and the work
+// there is, total -1 while it is not known, and the work done this run in
+// elapsed: its percentage, its rate, the time left and when it should end.
+func progressFields(done, total, doneThisRun int64, elapsed time.Duration, now time.Time) logrus.Fields {
+	fields := logrus.Fields{}
+	if total >= 0 {
+		fields["percent"] = fmt.Sprintf("%.1f%%", min(100, 100*float64(done)/float64(max(total, 1))))
+	}
+	if doneThisRun <= 0 || elapsed <= 0 {
+		return fields
+	}
+	rate := float64(doneThisRun) / elapsed.Seconds()
+	fields["rate"] = fmt.Sprintf("%.0f/s", rate)
+	if total >= 0 {
+		left := time.Duration(float64(max(total-done, 0)) / rate * float64(time.Second)).Round(time.Second)
+		fields["left"] = left.String()
+		fields["eta"] = now.Add(left).Format("2006-01-02 15:04")
+	}
+	return fields
+}
+
+// ofTotal says n of the total, "(counting)" while the total is not known.
+func ofTotal(n, total int64) string {
+	if total < 0 {
+		return fmt.Sprintf("%d of (counting)", n)
+	}
+	return fmt.Sprintf("%d of %d", n, total)
+}
+
+// countObjects counts the objects and versions of buckets into total, which
+// stays -1 until it is done. Listing the files takes a fraction of the time
+// their recovery takes.
+func countObjects(ctx context.Context, buckets []*bucketEntry, total *atomic.Int64) {
+	var n int64
+	for _, bkt := range buckets {
+		err := filepath.WalkDir(bkt.dirPath, func(_ string, d fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err == nil && !d.IsDir() && !isInternalObjectName(d.Name()) {
+				n++
+			}
+			return nil
+		})
+		if err != nil {
+			return
+		}
+	}
+	total.Store(n)
+	logrus.WithField("objects", n).Info("Objects and versions to recover counted")
 }
 
 func (r *rebuild) report(buckets []*bucketEntry) *Report {
@@ -332,11 +468,13 @@ func (r *rebuild) buckets(ctx context.Context, buckets []*bucketEntry) error {
 	if p.BucketPath != "" && (p.Bucket >= len(buckets) || buckets[p.Bucket].bucketPath != p.BucketPath) {
 		return r.changed(fmt.Sprintf("the bucket list of %s", r.objectsRoot))
 	}
+	r.nBuckets = len(buckets)
 	for i := p.Bucket; i < len(buckets); i++ {
 		bkt := buckets[i]
 		if i != p.Bucket || p.BucketPath == "" {
-			p.Bucket, p.BucketPath, p.Last, p.Walked, p.Versioned = i, bkt.bucketPath, "", false, false
+			p.Bucket, p.BucketPath, p.Last, p.Walked, p.Versioned, p.Locked = i, bkt.bucketPath, "", false, false, false
 		}
+		logrus.WithField("bucket", fmt.Sprintf("%s (%d of %d)", bkt.bucketPath, i+1, len(buckets))).Info("Recovering bucket")
 		if err := r.bucket(ctx, bkt); err != nil {
 			return err
 		}
@@ -372,7 +510,7 @@ func (r *rebuild) bucket(ctx context.Context, bkt *bucketEntry) error {
 			return err
 		}
 		p.Walked = true
-		if err := p.save(); err != nil {
+		if err := r.checkpoint(); err != nil {
 			return err
 		}
 	}
@@ -416,8 +554,15 @@ func (r *rebuild) walk(bkt *bucketEntry) error {
 		}
 		r.file(bkt, path)
 		p.Last = rel
+		if !isInternalObjectName(d.Name()) {
+			p.Done++
+			r.tell(logrus.Fields{
+				"bucket":  fmt.Sprintf("%s (%d of %d)", p.BucketPath, p.Bucket+1, r.nBuckets),
+				"objects": ofTotal(p.Done, r.total.Load()),
+			})
+		}
 		if r.unsaved++; r.unsaved >= checkpointEvery {
-			if err := p.save(); err != nil {
+			if err := r.checkpoint(); err != nil {
 				return err
 			}
 			r.unsaved = 0
@@ -555,6 +700,10 @@ func (r *rebuild) file(bkt *bucketEntry, path string) {
 		}
 	}
 
+	if obj.Retention != nil || obj.LegalHold {
+		r.p.Locked = true
+	}
+
 	switch class {
 	case classEncryptedVerified:
 		report.EncryptedVerified++
@@ -622,7 +771,12 @@ func (r *rebuild) markLatest(ctx context.Context, bkt *bucketEntry) error {
 	if err != nil {
 		return fmt.Errorf("failed to read the versions of %s: %w", bkt.bucketPath, err)
 	}
-	for key, versionID := range newest {
+	logrus.WithFields(logrus.Fields{"bucket": bkt.bucketPath, "keys": len(newest)}).Info("Making the newest version of each key current")
+	r.marking = 0
+	// In key order, as the store keeps them: in a map's order each read is
+	// somewhere else in the store.
+	for _, key := range slices.Sorted(maps.Keys(newest)) {
+		versionID := newest[key]
 		obj, err := r.store.GetObject(ctx, bkt.bucketPath, key, versionID)
 		if err == nil {
 			err = r.store.PutObjectVersion(ctx, obj, versionOf(obj, true))
@@ -633,7 +787,14 @@ func (r *rebuild) markLatest(ctx context.Context, bkt *bucketEntry) error {
 		if err := stopping("latest"); err != nil {
 			return err
 		}
+		r.marking++
+		r.tell(logrus.Fields{
+			"bucket": fmt.Sprintf("%s (%d of %d)", bkt.bucketPath, r.p.Bucket+1, r.nBuckets),
+			"keys":   fmt.Sprintf("%d of %d", r.marking, len(newest)),
+		})
 	}
+	r.p.Marked += r.marking
+	r.marking = 0
 	return nil
 }
 
@@ -642,13 +803,19 @@ func (r *rebuild) count(ctx context.Context, bkt *bucketEntry) {
 	fail := func(err error) {
 		r.p.Report.Failures = append(r.p.Report.Failures, fmt.Sprintf("bucket %s: %v", bkt.bucketPath, err))
 	}
-	if r.p.Versioned {
+	if r.p.Versioned || r.p.Locked {
 		stored, err := r.store.GetBucket(ctx, bkt.tenantID, bkt.name)
 		if err != nil {
 			fail(err)
 			return
 		}
 		stored.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
+		// A retention or a legal hold exists only in a bucket with Object Lock,
+		// a setting the lost store kept: the bucket gets it back, without its
+		// default retention, which no file keeps.
+		if r.p.Locked {
+			stored.ObjectLock = &metadata.ObjectLockMetadata{Enabled: true}
+		}
 		if err := r.store.UpdateBucket(ctx, stored); err != nil {
 			fail(err)
 			return

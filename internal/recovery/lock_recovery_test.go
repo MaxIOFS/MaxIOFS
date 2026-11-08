@@ -80,6 +80,12 @@ func TestRecovery_ObjectLockSurvives(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, objMgr.SetObjectLegalHold(ctx, "locked", "released",
 		&object.LegalHoldConfig{Status: object.LegalHoldStatusOff}, released.VersionID))
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{
+		Name: "plain", OwnerID: "admin", Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
+	}))
+	require.NoError(t, backend.CreateBucket(ctx, "plain"))
+	_, err = objMgr.PutObject(ctx, "plain", "free", bytes.NewReader([]byte("free")), http.Header{})
+	require.NoError(t, err)
 	require.NoError(t, metaStore.Close())
 	require.NoError(t, db.Close())
 	require.NoError(t, os.RemoveAll(filepath.Join(dataDir, "live")))
@@ -108,4 +114,14 @@ func TestRecovery_ObjectLockSurvives(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got.Retention)
 	assert.False(t, got.LegalHold)
+
+	// The bucket's Object Lock setting was in the lost store: its versions bring
+	// it back, or nothing could set a retention on the bucket any more.
+	locked, err := store.GetBucket(ctx, "", "locked")
+	require.NoError(t, err)
+	require.NotNil(t, locked.ObjectLock)
+	assert.True(t, locked.ObjectLock.Enabled)
+	plainBucket, err := store.GetBucket(ctx, "", "plain")
+	require.NoError(t, err)
+	assert.Nil(t, plainBucket.ObjectLock, "no version of it is locked")
 }

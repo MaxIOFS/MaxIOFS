@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrity scans cover every version of a bucket and objects written in parts, whose composite ETag is recomputed.
 - `ListObjectVersions` markers name the last entry returned, and `key-marker` alone starts after that key, as in S3.
 - Writes stop at 99.5% of the disk of the objects or of the metadata, and a full disk answers `507 InsufficientStorage`, not `500`: Pebble and SQLite keep room, deletes still work, and SOSAPI reports only what can be written.
+- `maxiofs recover` says every 30 seconds how far it is: objects done of the total, percentage, time left and when it should end. It waits for the disk once per thousand files, not on each object.
 
 ### Fixed
 - Google and Microsoft sign-ins had no groups, so a group mapping refused them; with the directory set they read them from it.
@@ -32,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Behind a trusted proxy, the S3 request log, bucket access logs and the audit of setting and bucket changes named the proxy, not the client; anonymous S3 requests were limited per connection, not per client.
 - The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
 - A refused S3 signature was logged whole; the log keeps its access key only.
+- `maxiofs recover` left every bucket without its Object Lock setting, so no retention could be set or extended on it: a bucket with a locked version gets it back.
+- A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
 
 ## [1.9.0] - 2026-11-05
 

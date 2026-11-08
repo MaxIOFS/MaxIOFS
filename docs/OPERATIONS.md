@@ -402,6 +402,18 @@ Its progress is kept in `<out-db>.progress` until the run ends. Another data
 directory or bundle is refused, and so are files that changed since the stop;
 remove `<out-db>` and `<out-db>.progress` to start over.
 
+Every 30 seconds the run logs how far it is:
+
+```
+level=info msg="Recovery progress" bucket="prueba (5 of 6)" eta="2026-11-08 14:44" left=2m33s objects="759259 of 1189243" percent="37.1%" rate=9800/s
+```
+
+`objects` counts the objects and versions read over every bucket. Then each
+key of a versioned bucket gets its newest version current, and the line gives
+`keys` instead. `percent`, `left` and `eta` cover both, taking a bucket to
+have as many keys as versions, as Veeam's do. The total is counted while the
+run starts; until then the line has no percentage nor end.
+
 **Behaviour notes:**
 
 - **Deleted versioned objects come back visible**: delete markers exist only
@@ -413,8 +425,11 @@ remove `<out-db>` and `<out-db>.progress` to start over.
   listed as failures in the report for the operator.
 - **Object Lock** state comes back with each version: its retention and legal
   hold. A version stored by an earlier release gets them in its sidecar at the
-  encryption worker's first pass after the update. User metadata, tags and
-  ACLs live only in the metadata store and do not come back.
+  encryption worker's first pass after the update. A bucket with a locked
+  version gets its Object Lock setting back, so retentions can still be set and
+  extended; its default retention rule is kept by no file and is set again by
+  hand. User metadata, tags and ACLs live only in the metadata store and do not
+  come back.
 - If the database still holds encryption keys, the restore never overwrites
   existing key material (same version + different material aborts with an
   error) and keeps the database's current-key marker.

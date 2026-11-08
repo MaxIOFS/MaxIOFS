@@ -29,7 +29,7 @@ func (s *PebbleStore) PutObject(ctx context.Context, obj *ObjectMetadata) (err e
 	defer func() {
 		mu.Unlock()
 		if err == nil {
-			err = s.db.LogData(nil, pebble.Sync)
+			err = s.waitForWAL()
 		}
 	}()
 	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
@@ -500,7 +500,7 @@ func (s *PebbleStore) PutObjectVersion(ctx context.Context, obj *ObjectMetadata,
 	defer func() {
 		mu.Unlock()
 		if err == nil {
-			err = s.db.LogData(nil, pebble.Sync)
+			err = s.waitForWAL()
 		}
 	}()
 	if err := s.rejectWriteToDeletedBucket(obj.Bucket); err != nil {
@@ -1007,7 +1007,7 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 	defer func() {
 		mu.Unlock()
 		if err == nil {
-			err = s.db.LogData(nil, pebble.Sync)
+			err = s.waitForWAL()
 		}
 	}()
 

@@ -1420,6 +1420,44 @@ func TestHandleDeleteBucket(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, deleteRR.Code)
 }
 
+// A forced delete keeps a bucket whose objects COMPLIANCE protects, even
+// without the bucket's Object Lock setting, as a store rebuilt from the files
+// has it.
+func TestAForcedDeleteKeepsCompliantObjectsWithoutTheBucketSetting(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	user, err := server.authManager.ValidateJWT(ctx, getAdminToken(t, server))
+	require.NoError(t, err)
+	const name = "forced-locked"
+	require.NoError(t, server.bucketManager.CreateBucket(ctx, "", name, user.ID))
+	require.NoError(t, server.bucketManager.SetObjectLockConfig(ctx, "", name, &bucket.ObjectLockConfig{ObjectLockEnabled: true}))
+	headers := http.Header{}
+	headers.Set("x-amz-object-lock-mode", "COMPLIANCE")
+	headers.Set("x-amz-object-lock-retain-until-date", time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339))
+	_, err = server.objectManager.PutObject(ctx, name, "kept", bytes.NewReader([]byte("kept")), headers)
+	require.NoError(t, err)
+	stored, err := server.metadataStore.GetBucket(ctx, "", name)
+	require.NoError(t, err)
+	stored.ObjectLock = nil
+	require.NoError(t, server.metadataStore.UpdateBucket(ctx, stored))
+
+	req := httptest.NewRequest("DELETE", "/api/v1/buckets/"+name+"?force=true", nil)
+	rctx := context.WithValue(req.Context(), "user", user)
+	rctx = auth.WithPolicySet(rctx, &auth.PolicySet{
+		UserID:    user.ID,
+		Documents: []string{`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:DeleteBucket","Resource":"arn:aws:s3:::` + name + `"}]}`},
+		Actions:   []string{auth.ActionDeleteBucket},
+	})
+	req = mux.SetURLVars(req.WithContext(rctx), map[string]string{"bucket": name})
+	rr := httptest.NewRecorder()
+	server.handleDeleteBucket(rr, req)
+
+	assert.Equal(t, http.StatusConflict, rr.Code, rr.Body.String())
+	_, err = server.objectManager.GetObjectMetadata(ctx, name, "kept")
+	assert.NoError(t, err, "the protected object is still there")
+}
+
 // TestHandleListSettings tests the GET /settings endpoint
 func TestHandleListSettings(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)

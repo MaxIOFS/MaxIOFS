@@ -35,6 +35,7 @@ type PebbleStore struct {
 	closeErr         error
 	wasCleanShutdown bool
 	reconcileOwed    atomic.Bool // an unclean shutdown's reconciliation has not finished
+	deferSync        bool
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -43,6 +44,9 @@ type PebbleOptions struct {
 	Logger          *logrus.Logger
 	CacheSizeMB     int // Block cache size in MB (default 256)
 	WALSyncInterval time.Duration
+	// DeferSync: object writes return without waiting for the disk, and Sync
+	// makes them durable. For an offline rebuild that keeps its own checkpoints.
+	DeferSync bool
 }
 
 // defaultWALSyncInterval flushes asynchronous metadata updates; durable writes
@@ -116,6 +120,7 @@ func NewPebbleStore(opts PebbleOptions) (*PebbleStore, error) {
 		stopCh:           make(chan struct{}),
 		dbPath:           dbPath,
 		wasCleanShutdown: wasClean,
+		deferSync:        opts.DeferSync,
 	}
 	store.ready.Store(true)
 
@@ -182,6 +187,20 @@ func (s *PebbleStore) runWALSyncLoop(interval time.Duration) {
 			}
 		}
 	}
+}
+
+// Sync waits until every write committed so far is on disk.
+func (s *PebbleStore) Sync() error {
+	return s.db.LogData(nil, pebble.Sync)
+}
+
+// waitForWAL waits for the disk after a durable write, unless the store
+// leaves that to Sync.
+func (s *PebbleStore) waitForWAL() error {
+	if s.deferSync {
+		return nil
+	}
+	return s.Sync()
 }
 
 // setNoSync / commitNoSync are the hot-path write helpers:

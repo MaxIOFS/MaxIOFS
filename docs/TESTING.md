@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **401 Go test files**, **22 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **402 Go test files**, **22 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -112,7 +112,7 @@ npx vitest run --coverage
 |------|-------------|
 | `access_key_last_used_test.go` | An access key's last-used time skips a write for a second already stored and never moves backwards |
 | `admin_identity_test.go` | Administrator status comes from the role or from an attached policy |
-| `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through; an anonymous client counts once whatever its connections, and behind a proxy it is the client the proxy names |
+| `api_rate_limiter_test.go` | The S3 rate limit answers `SlowDown`; zero means no limit; disabled lets everything through; an anonymous client counts once whatever its connections, and behind a proxy it is the client the proxy names; the warning names the access key or the client held back |
 | `auth_disabled_test.go` | With authentication disabled, console login and S3 credentials resolve to a user that exists |
 | `auth_test.go` | Core authentication flows; only failed sign-ins count against an address; a refused signature is logged with its access key and without the signature |
 | `console_session_test.go` | A session ends before its tokens expire and another of the user does not; a token from before sessions works until it expires; a provider's logout ends the sessions of its session or of its subject; a two-factor session keeps the provider's grant; another node's sessions never start an ended one again; ended sessions stay ended after a restart; a session ended during a renewal stays ended; in a cluster a session names the node that started it; a renewal in the same second reaches the other nodes; an older copy from another node never replaces a renewal |
@@ -447,12 +447,13 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/recovery/` — 8 test files
+### `internal/recovery/` — 9 test files
 
 | File | Description |
 |------|-------------|
 | `customer_key_recovery_test.go` | `maxiofs recover` rebuilds the entry of an SSE-C object, which the client's key still opens |
-| `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off |
+| `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off, and the Object Lock setting of a bucket with a locked version |
+| `progress_test.go` | A recovery measures its progress against every object and version it walks, and says the percentage, the rate, the time left and when it should end |
 | `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk; a shard is passed over by reconcile and the offline rebuild |
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
 | `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone, with the headers each object kept |
@@ -501,7 +502,7 @@ npx vitest run --coverage
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold; a raw copy of a version deleted here, or of a write before a deletion of its key, is not stored |
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
-| `console_api_test.go` | Console REST API endpoint tests |
+| `console_api_test.go` | Console REST API endpoint tests; a forced delete keeps a bucket whose objects COMPLIANCE protects, with or without the bucket's Object Lock setting |
 | `console_csp_test.go` | The inline script of the console's page is the one its Content-Security-Policy names by digest, at both console URLs |
 | `console_customer_key_test.go` | The console marks an SSE-C object and answers 409 to its download; an object of the same bucket without one downloads |
 | `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked; the connection test answers each check, and the first that failed as its message |
@@ -933,13 +934,13 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 | Metrics | 5 | Prometheus, history, system, performance |
 | Bucket | 9 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
 | IDP | 16 | LDAP against a test directory, OAuth, crypto, storage |
-| Recovery | 8 | Offline recover and its resumption, reconcile (restore + repair) |
+| Recovery | 9 | Offline recover, its resumption and progress, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 6 | Auth, CORS, tracing, body digest, console headers, header redaction |
 | Inventory | 6 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
 | Encryption | 2 | AES-256-GCM, benchmarks |
 | Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **401** | |
+| **Total Go** | **402** | |
 | Frontend | 22 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
 | Performance | 4 | Upload, download, mixed, common |

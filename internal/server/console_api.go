@@ -1657,7 +1657,9 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 
 	// COMPLIANCE / legal-hold protection: even global admins and force-delete cannot
 	// bypass active COMPLIANCE retention or legal holds — this is the WORM guarantee.
-	if bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled {
+	// The objects decide, not the bucket's setting: a metadata store rebuilt from
+	// the files has the retentions and not the setting.
+	{
 		bucketPath := bucketName
 		if tenantID != "" {
 			bucketPath = tenantID + "/" + bucketName

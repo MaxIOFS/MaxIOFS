@@ -120,8 +120,12 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter, clientIP fun
 
 			// Identify user: prefer Authorization header value (access key), fall back to IP
 			key := r.Header.Get("Authorization")
+			client := accessKeyOf(key)
+			if client == "" {
+				client = anonymousClient(r, clientIP)
+			}
 			if key == "" {
-				key = anonymousClient(r, clientIP)
+				key = client
 			}
 			// Use just the first 64 chars to keep map keys small
 			if len(key) > 64 {
@@ -130,8 +134,8 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter, clientIP fun
 
 			if !rl.Allow(key, ratePerSecond) {
 				logrus.WithFields(logrus.Fields{
-					"key":  key[:min(len(key), 20)],
-					"rate": ratePerSecond,
+					"client": client,
+					"rate":   ratePerSecond,
 				}).Warn("S3 API rate limit exceeded")
 				// SlowDown is what an S3 client retries with backoff. A bare 429
 				// is not an S3 error and aborts the transfer instead.

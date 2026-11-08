@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,6 +100,28 @@ func TestAPIRateLimit_AnonymousRequestsCountPerClient(t *testing.T) {
 	assert.Equal(t, http.StatusOK, send(proxied, "127.0.0.1:1", "10.0.0.2"))
 	assert.Equal(t, http.StatusOK, send(proxied, "127.0.0.1:2", "10.0.0.3"), "another client behind the same proxy")
 	assert.Equal(t, http.StatusServiceUnavailable, send(proxied, "127.0.0.1:3", "10.0.0.2"))
+}
+
+// The warning of a request held back names whom: the access key of a signed
+// one, the client of an anonymous one. Every signature starts the same way.
+func TestAPIRateLimit_TheWarningNamesTheClient(t *testing.T) {
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+
+	rateLimited(t, fixedSettings{enabled: true, rate: 1}, 2)
+	require.NotNil(t, hook.LastEntry())
+	assert.Equal(t, "AKIAEXAMPLE", hook.LastEntry().Data["client"])
+
+	limiter := NewAPIRateLimiter()
+	defer limiter.Stop()
+	handler := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter, nil)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/bucket/object", nil)
+		req.RemoteAddr = "10.0.0.9:4000"
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	assert.Equal(t, "10.0.0.9", hook.LastEntry().Data["client"])
 }
 
 func TestAPIRateLimit_ZeroMeansNoLimit(t *testing.T) {
