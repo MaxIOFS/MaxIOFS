@@ -34,7 +34,7 @@ func (b *nullVersionBucket) versioning(status string) {
 	ctx := context.Background()
 	meta, err := b.store.GetBucket(ctx, "", b.name)
 	require.NoError(b.t, err)
-	meta.Versioning = &metadata.VersioningMetadata{Status: status, Enabled: status == "Enabled"}
+	meta.Versioning = &metadata.VersioningMetadata{Status: status}
 	require.NoError(b.t, b.store.UpdateBucket(ctx, meta))
 }
 

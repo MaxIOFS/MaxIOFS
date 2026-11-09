@@ -19,8 +19,7 @@ func createVersionedTestBucket(t *testing.T, ctx context.Context, metaStore meta
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	}))
 

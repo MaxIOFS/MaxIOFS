@@ -178,8 +178,32 @@ func TestPrometheusExportsWhatTheServerDoes(t *testing.T) {
 	s.notificationHub.SendNotification(&Notification{Type: "disk_warning"})
 	s.runTask(ctx, "stats_reconciler", func() error { return s.reconcileBucketStats(ctx) })
 
-	resp, err = http.Get(api.URL + "/metrics")
-	require.NoError(t, err)
+	// The metrics name every bucket: they are read with the token of the
+	// settings, and nothing while it is empty.
+	scrapeWith := func(token string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, api.URL+"/metrics", nil)
+		require.NoError(t, err)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		return resp
+	}
+	for name, token := range map[string]string{"no token": "", "a token while none is set": "anything"} {
+		resp = scrapeWith(token)
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, name)
+	}
+	require.NoError(t, s.settingsManager.Set("metrics.token", "prometheus-scrape-token"))
+	for name, token := range map[string]string{"no token": "", "another token": "prometheus-scrape-tokeN"} {
+		resp = scrapeWith(token)
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, name)
+		assert.Equal(t, `Bearer realm="metrics"`, resp.Header.Get("WWW-Authenticate"))
+	}
+	resp = scrapeWith("prometheus-scrape-token")
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	require.NoError(t, err)

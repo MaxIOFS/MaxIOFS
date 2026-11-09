@@ -1094,14 +1094,14 @@ var privateIPNets = func() []*net.IPNet {
 
 // proxyTrust is which direct peers a request's X-Forwarded-For and
 // X-Forwarded-Proto are taken from: those of trusted_proxies, and every
-// loopback and private address while trust_private_networks is on.
+// loopback and private address when trust_private_networks is true.
 type proxyTrust struct {
 	proxies []string
 	private bool
 }
 
 func (s *Server) proxyTrust() proxyTrust {
-	private := s.config.TrustPrivateNetworks == nil || *s.config.TrustPrivateNetworks
+	private := s.config.TrustPrivateNetworks != nil && *s.config.TrustPrivateNetworks
 	return proxyTrust{proxies: s.config.TrustedProxies, private: private}
 }
 

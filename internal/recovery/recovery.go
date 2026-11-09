@@ -56,6 +56,7 @@ type Report struct {
 	CustomerKey         int // encrypted with a customer key (SSE-C): read with the client's key
 	Plaintext           int
 	Skipped             int // markers, temp files
+	BucketSettings      int // buckets whose configuration came back from their marker
 	Failures            []string
 	OutDB               string
 	KEKsRestored        int
@@ -68,6 +69,9 @@ type bucketEntry struct {
 	name       string
 	tenantID   string
 	createdAt  time.Time
+	// config is the configuration the bucket's marker keeps, nil in a marker
+	// of an earlier release.
+	config *metadata.BucketMetadata
 }
 
 // Run executes the recovery. A recovery that stopped is continued by running
@@ -490,16 +494,25 @@ func (r *rebuild) buckets(ctx context.Context, buckets []*bucketEntry) error {
 // gets its versioning and its counts.
 func (r *rebuild) bucket(ctx context.Context, bkt *bucketEntry) error {
 	p := r.p
+	if bkt.config != nil && p.Last == "" && !p.Walked {
+		p.Report.BucketSettings++
+	}
 	if r.store != nil {
-		err := r.store.CreateBucket(ctx, &metadata.BucketMetadata{
+		meta := &metadata.BucketMetadata{
 			Name:      bkt.name,
 			TenantID:  bkt.tenantID,
-			OwnerID:   "admin", // ownership lives in SQLite, re-applied after recovery
+			OwnerID:   "admin", // a marker of an earlier release does not name the owner
 			OwnerType: "user",
 			Region:    "us-east-1",
 			CreatedAt: bkt.createdAt,
 			UpdatedAt: time.Now(),
-		})
+		}
+		if bkt.config != nil {
+			kept := *bkt.config
+			kept.Name, kept.TenantID = bkt.name, bkt.tenantID
+			meta = &kept
+		}
+		err := r.store.CreateBucket(ctx, meta)
 		if err != nil && !errors.Is(err, metadata.ErrBucketAlreadyExists) {
 			p.Report.Failures = append(p.Report.Failures, fmt.Sprintf("create bucket %s: %v", bkt.bucketPath, err))
 			return nil
@@ -595,16 +608,27 @@ func discoverBuckets(objectsRoot string) ([]*bucketEntry, error) {
 		createdAt := info.ModTime()
 		bucketPath := ""
 
-		// The current layout writes the tenant-qualified path into the marker;
-		// the previous one left it empty and recorded the tenant in a sidecar.
-		if content, err := os.ReadFile(markerPath); err == nil {
-			if recorded := strings.TrimSpace(string(content)); recorded != "" {
-				bucketPath = recorded
-				name = recorded
-				tenantID = ""
-				if i := strings.LastIndex(recorded, "/"); i >= 0 {
-					tenantID, name = recorded[:i], recorded[i+1:]
-				}
+		// The current layout writes the tenant-qualified path into the marker,
+		// with the bucket's configuration since it is kept there; the previous
+		// layout left it empty and recorded the tenant in a sidecar.
+		marker, err := storage.ReadBucketMarker(dirPath)
+		if err != nil {
+			logrus.WithError(err).WithField("dir", dirPath).Warn("Bucket marker unreadable: the bucket is named after its directory")
+		}
+		var config *metadata.BucketMetadata
+		if len(marker.Config) > 0 {
+			config = &metadata.BucketMetadata{}
+			if err := json.Unmarshal(marker.Config, config); err != nil {
+				logrus.WithError(err).WithField("dir", dirPath).Warn("Bucket configuration in the marker unreadable: it is not restored")
+				config = nil
+			}
+		}
+		if recorded := marker.Bucket; recorded != "" {
+			bucketPath = recorded
+			name = recorded
+			tenantID = ""
+			if i := strings.LastIndex(recorded, "/"); i >= 0 {
+				tenantID, name = recorded[:i], recorded[i+1:]
 			}
 		}
 
@@ -630,6 +654,7 @@ func discoverBuckets(objectsRoot string) ([]*bucketEntry, error) {
 			name:       name,
 			tenantID:   tenantID,
 			createdAt:  createdAt,
+			config:     config,
 		})
 		return true, nil
 	}
@@ -803,22 +828,29 @@ func (r *rebuild) count(ctx context.Context, bkt *bucketEntry) {
 	fail := func(err error) {
 		r.p.Report.Failures = append(r.p.Report.Failures, fmt.Sprintf("bucket %s: %v", bkt.bucketPath, err))
 	}
+	// What the marker does not say is inferred from the files: versions exist
+	// only in a bucket with versioning, and a retention or a legal hold only in
+	// one with Object Lock.
 	if r.p.Versioned || r.p.Locked {
 		stored, err := r.store.GetBucket(ctx, bkt.tenantID, bkt.name)
 		if err != nil {
 			fail(err)
 			return
 		}
-		stored.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
-		// A retention or a legal hold exists only in a bucket with Object Lock,
-		// a setting the lost store kept: the bucket gets it back, without its
-		// default retention, which no file keeps.
-		if r.p.Locked {
-			stored.ObjectLock = &metadata.ObjectLockMetadata{Enabled: true}
+		inferred := false
+		if stored.Versioning == nil || stored.Versioning.Status == "" {
+			stored.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
+			inferred = true
 		}
-		if err := r.store.UpdateBucket(ctx, stored); err != nil {
-			fail(err)
-			return
+		if r.p.Locked && (stored.ObjectLock == nil || !stored.ObjectLock.Enabled) {
+			stored.ObjectLock = &metadata.ObjectLockMetadata{Enabled: true}
+			inferred = true
+		}
+		if inferred {
+			if err := r.store.UpdateBucket(ctx, stored); err != nil {
+				fail(err)
+				return
+			}
 		}
 	}
 	if err := r.store.RecalculateBucketStats(ctx, bkt.tenantID, bkt.name); err != nil {

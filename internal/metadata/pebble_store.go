@@ -36,6 +36,7 @@ type PebbleStore struct {
 	wasCleanShutdown bool
 	reconcileOwed    atomic.Bool // an unclean shutdown's reconciliation has not finished
 	deferSync        bool
+	bucketWritten    func(ctx context.Context, tenantID, name string)
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -263,8 +264,29 @@ func (s *PebbleStore) pebbleIter(lower []byte) (*pebble.Iterator, error) {
 
 // ==================== Bucket Operations ====================
 
+// OnBucketWritten registers what runs after a bucket's configuration is
+// stored: created, changed, or taken from another node. It is set before the
+// store serves.
+func (s *PebbleStore) OnBucketWritten(fn func(ctx context.Context, tenantID, name string)) {
+	s.bucketWritten = fn
+}
+
+func (s *PebbleStore) wroteBucket(ctx context.Context, tenantID, name string) {
+	if s.bucketWritten != nil {
+		s.bucketWritten(ctx, tenantID, name)
+	}
+}
+
 // CreateBucket creates a new bucket with global name uniqueness enforced.
 func (s *PebbleStore) CreateBucket(ctx context.Context, bucket *BucketMetadata) error {
+	if err := s.createBucket(ctx, bucket); err != nil {
+		return err
+	}
+	s.wroteBucket(ctx, bucket.TenantID, bucket.Name)
+	return nil
+}
+
+func (s *PebbleStore) createBucket(ctx context.Context, bucket *BucketMetadata) error {
 	if bucket == nil {
 		return fmt.Errorf("bucket metadata cannot be nil")
 	}
@@ -333,6 +355,14 @@ func (s *PebbleStore) GetBucket(ctx context.Context, tenantID, name string) (*Bu
 
 // UpdateBucket updates an existing bucket's metadata.
 func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) error {
+	if err := s.updateBucket(ctx, bucket); err != nil {
+		return err
+	}
+	s.wroteBucket(ctx, bucket.TenantID, bucket.Name)
+	return nil
+}
+
+func (s *PebbleStore) updateBucket(ctx context.Context, bucket *BucketMetadata) error {
 	if bucket == nil {
 		return fmt.Errorf("bucket metadata cannot be nil")
 	}
@@ -380,6 +410,14 @@ func (s *PebbleStore) UpdateBucket(ctx context.Context, bucket *BucketMetadata) 
 // kept, and so are this node's usage counters. A bucket new to this node is
 // created. It reports whether the bucket was stored.
 func (s *PebbleStore) ApplyBucketReplica(ctx context.Context, bucket *BucketMetadata) (bool, error) {
+	applied, err := s.applyBucketReplica(ctx, bucket)
+	if applied {
+		s.wroteBucket(ctx, bucket.TenantID, bucket.Name)
+	}
+	return applied, err
+}
+
+func (s *PebbleStore) applyBucketReplica(ctx context.Context, bucket *BucketMetadata) (bool, error) {
 	if bucket == nil {
 		return false, fmt.Errorf("bucket metadata cannot be nil")
 	}

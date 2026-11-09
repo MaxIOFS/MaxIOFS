@@ -48,10 +48,13 @@ key_file: ""
 
 # Proxies whose X-Forwarded-For and X-Forwarded-Proto are taken (IPs or CIDRs)
 trusted_proxies: []
-# Also every loopback and private address (true by default); false trusts
-# trusted_proxies alone. Cluster nodes need neither: a request one forwards to
-# another carries its client's address and transport signed.
-trust_private_networks: true
+# Behind a proxy or WAF, list the address it reaches MaxIOFS from: otherwise
+# logs, rate limits and aws:SourceIp see the proxy, not the client. true also
+# trusts every loopback and private address as a proxy, for networks where the
+# proxy's address changes; facing the internet, keep it false. Cluster nodes
+# need neither: a request one forwards to another carries its client's address
+# and transport signed.
+trust_private_networks: false
 
 # Storage
 storage:

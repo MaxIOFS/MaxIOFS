@@ -48,7 +48,7 @@ func TestPutObjectVersion_Success(t *testing.T) {
 		TenantID:   "tenant-1",
 		OwnerID:    "user-1",
 		OwnerType:  "user",
-		Versioning: &VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &VersioningMetadata{Status: "Enabled"},
 	}
 	err := store.CreateBucket(ctx, bucket)
 	require.NoError(t, err)

@@ -21,6 +21,11 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+    # The token of Settings → Metrics (metrics.token), in
+    # docker/prometheus/secrets/maxiofs.token.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/maxiofs.token
 
   # Prometheus self-monitoring
   - job_name: 'prometheus'

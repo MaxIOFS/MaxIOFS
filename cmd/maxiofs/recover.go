@@ -18,8 +18,8 @@ func newRecoverCmd() *cobra.Command {
 		Long: `Rebuilds the Pebble metadata store from the on-disk object tree — the
 recovery path for "metadata database lost or corrupt, object files intact".
 
-Buckets are recreated from their .maxiofs-bucket markers, objects and
-versions from each file's .metadata sidecar. With --recovery-bundle the
+Buckets are recreated from their .maxiofs-bucket markers, with the settings
+each marker keeps, objects and versions from each file's .metadata sidecar. With --recovery-bundle the
 encryption keys are restored into the auth database and every encrypted
 object's wrapped DEK is verified against them.
 
@@ -95,7 +95,7 @@ func runRecover(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Println("=== Recovery report ===")
-	fmt.Printf("Buckets:               %d\n", report.Buckets)
+	fmt.Printf("Buckets:               %d (%d with their settings from the marker)\n", report.Buckets, report.BucketSettings)
 	fmt.Printf("Objects:               %d (+ %d versions)\n", report.Objects, report.Versions)
 	fmt.Printf("Encrypted (verified):  %d\n", report.EncryptedVerified)
 	fmt.Printf("Encrypted (unverified):%d\n", report.EncryptedUnverified)
@@ -118,8 +118,9 @@ func runRecover(cmd *cobra.Command, args []string) error {
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Move the corrupt store aside:  mv <data-dir>/metadata <data-dir>/metadata.corrupt")
 	fmt.Printf("  2. Activate the recovered store:  mv %s <data-dir>/metadata\n", report.OutDB)
-	fmt.Println("  3. Start the server. Buckets/objects are back; users, permissions and bucket")
-	fmt.Println("     configuration (policies, lifecycle, quotas) must be re-applied by the admin.")
+	fmt.Println("  3. Start the server. Buckets and objects are back, with the settings each")
+	fmt.Println("     bucket's marker keeps. Users and permissions live in the database; the")
+	fmt.Println("     settings of a bucket whose marker has none are re-applied by the admin.")
 	fmt.Println()
 	fmt.Println("Note: delete markers exist only in the metadata store, so versioned objects")
 	fmt.Println("whose latest \"version\" was a deletion come back VISIBLE (recovery is biased")

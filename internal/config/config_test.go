@@ -744,8 +744,8 @@ func TestSettingsAreReadFromTheEnvironment(t *testing.T) {
 	assert.Equal(t, "storage-key-from-the-environment", cfg.Storage.EncryptionKey)
 }
 
-// TestTrustPrivateNetworks: private networks are trusted as proxies unless
-// trust_private_networks is false.
+// TestTrustPrivateNetworks: private networks are trusted as proxies only when
+// trust_private_networks is true.
 func TestTrustPrivateNetworks(t *testing.T) {
 	load := func() *Config {
 		t.Setenv("MAXIOFS_DATA_DIR", t.TempDir())
@@ -759,10 +759,10 @@ func TestTrustPrivateNetworks(t *testing.T) {
 	}
 	cfg := load()
 	require.NotNil(t, cfg.TrustPrivateNetworks)
-	assert.True(t, *cfg.TrustPrivateNetworks, "trusted by default")
+	assert.False(t, *cfg.TrustPrivateNetworks, "not trusted by default")
 
-	t.Setenv("MAXIOFS_TRUST_PRIVATE_NETWORKS", "false")
+	t.Setenv("MAXIOFS_TRUST_PRIVATE_NETWORKS", "true")
 	cfg = load()
 	require.NotNil(t, cfg.TrustPrivateNetworks)
-	assert.False(t, *cfg.TrustPrivateNetworks)
+	assert.True(t, *cfg.TrustPrivateNetworks)
 }

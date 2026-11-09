@@ -375,9 +375,10 @@ encrypted with its own random Data Encryption Key (DEK) using authenticated
 AES-256-GCM in 64 KB chunks — any tampered chunk is detected and rejected on
 read. Each object's DEK is wrapped with the Key Encryption Key (KEK) and
 stored in the object's on-disk `.metadata` sidecar, so objects remain
-recoverable from the filesystem alone given a KEK backup. The parts of a
-multipart upload in progress are stored encrypted with a key of the upload,
-wrapped with the KEK.
+recoverable from the filesystem alone given a KEK backup. An upload is
+encrypted as it is received: its staging file beside the objects holds it
+encrypted with the key it is stored with. The parts of a multipart upload in
+progress are stored encrypted with a key of the upload, wrapped with the KEK.
 
 **Key management:**
 - The KEK lives in the database and is **generated automatically** on first
@@ -589,7 +590,7 @@ user of another tenant, nor beyond what a session policy allows.
   is the client address the server logs: behind a trusted proxy, the rightmost
   `X-Forwarded-For` entry past the proxies of `trusted_proxies`; TLS includes a
   trusted proxy's `X-Forwarded-Proto: https`. Trusted proxies are those of
-  `trusted_proxies` and, unless `trust_private_networks` is `false`, every
+  `trusted_proxies` and, when `trust_private_networks` is `true`, every
   loopback and private address. A request a cluster node forwards to another
   is evaluated with its client's address and transport, carried signed.
 - **Refused when saved** (`MalformedPolicy`): `NotPrincipal`, `NotAction`,

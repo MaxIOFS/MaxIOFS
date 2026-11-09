@@ -27,8 +27,7 @@ func TestDeleteSpecificVersion_WithVersioning(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -122,8 +121,7 @@ func TestDeleteSpecificVersion_MultipleFiles(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -214,8 +212,7 @@ func TestDeleteSpecificVersion_DeleteLatest(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -312,8 +309,7 @@ func TestDeleteSpecificVersion_EmptyVersionID(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)

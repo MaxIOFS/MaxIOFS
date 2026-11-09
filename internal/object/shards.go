@@ -182,6 +182,11 @@ func (om *objectManager) PutShard(ctx context.Context, info ShardInfo, data io.R
 	if _, err := om.loadBucketMetadata(ctx, info.Bucket); err != nil {
 		return err
 	}
+	// The shard reaches the temp file encrypted with the key it is stored with.
+	dek, envelope, err := om.newEnvelope()
+	if err != nil {
+		return err
+	}
 	tempFile, err := os.CreateTemp(om.config.Root, "maxiofs-upload-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
@@ -190,7 +195,7 @@ func (om *objectManager) PutShard(ctx context.Context, info ShardInfo, data io.R
 	defer os.Remove(tempPath)
 	defer tempFile.Close()
 	hasher := md5.New()
-	n, err := io.Copy(io.MultiWriter(tempFile, hasher), data)
+	n, err := om.spool(tempFile, io.TeeReader(data, hasher), dek)
 	if err != nil {
 		return fmt.Errorf("failed to receive the shard: %w", err)
 	}
@@ -211,7 +216,7 @@ func (om *objectManager) PutShard(ctx context.Context, info ShardInfo, data io.R
 			return nil
 		}
 	}
-	return om.storeEncryptedObject(ctx, om.shardRef(info), tempPath, info.sidecar(), n, hex.EncodeToString(hasher.Sum(nil)))
+	return om.storeSealedObject(ctx, om.shardRef(info), tempPath, info.sidecar(), n, hex.EncodeToString(hasher.Sum(nil)), envelope)
 }
 
 // OpenShard opens from offset the shard this node holds of the write, layout

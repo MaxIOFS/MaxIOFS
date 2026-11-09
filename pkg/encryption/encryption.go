@@ -153,6 +153,21 @@ func (e *aesGCMEncryptor) Decrypt(encryptedData *EncryptedData, key []byte) ([]b
 // memory use and overhead (16-byte GCM tag per chunk = 0.024% expansion).
 const gcmStreamChunkSize = 64 * 1024
 
+// fillChunk reads src into buf until buf is full or src ends, which it reports
+// with io.EOF. Unlike io.ReadFull, an io.ErrUnexpectedEOF of src, as a body cut
+// short gives, is an error and not the end of the data.
+func fillChunk(src io.Reader, buf []byte) (int, error) {
+	n := 0
+	for n < len(buf) {
+		m, err := src.Read(buf[n:])
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
 // EncryptStream encrypts a data stream using AES-256-GCM in a chunked fashion.
 func (e *aesGCMEncryptor) EncryptStream(src io.Reader, dst io.Writer, key []byte) (*EncryptionMetadata, error) {
 	if len(key) != 32 {
@@ -183,7 +198,7 @@ func (e *aesGCMEncryptor) EncryptStream(src io.Reader, dst io.Writer, key []byte
 	var chunkIdx uint32
 
 	for {
-		n, readErr := io.ReadFull(src, buf)
+		n, readErr := fillChunk(src, buf)
 		if n > 0 {
 			// Per-chunk nonce: copy base nonce, XOR last 4 bytes with chunk index.
 			chunkNonce := make([]byte, gcm.NonceSize())
@@ -209,7 +224,7 @@ func (e *aesGCMEncryptor) EncryptStream(src io.Reader, dst io.Writer, key []byte
 			chunkIdx++
 		}
 
-		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+		if readErr == io.EOF {
 			break
 		}
 		if readErr != nil {

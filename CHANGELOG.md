@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ListObjectVersions` markers name the last entry returned, and `key-marker` alone starts after that key, as in S3.
 - Writes stop at 99.5% of the disk of the objects or of the metadata, and a full disk answers `507 InsufficientStorage`, not `500`: Pebble and SQLite keep room, deletes still work, and SOSAPI reports only what can be written.
 - `maxiofs recover` says every 30 seconds how far it is: objects done of the total, percentage, time left and when it should end. It waits for the disk once per thousand files, not on each object.
+- A bucket's marker keeps its settings as JSON (owner, versioning, Object Lock and its default retention, policy, lifecycle, CORS, encryption, tags, quota…) and `maxiofs recover` gives them back. A bucket of an earlier release gets them at the first statistics pass.
+- An upload is encrypted as it is received: its temporary file never holds it in clear, and a PUT of a large object is about 25% faster.
+- `/metrics` answers only with the token of Settings → Metrics (`metrics.token`) as a bearer token, and `401` while none is set: it named every bucket of every tenant, with its size, to anyone. Prometheus sends it with `authorization` in its scrape config.
+- `trust_private_networks` is `false` by default. Behind a proxy or WAF, list in `trusted_proxies` the address it reaches MaxIOFS from, or logs, rate limits and `aws:SourceIp` see the proxy.
 
 ### Fixed
 - Google and Microsoft sign-ins had no groups, so a group mapping refused them; with the directory set they read them from it.
@@ -33,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Behind a trusted proxy, the S3 request log, bucket access logs and the audit of setting and bucket changes named the proxy, not the client; anonymous S3 requests were limited per connection, not per client.
 - The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
 - A refused S3 signature was logged whole; the log keeps its access key only.
+- Setting the SMTP password logged it.
+- A part whose body was cut short was stored with what had arrived, without an error.
 - `maxiofs recover` left every bucket without its Object Lock setting, so no retention could be set or extended on it: a bucket with a locked version gets it back.
 - A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
 

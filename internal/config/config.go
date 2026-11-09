@@ -33,8 +33,8 @@ type Config struct {
 	KeyFile   string `mapstructure:"key_file"`
 
 	// TrustedProxies are the proxies (IPs or CIDRs) whose X-Forwarded-For and
-	// X-Forwarded-Proto are taken. TrustPrivateNetworks, unset or true, trusts
-	// every loopback and private address as one too; false, only
+	// X-Forwarded-Proto are taken. TrustPrivateNetworks true trusts every
+	// loopback and private address as one too; unset or false, only
 	// TrustedProxies.
 	TrustedProxies       []string `mapstructure:"trusted_proxies"`
 	TrustPrivateNetworks *bool    `mapstructure:"trust_private_networks"`
@@ -166,7 +166,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cluster_advertise_address", "")
 	v.SetDefault("website_hostname", "")
 	v.SetDefault("trusted_proxies", []string{})
-	v.SetDefault("trust_private_networks", true)
+	v.SetDefault("trust_private_networks", false)
 	v.SetDefault("storage.encryption_key", "")
 	v.SetDefault("auth.jwt_secret", "")
 	v.SetDefault("auth.encryption_secret", "")

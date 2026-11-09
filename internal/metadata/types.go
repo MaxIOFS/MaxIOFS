@@ -218,7 +218,6 @@ type LoggingMetadata struct {
 
 // VersioningMetadata represents bucket versioning configuration
 type VersioningMetadata struct {
-	Enabled   bool   `json:"enabled"`
 	Status    string `json:"status"` // "Enabled", "Suspended"
 	MFADelete bool   `json:"mfa_delete,omitempty"`
 }

@@ -90,6 +90,7 @@ services:
       - prometheus-data:/prometheus
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./docker/prometheus/secrets:/etc/prometheus/secrets:ro
 
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

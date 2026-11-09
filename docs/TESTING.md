@@ -7,7 +7,7 @@
 
 ## Overview
 
-MaxIOFS has **402 Go test files**, **22 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
+MaxIOFS has **409 Go test files**, **22 frontend test files** (Vitest), and **4 K6 performance scripts**. All Go tests run with the `-race` flag enabled by default. The project uses pure-Go SQLite (`modernc.org/sqlite`) and Pebble, so tests require no external dependencies — no Docker, no databases, no network services.
 
 ### Test Stack
 
@@ -376,7 +376,7 @@ npx vitest run --coverage
 | `helpers_test.go` | Notification helper functions |
 | `manager_test.go` | SSE notification delivery, client management |
 
-### `internal/object/` — 60 test files
+### `internal/object/` — 62 test files
 
 | File | Description |
 |------|-------------|
@@ -429,6 +429,7 @@ npx vitest run --coverage
 | `shards_test.go` | A shard is stored encrypted beside its object's file and read back from any offset, only as the shard of its write and layout; an entry in shards is read from the nodes holding them, this node holding the shard it is named for; a shard follows the placement of its write (a staged one kept until its placement lands, one of an earlier write removed); deletes, overwrites, multipart completions and raw copies remove the shards of the writes they remove; a whole copy of a write in shards is not stored, or keeps the shard until its placement lands; the integrity check of a shard, a corrupt one removed |
 | `search_objects_test.go` | Object search and listing |
 | `sidecar_loss_test.go` | A lost sidecar never serves ciphertext as if it were the plaintext object |
+| `put_bench_test.go` | `BenchmarkPutObject`: a PUT's rate and the most memory it holds, by size (see [PERFORMANCE.md](PERFORMANCE.md#encrypted-put-staging-november-8-2026)) |
 | `staging_cost_test.go` | Content passes of PUT staging and multipart completion, per path; the large-part probe is opt-in (see [PERFORMANCE.md](PERFORMANCE.md#put-staging-and-multipart-completion)) |
 | `suspended_delete_test.go` | DELETE without a version ID in a suspended bucket adds a marker and keeps the versions from before; a current object without a version ID is removed; a legal hold refuses it; a copied marker removes only an older object |
 | `storage_identity_test.go` | `GetObject` refuses to serve ciphertext whose sidecar records no verifiable identity |
@@ -447,10 +448,11 @@ npx vitest run --coverage
 |------|-------------|
 | `presigned_test.go` | Pre-signed URL generation and validation |
 
-### `internal/recovery/` — 9 test files
+### `internal/recovery/` — 10 test files
 
 | File | Description |
 |------|-------------|
+| `bucket_settings_recovery_test.go` | A recovered bucket gets back the owner, default retention, quota, tags and policy its marker keeps; a suspended bucket stays suspended; a marker without settings recovers as before |
 | `customer_key_recovery_test.go` | `maxiofs recover` rebuilds the entry of an SSE-C object, which the client's key still opens |
 | `lock_recovery_test.go` | A rebuilt store gets back the retention a write set, an extended retention, a legal hold on and one turned off, and the Object Lock setting of a bucket with a locked version |
 | `progress_test.go` | A recovery measures its progress against every object and version it walks, and says the percentage, the rate, the time left and when it should end |
@@ -484,7 +486,7 @@ npx vitest run --coverage
 | `undo_test.go` | Undoing an interrupted write: restores when the index still matches the retained copy, keeps a committed overwrite (including same-size and multipart ETag shapes), never resurrects a deleted object, resolves only the oldest of repeated retained copies, and is idempotent |
 | `review_faultcheck_test.go` | The same decisions under an actual process kill instead of a simulated one |
 
-### `internal/server/` — 76 test files
+### `internal/server/` — 77 test files
 
 | File | Description |
 |------|-------------|
@@ -493,6 +495,7 @@ npx vitest run --coverage
 | `bucket_aggregation_test.go` | Multi-node bucket aggregation API |
 | `bucket_policy_console_test.go` | The console decides with the bucket policy: a Deny wins over the user's permissions and over the global administrator, an Allow grants a user without permissions; saving validates the policy and applies `BlockPublicPolicy` |
 | `bucket_quota_handlers_test.go` | A bucket quota is authorized against its own tenant, not `?tenantId=` |
+| `bucket_marker_test.go` | A bucket's settings reach its marker at its creation, as they change, and at the statistics pass for a marker of an earlier release |
 | `bucket_ownership_test.go` | A bucket a client deletes, forced or not, takes its shares, rules, inventory, permissions, policies, notification configuration and integrity scans: a share link of the old bucket opens nothing in a new one; a new bucket starts without what a former one left; the state of deleted buckets is dropped at start; with a factor of 2 on every node |
 | `bucket_removal_sweep_test.go` | A pending bucket removal is finished at the next start; force-delete records the removal too; the directory of a bucket created since is kept |
 | `capability_guard_test.go` | A global administrator's console S3 access stays read-only across tenants |
@@ -536,6 +539,7 @@ npx vitest run --coverage
 | `ingress_headers_test.go` | Internal cluster headers are stripped from every inbound request |
 | `interrupted_writes_test.go` | `Start` refuses to serve traffic when the interrupted-write rollback has unresolved failures |
 | `upload_leftovers_test.go` | A start removes the temporary files of uploads a crash cut short, and nothing else |
+| `upload_spool_test.go` | An upload's temporary file never holds it in clear, with the server's key or a customer's; a PUT or a part whose body is cut short fails and is not stored |
 | `kek_rotation_test.go` | KEK rotation endpoint and cluster KEK-sync receive |
 | `kek_shutdown_test.go` | Shutdown waits for a rotating KEK checkpoint; stopping encryption workers cancels the periodic pass |
 | `leader_gate_test.go` | Reads, sign-in (on the router's real paths) and cluster traffic are never blocked by the leader gate; two-factor settings are; a bucket's settings and objects need no coordinator, its permissions do |
@@ -549,7 +553,7 @@ npx vitest run --coverage
 | `pending_password_change_test.go` | A pending forced password change leaves only the intended way out |
 | `privilege_boundary_test.go` | `IsGlobalAdmin`/admin-role checks require no tenant and cover both role names |
 | `profiling_access_test.go` | `/debug/pprof/*` is reachable by a global administrator and refused without a credential |
-| `prometheus_metrics_test.go` | Every metric family reaches Prometheus once the server does what it counts, through real S3, console and background traffic; no label carries an object key |
+| `prometheus_metrics_test.go` | Every metric family reaches Prometheus once the server does what it counts, through real S3, console and background traffic; no label carries an object key; `/metrics` answers `401` without the token of the settings, with another and while none is set |
 | `replication_adapter_test.go` | Replication reads and lists a tenant's bucket under its tenant, page after page |
 | `repair_rerun_test.go` | A factor changed while a repair runs is acted on once that repair ends |
 | `request_facts_test.go` | Bucket policy conditions see the client address and TLS; a trusted proxy's `X-Forwarded-For` and `X-Forwarded-Proto` count, a client's do not |
@@ -565,11 +569,12 @@ npx vitest run --coverage
 | `worker_shutdown_test.go` | `goWorker` shutdown waits for every tracked worker and refuses new ones once shutdown starts |
 | `website_404_test.go` | The website's own 404 page shows the requested path as text, never as markup |
 
-### `internal/settings/` — 1 test file
+### `internal/settings/` — 2 test files
 
 | File | Description |
 |------|-------------|
 | `manager_test.go` | Dynamic settings CRUD, defaults, validation |
+| `sensitive_test.go` | The SMTP password and the metrics token are kept and never logged; any other value is |
 
 ### `internal/share/` — 3 test files
 
@@ -579,10 +584,11 @@ npx vitest run --coverage
 | `manager_test.go` | Pre-signed share link generation and access |
 | `reencrypt_test.go` | Share keys move to a new secret; the store reads with the secret it holds; legacy plaintext and keys no secret decrypts are left |
 
-### `internal/storage/` — 12 test files
+### `internal/storage/` — 13 test files
 
 | File | Description |
 |------|-------------|
+| `bucket_marker_test.go` | A bucket's marker keeps its path and its settings as indented JSON, replaced whole and only when they change; a marker of an earlier release still reads; a bucket without its directory gets none |
 | `durability_test.go` | `Put` flushes data and sidecar, and survives a read-back |
 | `filesystem_layout_test.go` | Layout v2 multipart upload directory: listed, discarded, ID cannot carry a path separator |
 | `filesystem_list_test.go` | Listing returns every object in a bucket; empty on an absent bucket |
@@ -602,12 +608,13 @@ npx vitest run --coverage
 |------|-------------|
 | `stall_test.go` | Stall watchdog for inter-node transfers: a slow but progressing transfer is not cut, a stalled one is; upload progress counts; closing the body releases the watch; caller cancellation still works |
 
-### `pkg/encryption/` — 2 test files
+### `pkg/encryption/` — 3 test files
 
 | File | Description |
 |------|-------------|
 | `encryption_test.go` | AES-256-GCM encrypt/decrypt roundtrip (legacy CTR backward-compat) |
 | `encryption_bench_test.go` | Encryption throughput benchmarks |
+| `stream_source_test.go` | A source cut short fails the encryption with its error; one that ends is encrypted whole, in the same chunks |
 
 ### `pkg/s3compat/` — 51 test files
 
@@ -922,25 +929,25 @@ t.Cleanup(func() { os.RemoveAll(dir) }) // ignore error — Pebble may still hol
 
 | Area | Files | Key Packages |
 |------|-------|-------------|
-| Object | 60 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
-| Server | 76 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
+| Object | 62 | CRUD, versioning, locking, retention, multipart, interrupted-write recovery, quota reservations, write cost |
+| Server | 77 | Routes, console API, IDP endpoints, search, IAM/STS, interrupted-write startup gate, HA receive, object placement between complete nodes |
 | Cluster | 43 | Sync, replication, routing, HA quorum, rollback and catch-up, health, parity, storage classes |
 | S3 Compat | 51 | Protocol compliance, ACL, multipart, inventory, pre-signed, handlers, Object Lock, integrity |
 | Auth | 35 | Users, keys, JWT, S3 sig, TOTP, rate limiting, IAM policies and roles, STS, upgrade conversion |
 | Metadata | 20 | Pebble store, search, pagination, tags, versioning, multipart, durability, group commit |
-| Storage | 12 | Filesystem, staged commit, layout v2, shards, benchmarks |
+| Storage | 13 | Filesystem, staged commit, layout v2, shards, bucket markers, benchmarks |
 | Erasure | 1 | Reed-Solomon layouts, encoding, reads with shards missing, rebuild |
 | Replication | 11 | Manager, worker, S3 client, end-to-end, status retention |
 | Metrics | 5 | Prometheus, history, system, performance |
 | Bucket | 9 | CRUD, deletion, policy, integration, name uniqueness, lifecycle XML |
 | IDP | 16 | LDAP against a test directory, OAuth, crypto, storage |
-| Recovery | 9 | Offline recover, its resumption and progress, reconcile (restore + repair) |
+| Recovery | 10 | Offline recover, its resumption and progress, bucket settings, reconcile (restore + repair) |
 | Logging | 5 | HTTP targets, syslog, manager, persistence |
 | Middleware | 6 | Auth, CORS, tracing, body digest, console headers, header redaction |
 | Inventory | 6 | Report generation, scheduling, retention |
 | Rollback | 2 | Interrupted-write undo: restore, keep, resurrection guard |
-| Encryption | 2 | AES-256-GCM, benchmarks |
-| Other | 33 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
-| **Total Go** | **402** | |
+| Encryption | 3 | AES-256-GCM, a stream cut short, benchmarks |
+| Other | 34 | ACL, API, audit, bandwidth, bgwork, cluster auth, config, DB DSN, encryption secret, migrations, KEK, layout, lifecycle, notifications, presigned, settings, share, transfer, cmd, embed |
+| **Total Go** | **409** | |
 | Frontend | 22 | Dashboard, Login, Users, Buckets, IDP, user details, layout, i18n, token handling, session renewal, modal focus, idle timer, bucket policy rules, OAuth completion, HA page, nodes page, join code, storage classes, lifecycle rules, time axis, objects with a customer key |
 | Performance | 4 | Upload, download, mixed, common |

@@ -810,14 +810,26 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		return nil, fmt.Errorf("%w: %s", ErrUnknownChecksum, checksumAlgo)
 	}
 
-	hasher := md5.New()
-	var multiWriter io.Writer
-	if checksumHasher != nil {
-		multiWriter = io.MultiWriter(tempFile, hasher, checksumHasher)
-	} else {
-		multiWriter = io.MultiWriter(tempFile, hasher)
+	// The content reaches the temp file encrypted with the key it is stored
+	// with; its MD5 and checksum are taken of what is received on the way.
+	isFolderMarker := strings.HasSuffix(key, "/")
+	customerKey := writeKeyFrom(ctx)
+	sealed, err := om.sealFor(customerKey, isFolderMarker)
+	if err != nil {
+		return nil, err
 	}
-	originalSize, err := io.Copy(multiWriter, data)
+	hasher := md5.New()
+	contentHashes := []io.Writer{hasher}
+	if checksumHasher != nil {
+		contentHashes = append(contentHashes, checksumHasher)
+	}
+	// The ETag of an object with a customer key is the MD5 of the bytes stored.
+	storedHasher := md5.New()
+	spooled := io.Writer(tempFile)
+	if customerKey != nil {
+		spooled = io.MultiWriter(tempFile, storedHasher)
+	}
+	originalSize, err := om.spool(spooled, io.TeeReader(data, io.MultiWriter(contentHashes...)), sealed.dek)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write to temp file: %w", err)
 	}
@@ -928,24 +940,24 @@ func (om *objectManager) putObject(ctx context.Context, bucket, key string, data
 		}
 	}()
 
-	isFolderMarker := strings.HasSuffix(key, "/")
-	customerKey := writeKeyFrom(ctx)
 	var customerDEK, customerDEKIV string
 	switch {
 	case customerKey != nil:
 		// The content's MD5 and checksum are kept nowhere: the ETag is the
 		// MD5 of the bytes stored, as in S3.
-		if customerDEK, customerDEKIV, err = om.storeCustomerEncryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, customerKey); err != nil {
+		storedETag := hex.EncodeToString(storedHasher.Sum(nil))
+		if err := om.storeCustomerSealedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, sealed, storedETag); err != nil {
 			return nil, err
 		}
-		originalETag = storageMetadata["original-etag"]
+		customerDEK, customerDEKIV = sealed.customerDEK, sealed.customerDEKIV
+		originalETag = storedETag
 		checksumAlgo, checksumValue = "", ""
 	case isFolderMarker:
 		if err := om.storeUnencryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
 			return nil, err
 		}
 	default:
-		if err := om.storeEncryptedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag); err != nil {
+		if err := om.storeSealedObject(ctx, objectRef, tempPath, storageMetadata, originalSize, originalETag, sealed.envelope); err != nil {
 			return nil, err
 		}
 	}
@@ -3167,9 +3179,11 @@ func isProtectedStorageMetadataKey(key string) bool {
 	return false
 }
 
-// storeEncryptedObject envelope-encrypts and stores an object: a fresh DEK
-// encrypts the data stream; the DEK, wrapped with the current KEK, is stored
-// in the sidecar metadata alongside the original (plaintext) size and ETag.
+// storeEncryptedObject envelope-encrypts and stores the plaintext tempPath
+// holds, which the migration of objects stored without encryption stages: a
+// fresh DEK encrypts the data stream; the DEK, wrapped with the current KEK, is
+// stored in the sidecar metadata alongside the original (plaintext) size and
+// ETag. An upload is encrypted as it is received (storeSealedObject).
 func (om *objectManager) storeEncryptedObject(ctx context.Context, ref storage.ObjectRef, tempPath string, storageMetadata map[string]string, originalSize int64, originalETag string) error {
 	dek, envelopeMeta, err := om.newEnvelope()
 	if err != nil {
@@ -3177,14 +3191,7 @@ func (om *objectManager) storeEncryptedObject(ctx context.Context, ref storage.O
 	}
 
 	// Save original metadata (size and etag are from UNENCRYPTED data)
-	storageMetadata["original-size"] = fmt.Sprintf("%d", originalSize)
-	storageMetadata["original-etag"] = originalETag
-	storageMetadata["encrypted"] = "true"
-	storageMetadata["x-amz-server-side-encryption"] = "AES256"
-	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-GCM-STREAM"
-	for k, v := range envelopeMeta {
-		storageMetadata[k] = v
-	}
+	setEnvelopeFields(storageMetadata, originalSize, originalETag, envelopeMeta)
 
 	// Open temp file for reading and encrypt while streaming to storage
 	tempFileRead, err := os.Open(tempPath)

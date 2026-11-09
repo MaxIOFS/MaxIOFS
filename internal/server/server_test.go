@@ -4553,7 +4553,7 @@ func TestHandleHAReceivePutPreservesVersionID(t *testing.T) {
 	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
 	bucketMeta, err := server.metadataStore.GetBucket(ctx, tenantID, bucketName)
 	require.NoError(t, err)
-	bucketMeta.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+	bucketMeta.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
 	require.NoError(t, server.metadataStore.UpdateBucket(ctx, bucketMeta))
 
 	req := httptest.NewRequest("PUT", "/api/internal/ha/objects/"+key, strings.NewReader("replicated body"))
@@ -4591,7 +4591,7 @@ func TestHandleHAReceiveDeletePreservesDeleteMarkerVersionID(t *testing.T) {
 	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
 	bucketMeta, err := server.metadataStore.GetBucket(ctx, tenantID, bucketName)
 	require.NoError(t, err)
-	bucketMeta.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+	bucketMeta.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
 	require.NoError(t, server.metadataStore.UpdateBucket(ctx, bucketMeta))
 
 	_, err = server.objectManager.PutObject(ctx, bucketPath, key, strings.NewReader("visible"), http.Header{"Content-Type": []string{"text/plain"}})

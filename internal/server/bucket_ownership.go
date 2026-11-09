@@ -27,7 +27,17 @@ func (b *clientBuckets) CreateBucket(ctx context.Context, tenantID, name, ownerI
 		return err
 	}
 	b.s.dropBucketRows(ctx, tenantID, name)
+	b.s.keepBucketMarker(ctx, tenantID, name)
 	return nil
+}
+
+// keepBucketMarker writes a bucket's configuration into its marker, which
+// maxiofs recover reads it back from.
+func (s *Server) keepBucketMarker(ctx context.Context, tenantID, name string) {
+	if err := bucket.KeepMarker(ctx, s.metadataStore, s.config.Storage.Root, tenantID, name); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"bucket": name, "tenant_id": tenantID}).
+			Warn("Failed to keep the configuration of a bucket in its marker")
+	}
 }
 
 func (b *clientBuckets) DeleteBucket(ctx context.Context, tenantID, name string) error {

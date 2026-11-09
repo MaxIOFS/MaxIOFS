@@ -425,11 +425,17 @@ run starts; until then the line has no percentage nor end.
   listed as failures in the report for the operator.
 - **Object Lock** state comes back with each version: its retention and legal
   hold. A version stored by an earlier release gets them in its sidecar at the
-  encryption worker's first pass after the update. A bucket with a locked
-  version gets its Object Lock setting back, so retentions can still be set and
-  extended; its default retention rule is kept by no file and is set again by
-  hand. User metadata, tags and ACLs live only in the metadata store and do not
-  come back.
+  encryption worker's first pass after the update. User metadata, tags and
+  ACLs live only in the metadata store and do not come back.
+- **Bucket settings** come back from the bucket's marker, `.maxiofs-bucket`, a
+  JSON file the server rewrites when they change: owner, versioning, Object
+  Lock and its default retention, policy, lifecycle, CORS, encryption, public
+  access block, website, notifications, logging, tags and quota. A bucket of an
+  earlier release gets them in its marker at the first statistics pass after
+  the update. Without them, a bucket comes back owned by `admin`, with
+  versioning and Object Lock when its files have versions and locks, and its
+  settings are set again by hand. The owner and the tenant are those of the
+  database: with a database rebuilt too, they must be created again.
 - If the database still holds encryption keys, the restore never overwrites
   existing key material (same version + different material aborts with an
   error) and keeps the database's current-key marker.

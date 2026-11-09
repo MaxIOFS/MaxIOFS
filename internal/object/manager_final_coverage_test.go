@@ -214,8 +214,7 @@ func TestUpdateBucketMetricsAfterPut_Versioned_FirstVersion(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -253,8 +252,7 @@ func TestUpdateBucketMetricsAfterPut_Versioned_AdditionalVersions(t *testing.T) 
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)

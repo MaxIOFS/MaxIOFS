@@ -803,7 +803,7 @@ HTTP status codes: 200 (success), 202 (accepted, runs in the background), 400 (b
 
 ## Prometheus Metrics
 
-Prometheus format at `/metrics` on the S3 port, without authentication, while `metrics.enable` (configuration) and the `metrics.enabled` setting are on. `/api/v1/metrics` on the console port is the console's JSON and needs a session. Each node of a cluster exports its own. `docker/grafana/dashboards/maxiofs.json` shows every family below.
+Prometheus format at `/metrics` on the S3 port while `metrics.enable` (configuration) and the `metrics.enabled` setting are on, read with `Authorization: Bearer <token>`, the token of the `metrics.token` setting (Settings → Metrics). Without one set, and with any other, it answers `401`. `/api/v1/metrics` on the console port is the console's JSON and needs a session. Each node of a cluster exports its own. `docker/grafana/dashboards/maxiofs.json` shows every family below.
 
 | Metric | Labels | Counts |
 |--------|--------|--------|

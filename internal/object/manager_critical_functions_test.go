@@ -29,8 +29,7 @@ func TestGetObject_WithSpecificVersionID(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -92,8 +91,7 @@ func TestGetObject_WithDeleteMarker(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -170,8 +168,7 @@ func TestGetObject_NonExistentVersion(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -559,8 +556,7 @@ func TestDeleteObject_VersionedBucket(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)
@@ -607,8 +603,7 @@ func TestDeleteObject_WithSpecificVersionID(t *testing.T) {
 		TenantID: tenantID,
 		OwnerID:  "user-1",
 		Versioning: &metadata.VersioningMetadata{
-			Enabled: true,
-			Status:  "Enabled",
+			Status: "Enabled",
 		},
 	})
 	require.NoError(t, err)

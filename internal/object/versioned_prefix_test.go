@@ -18,7 +18,7 @@ func setupVersionedBucket(t *testing.T, name string) (*objectManager, metadata.S
 	require.NoError(t, store.CreateBucket(context.Background(), &metadata.BucketMetadata{
 		Name:       name,
 		OwnerID:    "u",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 	return om, store, cleanup
 }

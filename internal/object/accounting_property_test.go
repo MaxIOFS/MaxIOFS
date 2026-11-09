@@ -78,7 +78,7 @@ func TestAccounting_AgreesAfterAnySequence_Versioned(t *testing.T) {
 	require.NoError(t, store.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name:       bucket,
 		OwnerID:    "u",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 
 	rng := rand.New(rand.NewSource(2))
@@ -122,7 +122,7 @@ func TestAccounting_AgreesAcrossVersioningStates(t *testing.T) {
 			meta, err := store.GetBucket(ctx, "", name)
 			require.NoError(t, err)
 			status := []string{"Enabled", "Suspended"}[rng.Intn(2)]
-			meta.Versioning = &metadata.VersioningMetadata{Status: status, Enabled: status == "Enabled"}
+			meta.Versioning = &metadata.VersioningMetadata{Status: status}
 			require.NoError(t, store.UpdateBucket(ctx, meta))
 		case 1, 2:
 			_, err := om.PutObject(ctx, name, key, strings.NewReader(strings.Repeat("z", rng.Intn(40)+1)), http.Header{})
@@ -152,7 +152,7 @@ func TestAccounting_AReplacedNullVersionGivesItsBytesBack(t *testing.T) {
 		t.Helper()
 		meta, err := store.GetBucket(ctx, "", name)
 		require.NoError(t, err)
-		meta.Versioning = &metadata.VersioningMetadata{Status: s, Enabled: s == "Enabled"}
+		meta.Versioning = &metadata.VersioningMetadata{Status: s}
 		require.NoError(t, store.UpdateBucket(ctx, meta))
 	}
 	put := func(size int) {

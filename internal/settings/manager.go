@@ -239,6 +239,14 @@ func (m *Manager) insertDefaults() error {
 			Description: "Metrics collection interval in seconds",
 			Editable:    true,
 		},
+		{
+			Key:         "metrics.token",
+			Value:       "",
+			Type:        string(TypeString),
+			Category:    string(CategoryMetrics),
+			Description: "Bearer token Prometheus sends to read /metrics on the S3 port (Authorization: Bearer <token>). While it is empty, /metrics answers 401.",
+			Editable:    true,
+		},
 
 		// Rate Limiting Settings
 		{
@@ -571,6 +579,10 @@ func (m *Manager) GetBool(key string) (bool, error) {
 // never listed, read or changed through the settings of this manager.
 var secretSettings = map[string]bool{"jwt_secret": true}
 
+// sensitiveSettings are settings an administrator sets whose value is never
+// logged.
+var sensitiveSettings = map[string]bool{"email.smtp_password": true, "metrics.token": true}
+
 // GetSetting retrieves a full setting object
 func (m *Manager) GetSetting(key string) (*Setting, error) {
 	if secretSettings[key] {
@@ -634,9 +646,13 @@ func (m *Manager) Set(key, value string) error {
 		return fmt.Errorf("failed to update setting: %w", err)
 	}
 
+	logged := value
+	if sensitiveSettings[key] {
+		logged = "(not logged)"
+	}
 	m.logger.WithFields(logrus.Fields{
 		"key":   key,
-		"value": value,
+		"value": logged,
 	}).Info("Setting updated")
 
 	return nil

@@ -573,7 +573,8 @@ export default function SettingsPage() {
                           </div>
                         ) : (
                           <input
-                            type={setting.key === 'email.smtp_password' ? 'password' : 'text'}
+                            type={setting.key === 'email.smtp_password' || setting.key === 'metrics.token' ? 'password' : 'text'}
+                            autoComplete={setting.key === 'email.smtp_password' || setting.key === 'metrics.token' ? 'new-password' : undefined}
                             value={currentValue}
                             onChange={(e) => handleValueChange(setting.key, e.target.value, setting.value)}
                             className="w-full px-4 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"

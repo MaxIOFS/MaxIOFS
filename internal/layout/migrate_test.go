@@ -49,7 +49,7 @@ func (tr *v1Tree) bucket(bucketPath, tenantID, name string, versioned bool) {
 
 	bm := &metadata.BucketMetadata{Name: name, TenantID: tenantID, OwnerID: "u"}
 	if versioned {
-		bm.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+		bm.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
 	}
 	require.NoError(tr.t, tr.store.CreateBucket(context.Background(), bm))
 }

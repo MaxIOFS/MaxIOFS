@@ -8,7 +8,8 @@ This directory contains all Docker-related configuration files for MaxIOFS.
 docker/
 ├── prometheus/
 │   ├── prometheus.yml     # Prometheus scrape configuration
-│   └── alerts.yml         # Prometheus alert rules (20 rules)
+│   ├── alerts.yml         # Prometheus alert rules (20 rules)
+│   └── secrets/           # maxiofs.token, the metrics token (not in git)
 ├── grafana/
 │   ├── provisioning/
 │   │   ├── datasources/
@@ -45,6 +46,13 @@ Access:
 - Prometheus: http://localhost:9091
 - Grafana: http://localhost:3000 (admin/admin)
 
+`/metrics` answers only with the token of Settings → Metrics (`metrics.token`).
+Set one there and give Prometheus the same:
+
+```bash
+printf '%s' 'the-token-of-the-settings' > docker/prometheus/secrets/maxiofs.token
+```
+
 ### Clustering
 
 A multi-node cluster inside a single Docker host provides **no real HA**
@@ -74,7 +82,7 @@ Refresh: 30 seconds. Time range: last hour.
 
 ### Scrape Targets
 
-- **maxiofs** - Scrapes `maxiofs:8080/metrics` every 30 seconds
+- **maxiofs** - Scrapes `maxiofs:8080/metrics` every 30 seconds, with the token of `secrets/maxiofs.token`
 - **prometheus** - Self-monitoring at `localhost:9090`
 
 ### Alert Rules (20 rules)
@@ -133,6 +141,7 @@ Common issues:
 - MaxIOFS not running: `docker-compose ps`
 - Network issue: Verify `maxiofs-network` exists
 - Metrics disabled: Check `MAXIOFS_METRICS_ENABLE=true`
+- `401`: the token of `secrets/maxiofs.token` is not that of Settings → Metrics, or none is set there
 
 ### Grafana dashboards not loading
 

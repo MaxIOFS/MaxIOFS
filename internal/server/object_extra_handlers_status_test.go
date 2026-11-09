@@ -65,7 +65,7 @@ func TestConsoleUploadObjectLockHeadersNeedTheirOwnPermission(t *testing.T) {
 	require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, bucketName, ""))
 	meta, err := server.metadataStore.GetBucket(ctx, tenantID, bucketName)
 	require.NoError(t, err)
-	meta.Versioning = &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"}
+	meta.Versioning = &metadata.VersioningMetadata{Status: "Enabled"}
 	meta.ObjectLock = &metadata.ObjectLockMetadata{Enabled: true}
 	require.NoError(t, server.metadataStore.UpdateBucket(ctx, meta))
 

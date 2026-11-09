@@ -75,15 +75,20 @@ func TestForward_TheCoordinatorSeesTheUser(t *testing.T) {
 		remoteAddr string
 		headers    map[string]string
 		tls        bool
+		proxies    []string
 		address    string
 		secure     bool
 	}{
-		"over TLS":               {remoteAddr: "198.51.100.7:5000", tls: true, address: "198.51.100.7", secure: true},
-		"in clear":               {remoteAddr: "198.51.100.8:5000", address: "198.51.100.8"},
-		"through a proxy":        {remoteAddr: "10.0.0.5:5000", headers: map[string]string{"X-Forwarded-For": "198.51.100.9", "X-Forwarded-Proto": "https"}, address: "198.51.100.9", secure: true},
-		"from the local network": {remoteAddr: "10.0.0.6:5000", address: "10.0.0.6"},
+		"over TLS":                {remoteAddr: "198.51.100.7:5000", tls: true, address: "198.51.100.7", secure: true},
+		"in clear":                {remoteAddr: "198.51.100.8:5000", address: "198.51.100.8"},
+		"through a proxy":         {remoteAddr: "10.0.0.5:5000", headers: map[string]string{"X-Forwarded-For": "198.51.100.9", "X-Forwarded-Proto": "https"}, proxies: []string{"10.0.0.5"}, address: "198.51.100.9", secure: true},
+		"through an unlisted one": {remoteAddr: "10.0.0.5:5000", headers: map[string]string{"X-Forwarded-For": "198.51.100.9", "X-Forwarded-Proto": "https"}, address: "10.0.0.5"},
+		"from the local network":  {remoteAddr: "10.0.0.6:5000", address: "10.0.0.6"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			formerProxies := server.config.TrustedProxies
+			server.config.TrustedProxies = tc.proxies
+			defer func() { server.config.TrustedProxies = formerProxies }()
 			user := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader("{}"))
 			user.RemoteAddr = tc.remoteAddr
 			for key, value := range tc.headers {

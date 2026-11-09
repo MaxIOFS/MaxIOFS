@@ -113,7 +113,7 @@ func TestHAReceiveRawPutOfAVersionDeletedHere(t *testing.T) {
 	bucketName := "raw-deleted-version"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 	cleanupTestData(t, "", bucketName)
 	const deleted = "1700000000000000001.deleted"

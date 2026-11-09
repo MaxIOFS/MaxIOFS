@@ -77,6 +77,10 @@ func buildTestDeploymentWith(t *testing.T, extra func(ctx context.Context, bucke
 		Logger:  logrus.StandardLogger(),
 	})
 	require.NoError(t, err)
+	// As the server does: a bucket's settings reach its marker as they change.
+	metaStore.OnBucketWritten(func(ctx context.Context, tenantID, name string) {
+		require.NoError(t, bucket.KeepMarker(ctx, metaStore, objectsRoot, tenantID, name))
+	})
 
 	bucketMgr := bucket.NewManager(backend, metaStore)
 	objMgr := object.NewManager(backend, metaStore, config.StorageConfig{Backend: "filesystem", Root: objectsRoot},

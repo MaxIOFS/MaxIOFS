@@ -445,6 +445,35 @@ Tests verify plaintext MD5, multipart ETag, metadata, cleanup, failure rollback 
 retry, including cancellation and part open/read/close failures. The producer is
 joined before completion returns, including when storage rejects the write early.
 
+### Encrypted PUT Staging, November 8, 2026
+
+A PUT is encrypted as it is received, with the key it is stored with, so its
+staging file holds ciphertext; the content's MD5 and checksum are taken on the
+way. The staging file is then published as it is, without a second encryption
+pass: a new PUT writes C to staging and C to the object and reads C, where it
+wrote N, read N and wrote C before. Memory stays that of one 64 KiB chunk and a
+256 KiB write buffer, whatever the size.
+
+`BenchmarkPutObject` in `internal/object/put_bench_test.go` measures a PUT
+through the object manager, its rate and the most memory its heap objects held
+while it ran, beyond what they held before; the content comes from a 1 MiB
+block given over and over, never held whole:
+
+```bash
+go test ./internal/object/ -run '^$' -bench BenchmarkPutObject -benchtime 8x -count 3
+```
+
+On a Windows 11 laptop (8 threads, NVMe), three runs of eight PUTs each:
+
+| Size | Before (MB/s) | After (MB/s) | Peak heap before → after |
+|------|---------------|--------------|--------------------------|
+| 1 MiB | 52–57 | 58–60 | 2.8–3.4 → 3.7–4.0 MiB |
+| 64 MiB | 160–177 | 196–221 | 3.4–4.2 → 4.1–4.8 MiB |
+| 256 MiB | 156–158 | 202–210 | 3.4–4.5 → 5.1–5.3 MiB |
+
+The rate counts the server's work only: the content comes from memory, not
+from a network.
+
 ---
 
 **See also**: [ARCHITECTURE.md](ARCHITECTURE.md) · [OPERATIONS.md](OPERATIONS.md) · [TESTING.md](TESTING.md)

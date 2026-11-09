@@ -717,6 +717,7 @@ func New(cfg *config.Config) (*Server, error) {
 		idpManager:              idpManager,
 		startTime:               time.Now(), // Record server start time
 	}
+	metadataStore.OnBucketWritten(server.keepBucketMarker)
 
 	// Wire the dead-node reconciler now that the Server is built — the
 	// emitter closure relays events to SSE clients via the notification hub.
@@ -1003,6 +1004,9 @@ func (s *Server) reconcileBucketStats(ctx context.Context) error {
 		if counts.Governance > 0 || counts.Compliance > 0 {
 			retained[b.Name] = metrics.RetentionCount{Governance: counts.Governance, Compliance: counts.Compliance}
 		}
+		// A bucket created, or written by an earlier release, gets its
+		// configuration into its marker here.
+		s.keepBucketMarker(ctx, b.TenantID, b.Name)
 	}
 	if counting != nil && s.metricsManager != nil {
 		s.metricsManager.UpdateRetentionMetrics(retained)
@@ -1323,13 +1327,20 @@ func (s *Server) setupRoutes() error {
 	// Setup API routes (S3 compatible)
 	apiRouter := newRouter()
 
-	// Prometheus metrics endpoint (no auth, no middleware)
-	// Wraps with a settings check so metrics.enabled can be toggled from the UI without restart.
+	// Prometheus metrics endpoint, read with the metrics.token setting as a
+	// bearer token. Settings are read on each request, so metrics.enabled and
+	// the token change without a restart.
 	if s.config.Metrics.Enable {
 		metricsHandler := s.metricsManager.GetMetricsHandler()
 		apiRouter.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if enabled, err := s.settingsManager.GetBool("metrics.enabled"); err == nil && !enabled {
 				http.NotFound(w, r)
+				return
+			}
+			token, _ := s.settingsManager.Get("metrics.token")
+			if !bearerTokenIs(r, token) {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+				http.Error(w, "metrics need the bearer token set in Settings (metrics.token)", http.StatusUnauthorized)
 				return
 			}
 			metricsHandler.ServeHTTP(w, r)

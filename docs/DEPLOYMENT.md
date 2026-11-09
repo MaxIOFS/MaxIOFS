@@ -169,6 +169,15 @@ sudo systemctl enable --now maxiofs
 
 ## Reverse Proxy (Recommended for Production)
 
+MaxIOFS takes `X-Forwarded-For` and `X-Forwarded-Proto` only from the proxies
+in `trusted_proxies`. List the address the proxy reaches MaxIOFS from:
+`["127.0.0.1"]` for a proxy on the same host, the internal address of a WAF or
+load balancer. Otherwise logs, rate limits and `aws:SourceIp` see the proxy.
+
+```yaml
+trusted_proxies: ["127.0.0.1"]
+```
+
 ### Nginx
 
 ```nginx
@@ -274,12 +283,17 @@ See [CLUSTER.md](CLUSTER.md) for complete documentation. Quick overview:
 
 ### Prometheus + Grafana
 
-MaxIOFS exposes Prometheus metrics at `/metrics` on the S3 port (8080):
+MaxIOFS exposes Prometheus metrics at `/metrics` on the S3 port (8080), read
+with the token set in Settings → Metrics (`metrics.token`); without one set,
+`/metrics` answers `401`.
 
 ```yaml
 # prometheus.yml
 scrape_configs:
   - job_name: 'maxiofs'
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/maxiofs.token   # the token of the settings
     static_configs:
       - targets: ['localhost:8080']
 ```

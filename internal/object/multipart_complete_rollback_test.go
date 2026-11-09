@@ -153,7 +153,7 @@ func TestCompleteMultipartVersionedPublishFailureKeepsLiveObject(t *testing.T) {
 	require.NoError(t, meta.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name:       "versioned",
 		OwnerID:    "owner",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 	const previous = "first version bytes"
 	old, err := om.PutObject(ctx, "versioned", "key", strings.NewReader(previous), http.Header{})

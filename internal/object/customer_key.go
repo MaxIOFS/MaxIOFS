@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -158,60 +157,28 @@ func customerSidecar(sidecar map[string]string) bool {
 	return sidecar[sidecarCustomerDEK] != ""
 }
 
-// storeCustomerEncryptedObject encrypts and stores the object in tempPath
-// with a fresh DEK wrapped with the customer's key, and returns the wrap and
-// its nonce. Its ETag, set as the sidecar's original-etag before storage
-// writes the sidecar, is the MD5 of the bytes stored: the MD5 of its content
-// is kept nowhere, as in S3.
-func (om *objectManager) storeCustomerEncryptedObject(ctx context.Context, ref storage.ObjectRef, tempPath string, storageMetadata map[string]string, originalSize int64, key []byte) (string, string, error) {
-	dek, err := om.encryptor.GenerateKey()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate DEK: %w", err)
-	}
-	wrapped, nonce, err := wrapCustomerDEK(dek, key)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to wrap DEK with the customer key: %w", err)
-	}
+// storeCustomerSealedObject stores the content tempPath holds encrypted with
+// the key the customer's key wraps in sealed, as it was received. Its ETag is
+// storedETag, the MD5 of the bytes stored: the MD5 of its content is kept
+// nowhere, as in S3.
+func (om *objectManager) storeCustomerSealedObject(ctx context.Context, ref storage.ObjectRef, tempPath string, storageMetadata map[string]string, originalSize int64, sealed uploadSeal, storedETag string) error {
 	storageMetadata["original-size"] = strconv.FormatInt(originalSize, 10)
+	storageMetadata["original-etag"] = storedETag
 	storageMetadata["encrypted"] = "true"
 	storageMetadata["x-amz-server-side-encryption-algorithm"] = "AES-256-GCM-STREAM"
 	storageMetadata[sidecarCustomerAlgorithm] = CustomerAlgorithm
-	storageMetadata[sidecarCustomerDEK] = wrapped
-	storageMetadata[sidecarCustomerDEKIV] = nonce
+	storageMetadata[sidecarCustomerDEK] = sealed.customerDEK
+	storageMetadata[sidecarCustomerDEKIV] = sealed.customerDEKIV
 
-	plain, err := os.Open(tempPath)
+	stored, err := os.Open(tempPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to open temp file for encryption: %w", err)
+		return fmt.Errorf("failed to open temp file: %w", err)
 	}
-	defer plain.Close()
-	pr, pw := io.Pipe()
-	defer pr.Close()
-	go func() {
-		_, err := om.encryptor.EncryptStream(plain, pw, dek)
-		pw.CloseWithError(err)
-	}()
-	stored := &etagAtEnd{r: pr, hash: md5.New(), meta: storageMetadata}
+	defer stored.Close()
 	if err := om.storage.Put(ctx, ref, stored, storageMetadata); err != nil {
-		return "", "", fmt.Errorf("failed to store object: %w", err)
+		return fmt.Errorf("failed to store object: %w", err)
 	}
-	return wrapped, nonce, nil
-}
-
-// etagAtEnd hashes the bytes read through it and, at their end, sets their
-// MD5 as meta's original-etag.
-type etagAtEnd struct {
-	r    io.Reader
-	hash hash.Hash
-	meta map[string]string
-}
-
-func (e *etagAtEnd) Read(p []byte) (int, error) {
-	n, err := e.r.Read(p)
-	e.hash.Write(p[:n])
-	if err == io.EOF {
-		e.meta["original-etag"] = hex.EncodeToString(e.hash.Sum(nil))
-	}
-	return n, err
+	return nil
 }
 
 // dataKeyFor is the DEK of the stored object sidecar describes: unwrapped

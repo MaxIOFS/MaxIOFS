@@ -95,8 +95,7 @@ func toMetadataVersioning(v *VersioningConfig) *metadata.VersioningMetadata {
 		return nil
 	}
 	return &metadata.VersioningMetadata{
-		Enabled: v.Status == "Enabled",
-		Status:  v.Status,
+		Status: v.Status,
 	}
 }
 

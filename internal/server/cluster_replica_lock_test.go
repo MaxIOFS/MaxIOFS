@@ -27,7 +27,7 @@ func TestHAReceivePutKeepsTheSourceObjectLock(t *testing.T) {
 	locked, plain := "ha-replica-lock", "ha-replica-lock-plain"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: locked, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true, Rule: &metadata.ObjectLockRuleMetadata{
 			DefaultRetention: &metadata.RetentionMetadata{Mode: object.RetentionModeGovernance, Days: &days},
 		}},
@@ -107,7 +107,7 @@ func TestHAGetObjectSendsObjectLock(t *testing.T) {
 	bucketName := "ha-get-lock"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
 	}))
 	until := time.Now().Add(48 * time.Hour).UTC()
@@ -141,7 +141,7 @@ func TestHAMetadataOpAnswersWhetherItCanEverApply(t *testing.T) {
 	bucketName := "ha-metadata-op-status"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
 	}))
 	h := http.Header{}
@@ -172,7 +172,7 @@ func TestHAReceiveDeleteKeepsAnOlderMarkerBehindTheLatest(t *testing.T) {
 	bucketName := "ha-marker-order"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 	_, err := server.objectManager.PutObject(ctx, bucketName, "k", strings.NewReader("live"), http.Header{})
 	require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestHAReceiveKeepsTheTimeOfTheWrite(t *testing.T) {
 	bucketName := "ha-written-at"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 	}))
 	const writtenAt = int64(1_700_000_000_123_456_789)
 
@@ -284,7 +284,7 @@ func TestHAReceiveDeleteSaysWhatCameOfIt(t *testing.T) {
 	bucketName := "ha-delete-outcome"
 	require.NoError(t, server.metadataStore.CreateBucket(ctx, &metadata.BucketMetadata{
 		Name: bucketName, OwnerID: "admin",
-		Versioning: &metadata.VersioningMetadata{Enabled: true, Status: "Enabled"},
+		Versioning: &metadata.VersioningMetadata{Status: "Enabled"},
 		ObjectLock: &metadata.ObjectLockMetadata{Enabled: true},
 	}))
 	held, err := server.objectManager.PutObject(ctx, bucketName, "held", strings.NewReader("data"), http.Header{"X-Amz-Object-Lock-Legal-Hold": {"ON"}})
