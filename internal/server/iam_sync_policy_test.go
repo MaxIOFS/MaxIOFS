@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,4 +56,25 @@ func TestASynchronizedPolicyIsStoredWhole(t *testing.T) {
 	description, document = stored()
 	assert.Equal(t, "whole", description)
 	assert.Equal(t, changed, document)
+}
+
+// A batch a peer sent whole is stored although the peer hung up before the
+// answer, as one that stops or dies does.
+func TestASyncBatchOutlivesTheSender(t *testing.T) {
+	s := newClusterTestNode(t)
+	const doc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+	r := fromPeer(t, http.MethodPost, "/api/internal/cluster/iam-sync", cluster.IAMSyncPayload{
+		Policies: []*cluster.IAMPolicyData{{Name: "sent", ARN: "arn:aws:iam:::policy/sent", Path: "/",
+			DefaultVersionID: "v1", CreatedAt: 1, UpdatedAt: 100,
+			Versions: []*cluster.IAMPolicyVersionRow{{VersionID: "v1", Document: doc, CreatedAt: 1}}}},
+	})
+	hungUp, cancel := context.WithCancel(r.Context())
+	cancel()
+	w := httptest.NewRecorder()
+	keepOnHangUp(s.handleReceiveIAMSync)(w, r.WithContext(hungUp))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var document string
+	require.NoError(t, s.db.QueryRow(`SELECT document FROM iam_policy_versions WHERE policy_name = 'sent'`).Scan(&document))
+	assert.Equal(t, doc, document)
 }

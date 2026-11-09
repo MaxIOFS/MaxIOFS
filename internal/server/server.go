@@ -1560,6 +1560,14 @@ func (s *Server) setupRoutes() error {
 	return nil
 }
 
+// keepOnHangUp serves a sync push with a context that does not end when the
+// sending node hangs up: a batch received whole is stored whole.
+func keepOnHangUp(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h(w, r.WithContext(context.WithoutCancel(r.Context())))
+	}
+}
+
 // setupClusterRoutes registers all inter-node cluster communication routes on the
 // dedicated cluster port (default :8082).
 func (s *Server) setupClusterRoutes(router *mux.Router) {
@@ -1573,32 +1581,32 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac := router.PathPrefix("/api/internal/cluster").Subrouter()
 	hmac.Use(clusterAuth.ClusterAuth)
 	hmac.HandleFunc("/peer-node", s.handleRegisterPeerNode).Methods("POST")
-	hmac.HandleFunc("/tenant-sync", s.handleReceiveTenantSync).Methods("POST")
-	hmac.HandleFunc("/tenant-delete-sync", s.handleReceiveTenantDeleteSync).Methods("POST")
-	hmac.HandleFunc("/user-sync", s.handleReceiveUserSync).Methods("POST")
+	hmac.HandleFunc("/tenant-sync", keepOnHangUp(s.handleReceiveTenantSync)).Methods("POST")
+	hmac.HandleFunc("/tenant-delete-sync", keepOnHangUp(s.handleReceiveTenantDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/user-sync", keepOnHangUp(s.handleReceiveUserSync)).Methods("POST")
 	hmac.HandleFunc("/oauth-exchange", s.handleClusterOAuthExchange).Methods("GET")
 	hmac.HandleFunc("/console-session-renew", s.handleClusterSessionRenew).Methods("POST")
-	hmac.HandleFunc("/user-delete-sync", s.handleReceiveUserDeleteSync).Methods("POST")
-	hmac.HandleFunc("/access-key-sync", s.handleReceiveAccessKeySync).Methods("POST")
-	hmac.HandleFunc("/access-key-delete-sync", s.handleReceiveAccessKeyDeleteSync).Methods("POST")
-	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
-	hmac.HandleFunc("/console-session-sync", s.handleReceiveConsoleSessionSync).Methods("POST")
-	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
-	hmac.HandleFunc("/settings-sync", s.handleReceiveSettingsSync).Methods("POST")
+	hmac.HandleFunc("/user-delete-sync", keepOnHangUp(s.handleReceiveUserDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/access-key-sync", keepOnHangUp(s.handleReceiveAccessKeySync)).Methods("POST")
+	hmac.HandleFunc("/access-key-delete-sync", keepOnHangUp(s.handleReceiveAccessKeyDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/sts-session-sync", keepOnHangUp(s.handleReceiveSTSSessionSync)).Methods("POST")
+	hmac.HandleFunc("/console-session-sync", keepOnHangUp(s.handleReceiveConsoleSessionSync)).Methods("POST")
+	hmac.HandleFunc("/iam-sync", keepOnHangUp(s.handleReceiveIAMSync)).Methods("POST")
+	hmac.HandleFunc("/settings-sync", keepOnHangUp(s.handleReceiveSettingsSync)).Methods("POST")
 	hmac.HandleFunc("/leader-lease", s.handleLeaderLease).Methods("POST")
 	hmac.PathPrefix("/console-write").HandlerFunc(s.handleCoordinatorWrite).Methods("POST", "PUT", "DELETE", "PATCH")
-	hmac.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")
-	hmac.HandleFunc("/bucket-permission-delete-sync", s.handleReceiveBucketPermissionDeleteSync).Methods("POST")
-	hmac.HandleFunc("/idp-provider-sync", s.handleReceiveIDPProviderSync).Methods("POST")
-	hmac.HandleFunc("/idp-provider-delete-sync", s.handleReceiveIDPProviderDeleteSync).Methods("POST")
-	hmac.HandleFunc("/group-mapping-sync", s.handleReceiveGroupMappingSync).Methods("POST")
-	hmac.HandleFunc("/group-mapping-delete-sync", s.handleReceiveGroupMappingDeleteSync).Methods("POST")
-	hmac.HandleFunc("/group-sync", s.handleReceiveGroupSync).Methods("POST")
-	hmac.HandleFunc("/group-delete-sync", s.handleReceiveGroupDeleteSync).Methods("POST")
-	hmac.HandleFunc("/global-config-sync", s.handleReceiveGlobalConfigSync).Methods("POST")
-	hmac.HandleFunc("/node-list-sync", s.handleReceiveNodeListSync).Methods("POST")
-	hmac.HandleFunc("/deletion-log-sync", s.handleReceiveDeletionLogSync).Methods("POST")
-	hmac.HandleFunc("/kek-sync", s.handleReceiveKEKSync).Methods("POST")
+	hmac.HandleFunc("/bucket-permission-sync", keepOnHangUp(s.handleReceiveBucketPermissionSync)).Methods("POST")
+	hmac.HandleFunc("/bucket-permission-delete-sync", keepOnHangUp(s.handleReceiveBucketPermissionDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/idp-provider-sync", keepOnHangUp(s.handleReceiveIDPProviderSync)).Methods("POST")
+	hmac.HandleFunc("/idp-provider-delete-sync", keepOnHangUp(s.handleReceiveIDPProviderDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/group-mapping-sync", keepOnHangUp(s.handleReceiveGroupMappingSync)).Methods("POST")
+	hmac.HandleFunc("/group-mapping-delete-sync", keepOnHangUp(s.handleReceiveGroupMappingDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/group-sync", keepOnHangUp(s.handleReceiveGroupSync)).Methods("POST")
+	hmac.HandleFunc("/group-delete-sync", keepOnHangUp(s.handleReceiveGroupDeleteSync)).Methods("POST")
+	hmac.HandleFunc("/global-config-sync", keepOnHangUp(s.handleReceiveGlobalConfigSync)).Methods("POST")
+	hmac.HandleFunc("/node-list-sync", keepOnHangUp(s.handleReceiveNodeListSync)).Methods("POST")
+	hmac.HandleFunc("/deletion-log-sync", keepOnHangUp(s.handleReceiveDeletionLogSync)).Methods("POST")
+	hmac.HandleFunc("/kek-sync", keepOnHangUp(s.handleReceiveKEKSync)).Methods("POST")
 	hmac.HandleFunc("/encryption-secret", s.handleEncryptionSecretFingerprint).Methods("GET")
 	hmac.HandleFunc("/encryption-secret", s.handleReceiveEncryptionSecret).Methods("POST")
 	hmac.HandleFunc("/audit-logs", s.handleGetLocalAuditLogs).Methods("GET")

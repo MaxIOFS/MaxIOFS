@@ -15,10 +15,12 @@ done
 # Create the data directory if it doesn't exist
 mkdir -p "$DATA_DIR"
 
-# If running as root, fix ownership then drop privileges to the maxiofs user
+# If running as root, fix ownership then drop privileges to the maxiofs user.
+# setpriv replaces this process, so maxiofs is PID 1 and gets the stop signal
+# itself: runuser stays as its parent and kills it 2 seconds after the signal.
 if [ "$(id -u)" = "0" ]; then
     chown -R maxiofs:maxiofs "$DATA_DIR"
-    exec runuser -u maxiofs -- "$0" "$@"
+    exec setpriv --reuid=maxiofs --regid=maxiofs --init-groups -- "$0" "$@"
 fi
 
 # On first run, create config.yaml in the data directory from the bundled example.

@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A node joining a cluster empties everything the cluster replicates and takes it from the cluster: its own policies, administrator and settings, newer than the cluster's, replaced them on every node.
 - Settings and logging targets are the same on every node of a cluster: each node kept its own.
 - An IAM policy received from another node is stored with its versions or not at all, and one without its default version is not taken.
+- A node that stops while sending its changes no longer makes the other nodes drop them and log `context canceled`.
+- In Docker, stopping the container killed MaxIOFS 2 seconds after the stop signal, before it finished shutting down, and the next start reported an unclean shutdown.
 - A part whose body was cut short was stored with what had arrived, without an error.
 - `maxiofs recover` left every bucket without its Object Lock setting, so no retention could be set or extended on it: a bucket with a locked version gets it back.
 - A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
