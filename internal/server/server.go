@@ -91,6 +91,7 @@ type Server struct {
 	consoleSessionSync  *cluster.ConsoleSessionSyncManager
 	sessionRenewals     sessionRenewals
 	iamSyncMgr          *cluster.IAMSyncManager
+	settingsSyncMgr     *cluster.SettingsSyncManager
 	leaderMgr           *cluster.LeaderManager
 	// clusterJobs tells whether this node runs the jobs that act on the whole
 	// cluster: always outside a cluster, the coordinator only inside one.
@@ -549,6 +550,7 @@ func New(cfg *config.Config) (*Server, error) {
 	stsSessionSyncMgr := supervise(reg, "stsSessionSync", cluster.NewSTSSessionSyncManager(db, clusterManager))
 	consoleSessionSync := supervise(reg, "consoleSessionSync", cluster.NewConsoleSessionSyncManager(db, clusterManager))
 	iamSyncMgr := supervise(reg, "iamSync", cluster.NewIAMSyncManager(db, clusterManager))
+	settingsSyncMgr := supervise(reg, "settingsSync", cluster.NewSettingsSyncManager(db, clusterManager))
 	leaderMgr := supervise(reg, "leader", cluster.NewLeaderManager(db, clusterManager))
 	encSecretSync := supervise(reg, "encryptionSecretSync", cluster.NewEncryptionSecretSync(clusterManager, leaderMgr, encSecret))
 
@@ -699,6 +701,7 @@ func New(cfg *config.Config) (*Server, error) {
 		stsSessionSyncMgr:       stsSessionSyncMgr,
 		consoleSessionSync:      consoleSessionSync,
 		iamSyncMgr:              iamSyncMgr,
+		settingsSyncMgr:         settingsSyncMgr,
 		leaderMgr:               leaderMgr,
 		clusterJobs:             clusterJobs,
 		bucketPermissionSyncMgr: bucketPermissionSyncMgr,
@@ -1103,6 +1106,9 @@ func (s *Server) startClusterBackgroundServices(ctx context.Context) {
 		}
 		if s.iamSyncMgr != nil {
 			s.iamSyncMgr.Start(ctx)
+		}
+		if s.settingsSyncMgr != nil {
+			s.settingsSyncMgr.Start(ctx)
 		}
 		if s.encSecretSync != nil {
 			s.encSecretSync.Start(ctx)
@@ -1578,6 +1584,7 @@ func (s *Server) setupClusterRoutes(router *mux.Router) {
 	hmac.HandleFunc("/sts-session-sync", s.handleReceiveSTSSessionSync).Methods("POST")
 	hmac.HandleFunc("/console-session-sync", s.handleReceiveConsoleSessionSync).Methods("POST")
 	hmac.HandleFunc("/iam-sync", s.handleReceiveIAMSync).Methods("POST")
+	hmac.HandleFunc("/settings-sync", s.handleReceiveSettingsSync).Methods("POST")
 	hmac.HandleFunc("/leader-lease", s.handleLeaderLease).Methods("POST")
 	hmac.PathPrefix("/console-write").HandlerFunc(s.handleCoordinatorWrite).Methods("POST", "PUT", "DELETE", "PATCH")
 	hmac.HandleFunc("/bucket-permission-sync", s.handleReceiveBucketPermissionSync).Methods("POST")

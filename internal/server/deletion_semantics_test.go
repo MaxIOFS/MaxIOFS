@@ -375,7 +375,8 @@ func TestIAMDeletionsAreOrderedAgainstEntities(t *testing.T) {
 	assert.True(t, inline("q"), "a copy changed in the second of its deletion")
 
 	policy := func(name string, updated int64) cluster.IAMSyncPayload {
-		return cluster.IAMSyncPayload{Policies: []*cluster.IAMPolicyData{{Name: name, ARN: "arn:aws:iam:::policy/" + name, Path: "/", DefaultVersionID: "v1", CreatedAt: 1, UpdatedAt: updated}}}
+		return cluster.IAMSyncPayload{Policies: []*cluster.IAMPolicyData{{Name: name, ARN: "arn:aws:iam:::policy/" + name, Path: "/", DefaultVersionID: "v1", CreatedAt: 1, UpdatedAt: updated,
+			Versions: []*cluster.IAMPolicyVersionRow{{VersionID: "v1", Document: doc, CreatedAt: 1}}}}}
 	}
 	require.NoError(t, cluster.RecordDeletion(ctx, s.db, cluster.EntityTypeIAMPolicy, "gone-policy", "peer", 100))
 	send(policy("gone-policy", 99))

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maxiofs/maxiofs/internal/db/migrations"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,12 +233,27 @@ func TestADrainIsTakenByEveryNode(t *testing.T) {
 	assert.Equal(t, HealthStatusHealthy, n2.HealthStatus)
 }
 
-// A node joining a cluster takes its membership: what it held of a cluster
-// it was in before, its own former entry included, is gone.
+// A node joining a cluster empties everything the cluster sends it, and takes
+// the cluster's membership: what it held, of its own or of a cluster it was in
+// before, its own former entry included, is gone.
 func TestJoiningTakesTheClusterMembership(t *testing.T) {
 	db := setupDeadNodeReconcilerDB(t)
+	require.NoError(t, migrations.NewMigrationManager(db, logrus.New()).Migrate())
 	mgr := newTestManager(t, db)
 	ctx := context.Background()
+	for _, insert := range []string{
+		`INSERT INTO users (id, username, password_hash, status, roles, created_at, updated_at) VALUES ('admin', 'admin', 'x', 'active', '["admin"]', 1, 1)`,
+		`INSERT INTO iam_policies (name, arn, path, default_version_id, is_builtin, created_at, updated_at) VALUES ('FullAccess', 'arn:aws:iam:::policy/FullAccess', '/', 'v1', 1, 1, 1)`,
+		`INSERT INTO iam_policy_versions (policy_name, version_id, document, created_at) VALUES ('FullAccess', 'v1', '{}', 1)`,
+		`INSERT INTO iam_policy_attachments (policy_name, target_type, target_id, attached_at) VALUES ('FullAccess', 'role', 'admin', 1)`,
+		`INSERT INTO system_settings (key, value, type, category, description, editable, created_at, updated_at) VALUES ('metrics.token', 'own', 'string', 'metrics', '', 1, 1, 1)`,
+		`INSERT INTO logging_targets (id, name, type, created_at, updated_at) VALUES ('t1', 'own', 'syslog', 1, 1)`,
+	} {
+		_, err := db.Exec(insert)
+		require.NoError(t, err, insert)
+	}
+	require.NoError(t, RecordDeletion(ctx, db, EntityTypeIAMPolicy, "Backup", "former-self", 100))
+	require.NoError(t, SetGlobalConfig(ctx, db, "ha.replication_factor", "1"))
 	insertNode(t, db, "former-self", "me", HealthStatusHealthy, nil)
 	insertNode(t, db, "former-peer", "old", HealthStatusHealthy, nil)
 	_, err := db.Exec(`INSERT INTO ha_pending_metadata_ops (node_id, bucket, op, created_at) VALUES ('former-peer', 'b', '{}', 1)`)
@@ -262,9 +279,14 @@ func TestJoiningTakesTheClusterMembership(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 42, primary.ChangedAt, "the cluster's change time is kept")
 	assert.False(t, mgr.hasQueuedMetadataOps(ctx, "former-peer"))
-	var marks int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM cluster_deletion_log_delivery`).Scan(&marks))
-	assert.Zero(t, marks, "no deletion is counted as sent to the cluster's nodes")
+	for _, table := range joinEmptied {
+		if table == "cluster_nodes" || table == "cluster_config" {
+			continue
+		}
+		var rows int
+		require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&rows))
+		assert.Zero(t, rows, "%s is the cluster's", table)
+	}
 }
 
 // The degraded reason says what happens to writes: kept on fewer nodes while

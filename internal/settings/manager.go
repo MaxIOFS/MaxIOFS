@@ -497,8 +497,8 @@ func (m *Manager) insertDefaults() error {
 		},
 	}
 
-	now := time.Now().Unix()
-
+	// A default no one changed is dated at the epoch: in a cluster, a change
+	// made on any node is newer and every node takes it.
 	tx, err := m.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction for default settings: %w", err)
@@ -508,15 +508,21 @@ func (m *Manager) insertDefaults() error {
 	for _, setting := range defaults {
 		_, err := tx.Exec(`
 		INSERT INTO system_settings (key, value, type, category, description, editable, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, 0, 0)
 		ON CONFLICT(key) DO UPDATE SET
 			type        = excluded.type,
 			category    = excluded.category,
 			description = excluded.description,
 			editable    = excluded.editable
-		`, setting.Key, setting.Value, setting.Type, setting.Category, setting.Description, setting.Editable, now, now)
+		`, setting.Key, setting.Value, setting.Type, setting.Category, setting.Description, setting.Editable)
 		if err != nil {
 			return fmt.Errorf("failed to insert default setting %s: %w", setting.Key, err)
+		}
+		if _, err := tx.Exec(`
+		UPDATE system_settings SET created_at = 0, updated_at = 0
+		WHERE key = ? AND value = ? AND created_at = updated_at
+		`, setting.Key, setting.Value); err != nil {
+			return fmt.Errorf("failed to date default setting %s: %w", setting.Key, err)
 		}
 	}
 

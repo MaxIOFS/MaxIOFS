@@ -58,6 +58,12 @@ func (s *Server) deleteEntityLocally(ctx context.Context, entityType, id string,
 		return s.inTx(ctx, func(tx *sql.Tx) (int64, error) { return deleteGroupRows(ctx, tx, id) })
 	case cluster.EntityTypeSTSSession:
 		return s.deleteRows(ctx, `DELETE FROM sts_sessions WHERE temp_access_key_id = ?`, id)
+	case cluster.EntityTypeLoggingTarget:
+		removed, err := s.deleteRows(ctx, `DELETE FROM logging_targets WHERE id = ?`, id)
+		if removed && s.loggingManager != nil {
+			s.loggingManager.Reconfigure()
+		}
+		return removed, err
 	case cluster.EntityTypeIAMPolicy, cluster.EntityTypeIAMRole, cluster.EntityTypeIAMAttachment, cluster.EntityTypeIAMInlinePolicy:
 		// A failure is logged there; an ID that names nothing must not stop
 		// the deletions that follow it.

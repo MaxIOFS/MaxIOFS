@@ -29,6 +29,7 @@ const (
 	EntityTypeGroupMapping     = "group_mapping"
 	EntityTypeGroup            = "group"
 	EntityTypeSTSSession       = "sts_session"
+	EntityTypeLoggingTarget    = "logging_target"
 
 	EntityTypeIAMPolicy       = "iam_policy"
 	EntityTypeIAMRole         = "iam_role"
@@ -254,6 +255,8 @@ func EntityUpdatedAt(ctx context.Context, q sqlQuerier, entityType, entityID str
 		query = `SELECT updated_at FROM idp_group_mappings WHERE id = ?`
 	case EntityTypeGroup:
 		query = `SELECT updated_at FROM groups WHERE id = ?`
+	case EntityTypeLoggingTarget:
+		query = `SELECT updated_at FROM logging_targets WHERE id = ?`
 	case EntityTypeIAMPolicy:
 		query = `SELECT updated_at FROM iam_policies WHERE name = ?`
 	case EntityTypeIAMRole:

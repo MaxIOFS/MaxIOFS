@@ -301,6 +301,37 @@ type ClusterJoinPackage struct {
 	EncryptionSecret string `json:"encryption_secret,omitempty"`
 }
 
+// joinEmptied are the tables a node empties when it joins a cluster: the
+// cluster sends it all of them. A table comes before those it references.
+var joinEmptied = []string{
+	"access_keys", "console_sessions", "sts_sessions", "user_capability_overrides",
+	"bucket_permissions", "group_members", "groups", "idp_group_mappings", "identity_providers",
+	"users", "tenants",
+	"iam_policy_versions", "iam_policies", "iam_policy_attachments", "iam_inline_policies", "iam_roles",
+	"shares", "replication_rules", "bucket_inventory_configs",
+	"system_settings", "logging_targets", "cluster_global_config",
+	"cluster_deletion_log", "cluster_deletion_log_delivery", "ha_pending_metadata_ops",
+	"ha_bucket_tombstones", "ha_row_versions",
+	"cluster_user_sync", "cluster_tenant_sync", "cluster_access_key_sync", "cluster_group_sync",
+	"cluster_group_mapping_sync", "cluster_idp_provider_sync", "cluster_bucket_permission_sync",
+	"cluster_nodes", "cluster_config",
+}
+
+// emptyForJoin empties, all or nothing, every table of joinEmptied.
+func (m *Manager) emptyForJoin(ctx context.Context) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+	for _, table := range joinEmptied {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil { //nolint:gosec // G202: a table of joinEmptied
+			return fmt.Errorf("empty %s: %w", table, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // AcceptClusterJoin applies a ClusterJoinPackage sent by Node A.
 // Generates this node's own TLS cert+key using the cluster CA (with SelfEndpoint IP in the SANs),
 // stores config in DB, and loads TLS into memory.
@@ -316,28 +347,9 @@ func (m *Manager) AcceptClusterJoin(ctx context.Context, pkg *ClusterJoinPackage
 		return fmt.Errorf("failed to generate node certificate: %w", err)
 	}
 
-	_, err = m.db.ExecContext(ctx, `DELETE FROM cluster_config`)
-	if err != nil {
-		return fmt.Errorf("failed to clear cluster config: %w", err)
-	}
-	// The node takes the cluster's membership: what it held of a cluster it
-	// was in before, its own former entry included, is not a member.
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_nodes`); err != nil {
-		return fmt.Errorf("failed to clear cluster nodes: %w", err)
-	}
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM ha_pending_metadata_ops`); err != nil {
-		return fmt.Errorf("failed to clear queued metadata operations: %w", err)
-	}
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_deletion_log_delivery`); err != nil {
-		return fmt.Errorf("failed to clear deletion deliveries: %w", err)
-	}
-
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id IS NULL OR tenant_id = ''`); err != nil {
-		m.log.WithError(err).Warn("Failed to clear local global users before join — user sync may fail")
-	}
-	// Remove stale sync tracking for those users so the primary syncs them fresh.
-	if _, err := m.db.ExecContext(ctx, `DELETE FROM cluster_user_sync WHERE user_id NOT IN (SELECT id FROM users)`); err != nil {
-		m.log.WithError(err).Warn("Failed to clean up stale user sync records")
+	// The node takes everything from the cluster: nothing it held stays.
+	if err := m.emptyForJoin(ctx); err != nil {
+		return fmt.Errorf("failed to empty this node before it joins: %w", err)
 	}
 
 	// Store CA cert but NOT the CA key — this node doesn't need to sign more certs.

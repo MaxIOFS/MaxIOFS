@@ -1000,6 +1000,17 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 		logrus.WithError(err).WithField("node_id", newNode.ID).Warn("kickstartNewNodeSync: health check failed, sync may be delayed")
 	}
 
+	// The node emptied itself: it is sent everything the cluster holds.
+	if s.settingsSyncMgr != nil {
+		s.settingsSyncMgr.SyncToNode(ctx, newNode)
+	}
+	if s.globalConfigSyncMgr != nil {
+		s.globalConfigSyncMgr.SyncNow(ctx)
+	}
+	if s.deletionLogSyncMgr != nil {
+		s.deletionLogSyncMgr.SyncNow(ctx)
+	}
+
 	// Push tenants first (users may belong to tenants).
 	if s.tenantSyncMgr != nil {
 		s.tenantSyncMgr.SyncToNode(ctx, newNode)
@@ -1032,6 +1043,15 @@ func (s *Server) kickstartNewNodeSync(ctx context.Context, newNode *cluster.Node
 	// Push all groups + memberships so that group-based bucket permissions resolve immediately.
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.SyncToNode(ctx, newNode)
+	}
+	if s.bucketPermissionSyncMgr != nil {
+		s.bucketPermissionSyncMgr.TriggerSync(ctx)
+	}
+	if s.idpProviderSyncMgr != nil {
+		s.idpProviderSyncMgr.TriggerSync(ctx)
+	}
+	if s.groupMappingSyncMgr != nil {
+		s.groupMappingSyncMgr.TriggerSync(ctx)
 	}
 
 	// The node is sent every bucket and the entry of every object; it has none

@@ -62,7 +62,7 @@ func WriteBucketConfig(root, bucket string, config []byte) (bool, error) {
 	}
 
 	tmp := filepath.Join(dir, ".tmp_"+bucketMarkerName)
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0640)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0640) //nolint:gosec // G302: data files are 0640, like their 0750 directories
 	if err != nil {
 		return false, err
 	}

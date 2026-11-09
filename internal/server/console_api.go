@@ -7329,6 +7329,7 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.triggerSettingsSync(r.Context())
 
 	// Log audit event
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
@@ -7397,6 +7398,7 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.triggerSettingsSync(r.Context())
 
 	// Log audit event
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -52,38 +53,55 @@ func (s *Server) handleReceiveIAMSync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) applyIAMPolicies(ctx context.Context, policies []*cluster.IAMPolicyData) int {
 	applied := 0
 	for _, p := range policies {
+		// A policy always has its default version: a copy without it is one a
+		// write cut short left on the peer.
+		if !slices.ContainsFunc(p.Versions, func(v *cluster.IAMPolicyVersionRow) bool { return v.VersionID == p.DefaultVersionID }) {
+			logrus.WithField("policy", p.Name).Warn("A peer sent an IAM policy without its default version; this node keeps its own")
+			continue
+		}
 		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeIAMPolicy, p.Name, p.UpdatedAt) {
 			continue
 		}
 		if !s.iamIncomingIsNewer(ctx, `SELECT updated_at FROM iam_policies WHERE name = ?`, p.Name, p.UpdatedAt) {
 			continue
 		}
-
-		if _, err := s.db.ExecContext(ctx, `
-			INSERT OR REPLACE INTO iam_policies
-			(name, arn, path, description, default_version_id, is_builtin, tenant_id, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, p.Name, p.ARN, p.Path, nullableString(p.Description), p.DefaultVersionID,
-			boolToInt(p.IsBuiltin), nullableString(p.TenantID), p.CreatedAt, p.UpdatedAt); err != nil {
+		if err := s.storeIAMPolicy(ctx, p); err != nil {
 			logrus.WithError(err).WithField("policy", p.Name).Error("Failed to store synchronized IAM policy")
 			continue
-		}
-
-		if _, err := s.db.ExecContext(ctx, `DELETE FROM iam_policy_versions WHERE policy_name = ?`, p.Name); err != nil {
-			logrus.WithError(err).Warn("Failed to clear IAM policy versions before sync")
-			continue
-		}
-		for _, v := range p.Versions {
-			if _, err := s.db.ExecContext(ctx, `
-				INSERT OR REPLACE INTO iam_policy_versions (policy_name, version_id, document, created_at)
-				VALUES (?, ?, ?, ?)
-			`, p.Name, v.VersionID, v.Document, v.CreatedAt); err != nil {
-				logrus.WithError(err).Warn("Failed to store synchronized IAM policy version")
-			}
 		}
 		applied++
 	}
 	return applied
+}
+
+// storeIAMPolicy replaces a policy and its versions with p, all or nothing.
+func (s *Server) storeIAMPolicy(ctx context.Context, p *cluster.IAMPolicyData) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO iam_policies
+		(name, arn, path, description, default_version_id, is_builtin, tenant_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.Name, p.ARN, p.Path, nullableString(p.Description), p.DefaultVersionID,
+		boolToInt(p.IsBuiltin), nullableString(p.TenantID), p.CreatedAt, p.UpdatedAt); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM iam_policy_versions WHERE policy_name = ?`, p.Name); err != nil {
+		return err
+	}
+	for _, v := range p.Versions {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO iam_policy_versions (policy_name, version_id, document, created_at)
+			VALUES (?, ?, ?, ?)
+		`, p.Name, v.VersionID, v.Document, v.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Server) applyIAMRoles(ctx context.Context, roles []*cluster.IAMRoleData) int {

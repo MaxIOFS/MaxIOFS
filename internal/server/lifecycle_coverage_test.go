@@ -37,6 +37,7 @@ var lifecycleRelease = map[string]string{
 	"stsSessionSyncMgr":   "registry: stsSessionSync",
 	"consoleSessionSync":  "registry: consoleSessionSync",
 	"iamSyncMgr":          "registry: iamSync",
+	"settingsSyncMgr":     "registry: settingsSync",
 
 	"bucketPermissionSyncMgr": "registry: bucketPermissionSync",
 	"idpProviderSyncMgr":      "registry: idpProviderSync",

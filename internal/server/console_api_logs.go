@@ -6,6 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/logging"
 	"github.com/sirupsen/logrus"
 )
@@ -235,6 +236,7 @@ func (s *Server) handleCreateLoggingTarget(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "Failed to create logging target: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.triggerSettingsSync(r.Context())
 
 	// Reconfigure to pick up the new target
 	s.loggingManager.Reconfigure()
@@ -300,6 +302,7 @@ func (s *Server) handleUpdateLoggingTarget(w http.ResponseWriter, r *http.Reques
 		s.writeError(w, "Failed to update logging target: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.triggerSettingsSync(r.Context())
 
 	// Reconfigure to apply changes
 	s.loggingManager.Reconfigure()
@@ -334,9 +337,16 @@ func (s *Server) handleDeleteLoggingTarget(w http.ResponseWriter, r *http.Reques
 
 	id := mux.Vars(r)["id"]
 
+	targetChanged := s.changedAt(r.Context(), cluster.EntityTypeLoggingTarget, id)
 	if err := store.Delete(id); err != nil {
 		s.writeError(w, "Failed to delete logging target: "+err.Error(), http.StatusNotFound)
 		return
+	}
+	if s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
+		nodeID, _ := s.clusterManager.GetLocalNodeID(r.Context())
+		if err := cluster.RecordDeletion(r.Context(), s.db, cluster.EntityTypeLoggingTarget, id, nodeID, cluster.DeletedAfter(targetChanged)); err != nil {
+			logrus.WithError(err).WithField("target_id", id).Warn("Failed to record logging target deletion tombstone")
+		}
 	}
 
 	// Reconfigure to remove the output
