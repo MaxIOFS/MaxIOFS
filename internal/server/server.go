@@ -366,7 +366,7 @@ func New(cfg *config.Config) (*Server, error) {
 	metricsManager := supervise(reg, "metrics", metrics.NewManagerWithStore(cfg.Metrics, cfg.DataDir, metadataStore))
 
 	// Initialize system metrics
-	systemMetrics := metrics.NewSystemMetrics(cfg.DataDir)
+	systemMetrics := metrics.NewSystemMetrics(cfg.Storage.Root)
 
 	// Connect system metrics to metrics manager
 	if mm, ok := metricsManager.(interface {
@@ -1364,7 +1364,7 @@ func (s *Server) setupRoutes() error {
 		s.config.PublicAPIURL,
 		s.config.PublicConsoleURL,
 		s.config.ConsoleListen,
-		s.config.DataDir,
+		s.config.Storage.Root,
 		s.clusterManager,
 	)
 	apiHandler.SetIAMSTSEndpointResolver(s.iamSTSEndpointForSOSAPI)

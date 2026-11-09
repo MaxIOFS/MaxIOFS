@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The request and latency charts of the Performance tab were always at zero, and those of the API tab showed the average since the start: both show what happens at each moment.
 - A refused S3 signature was logged whole; the log keeps its access key only.
 - Setting the SMTP password logged it.
+- With `storage.root` on another disk than `data_dir`, the console, the cluster, disk alerts and SOSAPI showed the space of the `data_dir` disk, not that of the objects.
 - A part whose body was cut short was stored with what had arrived, without an error.
 - `maxiofs recover` left every bucket without its Object Lock setting, so no retention could be set or extended on it: a bucket with a locked version gets it back.
 - A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
