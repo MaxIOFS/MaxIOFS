@@ -84,7 +84,8 @@ func (om *objectManager) EncryptExistingObject(ctx context.Context, bucket, key 
 
 // convertPathToEnvelope converts one stored file to envelope encryption.
 // Returns (false, nil) when there is nothing to do (missing file, already
-// encrypted, directory marker).
+// encrypted, directory marker, bytes without a sidecar that are not the
+// recorded object).
 func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key string, ref storage.ObjectRef) (converted bool, resultErr error) {
 	// Cheap pre-checks without the lock.
 	exists, err := om.storage.Exists(ctx, ref)
@@ -120,6 +121,23 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key 
 		// changes — object data is never touched.
 		return om.rewrapPathDEK(ctx, bucket, key, ref, meta)
 	}
+	committed, err := om.metadataStore.GetObject(ctx, bucket, key, ref.VersionID)
+	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) && !errors.Is(err, metadata.ErrVersionNotFound) {
+		return false, err
+	}
+	// Bytes without a sidecar are rewritten only when they are the recorded
+	// object, as a read serves them. Others, such as an encrypted object whose
+	// sidecar is lost, are left to the integrity scan.
+	if meta[storage.MetadataGeneratedKey] == "true" {
+		var recorded *Object
+		if committed != nil {
+			recorded = fromMetadataObject(committed)
+		}
+		if !confirmStorageIdentity(recorded, meta).Servable {
+			return false, nil
+		}
+	}
+
 	// migrationEncrypt: plaintext or legacy direct-encrypted → full envelope
 	// rewrite below.
 	isLegacyEncrypted := meta["encrypted"] == "true"
@@ -210,10 +228,8 @@ func (om *objectManager) convertPathToEnvelope(ctx context.Context, bucket, key 
 	for k, v := range meta {
 		metaCopy[k] = v
 	}
-	committed, err := om.metadataStore.GetObject(ctx, bucket, key, ref.VersionID)
-	if err != nil && !errors.Is(err, metadata.ErrObjectNotFound) && !errors.Is(err, metadata.ErrVersionNotFound) {
-		return false, err
-	}
+	// The rewrite writes the object's own sidecar, not one derived from bytes.
+	delete(metaCopy, storage.MetadataGeneratedKey)
 	manifestPath := restorePath + rollback.ManifestSuffix
 	if err := writeObjectBackupManifest(manifestPath, ref, meta, committedObject(committed)); err != nil {
 		os.Remove(manifestPath)

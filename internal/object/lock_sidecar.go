@@ -57,7 +57,9 @@ func (om *objectManager) saveLockInSidecar(ctx context.Context, ref storage.Obje
 	if err != nil {
 		return err
 	}
-	if lockFieldsMatch(meta, retention, legalHold) {
+	// Bytes without a sidecar get none made up from them: their entry keeps
+	// the lock.
+	if meta[storage.MetadataGeneratedKey] == "true" || lockFieldsMatch(meta, retention, legalHold) {
 		return nil
 	}
 	setLockFields(meta, retention, legalHold)

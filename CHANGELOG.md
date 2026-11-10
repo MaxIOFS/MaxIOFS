@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A part whose body was cut short was stored with what had arrived, without an error.
 - `maxiofs recover` left every bucket without its Object Lock setting, so no retention could be set or extended on it: a bucket with a locked version gets it back.
 - A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
+- The background encryption pass took the bytes of an object whose sidecar was lost for plaintext, encrypted them again and made up a sidecar for them: bytes it cannot identify are left to the integrity scan.
+- A plaintext object without its sidecar that the encryption pass encrypted could not be read after.
 
 ## [1.9.0] - 2026-11-05
 

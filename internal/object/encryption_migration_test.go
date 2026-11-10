@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -121,6 +123,53 @@ func TestEncryptExistingObject_SkipsFolderAndMissing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, converted)
 	assert.Equal(t, 1, skipped)
+}
+
+// The bytes of an encrypted object whose sidecar is lost are not the recorded
+// object: the pass neither encrypts them again nor makes a sidecar up for them.
+func TestEncryptExistingObject_LeavesBytesWithoutSidecar(t *testing.T) {
+	om, store, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	lockedBucket(t, store, "locked")
+	held := http.Header{}
+	held.Set("x-amz-object-lock-legal-hold", LegalHoldStatusOn)
+	obj, err := om.PutObject(ctx, "locked", "k", bytes.NewReader(bytes.Repeat([]byte("data "), 1000)), held)
+	require.NoError(t, err)
+	dataPath := filepath.Join(om.config.Root, filepath.FromSlash(storage.RefPath(om.versionRef("locked", "k", obj.VersionID))))
+	before, err := os.ReadFile(dataPath)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(dataPath+".metadata"))
+
+	converted, _, err := om.EncryptExistingObject(ctx, "locked", "k")
+	require.NoError(t, err)
+	assert.Equal(t, 0, converted)
+	after, err := os.ReadFile(dataPath)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the bytes were rewritten")
+	assert.NoFileExists(t, dataPath+".metadata")
+}
+
+// A plaintext object without its sidecar whose bytes are the recorded object
+// is encrypted, and reads back after.
+func TestEncryptExistingObject_ConvertsPlaintextWithoutSidecar(t *testing.T) {
+	ctx := context.Background()
+	om, _, metaStore := setupManagerWithConfigKey(t)
+	require.NoError(t, metaStore.CreateBucket(ctx, &metadata.BucketMetadata{Name: "legacy", OwnerID: "u"}))
+	content := bytes.Repeat([]byte("plaintext without a sidecar "), 5000)
+	putPlaintextObject(t, om, metaStore, "legacy", "old.txt", content)
+	dataPath := filepath.Join(om.config.Root, filepath.FromSlash(storage.RefPath(om.objectRef("legacy", "old.txt"))))
+	require.NoError(t, os.Remove(dataPath+".metadata"))
+
+	converted, _, err := om.EncryptExistingObject(ctx, "legacy", "old.txt")
+	require.NoError(t, err)
+	assert.Equal(t, 1, converted)
+	_, reader, err := om.GetObject(ctx, "legacy", "old.txt")
+	require.NoError(t, err)
+	defer reader.Close()
+	readBack, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, content, readBack)
 }
 
 func TestEncryptExistingObject_MultipartETagPreserved(t *testing.T) {

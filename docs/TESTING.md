@@ -385,7 +385,7 @@ npx vitest run --coverage
 | `backup_restore_test.go` | A retained overwrite/multipart backup survives a failed restore and is removed after a successful one |
 | `customer_key_test.go` | SSE-C: a read needs the key; no checksum of the content is kept; a copy between nodes is never written with a customer key; the scrubber checks the stored bytes against the ETag; the encryption worker leaves the object as it is |
 | `delete_key_fidelity_test.go` | `DeleteObject` deletes only the key it was given |
-| `encryption_migration_test.go` | Background worker converts plaintext to envelope encryption; multipart ETag preserved; a KEK rotation re-wraps the key of each shard held |
+| `encryption_migration_test.go` | Background worker converts plaintext to envelope encryption; multipart ETag preserved; a KEK rotation re-wraps the key of each shard held; bytes without a sidecar are encrypted only when they are the recorded object, and get no sidecar made up |
 | `faultcheck_test.go` | Kills a subprocess mid-write (before/after data, before/after metadata) and checks what the next start recovers; also covers the retained-backup rollback path and the cost of an overwrite's backup copy |
 | `folder_marker_test.go` | A folder marker and a same-named object coexist (layout v2) |
 | `integration_test.go` | Full object lifecycle (put → get → delete) |
