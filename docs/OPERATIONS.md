@@ -389,6 +389,9 @@ maxiofs recover --data-dir /var/lib/maxiofs                 --recovery-bundle /p
 # Then follow the printed next steps (mv the rebuilt store into place) and start.
 ```
 
+When `storage.root` puts the objects outside the data directory, pass it with
+`--storage-root`; otherwise the objects are read from `<data-dir>/objects`.
+
 Every object file carries a `.metadata` sidecar with everything needed to
 rebuild its entry (size, ETag, content-type, encryption envelope, and the
 retention and legal hold of an Object Lock version). With the
@@ -397,7 +400,8 @@ unwraps and restores the encryption keys into the database so the server can
 decrypt after the rebuild. `--dry-run` reports without writing anything.
 
 A run that stops (Ctrl+C, crash, power loss) continues where it stopped when
-it is run again with the same `--data-dir`, `--out-db` and `--recovery-bundle`.
+it is run again with the same `--data-dir`, `--storage-root`, `--out-db` and
+`--recovery-bundle`.
 Its progress is kept in `<out-db>.progress` until the run ends. Another data
 directory or bundle is refused, and so are files that changed since the stop;
 remove `<out-db>` and `<out-db>.progress` to start over.

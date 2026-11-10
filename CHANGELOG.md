@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refused S3 signature was logged whole; the log keeps its access key only.
 - Setting the SMTP password logged it.
 - With `storage.root` on another disk than `data_dir`, the console, the cluster, disk alerts and SOSAPI showed the space of the `data_dir` disk, not that of the objects.
+- `maxiofs recover` read the objects only from `<data-dir>/objects`: it takes `--storage-root`, as `maxiofs reconcile` does.
 - A node joining a cluster empties everything the cluster replicates and takes it from the cluster: its own policies, administrator and settings, newer than the cluster's, replaced them on every node.
 - Settings and logging targets are the same on every node of a cluster: each node kept its own.
 - An IAM policy received from another node is stored with its versions or not at all, and one without its default version is not taken.

@@ -29,8 +29,11 @@ import (
 
 // Options configures a recovery run.
 type Options struct {
-	// DataDir is the MaxIOFS data directory (contains objects/ and db/).
+	// DataDir is the MaxIOFS data directory (contains db/).
 	DataDir string
+	// ObjectsRoot is the objects directory, storage.root of the
+	// configuration. Empty is <DataDir>/objects.
+	ObjectsRoot string
 	// BundlePath is the KEK recovery bundle (optional — required to verify
 	// and serve encrypted objects).
 	BundlePath string
@@ -77,9 +80,12 @@ type bucketEntry struct {
 // Run executes the recovery. A recovery that stopped is continued by running
 // it again with the same options.
 func Run(opts Options) (*Report, error) {
-	objectsRoot := filepath.Join(opts.DataDir, "objects")
+	objectsRoot := opts.ObjectsRoot
+	if objectsRoot == "" {
+		objectsRoot = filepath.Join(opts.DataDir, "objects")
+	}
 	if info, err := os.Stat(objectsRoot); err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("objects directory not found at %s — is --data-dir correct?", objectsRoot)
+		return nil, fmt.Errorf("objects directory not found at %s — is --data-dir or --storage-root correct?", objectsRoot)
 	}
 
 	if opts.OutDB == "" {

@@ -212,6 +212,30 @@ func TestRecovery_FullRebuild(t *testing.T) {
 	assert.Len(t, versions, 2)
 }
 
+// With storage.root on another disk the objects are not under the data
+// directory: recover reads them where --storage-root says.
+func TestRecovery_ObjectsOutsideTheDataDir(t *testing.T) {
+	dataDir, bundlePath, passphrase := buildTestDeployment(t)
+	elsewhere := filepath.Join(t.TempDir(), "objects")
+	require.NoError(t, os.Rename(filepath.Join(dataDir, "objects"), elsewhere))
+	opts := Options{
+		DataDir: dataDir, BundlePath: bundlePath, Passphrase: passphrase,
+		OutDB: filepath.Join(dataDir, "metadata-recovered"),
+	}
+
+	_, err := Run(opts)
+	require.ErrorContains(t, err, "objects directory not found")
+
+	opts.ObjectsRoot = elsewhere
+	report, err := Run(opts)
+	require.NoError(t, err)
+	assert.Equal(t, 3, report.Buckets)
+	assert.Equal(t, 3, report.Objects)
+	assert.Equal(t, 2, report.Versions)
+	assert.Equal(t, 5, report.EncryptedVerified)
+	assert.Empty(t, report.Failures)
+}
+
 // TestRecovery_ObjectsServableAfterRebuild is the end-to-end money test: a
 // fresh object manager over the RECOVERED store + restored KEKs must serve
 // every object decrypted.

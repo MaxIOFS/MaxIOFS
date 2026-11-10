@@ -23,14 +23,18 @@ each marker keeps, objects and versions from each file's .metadata sidecar. With
 encryption keys are restored into the auth database and every encrypted
 object's wrapped DEK is verified against them.
 
+The objects are read from <data-dir>/objects, or from --storage-root when
+storage.root puts them elsewhere.
+
 The rebuild always writes into a FRESH directory (default:
 <data-dir>/metadata-recovered) and never touches an existing store. After a
 successful run, stop everything, move the corrupt store aside, rename the
 recovered directory to <data-dir>/metadata and start the server.
 
 A run that stops (Ctrl+C, crash, power loss) continues where it stopped when
-it is run again with the same --data-dir, --out-db and --recovery-bundle. Its
-progress is kept in <out-db>.progress until the run ends.
+it is run again with the same --data-dir, --storage-root, --out-db and
+--recovery-bundle. Its progress is kept in <out-db>.progress until the run
+ends.
 
 Run with the server STOPPED.`,
 		Example: `  maxiofs recover --data-dir /var/lib/maxiofs --recovery-bundle /safe/maxiofs-recovery-bundle.json
@@ -40,6 +44,7 @@ Run with the server STOPPED.`,
 
 	cmd.Flags().String("recovery-bundle", "", "Path to the KEK recovery bundle (required to verify/serve encrypted objects)")
 	cmd.Flags().String("passphrase-file", "", "File containing the bundle passphrase (otherwise prompted)")
+	cmd.Flags().String("storage-root", "", "Object storage directory (defaults to <data-dir>/objects)")
 	cmd.Flags().String("out-db", "", "Directory for the rebuilt metadata store (default: <data-dir>/metadata-recovered)")
 	cmd.Flags().Bool("dry-run", false, "Walk and verify without writing anything")
 	cmd.Flags().Bool("verbose", false, "Log every recovered object")
@@ -55,6 +60,7 @@ func runRecover(cmd *cobra.Command, args []string) error {
 
 	bundlePath, _ := cmd.Flags().GetString("recovery-bundle")
 	passphraseFile, _ := cmd.Flags().GetString("passphrase-file")
+	objectsRoot, _ := cmd.Flags().GetString("storage-root")
 	outDB, _ := cmd.Flags().GetString("out-db")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -82,12 +88,13 @@ func runRecover(cmd *cobra.Command, args []string) error {
 	}
 
 	report, err := recovery.Run(recovery.Options{
-		DataDir:    dataDir,
-		BundlePath: bundlePath,
-		Passphrase: passphrase,
-		OutDB:      outDB,
-		DryRun:     dryRun,
-		Verbose:    verbose,
+		DataDir:     dataDir,
+		ObjectsRoot: objectsRoot,
+		BundlePath:  bundlePath,
+		Passphrase:  passphrase,
+		OutDB:       outDB,
+		DryRun:      dryRun,
+		Verbose:     verbose,
 	})
 	if err != nil {
 		return err

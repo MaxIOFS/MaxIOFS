@@ -458,7 +458,7 @@ npx vitest run --coverage
 | `progress_test.go` | A recovery measures its progress against every object and version it walks, and says the percentage, the rate, the time left and when it should end |
 | `reconcile_test.go` | Reconcile rebuilds an index entry missing entirely from an object left on disk; a shard is passed over by reconcile and the offline rebuild |
 | `reconcile_repair_test.go` | Reconcile corrects an entry describing bytes an overwrite already replaced, from the sidecar's own identity |
-| `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone, with the headers each object kept |
+| `recovery_test.go` | Offline `maxiofs recover` — rebuilds a fresh Pebble store from the object tree alone, with the headers each object kept, also from a `--storage-root` outside the data directory |
 | `restore_keks_test.go` | Restoring KEKs from a recovery bundle into the auth database |
 | `resume_test.go` | A recovery stopped at any step, and stopped again as it continues, ends as one that never stopped; it is continued only with the same data directory, bundle and files |
 | `review_faultcheck_test.go` | Reconcile takes the same per-key lock as a live overwrite and does not race it; a same-size same-second overwrite is still detected |
