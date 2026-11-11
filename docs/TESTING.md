@@ -1,7 +1,7 @@
 # Testing
 
-**Version**: 1.9.0
-**Last Updated**: November 5, 2026
+**Version**: 1.10.0
+**Last Updated**: November 11, 2026
 
 ---
 
@@ -133,7 +133,7 @@ npx vitest run --coverage
 | `permissions_screen_test.go` | Saving a user's permissions stores real grants without baking in inherited ones |
 | `permissions_test.go` | Permission checks |
 | `policy_bootstrap_test.go` | First-boot conversion to IAM policies: administrators and ordinary users keep console access; an unconverted database is healed; idempotent |
-| `policy_equivalence_test.go` | The unified policy set reaches the same verdict as the legacy role, bucket-permission and capability model over every combination |
+| `policy_equivalence_test.go` | The unified policy set reaches the same verdict as the legacy role, bucket-permission and capability model over every combination; a bucket owner's policy grants the bucket only, and administration granted on one bucket makes no administrator |
 | `policy_orphan_test.go` | Deleting a user, group or tenant removes its policies; a reused identifier inherits nothing |
 | `policy_set_test.go` | The policy engine enforces the account boundary; a super administrator reads across accounts and writes nowhere; an unstated owner is refused; a refusal says why: the account, the bucket policy or the caller's policies |
 | `rate_limiter_test.go` | Login rate limiting, account lockout |
@@ -505,7 +505,7 @@ npx vitest run --coverage
 | `cluster_raw_replication_test.go` | HA raw-ciphertext receive; rejects a KEK version the receiving node does not hold; a raw copy of a version deleted here, or of a write before a deletion of its key, is not stored |
 | `cluster_replica_lock_test.go` | The HA replica receive keeps the primary's lock state as sent: no bucket default added, no date refused; an older primary's transfer gets the bucket default. A copy served to a peer carries the lock state. A metadata change that cannot apply answers 404, 400 or 409. A replicated delete marker older than the latest version leaves the key visible; a copy sent with headers keeps the time its write was made, an object and a delete marker alike; a copy, whole or entry only, of a write before this node deleted the key is not stored, one of the second of the deletion or later is; an entry names the nodes holding its data; a copy's locations and their number are kept when received and sent when served |
 | `console_access_test.go` | Console access and capability checks |
-| `console_api_test.go` | Console REST API endpoint tests; a forced delete keeps a bucket whose objects COMPLIANCE protects, with or without the bucket's Object Lock setting |
+| `console_api_test.go` | Console REST API endpoint tests; a forced delete keeps a bucket whose objects COMPLIANCE protects, with or without the bucket's Object Lock setting; the user named owner of a new bucket gets it; signed in, a bucket owner neither lists, reads nor deletes another user's bucket, nor reads its settings, searches it or lists its versions |
 | `console_csp_test.go` | The inline script of the console's page is the one its Content-Security-Policy names by digest, at both console URLs |
 | `console_customer_key_test.go` | The console marks an SSE-C object and answers 409 to its download; an object of the same bucket without one downloads |
 | `console_idp_test.go` | Console IDP management endpoints; a provider made or changed is answered with its secrets masked; the connection test answers each check, and the first that failed as its message |

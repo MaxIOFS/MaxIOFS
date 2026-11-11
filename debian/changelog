@@ -1,3 +1,20 @@
+maxiofs (1:1.10.0) stable; urgency=high
+
+  * Release v1.10.0 — disk-full handling, recovery, cluster sync.
+  * Writes stop at 99.5% of the disk with 507 InsufficientStorage; reads,
+    deletes and retention keep working.
+  * maxiofs recover gives back each bucket's settings and Object Lock, shows
+    its progress and takes --storage-root.
+  * A node joining a cluster takes everything the cluster replicates; settings
+    and logging targets are the same on every node.
+  * Auto Sync reads Google Workspace and Microsoft tenants; S3 writes about 5
+    times faster under load; uploads encrypted as they arrive.
+  * /metrics takes a bearer token (metrics.token); trust_private_networks is
+    off by default.
+  * The console checks each bucket's permissions on every read.
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Wed, 11 Nov 2026 12:00:00 -0300
+
 maxiofs (1:1.9.0) stable; urgency=high
 
   * Release v1.9.0 — parity, storage classes, SSE-C, identity providers that

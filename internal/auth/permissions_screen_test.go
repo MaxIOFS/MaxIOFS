@@ -64,3 +64,17 @@ func TestSetUserPermissions_StillStoresRealGrants(t *testing.T) {
 	assert.False(t, set.AllowsOwnAccount(ActionPutObject, "arn:aws:s3:::other/q1.csv"),
 		"and only where it was given")
 }
+
+// The screen of a bucket's owner, saved unchanged, saves.
+func TestSetUserPermissions_TheScreenOfABucketOwnerSaves(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	store := am.store
+	user := &User{ID: "owner-user", Username: "owner-user", Status: UserStatusActive, Roles: []string{RoleUser}}
+	require.NoError(t, store.CreateUser(user))
+	require.NoError(t, store.GrantBucketOwnerPolicy("owned", "user", user.ID))
+
+	shown, err := store.GetUserPermissions(user.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.SetUserPermissions(user.ID, shown))
+}

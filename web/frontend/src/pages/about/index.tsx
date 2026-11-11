@@ -328,87 +328,89 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Parity Across Nodes
+                Full Disks
               </h3>
               <p className="text-sm text-muted-foreground">
-                Reed-Solomon erasure coding, as an alternative to the replication factor, from three
-                nodes: each object is cut in data and parity shards, one per node. Up to four nodes it
-                survives one node down, from five nodes two; three nodes of 1 TB hold 2 TB. It is set on
-                the HA page.
+                Writes stop at 99.5% of the disk that holds the objects or the metadata, with
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">507 InsufficientStorage</code>: Pebble and SQLite keep room, and reads, deletes and
+                retention changes keep working. SOSAPI reports only what can still be written. With
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">storage.root</code> on another disk, the console, alerts, the cluster and SOSAPI show that
+                disk's space.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Storage Classes
+                Recovery
               </h3>
               <p className="text-sm text-muted-foreground">
-                Groups of nodes keep a storage class, such as <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">GLACIER</code> or
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">DEEP_ARCHIVE</code>, with their own copies or parity. Lifecycle
-                transitions move objects to them, and every node still reads them. Lifecycle rules filter
-                by tags and size. Classes are set under Cluster → Storage classes.
-              </p>
-            </div>
-
-            <div className="border-l-4 border-red-600 pl-4">
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Customer-Provided Keys (SSE-C)
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                A client can send its own key with each request, over HTTPS, as in AWS. SSE-C is blocked
-                on every bucket until it is allowed in the bucket's Security tab or with
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">PutBucketEncryption</code>. The key is not stored: without it the
-                object cannot be read. The console neither uploads nor reads such objects, as the AWS
-                console.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs recover</code> gives back each bucket's settings, kept in the bucket's marker:
+                versioning, Object Lock and its default retention, policy, lifecycle, quota and the rest. It
+                says every 30 seconds how far it is and when it should end, continues where it stopped, and
+                takes <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">--storage-root</code> when the objects are on another disk.
               </p>
             </div>
 
             <div className="border-l-4 border-emerald-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Sessions Follow the Identity Provider
+                Cluster Synchronization
               </h3>
               <p className="text-sm text-muted-foreground">
-                A user deleted or disabled at the provider is signed out at the next renewal, and OpenID
-                Connect back-channel logout ends the session at once. Auto Sync reads LDAP directories
-                and Keycloak realms every hour: it creates, deactivates and reactivates users. An email
-                belongs to one user. Test Connection checks each step against the provider.
+                A node joining a cluster takes everything the cluster replicates. Settings and logging
+                targets are the same on every node: a change made on any node reaches the others.
               </p>
             </div>
 
             <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Joining a Cluster with a Join Code
+                Auto Sync for Google and Microsoft
               </h3>
               <p className="text-sm text-muted-foreground">
-                A node joins with a one-time join code opened on it (Cluster → Join code). The cluster's
-                keys travel sealed with that code; Add Node sent them over unverified TLS. A sign-out
-                ends the console session on every node.
+                Auto Sync reads Google Workspace, with a service account key, and Microsoft tenants every
+                hour, as it reads LDAP directories and Keycloak realms. Google and Microsoft sign-ins take
+                their groups from the directory.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-red-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Integrity Scans
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Scans cover every version of a bucket and objects written in parts. A byte changed on disk,
+                a lost sidecar or a lost key is reported as corruption, with its audit event and an alert.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Security Hardening
+                Faster Writes
               </h3>
               <p className="text-sm text-muted-foreground">
-                The digests of a write (<code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">Content-MD5</code>, checksums,
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">x-amz-content-sha256</code>) and signed chunks are checked. A
-                COMPLIANCE retention can no longer be turned into GOVERNANCE. The parts of a multipart
-                upload in progress are encrypted. Behind a proxy the client's address is read from the
-                right of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">X-Forwarded-For</code>. Built with Go 1.27.3; the
-                console's Content-Security-Policy runs no inline script but its own.
+                S3 writes are about 5 times faster under load. An upload is encrypted as it arrives: its
+                temporary file never holds it in clear. A page of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListObjectVersions</code> costs what it
+                returns.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                S3 as AWS Answers It
+                Metrics and Proxies
               </h3>
               <p className="text-sm text-muted-foreground">
-                Error codes, quoted ETags, key and bucket names, and objects written before versioning
-                (version <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">null</code>) as in AWS. Hadoop and Spark run through S3A. A
-                signed PUT no longer holds its key's lock while it receives data: about 10 times
-                faster.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/metrics</code> answers only with the token set in Settings → Metrics.
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">trust_private_networks</code> is off by default: behind a proxy or WAF, list its address
+                in <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">trusted_proxies</code>.
+              </p>
+            </div>
+
+            <div className="border-l-4 border-emerald-600 pl-4">
+              <h3 className="text-sm font-semibold text-foreground mb-1">
+                Console Permissions
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                A bucket owner reaches its own bucket only, and reading a bucket's settings needs its
+                permission on the bucket, as changing them does.
               </p>
             </div>
 

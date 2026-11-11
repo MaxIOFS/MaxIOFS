@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.9.0}
+%{!?version: %define version 1.10.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -189,6 +189,20 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Wed Nov 11 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.10.0-1
+- Release v1.10.0 — disk-full handling, recovery, cluster sync
+- Writes stop at 99.5% of the disk with 507 InsufficientStorage; reads, deletes
+  and retention keep working
+- maxiofs recover gives back each bucket's settings and Object Lock, shows its
+  progress and takes --storage-root
+- A node joining a cluster takes everything the cluster replicates; settings and
+  logging targets are the same on every node
+- Auto Sync reads Google Workspace and Microsoft tenants; S3 writes about 5 times
+  faster under load; uploads encrypted as they arrive
+- /metrics takes a bearer token (metrics.token); trust_private_networks is off by
+  default
+- The console checks each bucket's permissions on every read
+
 * Thu Nov 05 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.9.0-1
 - Release v1.9.0 — parity, storage classes, SSE-C, identity providers that follow
   the directory, security hardening

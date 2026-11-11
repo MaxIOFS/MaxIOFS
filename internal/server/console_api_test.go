@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -522,6 +523,104 @@ func TestHandleCreateBucket(t *testing.T) {
 	err = json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
+}
+
+// A user a global administrator names as the owner of a new bucket gets the
+// bucket: the owner policy is the user's, not the administrator's.
+func TestHandleCreateBucket_TheOwnerNamedGetsTheBucket(t *testing.T) {
+	server := newClusterTestNode(t)
+	ctx := context.Background()
+	require.NoError(t, server.authManager.CreateUser(ctx, &auth.User{
+		ID: "named-owner", Username: "named-owner", Roles: []string{"user"}, Status: auth.UserStatusActive,
+	}))
+
+	body, _ := json.Marshal(map[string]string{"name": "for-named-owner", "ownerId": "named-owner", "ownerType": "user"})
+	req := createAuthenticatedRequest("POST", "/api/v1/buckets", bytes.NewReader(body), "", "the-admin", true)
+	rr := httptest.NewRecorder()
+	server.handleCreateBucket(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	ownerPolicy := func(userID string) bool {
+		var n int
+		require.NoError(t, server.db.QueryRow(`SELECT COUNT(*) FROM iam_inline_policies
+			WHERE target_type = 'user' AND target_id = ? AND name = 'owner-for-named-owner'`, userID).Scan(&n))
+		return n == 1
+	}
+	assert.True(t, ownerPolicy("named-owner"), "the owner named cannot use its bucket")
+	assert.False(t, ownerPolicy("the-admin"), "the administrator holds the owner policy")
+	info, err := server.bucketManager.GetBucketInfo(ctx, "", "for-named-owner")
+	require.NoError(t, err)
+	assert.Equal(t, "named-owner", info.OwnerID)
+}
+
+// The owner of a bucket administers nothing else: signed in to the console, it
+// neither lists, reads nor deletes another user's bucket.
+func TestABucketOwnerReachesNoOtherBucket(t *testing.T) {
+	s := newClusterTestNode(t)
+	console := httptest.NewServer(s.consoleRouter)
+	t.Cleanup(console.Close)
+	call := func(method, path, token string, body any) (int, string) {
+		t.Helper()
+		var reader io.Reader
+		if body != nil {
+			raw, err := json.Marshal(body)
+			require.NoError(t, err)
+			reader = bytes.NewReader(raw)
+		}
+		req, err := http.NewRequest(method, console.URL+"/api/v1"+path, reader)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return resp.StatusCode, string(raw)
+	}
+	login := func(username, password string) string {
+		t.Helper()
+		status, body := call("POST", "/auth/login", "", map[string]string{"username": username, "password": password})
+		require.Equal(t, http.StatusOK, status, body)
+		var answer LoginResponse
+		require.NoError(t, json.Unmarshal([]byte(body), &answer))
+		return answer.Token
+	}
+
+	admin := login("admin", "admin")
+	status, body := call("POST", "/buckets", admin, map[string]string{"name": "admins-bucket"})
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = call("POST", "/users", admin, map[string]any{"username": "owner", "password": "Owner-pass-12345!", "roles": []string{"user"}})
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = call("POST", "/buckets", admin, map[string]string{"name": "owners-bucket", "ownerId": "owner", "ownerType": "user"})
+	require.Equal(t, http.StatusOK, status, body)
+
+	owner := login("owner", "Owner-pass-12345!")
+	status, body = call("GET", "/buckets", owner, nil)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, "owners-bucket")
+	assert.NotContains(t, body, "admins-bucket", "the owner lists another user's bucket")
+	status, _ = call("GET", "/buckets/admins-bucket/objects", owner, nil)
+	assert.Equal(t, http.StatusForbidden, status, "the owner reads another user's bucket")
+	status, _ = call("DELETE", "/buckets/admins-bucket", owner, nil)
+	assert.Equal(t, http.StatusForbidden, status, "the owner deletes another user's bucket")
+	assert.True(t, hasBucket(s, "", "admins-bucket"))
+	status, body = call("GET", "/buckets/owners-bucket/objects", owner, nil)
+	assert.Equal(t, http.StatusOK, status, "the owner cannot read its own bucket: %s", body)
+
+	reads := []string{"", "/policy", "/acl", "/versioning", "/lifecycle", "/cors", "/encryption", "/object-lock",
+		"/tagging", "/shares", "/notification", "/inventory", "/inventory/reports", "/website",
+		"/public-access-block", "/search?prefix=", "/objects/k/versions"}
+	for _, read := range reads {
+		status, _ = call("GET", "/buckets/admins-bucket"+read, owner, nil)
+		assert.Equal(t, http.StatusForbidden, status, "the owner reads %q of another user's bucket", read)
+		status, body = call("GET", "/buckets/owners-bucket"+read, owner, nil)
+		assert.NotEqual(t, http.StatusForbidden, status, "the owner cannot read %q of its own bucket: %s", read, body)
+		status, body = call("GET", "/buckets/owners-bucket"+read, admin, nil)
+		assert.NotEqual(t, http.StatusForbidden, status, "the administrator cannot read %q of a user's bucket: %s", read, body)
+	}
 }
 
 // TestHandleAPIHealth tests the /health endpoint.

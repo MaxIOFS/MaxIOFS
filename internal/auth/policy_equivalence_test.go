@@ -397,3 +397,36 @@ func TestBucketOwner_CannotBeAWholeTenant(t *testing.T) {
 		EvaluateIAMDocuments(documents, ActionDeleteObject, "arn:aws:s3:::shared/x"),
 		"another member of the tenant gets nothing from someone else's bucket")
 }
+
+// The owner of a bucket gets the bucket, not what names no bucket: no
+// administration, IAM or console permission is granted to it anywhere.
+func TestBucketOwner_GetsTheBucketOnly(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	require.NoError(t, am.store.GrantBucketOwnerPolicy("owned", "user", "creator"))
+
+	documents, err := am.store.EffectivePolicyDocumentsInTenant("creator", nil, "")
+	require.NoError(t, err)
+	set := &PolicySet{UserID: "creator", Documents: documents, Actions: ActionsFromDocuments(documents)}
+	for _, action := range []string{ActionSuperAdmin, ActionTenantAdmin, "iam:CreateUser", ActionConsoleAccess} {
+		assert.False(t, set.AllowsAnywhere(action), "the owner of a bucket is granted %s", action)
+	}
+	for _, action := range []string{ActionDeleteBucket, ActionPutBucketQuota} {
+		assert.True(t, EvaluateIAMDocuments(documents, action, "arn:aws:s3:::owned"), "the owner cannot %s", action)
+	}
+	assert.True(t, EvaluateIAMDocuments(documents, ActionPutObject, "arn:aws:s3:::owned/k"))
+}
+
+// Administration granted on one bucket is not administration.
+func TestIsAdminUser_NotFromAPermissionOnOneBucket(t *testing.T) {
+	user := &User{ID: "u"}
+	holding := func(document string) context.Context {
+		ctx := context.WithValue(context.Background(), "user", user)
+		return WithPolicySet(ctx, &PolicySet{UserID: "u", Documents: []string{document},
+			Actions: ActionsFromDocuments([]string{document})})
+	}
+	assert.False(t, IsAdminUser(holding(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*",`+
+		`"Resource":["arn:aws:s3:::b","arn:aws:s3:::b/*"]}]}`)), "everything on one bucket makes an administrator")
+	assert.True(t, IsAdminUser(holding(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
+		`"Action":"maxiofs:SuperAdmin","Resource":"*"}]}`)))
+}

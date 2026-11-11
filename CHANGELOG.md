@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.0] - 2026-11-11
 
 ### Added
 - Auto Sync reads Google Workspace (with a service account key) and Microsoft tenants (named by the Issuer URL) every hour, as LDAP directories and Keycloak realms.
@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A forced bucket delete checked COMPLIANCE retention and legal holds only on a bucket with the Object Lock setting: it checks the objects always.
 - The background encryption pass took the bytes of an object whose sidecar was lost for plaintext, encrypted them again and made up a sidecar for them: bytes it cannot identify are left to the integrity scan.
 - A plaintext object without its sidecar that the encryption pass encrypted could not be read after.
+- A bucket a global administrator created naming a user as its owner gave that user no access to it.
+
+### Security
+- In the console, a bucket owner had more permissions than its own bucket. Its policy grants its own bucket only; existing owner policies are rewritten at start.
+- In the console, reading a bucket's settings needs its permission on the bucket, as changing them does.
 
 ## [1.9.0] - 2026-11-05
 

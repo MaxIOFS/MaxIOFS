@@ -5,7 +5,7 @@
 **Self-hosted S3-compatible object storage — single binary, batteries included**
 
 [![Build](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml/badge.svg)](https://github.com/MaxioFS/MaxioFS/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.9.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.9.0)
+[![Version](https://img.shields.io/badge/version-1.10.0-blue)](https://github.com/MaxioFS/MaxioFS/releases/tag/v1.10.0)
 [![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27+-00ADD8?logo=go)](https://go.dev)
@@ -47,27 +47,27 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 |---------|---------|--------|--------|------------|
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution | AGPL-3.0 | LGPL |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary | Monitors, managers, OSDs and RGW daemons, usually through cephadm or Rook |
-| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Enterprise only; Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
-| **Erasure coding** | ✅ Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; Enterprise: across nodes | ❌ Replication only | ✅ |
-| **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ⚠️ Enterprise only (site, bucket, batch) | ❌ No replication API | ⚠️ Between zones of a multisite configuration |
-| **Tiering** (lifecycle transitions to colder storage) | ✅ Storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ⚠️ Enterprise only | ❌ | ✅ Storage classes and cloud transition |
+| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Paid tiers only (Enterprise Lite below 400 TiB, Enterprise); Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
+| **Erasure coding** | ✅ Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; paid tiers: across nodes | ❌ Replication only | ✅ |
+| **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ✅ Active-active, site, bucket and batch | ❌ No replication API | ✅ Between multisite zones; the cloud sync module pushes to any S3 endpoint, one way |
+| **Tiering** (lifecycle transitions to colder storage) | ✅ Storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ✅ Lifecycle transitions to remote tiers | ❌ | ✅ Storage classes and cloud transition |
 | **Native multi-tenancy** | ✅ Isolated tenants with quotas, per-tenant users and keys | ❌ Separate deployments per tenant | ❌ | ✅ RGW tenants |
 | **Access control** | ✅ AWS IAM protocol — users, versioned policies, roles, `AssumeRole`; bucket policies and ACLs | ✅ IAM-style policies | ⚠️ Per-access-key-per-bucket permissions; no bucket policies or ACLs | ✅ Users, bucket and user policies, roles, ACLs |
 | **STS temporary credentials** | ✅ `GetSessionToken`, `AssumeRole`, LDAP and OIDC federation | ✅ | ❌ | ✅ |
 | **Web console** | ✅ Embedded | ✅ | ❌ CLI and admin API; third-party web UIs | ✅ Ceph Dashboard |
-| **SSO / identity providers** | ✅ LDAP/AD and OAuth2/OIDC, auto-provisioning, group mappings | ✅ LDAP and OIDC | ❌ | ✅ LDAP, Keystone, OIDC |
+| **SSO / identity providers** | ✅ LDAP/AD and OAuth2/OIDC, auto-provisioning, group mappings; Auto Sync reads LDAP, Keycloak, Google Workspace and Microsoft tenants every hour | ✅ LDAP and OIDC | ❌ | ✅ LDAP, Keystone, OIDC |
 | **Versioning** | ✅ | ✅ | ❌ | ✅ |
 | **Object Lock / WORM** | ✅ COMPLIANCE + GOVERNANCE, legal hold, Veeam B&R validated | ✅ | ❌ | ✅ |
-| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; transitions to storage classes | ⚠️ Expiration; transitions Enterprise only | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
+| **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; transitions to storage classes | ✅ Expiration and transitions | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
 | **Bucket notifications** | ✅ Webhook | ✅ Webhook, Kafka, NATS, Redis and more | ❌ | ✅ HTTP, Kafka, AMQP |
-| **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, no redirects | ✅ |
+| **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, routing rules; no `RedirectAllRequestsTo` | ✅ |
 | **S3 Select** | ✅ SQL on CSV/JSON | ✅ | ❌ | ✅ CSV, JSON, Parquet |
-| **Encryption at rest** | ✅ Always on: AES-256-GCM envelope, per-object keys, KEK rotation, recovery bundle | ✅ SSE-S3, SSE-KMS, SSE-C | ⚠️ SSE-C only; disk encryption recommended | ✅ SSE-S3, SSE-KMS, SSE-C |
-| **Background integrity check** | ✅ Scrubber recomputes each object's MD5 | ✅ Bitrot detection and healing | ✅ Data scrub | ✅ Deep scrub |
+| **Encryption at rest** | ✅ Always on: AES-256-GCM envelope, per-object keys, KEK rotation, recovery bundle; SSE-C | ✅ SSE-S3, SSE-KMS, SSE-C | ⚠️ SSE-C only; disk encryption recommended | ✅ SSE-S3, SSE-KMS, SSE-C |
+| **Background integrity check** | ✅ Scrubber recomputes the MD5 of every version, multipart objects included; corruption raises an alert | ✅ Bitrot detection and healing | ✅ Data scrub | ✅ Deep scrub |
 | **Audit logging** | ✅ 20+ event types, console viewer, CSV export, syslog | ✅ Webhook | — | ✅ Operations log |
-| **Metrics** | ✅ Prometheus, Grafana dashboard | ✅ Prometheus | ✅ Prometheus | ✅ Prometheus |
-| **Support** | Community | Free: community; Enterprise: 24/7, SLA | Community | Community; commercial vendors |
-| **Target scale** | Single node to a 5-node cluster | Free: one node; Enterprise: petabytes to exabytes | Small to medium clusters across sites | Large clusters, petabytes and beyond |
+| **Metrics** | ✅ Prometheus (bearer token), Grafana dashboard | ✅ Prometheus | ✅ Prometheus | ✅ Prometheus |
+| **Support** | Community | Free: community; Enterprise Lite: basic SUBNET; Enterprise: 24/7, SLA under 4 h | Community | Community; commercial vendors |
+| **Target scale** | Single node to a 5-node cluster | Free: one node; Enterprise Lite: below 400 TiB; Enterprise: unlimited | Small to medium clusters across sites | Large clusters, petabytes and beyond |
 
 **Use MaxIOFS when:** you want one binary with the console, multi-tenancy, SSO,
 IAM, Object Lock and replication included, on one node or a few, without a
@@ -303,7 +303,7 @@ sudo systemctl enable --now maxiofs
 
 **RHEL / Rocky / Alma / Fedora**
 ```bash
-sudo rpm -i maxiofs-1.9.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.10.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 
@@ -379,7 +379,8 @@ cd web/frontend && npm run test        # 161 frontend tests
 
 | Version | Highlights |
 |---------|-----------|
-| **v1.9.0** *(stable)* | **Parity**: Reed-Solomon erasure coding across nodes from three nodes, like RAID 5, and RAID 6 from five. **Storage classes**: groups of nodes keep a class (`GLACIER`, `DEEP_ARCHIVE`…) with their own copies or parity; lifecycle transitions move objects to them, with filters by tags and size. **SSE-C as in AWS**: keys sent by the client over HTTPS, blocked per bucket until allowed. **Identity providers**: a session follows its provider, back-channel logout, Auto Sync reads LDAP directories and Keycloak realms every hour, one email belongs to one user. **A node joins with a one-time join code** that seals the cluster's keys. **Security**: digests and signed chunks of a write are checked, a COMPLIANCE retention cannot be turned into GOVERNANCE, multipart parts in progress are encrypted, `X-Forwarded-For` is read from the right, built with Go 1.27.3, the console's CSP runs no foreign inline script. S3 errors, ETags and null versions as AWS; Hadoop and Spark through S3A verified; signed PUTs about 10 times faster. |
+| **v1.10.0** *(stable)* | **Full disks handled**: writes stop at 99.5% of the objects' or the metadata's disk with `507 InsufficientStorage`; reads, deletes and retention keep working. **Recovery**: `maxiofs recover` gives back each bucket's settings and Object Lock, shows its progress, takes `--storage-root` and runs faster. **Cluster**: a joining node takes everything the cluster replicates; settings and logging targets are the same on every node. **Auto Sync** reads Google Workspace and Microsoft tenants. **Performance**: S3 writes about 5 times faster under load, uploads encrypted as they arrive, `ListObjectVersions` pages cost what they return. Integrity scans cover every version and multipart objects; `/metrics` takes a bearer token (`metrics.token`); `trust_private_networks` is off by default; the console checks each bucket's permissions on every read. |
+| **v1.9.0** | **Parity**: Reed-Solomon erasure coding across nodes from three nodes, like RAID 5, and RAID 6 from five. **Storage classes**: groups of nodes keep a class (`GLACIER`, `DEEP_ARCHIVE`…) with their own copies or parity; lifecycle transitions move objects to them, with filters by tags and size. **SSE-C as in AWS**: keys sent by the client over HTTPS, blocked per bucket until allowed. **Identity providers**: a session follows its provider, back-channel logout, Auto Sync reads LDAP directories and Keycloak realms every hour, one email belongs to one user. **A node joins with a one-time join code** that seals the cluster's keys. **Security**: digests and signed chunks of a write are checked, a COMPLIANCE retention cannot be turned into GOVERNANCE, multipart parts in progress are encrypted, `X-Forwarded-For` is read from the right, built with Go 1.27.3, the console's CSP runs no foreign inline script. S3 errors, ETags and null versions as AWS; Hadoop and Spark through S3A verified; signed PUTs about 10 times faster. |
 | **v1.8.0** | **Cluster data placement**: every node holds every bucket and reads every object; a replication factor of 1 keeps one copy of each object, so a bucket is no longer limited to one node's disk; draining a node moves its objects before it leaves service. **Bucket policies and Block Public Access as in AWS**: policies are evaluated again with the caller's IAM policies, public ACLs and policies are refused or voided as AWS does, and the console edits a policy as rules instead of JSON. **Security**: a two-factor sign-in needs the password step; any node serves a sign-in; an OAuth sign-in asks for the two-factor code, and its code, identity provider changes and an administrator's unlock work on every node; the secret for stored credentials lives in the database and is shared by the cluster. **Monitoring**: every metric reaches Prometheus, labelled by S3 operation instead of path; the Grafana dashboard shows S3 operations and errors, storage, sign-ins, Object Lock and background tasks per node and bucket; new alert rules. Copies between nodes keep versions, Object Lock and metadata changes; quotas refuse growth but never deletes. |
 | **v1.7.0** | **New on-disk storage layout**: an object is one file named by a digest of its key, so two keys differing only in case, a key and its own name plus a slash, and a key ending in `.metadata` are all distinct — an existing installation migrates on first start. **Interrupted writes are undone or confirmed at the next start**, before the server serves traffic — a killed overwrite, multipart completion or part replacement no longer leaves an object whose size and ETag disagree with what a GET delivers. **Security**: a session policy is now consulted for every resource an operation touches, not only the one in the URL; 21 console mutation routes and 5 IAM routes resolved the wrong tenant; `/debug/pprof/*` answered any authenticated request instead of a global administrator only. The S3 rate limit answers `SlowDown` in an XML document instead of a bare `429`. |
 | **v1.6.0** | **IAM is the authorization model** — roles, bucket permissions and attached policies are all IAM policies, evaluated AWS-style (default deny, explicit `Deny` wins); existing permissions are converted once on upgrade. **AWS STS and IAM protocols** on `POST /` of the S3 endpoint, so `aws sts` and `aws iam --endpoint-url` work unmodified; short-lived `ASIA` credentials with optional session policies and federation for headless clients. **Large security pass**: inter-node request forgery and replay, five endpoints that authorized nothing, tenant-boundary escapes, ACLs overruling policies. Shutdown no longer risks a Pebble panic. |

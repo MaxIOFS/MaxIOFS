@@ -1,6 +1,6 @@
 # MaxIOFS Security Guide
 
-**Version**: 1.9.0 | **Last Updated**: November 5, 2026
+**Version**: 1.10.0 | **Last Updated**: November 11, 2026
 
 ## Security Overview
 
@@ -257,6 +257,13 @@ since goes straight to a policy.
 
 A user is a user. Their access keys carry their permissions — a request is the
 same request whether it arrived on a console session or signed with a key.
+
+**A bucket's owner** — the user who created it, or the one an administrator
+made its owner — holds `s3:*` and the bucket's quota actions on the bucket and
+its objects, in the inline policy `owner-<bucket>`, and nothing outside it.
+Every console read of a bucket (its details and settings, a search, its
+versions) needs its permission on the bucket, as a change does. Administration
+(`maxiofs:SuperAdmin`) counts only when it is granted on every resource (`*`).
 
 **The account boundary is not a policy.** A principal that belongs to a tenant
 never leaves it, whatever its own policies say. A global administrator reaches

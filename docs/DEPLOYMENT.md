@@ -1,6 +1,6 @@
 # MaxIOFS Deployment Guide
 
-**Version**: 1.9.0 | **Last Updated**: November 5, 2026
+**Version**: 1.10.0 | **Last Updated**: November 11, 2026
 
 > Suitable for production use — always backup your data and change default credentials before deploying.
 
@@ -161,7 +161,7 @@ sudo dpkg -i maxiofs_1.9.0_amd64.deb
 sudo systemctl enable --now maxiofs
 
 # RHEL/Rocky
-sudo rpm -i maxiofs-1.9.0-1.x86_64.rpm
+sudo rpm -i maxiofs-1.10.0-1.x86_64.rpm
 sudo systemctl enable --now maxiofs
 ```
 

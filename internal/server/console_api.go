@@ -1389,9 +1389,17 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	// Extract tenant ID from user context
 	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+
+	// A user a global administrator names as the owner gets the bucket as if it
+	// had created it: the owner policy is written for that user.
+	creator := user.ID
+	if isGlobalAdmin && req.OwnerType == "user" && req.OwnerID != "" {
+		creator = req.OwnerID
+	}
 
 	// Crear el bucket
-	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name, user.ID); err != nil {
+	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name, creator); err != nil {
 		if err == bucket.ErrBucketAlreadyExists {
 			s.writeError(w, "Bucket already exists", http.StatusConflict)
 		} else {
@@ -1405,8 +1413,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Bucket created but failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
 
 	// Tenant admins get buckets assigned to the tenant; regular tenant users own their own buckets
 	isTenantAdmin := user.TenantID != "" && auth.IsAdminUser(r.Context())
@@ -1494,6 +1500,10 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
@@ -1797,6 +1807,10 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -4983,6 +4997,10 @@ func (s *Server) handleUpdateBucketOwner(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleListBucketShares(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	// Get user from context to determine tenant ID
 	user, ok := auth.GetUserFromContext(r.Context())
@@ -5258,6 +5276,10 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucketVersions,
+		"You do not have permission to read this bucket") {
+		return
+	}
 	objectKey := vars["object"]
 
 	// Extract user and tenant ID from context
@@ -5329,6 +5351,10 @@ func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request
 func (s *Server) handleGetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketLifecycle,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -5477,6 +5503,10 @@ func (s *Server) handleDeleteBucketLifecycle(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleGetBucketTagging(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketTagging,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -5651,6 +5681,10 @@ func (s *Server) handleDeleteBucketTagging(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleGetBucketCors(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketCORS,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -5874,6 +5908,10 @@ func (s *Server) handleDeleteBucketCors(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleGetBucketACL(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketAcl,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -6126,6 +6164,10 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicy,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -6272,6 +6314,10 @@ func (s *Server) handleDeleteBucketPolicy(w http.ResponseWriter, r *http.Request
 func (s *Server) handleGetBucketVersioning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketVersioning,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -7490,6 +7536,10 @@ You received this email because you requested a test from the System Settings pa
 func (s *Server) handleGetBucketNotification(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketNotification,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	// Get user from context
 	user, ok := r.Context().Value("user").(*auth.User)
@@ -7650,6 +7700,10 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketEncryption,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -7827,6 +7881,10 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketObjectLockConfiguration,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
@@ -7866,6 +7924,10 @@ func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http
 func (s *Server) handleGetPublicAccessBlock(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketPublicAccess,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {

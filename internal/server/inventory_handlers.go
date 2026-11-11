@@ -161,6 +161,10 @@ func (s *Server) handleGetBucketInventory(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketInventory,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	// Get current user
 	currentUser, ok := auth.GetUserFromContext(ctx)
@@ -254,6 +258,10 @@ func (s *Server) handleListBucketInventoryReports(w http.ResponseWriter, r *http
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketInventory,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	// Get current user
 	currentUser, ok := auth.GetUserFromContext(ctx)

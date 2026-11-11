@@ -1,8 +1,8 @@
 # Multi-Node Cluster Management
 
-**Version**: 1.9.0
+**Version**: 1.10.0
 **Status**: Production-Ready
-**Last Updated**: November 5, 2026
+**Last Updated**: November 11, 2026
 
 ---
 
@@ -588,9 +588,9 @@ X-MaxIOFS-Signature: <hex-encoded-hmac>
 - Compares with provided signature (constant-time)
 - Checks timestamp skew (max 5 minutes)
 
-### Automatic Entity Synchronization (6 types)
+### Automatic Entity Synchronization
 
-All 6 entity types are **automatically synchronized** across all cluster nodes every 30 seconds:
+What the cluster shares is **automatically synchronized** across all cluster nodes every 30 seconds, and at once after a change:
 
 | Entity Type | Endpoint | What Gets Synced |
 |-------------|----------|------------------|
@@ -600,9 +600,15 @@ All 6 entity types are **automatically synchronized** across all cluster nodes e
 | **Bucket Permissions** | `/api/internal/cluster/bucket-permission-sync` | ACLs, policies |
 | **IDP Providers** | `/api/internal/cluster/idp-provider-sync` | LDAP/OAuth config (encrypted secrets) |
 | **Group Mappings** | `/api/internal/cluster/group-mapping-sync` | IDP group → MaxIOFS role mappings |
+| **Groups** | `/api/internal/cluster/group-sync` | Groups and their members |
+| **IAM** | `/api/internal/cluster/iam-sync` | Managed policies with their versions, roles, inline policies and attachments |
+| **Console Sessions** | `/api/internal/cluster/console-session-sync` | Console sessions: any node renews or ends one |
+| **STS Sessions** | `/api/internal/cluster/sts-session-sync` | Temporary credentials |
+| **Settings and Logging Targets** | `/api/internal/cluster/settings-sync` | Every setting and logging target; the newer change wins |
+| **Cluster Configuration** | `/api/internal/cluster/global-config-sync`, `node-list-sync`, `kek-sync` | The cluster's configuration, its list of nodes and the cluster-shared encryption keys, every 60 seconds |
 
 **How it works:**
-- SHA256 checksum-based change detection (only syncs when data changes)
+- Users, tenants, access keys, bucket permissions, identity providers and group mappings are sent only when their SHA256 checksum changes
 - HMAC-authenticated node-to-node communication
 - 30-second sync interval per entity type
 
@@ -891,8 +897,8 @@ For cluster test coverage and commands, see [TESTING.md](TESTING.md#internalclus
 
 ---
 
-**Version**: 1.9.0
-**Last Updated**: November 5, 2026
+**Version**: 1.10.0
+**Last Updated**: November 11, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](../README.md).

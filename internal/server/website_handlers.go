@@ -17,6 +17,10 @@ func (s *Server) handleGetBucketWebsite(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
+	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionGetBucketWebsite,
+		"You do not have permission to read this bucket") {
+		return
+	}
 
 	currentUser, ok := auth.GetUserFromContext(ctx)
 	if !ok {
