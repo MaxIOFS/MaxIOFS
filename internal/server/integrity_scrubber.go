@@ -52,6 +52,9 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 	emailed := 0
 
 	for _, bkt := range allBuckets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Objects are stored under "tenantID/bucketName" for tenant buckets
 		// and just "bucketName" for global buckets.
 		tenantID := bkt.TenantID
@@ -70,6 +73,10 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 			report, err := s.objectManager.(interface {
 				VerifyBucketIntegrity(ctx context.Context, bucket, prefix, marker string, maxKeys int) (*object.BucketIntegrityReport, error)
 			}).VerifyBucketIntegrity(ctx, bucketPath, "", marker, 500)
+			if ctx.Err() != nil {
+				// Stopped: a scan cut short is not a bucket's result.
+				return ctx.Err()
+			}
 			if err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{
 					"tenant": tenantID,

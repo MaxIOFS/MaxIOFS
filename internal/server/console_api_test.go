@@ -610,6 +610,25 @@ func TestABucketOwnerReachesNoOtherBucket(t *testing.T) {
 	status, body = call("GET", "/buckets/owners-bucket/objects", owner, nil)
 	assert.Equal(t, http.StatusOK, status, "the owner cannot read its own bucket: %s", body)
 
+	status, body = call("GET", "/metrics", owner, nil)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, "owners-bucket")
+	assert.NotContains(t, body, "admins-bucket", "the metrics name another user's bucket")
+	status, body = call("GET", "/config", owner, nil)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, "publicApiUrl")
+	for _, hidden := range []string{"dataDir", "root", "logLevel", "s3ApiPort", "consoleApiPort", "metrics"} {
+		assert.NotContains(t, body, `"`+hidden+`"`, "the config tells a user about the host")
+	}
+	status, body = call("GET", "/config", admin, nil)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, `"dataDir"`)
+	assert.Contains(t, body, `"root"`)
+	status, _ = call("DELETE", "/buckets/admins-bucket/objects/k/share", owner, nil)
+	assert.Equal(t, http.StatusForbidden, status, "the owner ends a share of another user's object")
+	status, _ = call("DELETE", "/buckets/owners-bucket/objects/k/share", owner, nil)
+	assert.Equal(t, http.StatusNotFound, status, "the owner cannot end a share in its own bucket")
+
 	reads := []string{"", "/policy", "/acl", "/versioning", "/lifecycle", "/cors", "/encryption", "/object-lock",
 		"/tagging", "/shares", "/notification", "/inventory", "/inventory/reports", "/website",
 		"/public-access-block", "/search?prefix=", "/objects/k/versions"}

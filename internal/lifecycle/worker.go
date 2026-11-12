@@ -158,6 +158,9 @@ func (w *Worker) processLifecyclePolicies(ctx context.Context) error {
 	}
 
 	for _, bkt := range buckets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		w.processBucket(ctx, bkt)
 	}
 
@@ -432,6 +435,9 @@ func (w *Worker) processNoncurrentVersionExpiration(ctx context.Context, bucketP
 
 	kept := rule.NoncurrentVersionExpiration.NewerNoncurrentVersions
 	for key, versions := range versionsByKey {
+		if ctx.Err() != nil {
+			return
+		}
 		for _, nv := range noncurrentVersions(versions) {
 			version := nv.version
 			if nv.newer < kept || nv.since.After(cutoffTime) || !w.matches(ctx, bucketPath, rule.Filter, version) {
@@ -557,6 +563,9 @@ func (w *Worker) processExpiredDeleteMarkers(ctx context.Context, bucketPath str
 
 	// For each key, check if it only has a delete marker
 	for key, versions := range versionsByKey {
+		if ctx.Err() != nil {
+			return
+		}
 		if len(versions) == 1 && isLifecycleDeleteMarker(versions[0]) && versions[0].IsLatest {
 			// Delete this expired delete marker
 			// Use the versionID to delete it permanently
@@ -707,6 +716,9 @@ func (w *Worker) processAbortIncompleteMultipartUploads(ctx context.Context, buc
 	prefix := rule.Filter.Prefix
 	abortedCount := 0
 	for _, upload := range uploads {
+		if ctx.Err() != nil {
+			return
+		}
 		if prefix != "" && !strings.HasPrefix(upload.Key, prefix) {
 			continue
 		}

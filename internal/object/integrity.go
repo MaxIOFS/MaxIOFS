@@ -301,6 +301,10 @@ func (om *objectManager) VerifyBucketIntegrity(ctx context.Context, bucket, pref
 	}
 
 	for _, version := range page.Versions {
+		// A scan of millions of versions must not outlive a stop.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var pinned []string
 		if version.VersionID != "" {
 			pinned = []string{version.VersionID}

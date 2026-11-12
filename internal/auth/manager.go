@@ -2619,7 +2619,7 @@ func (m *authManager) Setup2FA(ctx context.Context, userID string) (*TOTPSetup, 
 func (m *authManager) Enable2FA(ctx context.Context, userID, code string, secret string) ([]string, error) {
 	// Verify the TOTP code
 	if !VerifyTOTPCode(secret, code) {
-		return nil, fmt.Errorf("invalid verification code")
+		return nil, ErrInvalid2FACode
 	}
 
 	// Generate backup codes

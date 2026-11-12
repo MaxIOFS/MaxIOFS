@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrInvalid2FACode is a code that does not match the secret.
+var ErrInvalid2FACode = errors.New("invalid verification code")
 
 // TOTPSetup contains the setup information for 2FA
 type TOTPSetup struct {

@@ -2036,8 +2036,9 @@ func TestHandleEnable2FA(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.handleEnable2FA(rr, req)
 
-		// Invalid TOTP may return 400 or 500 depending on error handling
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusInternalServerError}, rr.Code)
+		// A mistyped code is the user's to correct, not a server failure.
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "Invalid verification code")
 	})
 
 	t.Run("should reject invalid JSON", func(t *testing.T) {

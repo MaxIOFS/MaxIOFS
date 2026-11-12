@@ -210,6 +210,20 @@ func TestAScanCoversTheVersionsThatAreNotTheLatest(t *testing.T) {
 	assert.ElementsMatch(t, []string{old, hidden}, versions, "each issue names its version")
 }
 
+// A scan stops with the server: the daily scan of millions of versions held
+// a stop until it ended.
+func TestAScanStopsWhenItIsCancelled(t *testing.T) {
+	om, _, cleanup := setupVersionedBucket(t, "stopped")
+	defer cleanup()
+	put(t, om, "stopped", "doc", "data")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	report, err := om.VerifyBucketIntegrity(ctx, "stopped", "", "", 100)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, report)
+}
+
 // A scan page by page reads each version once, keys with slashes in them too.
 func TestAScanPagesThroughEveryVersion(t *testing.T) {
 	om, _, cleanup := setupVersionedBucket(t, "paged")

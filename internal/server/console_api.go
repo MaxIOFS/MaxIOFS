@@ -3019,8 +3019,15 @@ func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	tenantID := user.TenantID
 
+	// The buckets the user may list, as the bucket list shows them.
 	buckets, _ := s.bucketManager.ListBuckets(r.Context(), tenantID)
-	filteredBuckets := buckets
+	var filteredBuckets []bucket.Bucket
+	for _, b := range buckets {
+		if s.userCanPerformConsoleS3Action(r, user, s.resolveConsoleBucketTenantID(r, b.Name, user),
+			auth.ActionListBucket, consoleBucketARN(b.Name)) {
+			filteredBuckets = append(filteredBuckets, b)
+		}
+	}
 
 	totalBuckets := int64(len(filteredBuckets))
 
@@ -3314,37 +3321,40 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 		version = "unknown"
 	}
 
+	server := map[string]interface{}{
+		"publicApiUrl":     s.config.PublicAPIURL,
+		"publicConsoleUrl": s.config.PublicConsoleURL,
+		"enableTls":        s.config.EnableTLS,
+		"websiteHostname":  s.config.WebsiteHostname,
+	}
+	storage := map[string]interface{}{
+		// Encryption is always on (envelope, KEK in DB); the old
+		// enable_encryption flag is deprecated and ignored.
+		"enableEncryption": true,
+		"enableObjectLock": s.config.Storage.EnableObjectLock,
+	}
+	// Paths, ports and the log level of the host are for who runs it.
+	user, _ := auth.GetUserFromContext(r.Context())
+	globalAdmin := user != nil && user.TenantID == "" && auth.IsAdminUser(r.Context())
+	if globalAdmin {
+		server["s3ApiPort"] = s.config.Listen
+		server["consoleApiPort"] = s.config.ConsoleListen
+		server["dataDir"] = s.config.DataDir
+		server["logLevel"] = s.config.LogLevel
+		storage["backend"] = s.config.Storage.Backend
+		storage["root"] = s.config.Storage.Root
+	}
+
 	// Build config response (exclude sensitive data)
 	config := map[string]interface{}{
 		"version":   version,
 		"commit":    s.commit,
 		"buildDate": s.buildDate,
-		"server": map[string]interface{}{
-			"s3ApiPort":        s.config.Listen,
-			"consoleApiPort":   s.config.ConsoleListen,
-			"dataDir":          s.config.DataDir,
-			"publicApiUrl":     s.config.PublicAPIURL,
-			"publicConsoleUrl": s.config.PublicConsoleURL,
-			"enableTls":        s.config.EnableTLS,
-			"logLevel":         s.config.LogLevel,
-			"websiteHostname":  s.config.WebsiteHostname,
-		},
-		"storage": map[string]interface{}{
-			"backend": s.config.Storage.Backend,
-			"root":    s.config.Storage.Root,
-			// Encryption is always on (envelope, KEK in DB); the old
-			// enable_encryption flag is deprecated and ignored.
-			"enableEncryption": true,
-			"enableObjectLock": s.config.Storage.EnableObjectLock,
-		},
+		"server":  server,
+		"storage": storage,
 		"auth": map[string]interface{}{
 			"enableAuth": s.config.Auth.EnableAuth,
 			// DO NOT expose: jwt_secret, encryption_key, access_key, secret_key
-		},
-		"metrics": map[string]interface{}{
-			"enable":   s.config.Metrics.Enable,
-			"path":     s.config.Metrics.Path,
-			"interval": s.config.Metrics.Interval,
 		},
 		"features": map[string]interface{}{
 			"multiTenancy":  true,
@@ -3357,6 +3367,14 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 			"lifecycle":     true,
 			"tagging":       true,
 		},
+	}
+
+	if globalAdmin {
+		config["metrics"] = map[string]interface{}{
+			"enable":   s.config.Metrics.Enable,
+			"path":     s.config.Metrics.Path,
+			"interval": s.config.Metrics.Interval,
+		}
 	}
 
 	// Include maintenance mode state so the frontend can show a banner.
@@ -5069,6 +5087,12 @@ func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
 		"method": r.Method,
 	}).Info("Delete share request received")
 
+	// Who may share an object may end its share.
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
+		"You do not have permission to stop sharing this object") {
+		return
+	}
+
 	// Get user from context to determine tenant ID
 	user, ok := auth.GetUserFromContext(r.Context())
 	if !ok {
@@ -6700,11 +6724,11 @@ func (s *Server) handleEnable2FA(w http.ResponseWriter, r *http.Request) {
 
 	backupCodes, err := s.authManager.Enable2FA(r.Context(), user.ID, req.Code, req.Secret)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to enable 2FA")
-		if err.Error() == "invalid TOTP code" {
+		if errors.Is(err, auth.ErrInvalid2FACode) {
 			s.writeError(w, "Invalid verification code", http.StatusBadRequest)
 			return
 		}
+		logrus.WithError(err).Error("Failed to enable 2FA")
 		s.writeError(w, "Failed to enable 2FA", http.StatusInternalServerError)
 		return
 	}
