@@ -1,0 +1,22 @@
+/* The console's brand blue. */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #3641f5;
+  --md-primary-fg-color--light: #465fff;
+  --md-primary-fg-color--dark: #2a33c4;
+  --md-accent-fg-color: #465fff;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #1e2235;
+  --md-accent-fg-color: #7d8bff;
+  --md-typeset-a-color: #8c99ff;
+}
+
+/* Screenshots: a frame so they stand apart from the page. */
+.md-typeset img.screenshot,
+.md-typeset a.glightbox img {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 8%);
+}

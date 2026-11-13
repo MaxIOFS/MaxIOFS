@@ -59,7 +59,18 @@ override_dh_auto_install:
 	install -m 0644 CHANGELOG.md debian/maxiofs/usr/share/doc/maxiofs/
 	install -m 0644 TODO.md debian/maxiofs/usr/share/doc/maxiofs/
 	install -m 0644 LICENSE debian/maxiofs/usr/share/doc/maxiofs/ || true
-	install -m 0644 docs/*.md debian/maxiofs/usr/share/doc/maxiofs/
+	install -m 0644 TESTING.md debian/maxiofs/usr/share/doc/maxiofs/
+	# The guides by their earlier names; the full help is the documentation site.
+	install -m 0644 docs/deployment/single-node.md debian/maxiofs/usr/share/doc/maxiofs/DEPLOYMENT.md
+	install -m 0644 docs/deployment/docker.md debian/maxiofs/usr/share/doc/maxiofs/DOCKER.md
+	install -m 0644 docs/deployment/cluster.md debian/maxiofs/usr/share/doc/maxiofs/CLUSTER.md
+	install -m 0644 docs/operations/index.md debian/maxiofs/usr/share/doc/maxiofs/OPERATIONS.md
+	install -m 0644 docs/reference/configuration.md debian/maxiofs/usr/share/doc/maxiofs/CONFIGURATION.md
+	install -m 0644 docs/reference/api.md debian/maxiofs/usr/share/doc/maxiofs/API.md
+	install -m 0644 docs/reference/security.md debian/maxiofs/usr/share/doc/maxiofs/SECURITY.md
+	install -m 0644 docs/reference/sso.md debian/maxiofs/usr/share/doc/maxiofs/SSO.md
+	install -m 0644 docs/internals/architecture.md debian/maxiofs/usr/share/doc/maxiofs/ARCHITECTURE.md
+	install -m 0644 docs/internals/performance.md debian/maxiofs/usr/share/doc/maxiofs/PERFORMANCE.md
 
 override_dh_installsystemd:
 	dh_installsystemd --name=maxiofs

@@ -83,7 +83,18 @@ install -m 0644 README.md %{buildroot}%{_docdir}/%{name}/
 install -m 0644 CHANGELOG.md %{buildroot}%{_docdir}/%{name}/
 install -m 0644 TODO.md %{buildroot}%{_docdir}/%{name}/
 install -m 0644 LICENSE %{buildroot}%{_docdir}/%{name}/ || true
-install -m 0644 docs/*.md %{buildroot}%{_docdir}/%{name}/
+install -m 0644 TESTING.md %{buildroot}%{_docdir}/%{name}/
+# The guides by their earlier names; the full help is the documentation site.
+install -m 0644 docs/deployment/single-node.md %{buildroot}%{_docdir}/%{name}/DEPLOYMENT.md
+install -m 0644 docs/deployment/docker.md %{buildroot}%{_docdir}/%{name}/DOCKER.md
+install -m 0644 docs/deployment/cluster.md %{buildroot}%{_docdir}/%{name}/CLUSTER.md
+install -m 0644 docs/operations/index.md %{buildroot}%{_docdir}/%{name}/OPERATIONS.md
+install -m 0644 docs/reference/configuration.md %{buildroot}%{_docdir}/%{name}/CONFIGURATION.md
+install -m 0644 docs/reference/api.md %{buildroot}%{_docdir}/%{name}/API.md
+install -m 0644 docs/reference/security.md %{buildroot}%{_docdir}/%{name}/SECURITY.md
+install -m 0644 docs/reference/sso.md %{buildroot}%{_docdir}/%{name}/SSO.md
+install -m 0644 docs/internals/architecture.md %{buildroot}%{_docdir}/%{name}/ARCHITECTURE.md
+install -m 0644 docs/internals/performance.md %{buildroot}%{_docdir}/%{name}/PERFORMANCE.md
 
 %pre
 # Create maxiofs system user if it doesn't exist

@@ -1,0 +1,129 @@
+site_name: MaxIOFS
+site_description: Self-hosted S3-compatible object storage — user guide, deployment and reference.
+site_url: https://maxiofs.github.io/MaxIOFS/
+repo_url: https://github.com/MaxIOFS/MaxIOFS
+repo_name: MaxIOFS/MaxIOFS
+edit_uri: edit/main/docs/
+copyright: MaxIOFS is released under the MIT licence.
+
+# Build files, not pages.
+exclude_docs: |
+  requirements.txt
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark theme
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light theme
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+
+extra_css:
+  - assets/extra.css
+
+plugins:
+  - search
+  - glightbox:
+      skip_classes:
+        - no-zoom
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - First Steps: getting-started/first-steps.md
+  - Deployment:
+      - Single Node: deployment/single-node.md
+      - Docker: deployment/docker.md
+      - TLS and Reverse Proxy: deployment/reverse-proxy.md
+      - Cluster: deployment/cluster.md
+      - Upgrades: deployment/upgrades.md
+  - Console Guide:
+      - console/index.md
+      - Dashboard and Metrics: console/dashboard.md
+      - Buckets: console/buckets.md
+      - Objects and Sharing: console/objects.md
+      - Users, Groups and Tenants: console/users.md
+      - IAM: console/iam.md
+      - Identity Providers: console/identity-providers.md
+      - Security and Audit: console/security.md
+      - Settings: console/settings.md
+      - Cluster: console/cluster.md
+  - S3 & Tools:
+      - AWS CLI: s3/aws-cli.md
+      - rclone, s3cmd and mc: s3/tools.md
+      - SDKs: s3/sdks.md
+      - Presigned URLs: s3/presigned-urls.md
+      - STS: s3/sts.md
+  - maxiofs CLI: cli/index.md
+  - Integrations:
+      - Veeam: integrations/veeam.md
+      - Prometheus and Grafana: integrations/prometheus.md
+      - Spark and Hadoop (S3A): integrations/spark.md
+  - Operations:
+      - operations/index.md
+      - Backup and Recovery: operations/backup-recovery.md
+      - Data Integrity: operations/integrity.md
+      - Encryption Keys: operations/encryption-keys.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - API: reference/api.md
+      - Security: reference/security.md
+      - SSO: reference/sso.md
+      - Changelog: changelog.md
+      - Architecture: internals/architecture.md
+      - Performance: internals/performance.md

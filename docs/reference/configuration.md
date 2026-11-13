@@ -1,0 +1,404 @@
+# Configuration
+
+## Configuration Architecture
+
+MaxIOFS uses **hybrid configuration**:
+
+| Type | Storage | Restart Required | Managed Via |
+|------|---------|-----------------|-------------|
+| **Static** | `config.yaml` / env vars / CLI flags | Yes | File editor, environment |
+| **Dynamic** | SQLite (`maxiofs.db`) | No | Web Console (`/settings`) or REST API |
+
+**Priority order** (highest wins):
+1. CLI flags (`--data-dir /data`)
+2. Environment variables (`MAXIOFS_DATA_DIR=/data`)
+3. Config file (`config.yaml`)
+4. Defaults
+
+---
+
+## Static Configuration
+
+### Minimal Setup
+
+Only `data_dir` is required. Everything else has sensible defaults:
+
+```bash
+./maxiofs --data-dir /var/lib/maxiofs
+```
+
+### Complete Config File
+
+```yaml
+# config.yaml
+listen: ":8080"                              # S3 API listen address
+console_listen: ":8081"                      # Web Console listen address
+cluster_listen: ":8082"                      # Cluster inter-node communication port (a cluster node keeps 8080, 8081 and 8082)
+data_dir: "/var/lib/maxiofs"                 # Data directory (REQUIRED)
+log_level: "info"                            # debug | info | warn | error
+public_api_url: "https://s3.example.com"     # Public S3 URL (for presigned URLs)
+public_console_url: "https://console.example.com"  # Public Console URL (for OAuth redirects)
+
+# TLS (optional — reverse proxy recommended instead)
+enable_tls: false
+cert_file: ""
+key_file: ""
+
+# Proxies whose X-Forwarded-For and X-Forwarded-Proto are taken (IPs or CIDRs)
+trusted_proxies: []
+# Behind a proxy or WAF, list the address it reaches MaxIOFS from: otherwise
+# logs, rate limits and aws:SourceIp see the proxy, not the client. true also
+# trusts every loopback and private address as a proxy, for networks where the
+# proxy's address changes; facing the internet, keep it false. Cluster nodes
+# need neither: a request one forwards to another carries its client's address
+# and transport signed.
+trust_private_networks: false
+
+# Storage
+storage:
+  backend: "filesystem"           # Only supported backend
+  root: ""                        # Default: {data_dir}/objects
+  # Encryption at rest (AES-256-GCM, envelope) is ALWAYS ON. The key (KEK)
+  # lives in the database and is generated automatically on first start —
+  # download the recovery bundle from Settings → Security and store it
+  # outside the system.
+  # enable_encryption is deprecated and ignored.
+  # encryption_key is only read ONCE, on the very first start, to seed the
+  # database KEK (upgrade path for pre-v1.5 deployments that already had a
+  # key here). After that the database is authoritative and this value is
+  # never consulted again. Leave empty on new deployments.
+  encryption_key: ""
+  enable_object_lock: true        # S3 Object Lock / WORM retention
+  metadata_cache_size_mb: 256     # Pebble block cache — increase for large/write-heavy buckets
+
+# Authentication
+auth:
+  enable_auth: true
+  jwt_secret: ""                  # Auto-generated if empty (32 chars, random)
+  encryption_secret: ""           # Seed only: stored in the database on first start, ignored afterwards
+
+# Audit logging
+audit:
+  enable: true
+  retention_days: 90
+  db_path: ""                     # Default: {data_dir}/audit.db
+
+# Metrics
+metrics:
+  enable: true
+  path: "/metrics"
+  interval: 60                    # Collection interval (seconds)
+```
+
+### Data Directory Structure
+
+When MaxIOFS starts, it creates this structure under `data_dir`:
+
+```
+{data_dir}/
+├── db/
+│   └── maxiofs.db          ← SQLite: auth, users, tenants, keys, settings, cluster, IDP
+├── audit.db                ← SQLite: audit logs (separate for isolation)
+├── metadata/                ← Pebble: object metadata
+└── objects/                 ← Filesystem: object data (storage layout v2)
+    ├── .maxiofs-layout      ← marks the layout version; the server refuses to start on one it can't read
+    ├── {bucket}/             ← global bucket, or {tenant}/{bucket} for a tenant bucket
+    │   ├── .maxiofs-bucket   ← records the tenant-qualified path
+    │   └── {aa}/{bb}/{sha256 of the key}   ← one file per object; no directory is built from key parts
+    └── .maxiofs/multipart/parts/{uploadId}/   ← in-progress multipart parts
+```
+
+An object's filename is a digest of its key, so two keys differing only in case, a key and its
+own name followed by a slash, and a key ending in `.metadata` are all distinct files — none of
+them can collide the way a path built from the key's own components could. An installation on
+the previous layout is migrated bucket by bucket on the first start of this release; run
+`maxiofs migrate-layout --dry-run` to preview it by hand.
+
+---
+
+## CLI Flags
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--config` | `-c` | — | Path to config file |
+| `--data-dir` | `-d` | — | Data directory (**required**) |
+| `--listen` | `-l` | `:8080` | S3 API listen address |
+| `--console-listen` | — | `:8081` | Web Console listen address |
+| `--log-level` | — | `info` | Log level (debug/info/warn/error) |
+| `--tls-cert` | — | — | TLS certificate path (must be paired with `--tls-key`) |
+| `--tls-key` | — | — | TLS private key path (must be paired with `--tls-cert`) |
+
+> `cluster_listen` is not available as a CLI flag — configure it in `config.yaml` or via the `MAXIOFS_CLUSTER_LISTEN` environment variable.
+
+---
+
+## Environment Variables
+
+All settings can be set via `MAXIOFS_` prefixed environment variables:
+
+**Core:**
+- `MAXIOFS_DATA_DIR` — Data directory
+- `MAXIOFS_LISTEN` — S3 API listen address
+- `MAXIOFS_CONSOLE_LISTEN` — Console listen address
+- `MAXIOFS_CLUSTER_LISTEN` — Cluster inter-node listen address (default: `:8082`)
+- `MAXIOFS_LOG_LEVEL` — Log level
+- `MAXIOFS_PUBLIC_API_URL` — Public S3 URL
+- `MAXIOFS_PUBLIC_CONSOLE_URL` — Public Console URL
+
+**TLS:**
+- `MAXIOFS_ENABLE_TLS` — Enable TLS (true/false)
+- `MAXIOFS_CERT_FILE` — TLS certificate path
+- `MAXIOFS_KEY_FILE` — TLS private key path
+
+**Storage:**
+- `MAXIOFS_STORAGE_BACKEND` — Storage backend
+- `MAXIOFS_STORAGE_ROOT` — Objects root directory
+- `MAXIOFS_STORAGE_ENABLE_ENCRYPTION` — Deprecated and ignored (encryption is always on)
+- `MAXIOFS_STORAGE_ENCRYPTION_KEY` — One-time seed only: read on the very first start to become KEK v1, never consulted again (the key lives in the database)
+- `MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB` — Pebble block cache size in MB (default: 256)
+
+**Auth:**
+- `MAXIOFS_AUTH_ENABLE_AUTH` — Enable authentication
+- `MAXIOFS_AUTH_JWT_SECRET` — JWT signing secret
+- `MAXIOFS_AUTH_ENCRYPTION_SECRET` — One-time seed only: read on the first start to become the secret stored credentials are encrypted with, never consulted again (the secret lives in the database). Without it, an explicit JWT secret is used, or else one is generated
+
+**Cluster:**
+- `MAXIOFS_CLUSTER_LISTEN` — Cluster inter-node listen address (default: `:8082`)
+- `MAXIOFS_CLUSTER_NODE_NAME` — Node name for cluster
+- `MAXIOFS_CLUSTER_REGION` — Geographic region
+
+---
+
+## Dynamic Settings
+
+Runtime-configurable settings via Web Console (`/settings`) or API. Changes take effect **immediately** without restart.
+
+### Security Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `security.session_timeout` | 86400 | Refresh-token lifetime / inactivity timeout in seconds |
+| `security.access_token_lifetime` | 900 | Access-token lifetime in seconds |
+| `security.ratelimit_enabled` | true | Enable rate limiting |
+| `security.ratelimit_login_per_minute` | 5 | IP-based login rate limit |
+| `security.ratelimit_api_per_second` | 1000 | S3 requests per second per access key, 0 for no limit; over it the server answers `SlowDown` and the client retries |
+| `security.max_failed_attempts` | 5 | Failed logins before account lockout |
+| `security.lockout_duration` | 900 | Lockout duration (seconds) |
+| `security.password_min_length` | 8 | Minimum password length |
+| `security.password_require_uppercase` | true | Require uppercase letters in passwords |
+| `security.password_require_numbers` | true | Require numbers in passwords |
+| `security.password_require_special` | false | Require special characters in passwords |
+| `security.require_2fa_admin` | false | Force 2FA for admin accounts |
+
+### Audit Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `audit.enabled` | true | Enable audit logging |
+| `audit.retention_days` | 90 | Log retention period (days) |
+| `audit.log_s3_operations` | true | Log S3 API operations |
+| `audit.log_console_operations` | true | Log Console API operations |
+
+### Storage Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `storage.default_bucket_versioning` | false | Enable versioning by default for new buckets |
+| `storage.default_object_lock_days` | 7 | Default object lock retention period in days |
+
+### Metrics Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `metrics.enabled` | true | Enable Prometheus metrics |
+| `metrics.collection_interval` | 10 | Metrics collection interval in seconds |
+
+### System Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `system.maintenance_mode` | false | Read-only mode (blocks S3 writes, mutating Console API) |
+| `system.max_upload_size_mb` | 5120 | Maximum upload size in MB |
+| `system.disk_warning_threshold` | 80 | Disk usage % that triggers warning alert (0 = disabled) |
+| `system.disk_critical_threshold` | 90 | Disk usage % that triggers critical alert (0 = disabled) |
+
+### Email Settings (for alerts)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `email.enabled` | false | Enable email notifications (disk/quota/integrity alerts) |
+| `email.smtp_host` | — | SMTP server hostname |
+| `email.smtp_port` | 587 | SMTP port |
+| `email.smtp_user` | — | SMTP username (optional) |
+| `email.smtp_password` | — | SMTP password (optional) |
+| `email.from_address` | — | Sender address |
+| `email.tls_mode` | none | TLS mode: none, starttls, ssl |
+| `email.skip_tls_verify` | false | Skip TLS certificate verification (not recommended) |
+
+### Logging Configuration (multiple targets)
+
+Logging supports multiple external targets (syslog and HTTP) configured via the Console. Each target can have its own protocol, host, format (RFC3164, RFC5424, CEF), and filter level. See Settings → Logging.
+
+### Settings API
+
+```bash
+# List all settings
+GET /api/v1/settings
+
+# Get settings by category
+GET /api/v1/settings/category/{category}
+
+# Update a setting
+PUT /api/v1/settings/{key}
+{ "value": "15" }
+
+# Reset to default
+POST /api/v1/settings/reset
+```
+
+---
+
+## Metadata Store (Pebble) Tuning
+
+MaxIOFS stores all object and bucket metadata in an embedded [Pebble](https://github.com/cockroachdb/pebble) LSM-tree database (`{data_dir}/metadata/`). Understanding how to tune it can significantly improve performance for large or write-heavy deployments.
+
+### How the block cache works
+
+When MaxIOFS reads metadata (listing objects in a folder, fetching object info, checking permissions), Pebble first looks for the data in its **block cache** (RAM). On a cache hit the response is essentially instant. On a miss, Pebble reads from disk and stores the result in the cache for subsequent reads.
+
+```
+First access to a large folder  → disk read  (slow, expected)
+Subsequent accesses             → block cache (fast, ~0.1 ms)
+After server restart            → disk read again (cache is cold)
+```
+
+This is the expected behaviour of any LSM-tree engine. You cannot avoid the cold-read penalty on the **very first** access after a restart; you can minimise how often it happens by keeping a large enough cache.
+
+### `metadata_cache_size_mb`
+
+**Where**: `config.yaml` (or environment variable `MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB`)  
+**Restart required**: Yes — the cache is allocated at startup  
+**Default**: `256` MB
+
+```yaml
+storage:
+  metadata_cache_size_mb: 256
+```
+
+| Deployment size | Objects / bucket | Recommended value |
+|-----------------|-----------------|-------------------|
+| Small / dev | < 5 000 | 256 MB (default) |
+| Medium | 5 000 – 20 000 | 512 MB |
+| Large (Veeam B&R, etc.) | 20 000 – 100 000 | 1 024 MB |
+| Very large | 100 000+ | 2 048 MB or more |
+
+> **Rule of thumb**: Each object metadata entry is ~500–800 bytes in the block cache. A bucket with 40 000 objects uses roughly 20–32 MB of cache. If your server has free RAM, increasing this value is the single most impactful tuning option.
+
+**Example — Veeam Backup & Replication deployment (server with 16 GB RAM):**
+
+```yaml
+storage:
+  metadata_cache_size_mb: 1024
+```
+
+Or without touching `config.yaml`:
+
+```bash
+MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB=1024 ./maxiofs --data-dir /var/lib/maxiofs
+```
+
+Or in Docker Compose:
+
+```yaml
+environment:
+  MAXIOFS_STORAGE_METADATA_CACHE_SIZE_MB: "1024"
+```
+
+### What else is tuned automatically
+
+These internal settings are fixed at compile time and cannot be changed via config. They are documented here for transparency:
+
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| MemTable size | 64 MB | Buffers writes in RAM before flushing to disk. Larger = fewer flushes under write bursts. |
+| MemTable stop-writes threshold | 12 | Number of memtables allowed to accumulate before writes are stalled. Higher = more write tolerance during compaction lag. |
+| L0 compaction threshold | 4 | Pebble starts compacting L0 when 4 files accumulate. Lower = cleaner read path sooner. |
+| L0 stop-writes threshold | 12 | Writes stall if L0 reaches 12 files. Protects read performance under extreme write load. |
+| Compaction concurrency | 2 – 4 goroutines | Background compaction runs on 2 to 4 goroutines depending on system load. |
+| Bloom filters (L1–L6) | 10 bits/key | Probabilistic filter that avoids unnecessary disk reads for point lookups (e.g. "does object X exist?"). ~1% false positive rate. No bloom filter at L0 — range scans dominate there. |
+| Block size | 32 KB | Amount of data read per I/O operation. Larger blocks are efficient for sequential folder listings. |
+
+### Upgrade path for existing deployments
+
+The metadata engine uses **Pebble v2**. On-disk formats from older installations are migrated automatically on first start — no manual steps required. If the server is killed mid-migration, the next start detects the incomplete state and retries automatically.
+
+---
+
+## Configuration Examples
+
+### Development
+
+```bash
+./maxiofs --data-dir ./data --log-level debug
+```
+
+### Production (Behind Reverse Proxy)
+
+```yaml
+# /etc/maxiofs/config.yaml
+data_dir: /var/lib/maxiofs
+listen: 127.0.0.1:8080
+console_listen: 127.0.0.1:8081
+public_api_url: https://s3.example.com
+public_console_url: https://console.example.com
+log_level: info
+
+audit:
+  retention_days: 180
+
+# Encryption is always on — no storage keys needed. Download the recovery
+# bundle from Settings → Security after the first start.
+```
+
+### Docker
+
+```yaml
+# docker-compose.yaml
+services:
+  maxiofs:
+    image: maxiofs:latest
+    environment:
+      MAXIOFS_DATA_DIR: /data
+      MAXIOFS_PUBLIC_API_URL: https://s3.example.com
+      MAXIOFS_PUBLIC_CONSOLE_URL: https://console.example.com
+      # S3 credentials for the administrator, applied only on a deployment with
+      # no access key yet. Environment only, never a config file key.
+      MAXIOFS_BOOTSTRAP_ACCESS_KEY: maxiofsadmin
+      MAXIOFS_BOOTSTRAP_SECRET_KEY: pick-your-own-secret
+      # Encryption at rest is always on — the key is generated automatically
+      # and stored in the database (download the recovery bundle after setup).
+    volumes:
+      - maxiofs-data:/data
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+```
+
+### Cluster Node
+
+```yaml
+data_dir: /var/lib/maxiofs
+listen: :8080
+console_listen: :8081
+cluster_listen: :8082           # Cluster inter-node port — keep off the public load balancer
+public_api_url: https://node1.s3.example.com
+public_console_url: https://node1.console.example.com
+```
+
+Cluster configuration (nodes, replication, sync) is managed via the Web Console or API — not config files. See [CLUSTER.md](../deployment/cluster.md).
+
+> **Firewall note**: port 8082 must be reachable between cluster node IPs but should not be exposed to end users or the public internet. See [CLUSTER.md — Network Configuration](../deployment/cluster.md#network-configuration) for firewall rules.
+
+---
+
+**See also**: [DEPLOYMENT.md](../deployment/single-node.md) · [OPERATIONS.md](../operations/index.md) · [SECURITY.md](security.md) · [CLUSTER.md](../deployment/cluster.md)

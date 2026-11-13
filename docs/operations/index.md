@@ -1,0 +1,662 @@
+# Operations
+**Last Updated**: November 11, 2026  
+**Audience**: SRE / Ops / On-call engineers
+
+This document describes day‑to‑day operations, runbooks, and best practices for running MaxIOFS in production (single node and clusters).
+
+---
+
+---
+
+## Operational Overview
+
+MaxIOFS is a single‑binary, S3‑compatible object storage server with:
+
+- Local filesystem for object data (`objects/` under `--data-dir`)
+- Pebble for metadata (`metadata/` under `--data-dir`)
+- SQLite for auth, cluster, replication and settings (`db/maxiofs.db`)
+- Separate SQLite database for audit logs (`audit.db`)
+- Optional cluster mode with multiple nodes and automatic synchronization
+
+From an operational perspective:
+
+- Treat each **data directory** as a unit: `db/`, `metadata/`, `objects/`, `audit.db` must be kept consistent together.
+- In cluster mode, each node has its own local data directory, with **cluster replication** keeping configuration and metadata in sync.
+- External replication to S3 (AWS, any S3-compatible endpoint, or another MaxIOFS) is configured per bucket and is independent from the internal cluster replication.
+
+For architecture details see `ARCHITECTURE.md` and `CLUSTER.md`. For deployment details see `DEPLOYMENT.md`.
+
+---
+
+## Environments & Responsibilities
+
+### Typical Environments
+
+- **Development**: Single node, ephemeral data, frequent restarts.
+- **Staging**: Single node or small cluster (2–3 nodes), mirrors production configuration as closely as possible.
+- **Production**: Cluster (minimum 2 nodes behind a load balancer), dedicated storage, full monitoring, and backup strategy.
+
+### Responsibilities
+
+- **SRE / Ops**
+  - Deploy and upgrade MaxIOFS.
+  - Manage capacity, scaling and storage.
+  - Configure monitoring and alerting.
+  - Manage nodes in the cluster (add/remove, maintenance).
+  - Operate backup and disaster recovery procedures.
+
+- **Security / IAM**
+  - Enforce authentication and authorization policies.
+  - Review audit logs and respond to security events.
+  - Manage identity providers (LDAP/OIDC) and 2FA policies.
+
+- **Application Owners / Tenants**
+  - Manage buckets, data lifecycle and access keys within their tenant.
+  - Respond to quota and capacity warnings for their tenant.
+
+---
+
+## Daily Checks
+
+The following checks are recommended at least once per day in production.
+
+### 1. Console Health
+
+- Confirm the **Console** is reachable:
+  - `https://<console-endpoint>:8081`
+  - Dashboard loads without degraded status indicators.
+
+### 2. Cluster Health (if enabled)
+
+- In the **Cluster** section of the Console:
+  - All nodes are `Healthy`.
+  - Latency and replication delay are within acceptable bounds.
+- Inter-node connectivity: port **8082** must be reachable between all nodes
+  (TLS with the cluster's internal CA). If nodes show as unhealthy while
+  their consoles work fine, check firewall rules on 8082 first.
+
+### 3. Disk & Capacity
+
+- Check disk usage on each node:
+
+  ```bash
+  df -h /path/to/data-dir
+  ```
+
+- Ensure you are comfortably below your alert thresholds (see [Capacity Management](#capacity-management)).
+
+### 4. Alerts & Notifications
+
+- Review:
+  - **Disk space alerts** (warning/critical thresholds).
+  - **Tenant quota alerts** (80%/90% consumption).
+  - **Data integrity alerts** (if enabled).
+  - **Replication failures** or lag.
+
+### 5. Errors & Logs
+
+- Check:
+  - Application logs (local log files, journald, or external log targets).
+  - Prometheus alerts (if configured).
+  - External syslog / HTTP log receivers (if configured).
+
+---
+
+## Monitoring & Alerting
+
+MaxIOFS exposes metrics for Prometheus and provides a reference Grafana dashboard (see `PERFORMANCE.md` and `DEPLOYMENT.md`).
+
+### Key Metrics to Monitor
+
+You should monitor at least:
+
+- **System health**
+  - Node up/down status (Prometheus `up` metric for `maxiofs`).
+  - HTTP 5xx rate for the S3 and Console endpoints.
+  - Latency percentiles (p95, p99) for S3 operations.
+
+- **Storage capacity**
+  - Disk usage for the MaxIOFS data volume.
+  - Per‑bucket and per‑tenant used bytes (exposed via metrics and Console).
+  - Number of objects per bucket.
+
+- **Cluster**
+  - Node health and last heartbeat.
+  - Replication queue length and lag.
+  - Nodes marked `dead`, and drained nodes.
+
+- **Security**
+  - Count of failed logins.
+  - Lockouts due to policy enforcement.
+  - Audit events for privileged actions (tenant changes, IDP changes, bucket permissions).
+
+### Recommended Alerts
+
+Indicative thresholds (tune for your environment):
+
+- **Disk space**
+  - Warning: `>= 80%` used (`WARNING` event and dashboard banner).
+  - Critical: `>= 90%` used (`CRITICAL` event; plan immediate action).
+
+- **Tenant quota**
+  - Warning: tenant at `>= 80%` of `MaxStorageBytes`.
+  - Critical: tenant at `>= 90%` of `MaxStorageBytes`.
+
+- **Service health**
+  - Any node `up == 0` for more than 2 consecutive scrape intervals.
+  - S3 API 5xx error rate > 1% over 5 minutes.
+
+- **Security**
+  - Excessive failed logins from a single IP over a short period.
+  - Sudden spike in delete operations or permission changes.
+
+---
+
+## Node Lifecycle
+
+This section covers how to add, remove, and handle nodes in a cluster.
+
+### Adding a New Node
+
+1. **Provision host**
+   - Install OS packages and storage according to `DEPLOYMENT.md`.
+   - Ensure network connectivity to all existing nodes and the load balancer.
+
+2. **Deploy MaxIOFS**
+   - Install the same **MaxIOFS version** as existing nodes.
+   - Configure `config.yaml` with:
+     - Cluster enabled.
+     - Cluster node token (HMAC secret) shared between nodes.
+     - Correct cluster endpoints for peer nodes.
+
+3. **Start the node**
+   - Start the MaxIOFS service.
+   - Confirm it appears as `Healthy` in the Cluster dashboard.
+
+4. **Integrate with load balancer**
+   - Add the node to the load balancer backend pool.
+   - Enable traffic gradually if your LB supports slow‑start.
+
+### Planned Node Removal (Decommission)
+
+**Goal**: Safely remove a node from the cluster without losing data or disrupting clients.
+
+1. **Drain traffic**
+   - Remove the node from the load balancer or set its weight to 0.
+   - Wait for a grace period (e.g., 5–10 minutes) to allow in‑flight requests to finish.
+
+2. **Drain the node** (Cluster → HA → Drain)
+   - The node takes no new data and its objects are moved to the least full nodes, with any replication factor. It serves reads while they move.
+   - The HA page shows it **Draining**, with the objects and bytes moved and the expected end, then **Drained** once it holds no data. A drained node answers no S3 request (`503`, `/health` included).
+   - Multipart uploads open on it are lost when it is removed: let them finish first.
+
+3. **Verify cluster state**
+   - Confirm the node shows **Drained** and replication queues are empty or at expected levels.
+
+4. **Remove from cluster configuration**
+   - Mark the node as removed in the Cluster settings (see `CLUSTER.md` for exact steps).
+
+5. **Stop the node**
+   - Stop the MaxIOFS service on that host.
+   - Optionally archive or delete its data directory once you are certain it is no longer needed.
+
+### Handling an Unplanned Node Failure
+
+A node may fail due to host crash, network outage, or hardware issues.
+
+1. **Immediate response**
+   - Alerts should fire when a node is `down` or missing heartbeats.
+   - Verify whether the problem is **node‑local** (host crash) or **network** (partition).
+
+2. **Client impact**
+   - Requests routed via the load balancer should automatically fail over to healthy nodes.
+   - If latency or 5xx errors increase, you may need to:
+     - Reduce concurrency from clients temporarily.
+     - Scale out by adding a replacement node.
+
+3. **Recovery options**
+   - **Host can be repaired**:
+     - Bring the node back online.
+     - Ensure correct configuration and clock.
+     - It is caught up with the writes and deletions it missed, however long it was away (see [Cluster Incidents](#cluster-incidents)).
+   - **Host is lost permanently**:
+     - Remove it from the load balancer.
+     - Treat it as a decommissioned node (as above).
+     - Rely on remaining nodes and external replication/backup for data durability.
+
+---
+
+## Cluster Incidents
+
+Writes and deletions carry their time, and a deletion is kept until every member of the cluster has it. When nodes see each other again, each sends the other what it missed and the times decide.
+
+### Scenario A – Node Offline (No Local Writes)
+
+**Symptoms**:
+
+- Node fully down (process stopped or host offline).
+- No client traffic reaches this node while it is offline.
+
+**Behavior**:
+
+- Writes continue on the surviving nodes: a factor of 2 keeps writing on its own copy; a factor of 3 needs one of its two peers.
+- When the node is healthy again, the node that accepted its writes catches it up with the writes and deletes it missed (see [CLUSTER.md](../deployment/cluster.md#what-happens-when-a-node-fails)).
+- However long it was away, it is sent every deletion made meanwhile: deletions are kept until every member has them. A node removed from the cluster no longer holds them back.
+
+**Operator actions**:
+
+- Confirm the node comes back as `Healthy`.
+- Review logs for catch-up errors.
+
+### Scenario B – Network Partition (Node Isolated but Serving Clients)
+
+**Symptoms**:
+
+- Node remains up and serving traffic.
+- It is **isolated** from the rest of the cluster (no sync traffic).
+- Both sides may receive independent writes.
+
+**Risks**:
+
+- Divergent state between the isolated node and the rest of the cluster.
+- Potential conflicts when connectivity is restored.
+
+**Behavior**:
+
+- When the sides see each other again, each sends the other its writes and deletions with their times:
+  - A later write wins.
+  - A deletion removes a copy last changed before it; a write made after a deletion is kept and sent.
+  - A bucket deleted on one side and written to on the other is kept on every node with the objects written after its deletion.
+  - Access keys, bucket permissions and STS sessions carry no change time: their deletion wins.
+  - Objects and buckets are ordered to the nanosecond. Users, keys, policies and other entities are ordered to the second: a change and a deletion in the same second keep the entity.
+
+**Operator actions**:
+
+- Investigate **why** the partition occurred (network incident, misconfiguration).
+- After reconciliation:
+  - Verify that mission‑critical entities (tenants, users, IDP, bucket permissions) have the expected final state.
+  - If you suspect conflicting updates, review audit logs and consider manual correction.
+
+---
+
+## Capacity Management
+
+### Disk Capacity
+
+Each node stores:
+
+- `db/` – SQLite database for core state.
+- `audit.db` – Audit log database.
+- `metadata/` – Pebble metadata (LSM tree).
+- `objects/` – Actual object data (largest by far).
+
+**Best practices**:
+
+- Use dedicated storage (SSD recommended) for `--data-dir`.
+- Monitor disk usage and set alerts at 80% and 90%.
+- Plan **vertical scaling** (bigger disks) or **horizontal scaling** (more nodes) before you reach 90%.
+
+Object writes stop at **99.5%** of the disk of `objects/` or of `--data-dir`, answered `507 InsufficientStorage`. The rest stays for Pebble and SQLite: reads, deletes and retention changes go on working, and deleting is how writes come back. Veeam's `capacity.xml` leaves that reserve out of the free space. The disk alerts at 80% and 90% are where to act; this limit only guards the metadata when they are ignored.
+
+### Quotas
+
+- Tenants can have:
+  - Maximum storage in bytes.
+  - Maximum bucket and access key counts.
+- Buckets can have a maximum size and a maximum object count (bucket settings → Quota).
+- A write that would take usage past a quota is refused with `403 QuotaExceeded`. Deletes, delete markers and overwrites that do not grow an object are always allowed, even over the quota.
+- Concurrent writes on a node reserve their room before they store anything, so they cannot pass against the same free space. Reservations are per node: writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time.
+- When quotas are close to being reached:
+  - Console shows visual indicators.
+  - Alerts are sent to tenant and global admins.
+- A tenant's bandwidth cap (Tenants → Max Bandwidth, MB/s) paces the S3 uploads and downloads to its buckets together: PUT, multipart parts, GET, range GET and browser form uploads, anonymous reads of a public bucket included. A form upload is paced before its signature is checked, since the signature is inside the form. Console transfers are not capped. Each node applies the cap on its own: behind a load balancer a tenant can reach it on every node.
+
+**Operator actions**:
+
+- Work with tenant owners to:
+  - Increase quota.
+  - Clean up old or unneeded data.
+  - Implement or tighten lifecycle policies on buckets.
+
+---
+
+## Backups & Disaster Recovery
+
+> **Important**: Backups must be **consistent** across `db/`, `audit.db`, `metadata/`, and `objects/`. Do not back up only one component.
+
+### What to Back Up
+
+On each node:
+
+- `db/maxiofs.db` and related WAL/SHM files.
+- `audit.db` and its associated files.
+- `metadata/` directory (Pebble).
+- `objects/` directory (actual data).
+- Configuration files:
+  - `/etc/maxiofs/config.yaml` (or equivalent for your deployment).
+
+### Backup Strategies
+
+Recommended approaches:
+
+- **Filesystem‑level snapshots** (LVM, ZFS, cloud volume snapshots):
+  - Preferred: create a **crash‑consistent** snapshot of the entire `--data-dir` volume.
+  - Coordinate with MaxIOFS:
+    - Optionally enable **maintenance mode** (see below) for short snapshot windows.
+
+- **Application‑level cold backup**:
+  - Stop MaxIOFS.
+  - Copy `db/`, `audit.db`, `metadata/` and `objects/`.
+  - Start MaxIOFS again.
+  - This gives the strongest consistency guarantees but incurs downtime.
+
+### Restore Procedure (Single Node)
+
+1. **Provision a new host or clean data directory**.
+2. **Stop MaxIOFS** if it is running.
+3. **Restore backup** of:
+   - `db/`, `audit.db`, `metadata/`, `objects/`, and config files.
+4. **Start MaxIOFS**.
+5. **Verify**:
+   - Tenants, users, buckets and objects appear as expected.
+   - S3 and Console are functional.
+
+### Metadata-Store Disaster Recovery (`maxiofs recover`)
+
+If the Pebble metadata store (and even the SQLite database) is lost or corrupt
+but the `objects/` tree survived, a full backup restore is not required:
+
+```bash
+# Server stopped. Rebuilds a fresh metadata store from the object files.
+maxiofs recover --data-dir /var/lib/maxiofs                 --recovery-bundle /path/to/maxiofs-recovery-bundle.json
+# Then follow the printed next steps (mv the rebuilt store into place) and start.
+```
+
+When `storage.root` puts the objects outside the data directory, pass it with
+`--storage-root`; otherwise the objects are read from `<data-dir>/objects`.
+
+Every object file carries a `.metadata` sidecar with everything needed to
+rebuild its entry (size, ETag, content-type, encryption envelope, and the
+retention and legal hold of an Object Lock version). With the
+recovery bundle, the tool verifies that every encrypted object's key material
+unwraps and restores the encryption keys into the database so the server can
+decrypt after the rebuild. `--dry-run` reports without writing anything.
+
+A run that stops (Ctrl+C, crash, power loss) continues where it stopped when
+it is run again with the same `--data-dir`, `--storage-root`, `--out-db` and
+`--recovery-bundle`.
+Its progress is kept in `<out-db>.progress` until the run ends. Another data
+directory or bundle is refused, and so are files that changed since the stop;
+remove `<out-db>` and `<out-db>.progress` to start over.
+
+Every 30 seconds the run logs how far it is:
+
+```
+level=info msg="Recovery progress" bucket="prueba (5 of 6)" eta="2026-11-08 14:44" left=2m33s objects="759259 of 1189243" percent="37.1%" rate=9800/s
+```
+
+`objects` counts the objects and versions read over every bucket. Then each
+key of a versioned bucket gets its newest version current, and the line gives
+`keys` instead. `percent`, `left` and `eta` cover both, taking a bucket to
+have as many keys as versions, as Veeam's do. The total is counted while the
+run starts; until then the line has no percentage nor end.
+
+**Behaviour notes:**
+
+- **Deleted versioned objects come back visible**: delete markers exist only
+  in the metadata store, so a versioned object whose latest "version" was a
+  deletion is rebuilt from its real on-disk versions (recovery is biased
+  towards recovering data). Re-delete if the deletion should stand.
+- **Objects whose key material cannot be verified** (e.g. corrupt sidecar
+  entry) are still indexed — hiding them would make them unrecoverable — and
+  listed as failures in the report for the operator.
+- **Object Lock** state comes back with each version: its retention and legal
+  hold. A version stored by an earlier release gets them in its sidecar at the
+  encryption worker's first pass after the update. User metadata, tags and
+  ACLs live only in the metadata store and do not come back.
+- **Bucket settings** come back from the bucket's marker, `.maxiofs-bucket`, a
+  JSON file the server rewrites when they change: owner, versioning, Object
+  Lock and its default retention, policy, lifecycle, CORS, encryption, public
+  access block, website, notifications, logging, tags and quota. A bucket of an
+  earlier release gets them in its marker at the first statistics pass after
+  the update. Without them, a bucket comes back owned by `admin`, with
+  versioning and Object Lock when its files have versions and locks, and its
+  settings are set again by hand. The owner and the tenant are those of the
+  database: with a database rebuilt too, they must be created again.
+- If the database still holds encryption keys, the restore never overwrites
+  existing key material (same version + different material aborts with an
+  error) and keeps the database's current-key marker.
+- Users, permissions and bucket configuration (policies, lifecycle, quotas)
+  live in SQLite and must be re-applied by the admin if that database was lost.
+- **Shards** of objects a cluster with parity cut in shards are passed over: a
+  shard alone is not an object. The other nodes send the node the entries of
+  those objects when it is back in the cluster, and its shards serve again.
+- An object comes back with the **storage class** of its write; a lifecycle
+  transition moves it again at the next pass.
+
+### Restore Procedure (Cluster)
+
+Restores in a cluster are more complex. **Preferred** strategy:
+
+- Avoid partial restores of individual nodes unless strictly necessary.
+- Instead:
+  - Bring up a **new node** from a backup and join it to the cluster.
+  - Drain the old nodes: their objects are moved to the other nodes.
+
+If you must restore a specific node:
+
+1. Remove the node from the load balancer.
+2. Stop MaxIOFS on that node.
+3. Restore its `--data-dir` from a consistent backup.
+4. Start MaxIOFS.
+5. Let the node be caught up: the other nodes send it the writes and deletions it misses.
+6. Carefully verify that the cluster configuration and data view are correct.
+
+---
+
+## Maintenance & Upgrades
+
+### Maintenance Mode
+
+MaxIOFS supports a **maintenance mode** that:
+
+- Allows **read‑only** S3 operations (GET/HEAD).
+- Rejects mutating S3 operations (PUT/POST/DELETE) with an appropriate error.
+- Blocks Console mutating APIs except for a small set of exempt endpoints (auth, health, settings, internal APIs, notifications).
+- Shows a banner in the Console to all users.
+
+**Recommended use cases**:
+
+- Short maintenance windows:
+  - Snapshotting or backing up storage volumes.
+  - Minor configuration changes that may temporarily affect availability.
+- Rolling upgrades where you want to minimize concurrent writes.
+
+### Upgrade Procedure (Single Node)
+
+1. **Plan a maintenance window**.
+2. **Enable maintenance mode**.
+3. **Deploy new MaxIOFS binary**:
+   - Replace the binary or upgrade the package (DEB/RPM).
+4. **Restart the service**.
+5. **Verify**:
+   - Node is healthy.
+   - S3 and Console work as expected.
+6. **Disable maintenance mode**.
+
+### Rolling Upgrade (Cluster)
+
+1. **One node at a time**:
+   - Remove node from load balancer (drain).
+   - Optionally enable per‑node maintenance mode.
+2. **Upgrade and restart node**.
+3. **Verify** the node is healthy and in sync.
+4. **Re‑add node to load balancer**.
+5. Repeat for remaining nodes.
+
+> Always upgrade all nodes in a cluster to the same version as soon as practical.
+>
+> Turn on parity or keep a storage class only once every node runs the same version.
+
+---
+
+## Security Operations
+
+### Default Credentials
+
+- Default admin credentials: `admin / admin`.
+- **Must be changed immediately** after first login.
+- Console shows a warning when the default password is still in use.
+
+### Audit Logs
+
+- Stored in a dedicated `audit.db` database.
+- Includes:
+  - Authentication attempts and logins.
+  - Tenant, user, access key and permission changes.
+  - IDP configuration changes.
+  - Cluster and replication operations.
+
+**Operational practices**:
+
+- Regularly export or ship audit logs to an external system for long‑term retention.
+- Define procedures for:
+  - Investigating suspicious activity.
+  - Correlating audit events with application and system logs.
+
+### Identity Providers (LDAP / OIDC)
+
+- Changes to IDP configuration can affect many users at once.
+- Best practices:
+  - Make changes first in a non‑production environment.
+  - Use test connections in the Console where available.
+  - Ensure at least one local admin account remains usable if IDP is misconfigured.
+
+### Access Keys & Permissions
+
+- Regular rotation of:
+  - Access keys.
+  - Node tokens used for cluster HMAC authentication.
+- Use bucket policies and permission grants to enforce least privilege.
+- Monitor permission changes via audit logs.
+
+---
+
+## Data Integrity
+
+MaxIOFS provides mechanisms to verify the integrity of stored objects.
+
+### Background Integrity Scrubber
+
+- Scans every version of every bucket once a day, one object at a time, and verifies:
+  - Checksums / ETags, the composite ETag of an object written in parts included.
+  - That the data reads back: data at rest is authenticated, so a byte changed on disk fails the read.
+  - Presence of object data on disk.
+- The first scan runs a day after the server starts. It reads all the data: on several terabytes it takes hours and shares the disks with what runs meanwhile.
+- Logs:
+  - Corrupted or missing objects as error events.
+  - Summary metrics for integrity checks.
+- May emit notifications or alerts to admins when issues are found.
+
+### Pebble Metadata Store — WAL Recovery
+
+MaxIOFS uses Pebble (CockroachDB's LSM-tree engine) for object metadata. Pebble writes go to a **Write-Ahead Log (WAL)** first and are flushed to disk on graceful shutdown (`db.Close()`).
+
+**On graceful shutdown** (SIGTERM, service stop, or Console restart):
+- Pebble is closed cleanly via the server shutdown sequence.
+- All pending writes are flushed to disk.
+- On the next start, the store opens cleanly with no recovery needed.
+
+**On unclean shutdown** (SIGKILL, OOM kill, host crash, power loss):
+- The WAL may contain writes that were not fully flushed to SST files.
+- On the next start, Pebble **automatically replays the WAL** — no operator action required.
+- If the WAL is partially written (e.g. power loss mid-write), Pebble discards the incomplete record and recovers to the last consistent state.
+- Object writes, multipart-part writes and destructive operations fsync their metadata commits before returning. Other asynchronous metadata writes use the periodic WAL sync loop.
+- Object and version writes release the bucket mutation lock before waiting for WAL persistence, allowing concurrent writes to share a sync. Recovery uses `storage.root`; offline reconciliation accepts `--storage-root` when it differs from `<data-dir>/objects`.
+- Before serving traffic, the server processes retained overwrite backups. It restores only copies matching an existing index entry. Copies without an entry are retained for operator review, never used to recreate a deleted object. Recovery errors prevent startup; resolve them with the server stopped.
+
+**Unclean-shutdown reconciliation (automatic, non-destructive)**: the store tracks clean shutdowns with a `CLEAN_SHUTDOWN` sentinel. When the server starts after a hard kill, it reconciles the metadata store against the on-disk object tree **in the background while serving traffic**:
+- Missing entries from interrupted writes or older releases are re-indexed from their `.metadata` sidecars. Repairs serialize with normal object operations, including equal-size overwrites within the same second.
+- Metadata entries and sidecars are never removed merely because an object path is absent. If metadata must be rebuilt after a larger storage incident, use the explicit offline recovery tools such as `maxiofs recover`.
+- Bucket statistics are recalculated for any repaired bucket.
+
+Log lines to look for:
+
+```
+level=warning msg="Unclean shutdown detected — reconciling metadata store against on-disk objects in the background"
+level=info msg="Unclean-shutdown reconciliation finished — store was consistent"
+```
+
+No error messages during open means WAL replay succeeded. If you see `pebble: corruption` errors, treat them as a data integrity incident and restore from backup (or rebuild with `maxiofs recover`).
+
+**Best practice**: always stop MaxIOFS with `systemctl stop maxiofs` rather than SIGKILL — a clean shutdown skips both WAL replay and the reconciliation scan on next start.
+
+### On‑Demand Bucket Integrity Check
+
+- Admins can trigger on‑demand integrity checks for a specific bucket via:
+  - Console action (if exposed).
+  - HTTP API (`POST /buckets/{bucket}/verify-integrity` with optional query parameters).
+
+**Recommended practice**:
+
+- Run integrity checks:
+  - After large migrations.
+  - Periodically on critical buckets.
+  - After storage incidents (e.g. filesystem or disk errors).
+
+---
+
+## Troubleshooting Checklist
+
+### S3 API Failing or Slow
+
+1. Check node health in Console.
+2. Inspect Prometheus metrics:
+   - 5xx rate, latency percentiles.
+3. Review logs for:
+   - Backend errors.
+   - Network timeouts or DNS issues.
+4. Verify:
+   - Disk space is not exhausted.
+   - No ongoing maintenance mode unintentionally enabled.
+
+### Console Not Loading
+
+1. Check the HTTP status on the Console port.
+2. Inspect browser console and network tab.
+3. Confirm:
+   - TLS certificates (if used) are valid.
+   - Reverse proxy or load balancer configuration is correct.
+
+### Node Shows as Dead
+
+1. A node unreachable for longer than `ha.dead_node_threshold_hours` is marked dead by each node; it is back in service when it answers again.
+2. A drained node is dead once it holds no data, and stays so: remove it from the cluster.
+3. Ensure:
+   - Node’s time is synchronized (NTP).
+   - Network between nodes is stable.
+
+### Quota or Capacity Errors
+
+1. Check tenant and bucket quota settings and usage in Console.
+2. Verify lifecycle rules are working as expected.
+3. Coordinate with tenant owners to clean up or increase quota.
+
+### Integrity Check Failures
+
+1. Identify affected buckets/objects from logs or API responses.
+2. Determine if:
+   - Data can be recovered from external replicas or backups.
+   - The corruption is due to underlying storage issues (check system logs).
+3. Consider:
+   - Restoring affected objects from backup.
+   - Migrating data off problematic storage.
+
+---
+
+For deeper architectural details, always refer back to:
+
+- `ARCHITECTURE.md` – System components and data flow.  
+- `CLUSTER.md` – Cluster behavior, object placement and replication.  
+- `SECURITY.md` – Security model and best practices.  
+- `TESTING.md` – Test coverage and guidelines.

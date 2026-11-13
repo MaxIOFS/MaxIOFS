@@ -99,3 +99,6 @@ config.yaml
 
 # k6 summaries written by each run of tests/performance
 tests/performance/*_summary.json
+
+# MkDocs build output
+/site/
