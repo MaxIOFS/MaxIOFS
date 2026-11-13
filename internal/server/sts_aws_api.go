@@ -466,6 +466,12 @@ func (s *Server) writeSTSIssuanceError(w http.ResponseWriter, err error) {
 // should be validated against.
 func (s *Server) stsResolveOAuthProviderID(r *http.Request) (string, error) {
 	if explicit := r.PostForm.Get("ProviderId"); explicit != "" {
+		// As on the JSON endpoint: a provider disabled or still in testing
+		// signs nobody in.
+		provider, err := s.idpManager.GetProvider(r.Context(), explicit)
+		if err != nil || provider == nil || provider.Type != idp.TypeOAuth2 || provider.Status != idp.StatusActive {
+			return "", errors.New("ProviderId does not name an active OAuth identity provider")
+		}
 		return explicit, nil
 	}
 

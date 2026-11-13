@@ -278,6 +278,9 @@ export default function UserDetailsPage() {
       setIsChangePasswordOpen(false);
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       ModalManager.toast('success', t('passwordChangedSuccess'));
+      // The sessions of the account ended with its password: one's own goes
+      // back to the sign-in page, to enter with the new one.
+      if (isCurrentUser) window.location.reload();
     },
     onError: (error) => {
       ModalManager.apiError(error);

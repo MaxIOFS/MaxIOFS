@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -283,5 +284,29 @@ func TestSTSPayloadHashMiddleware_LeavesOtherRequestsAlone(t *testing.T) {
 
 			assert.Equal(t, before, after, "the middleware must only touch STS-shaped requests")
 		})
+	}
+}
+
+// A provider that is disabled or still in testing signs nobody in, on this
+// surface as on the JSON endpoint: naming it in ProviderId is refused before
+// the token is taken to it.
+func TestSTSXML_WebIdentityRefusesAProviderThatIsNotActive(t *testing.T) {
+	setFederationEnabled(t, true)
+	server := getSharedServer()
+	ctx := context.Background()
+
+	for _, status := range []string{idp.StatusInactive, idp.StatusTesting} {
+		provider := idp.IdentityProvider{
+			Name: "sts-not-active-" + status, Type: idp.TypeOAuth2, Status: status,
+			Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{
+				Preset: "google", ClientID: "id", ClientSecret: "secret", RedirectURI: "http://localhost/callback"}},
+		}
+		require.NoError(t, server.idpManager.CreateProvider(ctx, &provider))
+		t.Cleanup(func() { server.idpManager.DeleteProvider(ctx, provider.ID) })
+
+		rec := postSTSForm(t, url.Values{"Action": {"AssumeRoleWithWebIdentity"},
+			"WebIdentityToken": {"tok"}, "ProviderId": {provider.ID}}, nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, status)
+		assert.Equal(t, "InvalidParameterValue", stsErrorCodeOf(t, rec.Body.String()), status)
 	}
 }

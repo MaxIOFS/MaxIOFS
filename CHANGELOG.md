@@ -13,11 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Disabling your own 2FA and regenerating your backup codes ask for your password. A global administrator still disables another user's 2FA without it.
 - `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
+- Changing a password ends the console sessions of its account, the one that changed it included: the user signs in again with the new password. Access keys are not affected.
+- The parts of multipart uploads in progress count against the bucket and tenant quotas: a part is refused with `QuotaExceeded` once what is stored and what is in progress reach the quota. Before, only the completion was checked.
+- The permission picker offers Tenant administrator only for a user of a tenant, and Super administrator only for a user of no tenant.
 
 ### Fixed
+- A user of no tenant with the tenant administrator role or permission was taken for an administrator, and could set a global administrator's password. It administers nothing.
 - A presigned GET whose query the router and the handler read differently was allowed by its signature alone, without its signer's permissions: any access key could read any object.
 - A presigned URL dated ahead of the clock outlasted the 7 days `X-Amz-Expires` allows: one dated more than 15 minutes ahead is refused.
 - A POST form upload was not held to all of its policy: `eq` conditions and conditions on fields other than the bucket, key and content type were ignored, and fields the policy does not name were accepted. They are enforced as in S3, and a field outside the policy is refused.
+- An identity provider set to Inactive still signed users in: by password for LDAP, by its sign-in URL for OAuth, and for STS federation. It signs nobody in.
+- `AssumeRoleWithWebIdentity` took a token to the provider named in `ProviderId` whatever its status: a provider that is not Active is refused, as on the JSON endpoint.
+- The last global administrator that can sign in could be deleted or deactivated when an inactive one existed, and deleted through the IAM API in any case, leaving the deployment with nobody to administer it. It is kept.
+- A cluster request with a wrong signature wrote the signature expected to the log.
+- Webhooks, the HTTP log target and replication reached addresses in the shared address space (`100.64.0.0/10`), where some clouds serve their metadata: they are refused as the private ranges are.
 - A public WRITE grant let an anonymous request remove a version of an object: it deletes the object only, adding a delete marker in a versioned bucket.
 - Enabling 2FA on an account that already has it replaced its secret and backup codes: it answers `409`, and 2FA is disabled first.
 - A mistyped code when enabling 2FA answered `500`: it answers `400`.

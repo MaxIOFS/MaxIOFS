@@ -100,19 +100,16 @@ func TestCheckMultipartQuotaBeforeComplete(t *testing.T) {
 	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
 	require.NoError(t, err)
 
-	// Upload parts
+	// The tenant is over its quota: the part is refused, not stored for a
+	// completion that would be refused.
 	part1Data := bytes.Repeat([]byte("A"), 1024)
 	part1Reader := bytes.NewReader(part1Data)
-	part1, err := om.UploadPart(ctx, upload.UploadID, 1, part1Reader)
-	require.NoError(t, err)
-
-	// Try to complete (should fail due to quota)
-	parts := []Part{*part1}
-	_, err = om.CompleteMultipartUpload(ctx, upload.UploadID, parts)
-
-	// Should fail with quota exceeded
+	_, err = om.UploadPart(ctx, upload.UploadID, 1, part1Reader)
 	assert.Error(t, err, "Should fail due to quota exceeded")
 	assert.True(t, mockAuth.checkCalled, "Should have checked quota")
+	stored, err := om.ListParts(ctx, upload.UploadID)
+	require.NoError(t, err)
+	assert.Empty(t, stored)
 }
 
 // TestAlwaysEncrypt verifies that every stored object is envelope-encrypted

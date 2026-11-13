@@ -1281,7 +1281,15 @@ func (s *Server) isAdmin(user *auth.User) bool {
 	if user == nil {
 		return false
 	}
-	if s.userHoldsPermission(user, auth.ActionTenantAdmin) || s.isGlobalAdmin(user) {
+	if s.isGlobalAdmin(user) {
+		return true
+	}
+	// A tenant is administered by one of its users: the permission or the role
+	// on a user of no tenant administers nothing.
+	if user.TenantID == "" {
+		return false
+	}
+	if s.userHoldsPermission(user, auth.ActionTenantAdmin) {
 		return true
 	}
 	for _, role := range user.Roles {
@@ -1320,7 +1328,7 @@ func (s *Server) countGlobalAdmins(ctx context.Context) (int, error) {
 	}
 	count := 0
 	for _, u := range users {
-		if u.TenantID != "" {
+		if u.TenantID != "" || u.Status != auth.UserStatusActive {
 			continue
 		}
 		for _, r := range u.Roles {

@@ -2800,7 +2800,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.isGlobalAdmin(user) {
+	// An inactive administrator signs in to nothing: only an active one counts,
+	// and deactivating the last one locks the deployment as removing it does.
+	if s.isGlobalAdmin(user) && user.Status == auth.UserStatusActive {
 		rolesChangingAwayFromAdmin := updateRequest.Roles != nil && !func() bool {
 			for _, r := range updateRequest.Roles {
 				if r == "admin" {
@@ -2810,7 +2812,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return false
 		}()
 		tenantChanging := updateRequest.TenantID != nil && *updateRequest.TenantID != ""
-		if rolesChangingAwayFromAdmin || tenantChanging {
+		deactivating := updateRequest.Status != "" && updateRequest.Status != auth.UserStatusActive
+		if rolesChangingAwayFromAdmin || tenantChanging || deactivating {
 			n, err := s.countGlobalAdmins(r.Context())
 			if err != nil {
 				s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
@@ -2927,7 +2930,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	// --- Last-admin guard ---
 	// A global admin cannot be deleted if they are the only one.
-	if s.isGlobalAdmin(targetUser) {
+	if s.isGlobalAdmin(targetUser) && targetUser.Status == auth.UserStatusActive {
 		n, err := s.countGlobalAdmins(r.Context())
 		if err != nil {
 			s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
@@ -3933,6 +3936,13 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// The password that opened the account's sessions is no longer its
+	// password: they end, this one included when it is the account's own, and
+	// whoever holds one signs in with the new password.
+	if _, err := s.authManager.RevokeUserSessions(r.Context(), user.ID, "password changed"); err != nil {
+		logrus.WithError(err).WithField("user_id", user.ID).Error("Failed to end the sessions of a user whose password changed")
 	}
 
 	// Log audit event for password changed

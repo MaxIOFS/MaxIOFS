@@ -413,6 +413,18 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 	if !s.canAdministerUser(w, r, userID) {
 		return
 	}
+	// Each administration permission is of one kind of user: a tenant is
+	// administered by one of its users, the deployment by a user of no tenant.
+	if target, err := s.authManager.GetUser(r.Context(), userID); err == nil {
+		if target.TenantID == "" && selects(&permissions, auth.ActionTenantAdmin) {
+			s.writeError(w, "The tenant administrator permission is for a user that belongs to a tenant", http.StatusBadRequest)
+			return
+		}
+		if target.TenantID != "" && selects(&permissions, auth.ActionSuperAdmin) {
+			s.writeError(w, "The super administrator permission is for a user that belongs to no tenant", http.StatusBadRequest)
+			return
+		}
+	}
 	if err := store.SetUserPermissions(userID, &permissions); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
@@ -434,6 +446,23 @@ func grantsAdministration(permissions *auth.UserPermissions) bool {
 	for _, grant := range permissions.Buckets {
 		for _, action := range grant.Actions {
 			if action == auth.ActionSuperAdmin || action == auth.ActionTenantAdmin {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// selects reports whether a selection contains action, anywhere or on a bucket.
+func selects(permissions *auth.UserPermissions, action string) bool {
+	for _, held := range permissions.Global {
+		if held == action {
+			return true
+		}
+	}
+	for _, grant := range permissions.Buckets {
+		for _, held := range grant.Actions {
+			if held == action {
 				return true
 			}
 		}

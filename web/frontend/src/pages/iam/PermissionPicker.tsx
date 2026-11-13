@@ -69,7 +69,17 @@ export default function PermissionPicker({ userId }: Props) {
     onError: (error) => ModalManager.apiError(error),
   });
 
-  const groups: PermissionGroup[] = catalog || [];
+  // Each administration permission is of one kind of user: a tenant is
+  // administered by one of its users, the deployment by a user of no tenant.
+  const { data: target } = useQuery({
+    queryKey: ['user', userId, 'tenant'],
+    queryFn: () => APIClient.getUser(userId),
+  });
+  const notForThisUser = target?.tenantId ? 'maxiofs:SuperAdmin' : 'maxiofs:TenantAdmin';
+  const groups: PermissionGroup[] = (catalog || []).map((group) => ({
+    ...group,
+    permissions: group.permissions.filter((p) => p.action !== notForThisUser),
+  }));
 
   // A scope is either "everywhere" or one bucket; the same catalogue is shown
   // for both, with the actions that name no bucket hidden in a bucket scope.

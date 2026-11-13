@@ -47,6 +47,7 @@ type Manager interface {
 	RevokeSession(ctx context.Context, id, reason string) error
 	EndSession(ctx context.Context, token, reason string) error
 	RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error)
+	RevokeUserSessions(ctx context.Context, userID, reason string) (int, error)
 	ApplyPeerSessions(ctx context.Context, sessions []*ConsoleSession) error
 	SetSessionsChangedCallback(cb func())
 	SetSessionNode(node func(ctx context.Context) string)

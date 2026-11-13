@@ -242,9 +242,26 @@ func (m *Manager) GetGroupMembers(ctx context.Context, providerID, groupID strin
 	return provider.GetGroupMembers(ctx, groupID)
 }
 
+// ErrProviderInactive is the error of a sign-in through a provider turned
+// inactive: it signs nobody in.
+var ErrProviderInactive = errors.New("the identity provider is inactive")
+
+// signInProvider is the provider a sign-in goes through, refused when the
+// provider is inactive, as RevalidateSession ends the sign-ins it had.
+func (m *Manager) signInProvider(providerID string) (Provider, error) {
+	stored, err := m.store.GetProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	if stored.Status == StatusInactive {
+		return nil, ErrProviderInactive
+	}
+	return m.getOrCreateProvider(providerID)
+}
+
 // AuthenticateExternal authenticates a user against an external provider
 func (m *Manager) AuthenticateExternal(ctx context.Context, providerID, username, password string) (*ExternalUser, error) {
-	provider, err := m.getOrCreateProvider(providerID)
+	provider, err := m.signInProvider(providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +271,7 @@ func (m *Manager) AuthenticateExternal(ctx context.Context, providerID, username
 
 // GetOAuthAuthURL gets the OAuth authorization URL for a provider
 func (m *Manager) GetOAuthAuthURL(ctx context.Context, providerID, state, loginHint string) (string, error) {
-	provider, err := m.getOrCreateProvider(providerID)
+	provider, err := m.signInProvider(providerID)
 	if err != nil {
 		return "", err
 	}
@@ -285,7 +302,7 @@ func (m *Manager) FindOAuthProvidersByPreset(ctx context.Context, preset string)
 
 // HandleOAuthCallback exchanges an OAuth code for user info
 func (m *Manager) HandleOAuthCallback(ctx context.Context, providerID, code string) (*ExternalUser, error) {
-	provider, err := m.getOrCreateProvider(providerID)
+	provider, err := m.signInProvider(providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +353,7 @@ func (m *Manager) VerifyLogoutToken(ctx context.Context, providerID, token strin
 // to. Only providers implementing TokenAuthenticator (OAuth2) support this;
 // anything else is an error rather than a silent success.
 func (m *Manager) AuthenticateWithAccessToken(ctx context.Context, providerID, accessToken string) (*ExternalUser, error) {
-	provider, err := m.getOrCreateProvider(providerID)
+	provider, err := m.signInProvider(providerID)
 	if err != nil {
 		return nil, err
 	}

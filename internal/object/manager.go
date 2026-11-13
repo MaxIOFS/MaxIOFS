@@ -163,6 +163,7 @@ type objectManager struct {
 	quotaMu        sync.Mutex
 	pendingQuotas  map[string][]*quotaHold // by bucket, oldest first
 	pendingTenants map[string][]*quotaHold // by tenant, oldest first
+	inFlight       inFlightUploads
 
 	// localNode is the cluster node this manager runs on ("" outside one).
 	localNode func() string
@@ -2277,6 +2278,9 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 	if err := checkUploadKey(upload, writeKeyFrom(ctx)); err != nil {
 		return nil, err
 	}
+	if err := om.admitPart(ctx, uploadID, stored.Bucket, stored.Key); err != nil {
+		return nil, err
+	}
 	partKey, err := om.uploadKey(upload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the upload's key: %w", err)
@@ -2377,6 +2381,8 @@ func (om *objectManager) UploadPart(ctx context.Context, uploadID string, partNu
 		}
 		return nil, fmt.Errorf("failed to save part metadata: %w", err)
 	}
+
+	om.partStored(uploadID, partNumber, size)
 
 	part := &Part{
 		PartNumber:   partNumber,
@@ -2668,6 +2674,7 @@ func (om *objectManager) doCompleteMultipartUpload(ctx context.Context, uploadID
 
 	// Update bucket metrics and clean up multipart data
 	om.updateMetricsAndCleanupMultipart(ctx, multipart.Bucket, uploadID, object, isNewObject, existingObj, parts, versioningEnabled)
+	om.uploadEnded(uploadID)
 	om.freeReplacedNullVersion(ctx, multipart.Bucket, replacedNull)
 
 	return object, nil
@@ -3019,6 +3026,7 @@ func (om *objectManager) abortMultipartUpload(ctx context.Context, uploadID stri
 		}
 		return nil
 	}
+	om.uploadEnded(uploadID)
 
 	if err := om.storage.DeleteUpload(ctx, uploadID); err != nil {
 		logrus.WithError(err).WithField("uploadID", uploadID).Warn("Left the multipart upload directory behind")

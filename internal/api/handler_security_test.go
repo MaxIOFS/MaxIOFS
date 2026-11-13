@@ -629,6 +629,10 @@ func (m *MockAuthManager) ApplyPeerSessions(ctx context.Context, s []*auth.Conso
 func (m *MockAuthManager) SetSessionsChangedCallback(cb func())                 {}
 func (m *MockAuthManager) SetSessionNode(node func(ctx context.Context) string) {}
 func (m *MockAuthManager) SessionIDOf(token string) string                      { return "" }
+func (m *MockAuthManager) RevokeUserSessions(ctx context.Context, userID, reason string) (int, error) {
+	return 0, nil
+}
+
 func (m *MockAuthManager) RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error) {
 	return 0, nil
 }

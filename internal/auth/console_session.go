@@ -393,6 +393,30 @@ func (am *authManager) RevokeIdPSessions(ctx context.Context, providerID, subjec
 	return ended, nil
 }
 
+// RevokeUserSessions ends every live console session of a user, as when the
+// password changes: whoever held one signs in again. Access keys are not
+// sessions and stay as they are. It returns how many it ended.
+func (am *authManager) RevokeUserSessions(ctx context.Context, userID, reason string) (int, error) {
+	if userID == "" {
+		return 0, nil
+	}
+	sessions, err := am.store.ListConsoleSessions(time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	ended := 0
+	for _, sess := range sessions {
+		if sess.UserID != userID || sess.RevokedAt != 0 {
+			continue
+		}
+		if err := am.revoke(sess, reason); err != nil {
+			return ended, err
+		}
+		ended++
+	}
+	return ended, nil
+}
+
 // LoadRevokedSessions reads again which sessions were ended, as after a
 // peer's sessions are stored.
 func (am *authManager) LoadRevokedSessions() error {

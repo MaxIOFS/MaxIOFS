@@ -468,3 +468,32 @@ func TestGenerateID(t *testing.T) {
 	gmap := generateID("gmap-")
 	assert.Contains(t, gmap, "gmap-")
 }
+
+// A provider turned inactive signs nobody in, by any of the ways in; one in
+// testing or active is not refused for its status.
+func TestAnInactiveProviderSignsNobodyIn(t *testing.T) {
+	mgr, cleanup := setupTestManager(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	signIns := func(id string) map[string]error {
+		_, external := mgr.AuthenticateExternal(ctx, id, "user", "password")
+		_, authURL := mgr.GetOAuthAuthURL(ctx, id, "state", "")
+		_, callback := mgr.HandleOAuthCallback(ctx, id, "code")
+		_, token := mgr.AuthenticateWithAccessToken(ctx, id, "token")
+		return map[string]error{"password": external, "auth URL": authURL, "callback": callback, "access token": token}
+	}
+
+	for _, status := range []string{StatusInactive, StatusTesting, StatusActive} {
+		provider := &IdentityProvider{Name: "p-" + status, Type: TypeOAuth2, Status: status, CreatedBy: "admin",
+			Config: ProviderConfig{OAuth2: &OAuth2Config{Preset: "google", ClientID: "id", ClientSecret: "secret"}}}
+		require.NoError(t, mgr.CreateProvider(ctx, provider))
+		for way, err := range signIns(provider.ID) {
+			if status == StatusInactive {
+				assert.ErrorIs(t, err, ErrProviderInactive, way)
+			} else {
+				assert.NotErrorIs(t, err, ErrProviderInactive, "%s, %s", status, way)
+			}
+		}
+	}
+}

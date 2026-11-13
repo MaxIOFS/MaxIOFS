@@ -109,6 +109,7 @@ func isBlockedIP(ip net.IP) bool {
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"192.168.0.0/16",
+		"100.64.0.0/10", // shared address space: overlay networks, some clouds' metadata
 		"fc00::/7",
 	}
 	for _, cidr := range privateRanges {

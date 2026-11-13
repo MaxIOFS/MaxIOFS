@@ -31,7 +31,7 @@ type HTTPOutput struct {
 func ssrfBlockingDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
 	privateRanges := []string{
 		"127.0.0.0/8", "::1/128",
-		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
 		"fc00::/7", "fe80::/10",
 		"169.254.0.0/16", // AWS/GCP metadata
 		"0.0.0.0/8",

@@ -150,12 +150,12 @@ func (m *ClusterAuthMiddleware) ClusterAuth(next http.Handler) http.Handler {
 
 		// Compare signatures (constant time to prevent timing attacks)
 		if !clusterauth.Equal(signature, expectedSignature) {
+			// The signature expected is not logged: it is the one that would
+			// authenticate this request, to whoever reads the log.
 			logrus.WithFields(logrus.Fields{
-				"node_id":  nodeID,
-				"method":   r.Method,
-				"path":     r.URL.Path,
-				"expected": expectedSignature,
-				"received": signature,
+				"node_id": nodeID,
+				"method":  r.Method,
+				"path":    r.URL.Path,
 			}).Warn("Cluster authentication failed: signature mismatch")
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 			return
