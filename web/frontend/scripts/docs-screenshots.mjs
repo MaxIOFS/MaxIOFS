@@ -7,8 +7,12 @@
 //   node web/frontend/scripts/docs-screenshots.mjs            # all screenshots
 //   node web/frontend/scripts/docs-screenshots.mjs buckets    # only those whose name has "buckets"
 //
+// Only screenshots whose page changed are written (see unchangedBelow).
+//
 // Options (environment): MAXIOFS_BINARY (default build/maxiofs[.exe]),
-// DOCS_BROWSER_CHANNEL (default msedge; "chromium" for Playwright's own).
+// DOCS_BROWSER_CHANNEL (default msedge; "chromium" for Playwright's own),
+// DOCS_SCREENSHOTS_FORCE=1 to write every screenshot taken, changed or not:
+//   DOCS_SCREENSHOTS_FORCE=1 node web/frontend/scripts/docs-screenshots.mjs users
 
 import { spawn, execSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -332,10 +336,54 @@ async function signIn(page, password) {
   await settle(page);
 }
 
+// A screenshot is written only when the page changed: dates, generated IDs and
+// live charts move up to about 2% of the pixels from one run to the next, and
+// rewriting an image for them only grows the repository. A change smaller than
+// the threshold, such as one word, needs DOCS_SCREENSHOTS_FORCE=1.
+const unchangedBelow = 0.03; // share of pixels
+const force = process.env.DOCS_SCREENSHOTS_FORCE === '1';
+let comparer;
+
+// difference returns the share of pixels that differ between two PNGs, 1 when
+// their sizes differ. It runs in a blank page of the browser.
+async function difference(before, after) {
+  return comparer.evaluate(async ([a, b]) => {
+    const load = (b64) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = 'data:image/png;base64,' + b64;
+    });
+    const [ia, ib] = await Promise.all([load(a), load(b)]);
+    if (ia.width !== ib.width || ia.height !== ib.height) return 1;
+    const pixels = (img) => {
+      const canvas = new OffscreenCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return ctx.getImageData(0, 0, img.width, img.height).data;
+    };
+    const pa = pixels(ia);
+    const pb = pixels(ib);
+    let differ = 0;
+    for (let i = 0; i < pa.length; i += 4) {
+      // Antialiasing alone moves a channel by a few levels.
+      if (Math.abs(pa[i] - pb[i]) + Math.abs(pa[i + 1] - pb[i + 1]) + Math.abs(pa[i + 2] - pb[i + 2]) > 24) differ++;
+    }
+    return differ / (ia.width * ia.height);
+  }, [before.toString('base64'), after.toString('base64')]);
+}
+
 async function capture(page, name, theme) {
   const file = path.join(out, `${name}-${theme}.png`);
-  await page.screenshot({ path: file });
-  console.log(`  ${path.relative(repo, file)}`);
+  const shot = await page.screenshot();
+  const changed = fs.existsSync(file) ? await difference(fs.readFileSync(file), shot) : 1;
+  const label = `${path.relative(repo, file)}  ${(changed * 100).toFixed(2)}%`;
+  if (changed < unchangedBelow && !force) {
+    console.log(`  kept     ${label}`);
+    return;
+  }
+  fs.writeFileSync(file, shot);
+  console.log(`  written  ${label}`);
 }
 
 async function main() {
@@ -349,6 +397,7 @@ async function main() {
   } catch {
     browser = await chromium.launch({ headless: true });
   }
+  comparer = await browser.newPage();
   const themes = ['light', 'dark'];
   const contexts = {};
   for (const theme of themes) {
