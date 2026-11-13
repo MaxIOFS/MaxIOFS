@@ -1752,8 +1752,8 @@ export class APIClient {
     return response.data.data;
   }
 
-  static async disable2FA(userId?: string): Promise<any> {
-    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/disable', { user_id: userId });
+  static async disable2FA(userId?: string, password?: string): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/disable', { user_id: userId, password });
     return response.data.data;
   }
 

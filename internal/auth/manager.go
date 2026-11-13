@@ -2617,6 +2617,14 @@ func (m *authManager) Setup2FA(ctx context.Context, userID string) (*TOTPSetup, 
 // Enable2FA enables 2FA for a user after verifying the TOTP code
 // Returns backup codes that the user MUST save
 func (m *authManager) Enable2FA(ctx context.Context, userID, code string, secret string) ([]string, error) {
+	enabled, _, err := m.Get2FAStatus(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read 2FA status: %w", err)
+	}
+	if enabled {
+		return nil, ErrTwoFactorAlreadyEnabled
+	}
+
 	// Verify the TOTP code
 	if !VerifyTOTPCode(secret, code) {
 		return nil, ErrInvalid2FACode

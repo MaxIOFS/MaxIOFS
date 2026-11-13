@@ -790,25 +790,37 @@ func TestHandleDisable2FA(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
-	// Create empty request body
-	body, _ := json.Marshal(map[string]interface{}{})
-	req := httptest.NewRequest("POST", "/api/v1/auth/2fa/disable", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	now := time.Now().Unix()
+	other := &auth.User{ID: "other-user", Username: "other", Password: "x", Status: auth.UserStatusActive,
+		Roles: []string{"user"}, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, server.authManager.CreateUser(ctx, other))
+	external := &auth.User{ID: "external-user", Username: "ext@example.com", Email: "ext@example.com",
+		Status: auth.UserStatusActive, Roles: []string{"user"}, AuthProvider: "oauth:test-provider",
+		ExternalID: "ext-1", CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, server.authManager.CreateUser(ctx, external))
 
-	ctxWithUser := context.WithValue(req.Context(), "user", user)
-	req = req.WithContext(ctxWithUser)
+	disable := func(as *auth.User, body map[string]interface{}) int {
+		raw, _ := json.Marshal(body)
+		req := httptest.NewRequest("POST", "/api/v1/auth/2fa/disable", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(context.WithValue(req.Context(), "user", as))
+		rr := httptest.NewRecorder()
+		server.handleDisable2FA(rr, req)
+		return rr.Code
+	}
 
-	rr := httptest.NewRecorder()
-	server.handleDisable2FA(rr, req)
+	// Your own second factor takes your password.
+	assert.Equal(t, http.StatusBadRequest, disable(user, map[string]interface{}{}))
+	assert.Equal(t, http.StatusBadRequest, disable(user, map[string]interface{}{"user_id": user.ID}))
+	assert.Equal(t, http.StatusForbidden, disable(user, map[string]interface{}{"password": "not-the-password"}))
+	assert.Equal(t, http.StatusOK, disable(user, map[string]interface{}{"password": "admin"}))
 
-	// Check status code - should succeed even if 2FA not enabled
-	assert.Equal(t, http.StatusOK, rr.Code)
+	// The global admin removes another user's without one; a user never does.
+	assert.Equal(t, http.StatusOK, disable(user, map[string]interface{}{"user_id": other.ID}))
+	assert.Equal(t, http.StatusForbidden, disable(other, map[string]interface{}{"user_id": user.ID}))
 
-	// Check response
-	var response APIResponse
-	err = json.NewDecoder(rr.Body).Decode(&response)
-	assert.NoError(t, err)
-	assert.True(t, response.Success)
+	// An account of an identity provider has no password here.
+	assert.Equal(t, http.StatusOK, disable(external, map[string]interface{}{}))
 }
 
 // TestHandleListTenants tests the GET /tenants endpoint

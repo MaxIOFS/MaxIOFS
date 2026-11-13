@@ -204,6 +204,7 @@ export interface ConfirmModalProps {
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'info';
   loading?: boolean;
+  children?: React.ReactNode;
 }
 
 export function ConfirmModal({
@@ -216,6 +217,7 @@ export function ConfirmModal({
   cancelText = 'Cancel',
   variant = 'danger',
   loading = false,
+  children,
 }: ConfirmModalProps) {
   const handleConfirm = () => {
     onConfirm();
@@ -270,6 +272,8 @@ export function ConfirmModal({
         <p className="text-sm text-muted-foreground mb-6">
           {message}
         </p>
+
+        {children && <div className="mb-6 text-left">{children}</div>}
 
         {/* Actions */}
         <div className="flex gap-3">

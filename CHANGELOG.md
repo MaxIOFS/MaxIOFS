@@ -5,6 +5,19 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Disabling your own 2FA asks for your password. A global administrator still disables another user's without it.
+- `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
+
+### Fixed
+- Enabling 2FA on an account that already has it replaced its secret and backup codes: it answers `409`, and 2FA is disabled first.
+- A mistyped code when enabling 2FA answered `500`: it answers `400`.
+- The console dashboard named buckets the user cannot list.
+- Any console user could end the share of an object of a bucket they cannot read.
+- A stop waited for the integrity scan and the lifecycle pass in progress to end: both stop with the server.
+
 ## [1.10.0] - 2026-11-11
 
 ### Added

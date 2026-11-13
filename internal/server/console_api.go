@@ -6728,6 +6728,10 @@ func (s *Server) handleEnable2FA(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, "Invalid verification code", http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, auth.ErrTwoFactorAlreadyEnabled) {
+			s.writeError(w, "2FA is already enabled. Disable it before setting it up again", http.StatusConflict)
+			return
+		}
 		logrus.WithError(err).Error("Failed to enable 2FA")
 		s.writeError(w, "Failed to enable 2FA", http.StatusInternalServerError)
 		return
@@ -6754,7 +6758,8 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		UserID string `json:"user_id,omitempty"`
+		UserID   string `json:"user_id,omitempty"`
+		Password string `json:"password,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -6766,6 +6771,27 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 	targetUserID := user.ID
 	if req.UserID != "" {
 		targetUserID = req.UserID
+	}
+
+	// Removing your own second factor takes your password: an open session is
+	// not enough. An account of an identity provider has none here to give.
+	if targetUserID == user.ID {
+		account, err := s.authManager.GetUser(r.Context(), user.ID)
+		if err != nil {
+			s.writeError(w, "Failed to disable 2FA", http.StatusInternalServerError)
+			return
+		}
+		if account.AuthProvider == "" || account.AuthProvider == "local" {
+			if req.Password == "" {
+				s.writeError(w, "Password is required", http.StatusBadRequest)
+				return
+			}
+			// 403, not 401: the console answers a 401 by renewing the session.
+			if !auth.VerifyPassword(req.Password, account.Password) {
+				s.writeError(w, "Password is incorrect", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	// Check if user is trying to disable 2FA for another user

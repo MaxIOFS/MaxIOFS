@@ -17,6 +17,10 @@ import (
 // ErrInvalid2FACode is a code that does not match the secret.
 var ErrInvalid2FACode = errors.New("invalid verification code")
 
+// ErrTwoFactorAlreadyEnabled refuses to replace a second factor in use: it is
+// disabled first.
+var ErrTwoFactorAlreadyEnabled = errors.New("2FA is already enabled")
+
 // TOTPSetup contains the setup information for 2FA
 type TOTPSetup struct {
 	Secret string `json:"secret"`

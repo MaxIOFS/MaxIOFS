@@ -73,6 +73,7 @@ export default function UserDetailsPage() {
   const [showSetup2FAModal, setShowSetup2FAModal] = useState(false);
   const [showBackupCodesModal, setShowBackupCodesModal] = useState(false);
   const [showDisable2FAModal, setShowDisable2FAModal] = useState(false);
+  const [disable2FAPassword, setDisable2FAPassword] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [disabling2FA, setDisabling2FA] = useState(false);
   const queryClient = useQueryClient();
@@ -411,12 +412,20 @@ export default function UserDetailsPage() {
     refetch2FAStatus();
   };
 
+  // Your own second factor takes your password; an identity provider's
+  // account has none here.
+  const disable2FANeedsPassword = isCurrentUser && !isExternalUser;
+  const closeDisable2FAModal = () => {
+    setShowDisable2FAModal(false);
+    setDisable2FAPassword('');
+  };
+
   const handleDisable2FA = async () => {
     setDisabling2FA(true);
     try {
-      await APIClient.disable2FA(userId);
+      await APIClient.disable2FA(userId, disable2FANeedsPassword ? disable2FAPassword : undefined);
       await ModalManager.success(t('twoFADisabled'), t('twoFADisabledDesc'));
-      setShowDisable2FAModal(false);
+      closeDisable2FAModal();
       refetch2FAStatus();
     } catch (error: unknown) {
       await ModalManager.apiError(error);
@@ -1304,7 +1313,7 @@ export default function UserDetailsPage() {
 
       <ConfirmModal
         isOpen={showDisable2FAModal}
-        onClose={() => setShowDisable2FAModal(false)}
+        onClose={closeDisable2FAModal}
         onConfirm={handleDisable2FA}
         title={t('disable2FATitle')}
         message={isCurrentUser
@@ -1314,7 +1323,18 @@ export default function UserDetailsPage() {
         cancelText={t('cancel')}
         variant="danger"
         loading={disabling2FA}
-      />
+      >
+        {disable2FANeedsPassword && (
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder={t('enterCurrentPassword')}
+            value={disable2FAPassword}
+            onChange={(e) => setDisable2FAPassword(e.target.value)}
+            className="bg-card text-foreground border-border"
+          />
+        )}
+      </ConfirmModal>
     </div>
   );
 }
