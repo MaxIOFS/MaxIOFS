@@ -30,7 +30,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/inventory"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
-	"github.com/maxiofs/maxiofs/internal/presigned"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/maxiofs/maxiofs/internal/storageclass"
 	"github.com/sirupsen/logrus"
@@ -1347,38 +1346,17 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"hasAuth": r.Header.Get("Authorization") != "",
 	}).Debug("GetObject: User authentication status")
 
-	// Track if access is allowed via presigned URL
-	allowedByPresignedURL := false
-
 	// Extract actual bucket tenant ID for permission checking. Global buckets
 	// keep an empty tenant even when the requester is tenant-scoped.
 	tenantID := h.resolveBucketTenantID(r, bucketName)
 
-	// If NOT authenticated, check if this is a presigned URL request
-	if !userExists && presigned.IsPresignedURL(r) {
-		accessKeyID, valid, err := h.validatePresignedURLAccess(r, objectKey)
-		if err != nil {
-			h.recordAuth("s3_presigned", "SignatureDoesNotMatch")
-			h.handlePresignedURLError(w, err, objectKey, r)
-			return
-		}
-		h.recordAuth("s3_presigned", "")
-
-		if valid {
-			allowedByPresignedURL = true
-			logrus.WithFields(logrus.Fields{
-				"bucket":      bucketName,
-				"object":      objectKey,
-				"accessKeyID": accessKeyID,
-			}).Debug("Presigned URL access allowed")
-		}
-	}
-
-	// An anonymous request without a presigned URL is allowed by an active
-	// share of the object; without one, the bucket's public access decides.
+	// A presigned URL arrives here with its signer as the user, set by
+	// HandlePresignedRequest: a signature alone grants nothing.
+	// An anonymous request is allowed by an active share of the object;
+	// without one, the bucket's public access decides.
 	var shareTenantID string
 	allowedByShare := false
-	if !userExists && !allowedByPresignedURL && h.shareManager != nil {
+	if !userExists && h.shareManager != nil {
 		realBucket, realObject, tenantFromShare, err := h.validateShareAccess(r, bucketName, objectKey)
 		if err == nil {
 			shareTenantID = tenantFromShare
@@ -1398,11 +1376,11 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		"tenantID":      tenantID,
 	}).Debug("GetObject: Using bucketPath")
 
-	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByPresignedURL, allowedByShare, shareTenantID, tenantID, bucketName, objectKey) {
+	if !h.validateBucketReadPermission(w, r, user, userExists, allowedByShare, tenantID, bucketName, objectKey) {
 		return
 	}
 	overrides := responseOverrides(r.URL.Query())
-	if len(overrides) > 0 && !userExists && !allowedByPresignedURL {
+	if len(overrides) > 0 && !userExists {
 		h.writeError(w, "InvalidRequest", "Request specific response headers cannot be used for anonymous GET requests.", objectKey, r)
 		return
 	}
@@ -2688,47 +2666,6 @@ func (h *Handler) DeleteObjectVersion(w http.ResponseWriter, r *http.Request) {
 
 // ========== GetObject Helper Functions (Refactoring for Complexity Reduction) ==========
 
-// validatePresignedURLAccess validates a presigned URL and returns access key ID if valid
-func (h *Handler) validatePresignedURLAccess(r *http.Request, objectKey string) (string, bool, error) {
-	// Extract access key from presigned URL
-	accessKeyID := presigned.ExtractAccessKeyID(r)
-	if accessKeyID == "" {
-		return "", false, fmt.Errorf("invalid presigned URL: missing access key")
-	}
-
-	// Get access key to retrieve secret
-	if h.authManager == nil {
-		return "", false, fmt.Errorf("auth manager not configured")
-	}
-
-	// Resolves permanent access keys and STS temporary credentials alike; for
-	// the latter it also enforces session expiry, token match and user status.
-	secretAccessKey, err := h.getSecretKeyForCredential(r.Context(), accessKeyID, r.URL.Query().Get("X-Amz-Security-Token"))
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"accessKeyID": accessKeyID,
-			"error":       err.Error(),
-		}).Warn("Presigned URL: credential not usable")
-		return "", false, fmt.Errorf("access key not found")
-	}
-
-	// Validate presigned URL signature
-	valid, err := presigned.ValidatePresignedURL(r, secretAccessKey)
-	if err != nil || !valid {
-		logrus.WithFields(logrus.Fields{
-			"accessKeyID": accessKeyID,
-			"error":       err,
-		}).Warn("Presigned URL validation failed")
-		return "", false, fmt.Errorf("signature validation failed")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"accessKeyID": accessKeyID,
-	}).Debug("Presigned URL validated successfully")
-
-	return accessKeyID, true, nil
-}
-
 // handleVeeamSOSAPIObject handles VEEAM SOSAPI virtual objects
 func (h *Handler) handleVeeamSOSAPIObject(w http.ResponseWriter, r *http.Request, objectKey string) bool {
 	if !isVeeamSOSAPIObject(objectKey) {
@@ -2900,6 +2837,11 @@ func (h *Handler) checkDeleteObjectPermission(ctx context.Context, user *auth.Us
 			objectARN(bucketName, objectKey))
 	} else {
 		hasPermission = h.anonymousAllowed(ctx, tenantID, action, objectARN(bucketName, objectKey), func() bool {
+			// A public WRITE grant deletes an object, not one of its versions:
+			// that is the owner's, or a bucket policy's to give, as in AWS S3.
+			if versionID != "" {
+				return false
+			}
 			return h.checkPublicObjectAccess(ctx, bucketPath, objectKey, acl.PermissionWrite) ||
 				h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionWrite)
 		})
@@ -3107,19 +3049,6 @@ func checkObjectTags(tags []object.Tag) error {
 	return nil
 }
 
-// handlePresignedURLError writes appropriate error response based on presigned URL validation error
-func (h *Handler) handlePresignedURLError(w http.ResponseWriter, err error, objectKey string, r *http.Request) {
-	if strings.Contains(err.Error(), "missing access key") {
-		h.writeError(w, "InvalidRequest", err.Error(), objectKey, r)
-	} else if strings.Contains(err.Error(), "auth manager") {
-		h.writeError(w, "InternalError", err.Error(), objectKey, r)
-	} else if strings.Contains(err.Error(), "access key not found") {
-		h.writeError(w, "InvalidAccessKeyId", "The AWS access key ID you provided does not exist in our records", objectKey, r)
-	} else {
-		h.writeError(w, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided", objectKey, r)
-	}
-}
-
 // resolveBucketPath determines the correct bucket path based on share tenant or standard path
 func (h *Handler) resolveBucketPath(r *http.Request, bucketName, shareTenantID string) string {
 	if shareTenantID != "" {
@@ -3134,15 +3063,13 @@ func (h *Handler) validateBucketReadPermission(
 	r *http.Request,
 	user *auth.User,
 	userExists bool,
-	allowedByPresignedURL bool,
 	allowedByShare bool,
-	shareTenantID string,
 	tenantID string,
 	bucketName string,
 	objectKey string,
 ) bool {
-	// Allow if access was granted via presigned URL or via clean share (shareTenantID may be "" for global bucket)
-	if allowedByPresignedURL || allowedByShare {
+	// An active share of the object allows the read.
+	if allowedByShare {
 		return true
 	}
 

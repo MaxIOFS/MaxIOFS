@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/xml"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1145,70 +1144,6 @@ func TestPresignedGetRoutesFallsThrough(t *testing.T) {
 }
 
 // ============================================
-// Tests for handlePresignedURLError (0% coverage)
-// ============================================
-
-func TestHandlePresignedURLError_MissingAccessKey(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt", nil)
-	w := httptest.NewRecorder()
-
-	err := errors.New("missing access key")
-	env.handler.handlePresignedURLError(w, err, "test.txt", req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "InvalidRequest")
-}
-
-func TestHandlePresignedURLError_AuthManagerError(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt", nil)
-	w := httptest.NewRecorder()
-
-	err := errors.New("auth manager not configured")
-	env.handler.handlePresignedURLError(w, err, "test.txt", req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "InternalError")
-}
-
-func TestHandlePresignedURLError_AccessKeyNotFound(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt", nil)
-	w := httptest.NewRecorder()
-
-	err := errors.New("access key not found")
-	env.handler.handlePresignedURLError(w, err, "test.txt", req)
-
-	// Can be 401 or 403 depending on implementation
-	assert.True(t, w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized,
-		"Expected 401 or 403, got %d", w.Code)
-	assert.Contains(t, w.Body.String(), "InvalidAccessKeyId")
-}
-
-func TestHandlePresignedURLError_SignatureMismatch(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt", nil)
-	w := httptest.NewRecorder()
-
-	err := errors.New("signature does not match")
-	env.handler.handlePresignedURLError(w, err, "test.txt", req)
-
-	// Can be 401 or 403 depending on implementation
-	assert.True(t, w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized,
-		"Expected 401 or 403, got %d", w.Code)
-	assert.Contains(t, w.Body.String(), "SignatureDoesNotMatch")
-}
-
-// ============================================
 // Tests for validateShareAccess (0% coverage)
 // ============================================
 
@@ -1618,71 +1553,3 @@ func (m *mockShareManagerFull) GetShareByObject(ctx context.Context, bucketName,
 	}, nil
 }
 
-// ============================================
-// Tests for validatePresignedURLAccess (0% coverage)
-// ============================================
-
-func TestValidatePresignedURLAccess_MissingAccessKey(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Request without presigned URL params
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt", nil)
-
-	_, valid, err := env.handler.validatePresignedURLAccess(req, "test.txt")
-
-	assert.Error(t, err)
-	assert.False(t, valid)
-	assert.Contains(t, err.Error(), "missing access key")
-}
-
-func TestValidatePresignedURLAccess_NoAuthManager(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Remove auth manager
-	env.handler.authManager = nil
-
-	// Request with presigned URL params (V4 format)
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=TESTKEY%2F20260203%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260203T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abc123", nil)
-
-	_, valid, err := env.handler.validatePresignedURLAccess(req, "test.txt")
-
-	assert.Error(t, err)
-	assert.False(t, valid)
-	assert.Contains(t, err.Error(), "auth manager not configured")
-}
-
-func TestValidatePresignedURLAccess_AccessKeyNotFound(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	// Request with presigned URL params using non-existent access key
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=NONEXISTENT%2F20260203%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260203T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abc123", nil)
-
-	_, valid, err := env.handler.validatePresignedURLAccess(req, "test.txt")
-
-	assert.Error(t, err)
-	assert.False(t, valid)
-	assert.Contains(t, err.Error(), "access key not found")
-}
-
-func TestValidatePresignedURLAccess_InvalidSignature(t *testing.T) {
-	env := setupCoverageTestEnvironment(t)
-	defer env.cleanup()
-
-	ctx := context.Background()
-
-	// Create an access key using GenerateAccessKey
-	accessKey, err := env.authManager.GenerateAccessKey(ctx, env.userID)
-	require.NoError(t, err)
-
-	// Request with presigned URL params using wrong signature
-	req := httptest.NewRequest(http.MethodGet, "/test-bucket/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential="+accessKey.AccessKeyID+"%2F20260203%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260203T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=wrongsig", nil)
-
-	_, valid, err := env.handler.validatePresignedURLAccess(req, "test.txt")
-
-	assert.Error(t, err)
-	assert.False(t, valid)
-	assert.Contains(t, err.Error(), "signature validation failed")
-}

@@ -259,6 +259,10 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	if time.Now().UTC().After(expirationTime) {
 		return &presignedValidationError{"RequestExpired", "Request has expired."}
 	}
+	// A date ahead of the clock would make the URL last longer than X-Amz-Expires.
+	if requestTime.After(time.Now().UTC().Add(15 * time.Minute)) {
+		return &presignedValidationError{"AccessDenied", "Request is not yet valid."}
+	}
 
 	// Extract access key and credential components
 	credParts := strings.Split(credential, "/")
@@ -694,6 +698,9 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	form := r.MultipartForm
+	// The server removes the files of the request it was given, and a middleware
+	// may have handed this handler a copy of it.
+	defer form.RemoveAll() //nolint:errcheck
 	field := func(name string) string {
 		if vs := form.Value[name]; len(vs) > 0 {
 			return vs[0]
@@ -799,71 +806,16 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	// Validate policy conditions against the form fields.
 	objectKey := field("key")
 	contentType := field("Content-Type")
-	var minLen, maxLen int64 = 0, 1<<63 - 1
-
-	for _, raw := range policy.Conditions {
-		// Try object form first: {"field": "value"}
-		var objCond map[string]interface{}
-		if json.Unmarshal(raw, &objCond) == nil {
-			for k, v := range objCond {
-				val, _ := v.(string)
-				switch strings.ToLower(k) {
-				case "bucket":
-					if val != bucketName {
-						h.writeError(w, "AccessDenied", "Bucket condition does not match", bucketName, r)
-						return
-					}
-				case "key":
-					if val != objectKey {
-						h.writeError(w, "AccessDenied", "Key condition does not match", bucketName, r)
-						return
-					}
-				case "content-type":
-					if val != contentType {
-						h.writeError(w, "AccessDenied", "Content-Type condition does not match", bucketName, r)
-						return
-					}
-					// x-amz-* fields are informational — already validated via signature.
-				}
-			}
-			continue
+	fields := make(map[string]string, len(form.Value))
+	for name, values := range form.Value {
+		if len(values) > 0 {
+			fields[strings.ToLower(name)] = values[0]
 		}
-
-		// Try array form: ["starts-with", "$field", "prefix"] or ["content-length-range", min, max]
-		var arrCond []interface{}
-		if json.Unmarshal(raw, &arrCond) != nil || len(arrCond) == 0 {
-			continue
-		}
-		op, _ := arrCond[0].(string)
-		switch strings.ToLower(op) {
-		case "starts-with":
-			if len(arrCond) < 3 {
-				continue
-			}
-			fname, _ := arrCond[1].(string)
-			prefix, _ := arrCond[2].(string)
-			fname = strings.TrimPrefix(fname, "$")
-			var formVal string
-			switch strings.ToLower(fname) {
-			case "key":
-				formVal = objectKey
-			case "content-type":
-				formVal = contentType
-			default:
-				formVal = field(fname)
-			}
-			// Empty prefix means any value is allowed.
-			if prefix != "" && !strings.HasPrefix(formVal, prefix) {
-				h.writeError(w, "AccessDenied", fmt.Sprintf("Field %s does not start with required prefix", fname), bucketName, r)
-				return
-			}
-		case "content-length-range":
-			if len(arrCond) < 3 {
-				continue
-			}
-			minLen = int64(toFloat64(arrCond[1]))
-			maxLen = int64(toFloat64(arrCond[2]))
-		}
+	}
+	minLen, maxLen, err := checkPostPolicy(policy.Conditions, bucketName, fields)
+	if err != nil {
+		h.writeError(w, "AccessDenied", "Invalid according to Policy: "+err.Error(), bucketName, r)
+		return
 	}
 
 	// Get the uploaded file — the file field must be named "file" or "content".
@@ -992,6 +944,75 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("ETag", QuoteETag(result.ETag))
 	w.WriteHeader(statusCode)
+}
+
+// postFieldsOutsidePolicy are the form fields a POST policy need not name:
+// the policy, its signature and what the signature is checked with.
+var postFieldsOutsidePolicy = map[string]bool{
+	"policy": true, "signature": true, "awsaccesskeyid": true,
+	"x-amz-signature": true, "x-amz-algorithm": true, "x-amz-credential": true,
+	"x-amz-date": true, "x-amz-security-token": true,
+}
+
+// checkPostPolicy holds a POST form to the conditions its signer wrote, as S3
+// does: every condition is met, and every field of the form is named by one,
+// so the holder of the form adds nothing the signer did not allow. fields are
+// the form's, by lower-case name. It returns the size the file may have.
+func checkPostPolicy(conditions []json.RawMessage, bucketName string, fields map[string]string) (minLen, maxLen int64, err error) {
+	minLen, maxLen = 0, 1<<63-1
+	covered := map[string]bool{}
+	value := func(name string) string {
+		if name == "bucket" {
+			return bucketName
+		}
+		return fields[name]
+	}
+
+	for _, raw := range conditions {
+		var exact map[string]interface{}
+		if json.Unmarshal(raw, &exact) == nil {
+			for k, v := range exact {
+				name := strings.ToLower(k)
+				want, ok := v.(string)
+				if !ok || value(name) != want {
+					return 0, 0, fmt.Errorf("the %s condition is not met", name)
+				}
+				covered[name] = true
+			}
+			continue
+		}
+
+		var list []interface{}
+		if json.Unmarshal(raw, &list) != nil || len(list) != 3 {
+			return 0, 0, fmt.Errorf("a condition is not one S3 defines")
+		}
+		op, _ := list[0].(string)
+		switch strings.ToLower(op) {
+		case "eq", "starts-with":
+			field, isField := list[1].(string)
+			want, isValue := list[2].(string)
+			if !isField || !isValue || !strings.HasPrefix(field, "$") {
+				return 0, 0, fmt.Errorf("a %s condition is malformed", op)
+			}
+			name := strings.ToLower(strings.TrimPrefix(field, "$"))
+			got := value(name)
+			if strings.EqualFold(op, "eq") && got != want || !strings.HasPrefix(got, want) {
+				return 0, 0, fmt.Errorf("the %s condition is not met", name)
+			}
+			covered[name] = true
+		case "content-length-range":
+			minLen, maxLen = int64(toFloat64(list[1])), int64(toFloat64(list[2]))
+		default:
+			return 0, 0, fmt.Errorf("a condition is not one S3 defines")
+		}
+	}
+
+	for name := range fields {
+		if !covered[name] && !postFieldsOutsidePolicy[name] && !strings.HasPrefix(name, "x-ignore-") {
+			return 0, 0, fmt.Errorf("the policy does not allow the field %s", name)
+		}
+	}
+	return minLen, maxLen, nil
 }
 
 // toFloat64 converts json.Number / float64 / int values to float64.

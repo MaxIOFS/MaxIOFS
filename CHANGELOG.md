@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
 
 ### Fixed
+- A presigned GET whose query the router and the handler read differently was allowed by its signature alone, without its signer's permissions: any access key could read any object.
+- A presigned URL dated ahead of the clock outlasted the 7 days `X-Amz-Expires` allows: one dated more than 15 minutes ahead is refused.
+- A POST form upload was not held to all of its policy: `eq` conditions and conditions on fields other than the bucket, key and content type were ignored, and fields the policy does not name were accepted. They are enforced as in S3, and a field outside the policy is refused.
+- A public WRITE grant let an anonymous request remove a version of an object: it deletes the object only, adding a delete marker in a versioned bucket.
 - Enabling 2FA on an account that already has it replaced its secret and backup codes: it answers `409`, and 2FA is disabled first.
 - A mistyped code when enabling 2FA answered `500`: it answers `400`.
 - The console dashboard named buckets the user cannot list.

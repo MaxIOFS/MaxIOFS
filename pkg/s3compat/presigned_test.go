@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -1078,4 +1079,32 @@ func TestHandlePresignedRequest_Integration(t *testing.T) {
 	// This test would require full handler setup with object manager, etc.
 	// Marking as integration test placeholder
 	t.Skip("Integration test - requires full handler setup")
+}
+
+// A presigned URL dated ahead of the clock would outlast its X-Amz-Expires:
+// it is refused, within the skew a clock is allowed.
+func TestValidatePresignedURLV4_RefusesADateAheadOfTheClock(t *testing.T) {
+	handler := &Handler{publicAPIURL: "http://localhost:8080", authManager: &mockAuthManager{}}
+	validate := func(ahead time.Duration) error {
+		date := time.Now().UTC().Add(ahead)
+		q := url.Values{}
+		q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+		q.Set("X-Amz-Credential", "AKIAIOSFODNN7EXAMPLE/"+date.Format("20060102")+"/us-east-1/s3/aws4_request")
+		q.Set("X-Amz-Date", date.Format("20060102T150405Z"))
+		q.Set("X-Amz-Expires", "604800")
+		q.Set("X-Amz-SignedHeaders", "host")
+		q.Set("X-Amz-Signature", "00")
+		req, err := http.NewRequest("GET", "http://localhost:8080/test-bucket/test-object.txt?"+q.Encode(), nil)
+		require.NoError(t, err)
+		return handler.ValidatePresignedURL(nil, req)
+	}
+
+	var pe *presignedValidationError
+	require.ErrorAs(t, validate(365*24*time.Hour), &pe)
+	assert.Equal(t, "AccessDenied", pe.code)
+	assert.Contains(t, pe.message, "not yet valid")
+
+	if err := validate(5 * time.Minute); errors.As(err, &pe) {
+		assert.NotContains(t, pe.message, "not yet valid", "a clock a few minutes ahead is accepted")
+	}
 }

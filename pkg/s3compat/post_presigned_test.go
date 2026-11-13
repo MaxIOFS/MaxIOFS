@@ -155,8 +155,8 @@ func TestPresignedPost_StatusCode_200(t *testing.T) {
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
-	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
-		map[string]string{"success_action_status": "200"})
+	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey,
+		[]interface{}{map[string]string{"success_action_status": "200"}}, map[string]string{"success_action_status": "200"})
 	w := httptest.NewRecorder()
 	env.router.ServeHTTP(w, req)
 
@@ -175,8 +175,8 @@ func TestPresignedPost_StatusCode_201(t *testing.T) {
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
-	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
-		map[string]string{"success_action_status": "201"})
+	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey,
+		[]interface{}{map[string]string{"success_action_status": "201"}}, map[string]string{"success_action_status": "201"})
 	w := httptest.NewRecorder()
 	env.router.ServeHTTP(w, req)
 
@@ -350,8 +350,8 @@ func TestPresignedPost_Redirect(t *testing.T) {
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
 
-	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey, nil,
-		map[string]string{"success_action_redirect": "https://example.com/done"})
+	req := buildPostPresignedRequest(t, bucketName, objectKey, content, "", env.accessKey, env.secretKey,
+		[]interface{}{map[string]string{"success_action_redirect": "https://example.com/done"}}, map[string]string{"success_action_redirect": "https://example.com/done"})
 	w := httptest.NewRecorder()
 	env.router.ServeHTTP(w, req)
 
@@ -404,4 +404,30 @@ func TestPresignedPost_CustomerKey(t *testing.T) {
 	body.Close()
 	require.NoError(t, err)
 	assert.Equal(t, content, data)
+}
+
+// The holder of a form uploads what its signer's policy says and no more: a
+// condition S3 defines is enforced, and a field the policy does not name is refused.
+func TestPresignedPost_TheFormIsHeldToItsPolicy(t *testing.T) {
+	env := setupPresignedPostEnv(t)
+	defer env.cleanup()
+	bucketName := "post-presigned-policy"
+	require.NoError(t, env.bucketManager.CreateBucket(context.Background(), env.tenantID, bucketName, env.userID))
+
+	post := func(conditions []interface{}, fields map[string]string) *httptest.ResponseRecorder {
+		req := buildPostPresignedRequest(t, bucketName, "doc.txt", []byte("data"), "", env.accessKey, env.secretKey, conditions, fields)
+		w := httptest.NewRecorder()
+		env.router.ServeHTTP(w, req)
+		return w
+	}
+	eq := func(field, value string) []interface{} { return []interface{}{[]interface{}{"eq", field, value}} }
+
+	assert.Equal(t, http.StatusNoContent, post(eq("$x-amz-meta-owner", "ana"), map[string]string{"x-amz-meta-owner": "ana"}).Code, "an eq condition that is met")
+	assert.Equal(t, http.StatusForbidden, post(eq("$x-amz-meta-owner", "ana"), map[string]string{"x-amz-meta-owner": "eva"}).Code, "an eq condition that is not met")
+	assert.Equal(t, http.StatusForbidden, post(eq("$key", "other.txt"), nil).Code, "an eq condition on the key")
+	assert.Equal(t, http.StatusForbidden, post([]interface{}{map[string]string{"x-amz-meta-owner": "ana"}}, map[string]string{"x-amz-meta-owner": "eva"}).Code, "an exact condition on a field")
+	assert.Equal(t, http.StatusForbidden, post(nil, map[string]string{"x-amz-meta-owner": "eva"}).Code, "a field the policy does not name")
+	assert.Equal(t, http.StatusForbidden, post(nil, map[string]string{"success_action_redirect": "https://example.com/"}).Code, "a redirect the policy does not name")
+	assert.Equal(t, http.StatusNoContent, post(nil, map[string]string{"x-ignore-note": "anything"}).Code, "an x-ignore- field")
+	assert.Equal(t, http.StatusForbidden, post([]interface{}{[]interface{}{"matches", "$key", "doc"}}, nil).Code, "a condition S3 does not define")
 }
