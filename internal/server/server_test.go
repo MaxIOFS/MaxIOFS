@@ -2103,16 +2103,37 @@ func TestHandleRegenerateBackupCodes(t *testing.T) {
 		Status:           "active",
 		TwoFactorEnabled: true,
 	}
+	user.Password = "Backup-pass-12345!"
 	err = server.authManager.CreateUser(testCtx, user)
 	require.NoError(t, err)
 
-	t.Run("should regenerate backup codes", func(t *testing.T) {
-		req := createAuthenticatedRequest("POST", "/api/v1/2fa/backup-codes/regenerate", nil, tenant.ID, user.ID, false)
+	regenerate := func(body string) *httptest.ResponseRecorder {
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req := createAuthenticatedRequest("POST", "/api/v1/2fa/backup-codes/regenerate", reader, tenant.ID, user.ID, false)
 		rr := httptest.NewRecorder()
 		server.handleRegenerateBackupCodes(rr, req)
+		return rr
+	}
 
-		// May succeed or fail depending on 2FA state
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rr.Code)
+	// New codes open the account: an open session alone does not get them.
+	t.Run("asks for the password", func(t *testing.T) {
+		for _, body := range []string{"", `{}`} {
+			rr := regenerate(body)
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.NotContains(t, rr.Body.String(), "backup_codes")
+		}
+		rr := regenerate(`{"password": "not-the-password"}`)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.NotContains(t, rr.Body.String(), "backup_codes")
+	})
+
+	t.Run("should regenerate backup codes", func(t *testing.T) {
+		rr := regenerate(`{"password": "Backup-pass-12345!"}`)
+		assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		assert.Contains(t, rr.Body.String(), "backup_codes")
 	})
 }
 

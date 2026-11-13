@@ -1777,8 +1777,8 @@ export class APIClient {
     return result;
   }
 
-  static async regenerateBackupCodes(): Promise<any> {
-    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/backup-codes');
+  static async regenerateBackupCodes(password?: string): Promise<any> {
+    const response = await apiClient.post<APIResponse<any>>('/auth/2fa/backup-codes', { password });
     return response.data.data;
   }
 

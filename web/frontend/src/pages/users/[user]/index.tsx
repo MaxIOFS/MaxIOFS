@@ -74,6 +74,9 @@ export default function UserDetailsPage() {
   const [showBackupCodesModal, setShowBackupCodesModal] = useState(false);
   const [showDisable2FAModal, setShowDisable2FAModal] = useState(false);
   const [disable2FAPassword, setDisable2FAPassword] = useState('');
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [regeneratePassword, setRegeneratePassword] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [disabling2FA, setDisabling2FA] = useState(false);
   const queryClient = useQueryClient();
@@ -434,31 +437,23 @@ export default function UserDetailsPage() {
     }
   };
 
+  const closeRegenerateModal = () => {
+    setShowRegenerateModal(false);
+    setRegeneratePassword('');
+  };
+
   const handleRegenerateBackupCodes = async () => {
+    setRegenerating(true);
     try {
-      const result = await ModalManager.confirm(
-        t('regenerateBackupCodes'),
-        t('regenerateCodesConfirm'),
-        undefined,
-        {
-          confirmButtonText: t('regenerate'),
-          icon: 'warning'
-        }
-      );
-
-      if (result.isConfirmed) {
-        ModalManager.loading(t('regenerating'), t('generatingCodes'));
-        const data = await APIClient.regenerateBackupCodes();
-        ModalManager.close();
-
-        setBackupCodes(data.backup_codes);
-        setShowBackupCodesModal(true);
-
-        await ModalManager.success(t('codesRegenerated'), t('codesRegeneratedDesc'));
-      }
+      const data = await APIClient.regenerateBackupCodes(disable2FANeedsPassword ? regeneratePassword : undefined);
+      closeRegenerateModal();
+      setBackupCodes(data.backup_codes);
+      setShowBackupCodesModal(true);
+      await ModalManager.success(t('codesRegenerated'), t('codesRegeneratedDesc'));
     } catch (error: unknown) {
-      ModalManager.close();
       await ModalManager.apiError(error);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -686,7 +681,7 @@ export default function UserDetailsPage() {
                   {twoFactorStatus?.enabled ? (
                     <>
                       {isCurrentUser && (
-                        <Button variant="outline" size="sm" onClick={handleRegenerateBackupCodes}>
+                        <Button variant="outline" size="sm" onClick={() => setShowRegenerateModal(true)}>
                           {t('regenerateBackupCodes')}
                         </Button>
                       )}
@@ -1331,6 +1326,29 @@ export default function UserDetailsPage() {
             placeholder={t('enterCurrentPassword')}
             value={disable2FAPassword}
             onChange={(e) => setDisable2FAPassword(e.target.value)}
+            className="bg-card text-foreground border-border"
+          />
+        )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        isOpen={showRegenerateModal}
+        onClose={closeRegenerateModal}
+        onConfirm={handleRegenerateBackupCodes}
+        title={t('regenerateBackupCodes')}
+        message={t('regenerateCodesConfirm')}
+        confirmText={t('regenerate')}
+        cancelText={t('cancel')}
+        variant="warning"
+        loading={regenerating}
+      >
+        {disable2FANeedsPassword && (
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder={t('enterCurrentPassword')}
+            value={regeneratePassword}
+            onChange={(e) => setRegeneratePassword(e.target.value)}
             className="bg-card text-foreground border-border"
           />
         )}

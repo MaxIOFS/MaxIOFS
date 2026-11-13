@@ -6749,6 +6749,30 @@ func (s *Server) handleEnable2FA(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// confirmOwnPassword answers the request and returns false unless password is
+// the user's. Changing your own second factor takes it: an open session is not
+// enough. An account of an identity provider has none here to give.
+func (s *Server) confirmOwnPassword(w http.ResponseWriter, r *http.Request, userID, password string) bool {
+	account, err := s.authManager.GetUser(r.Context(), userID)
+	if err != nil {
+		s.writeError(w, "Failed to read the account", http.StatusInternalServerError)
+		return false
+	}
+	if account.AuthProvider != "" && account.AuthProvider != "local" {
+		return true
+	}
+	if password == "" {
+		s.writeError(w, "Password is required", http.StatusBadRequest)
+		return false
+	}
+	// 403, not 401: the console answers a 401 by renewing the session.
+	if !auth.VerifyPassword(password, account.Password) {
+		s.writeError(w, "Password is incorrect", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // handleDisable2FA disables 2FA for a user
 func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 	user, userExists := auth.GetUserFromContext(r.Context())
@@ -6773,25 +6797,8 @@ func (s *Server) handleDisable2FA(w http.ResponseWriter, r *http.Request) {
 		targetUserID = req.UserID
 	}
 
-	// Removing your own second factor takes your password: an open session is
-	// not enough. An account of an identity provider has none here to give.
-	if targetUserID == user.ID {
-		account, err := s.authManager.GetUser(r.Context(), user.ID)
-		if err != nil {
-			s.writeError(w, "Failed to disable 2FA", http.StatusInternalServerError)
-			return
-		}
-		if account.AuthProvider == "" || account.AuthProvider == "local" {
-			if req.Password == "" {
-				s.writeError(w, "Password is required", http.StatusBadRequest)
-				return
-			}
-			// 403, not 401: the console answers a 401 by renewing the session.
-			if !auth.VerifyPassword(req.Password, account.Password) {
-				s.writeError(w, "Password is incorrect", http.StatusForbidden)
-				return
-			}
-		}
+	if targetUserID == user.ID && !s.confirmOwnPassword(w, r, user.ID, req.Password) {
+		return
 	}
 
 	// Check if user is trying to disable 2FA for another user
@@ -6935,6 +6942,17 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 // handleRegenerateBackupCodes generates new backup codes for the user
 func (s *Server) handleRegenerateBackupCodes(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*auth.User)
+
+	var req struct {
+		Password string `json:"password,omitempty"`
+	}
+	// No body is no password.
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if !s.confirmOwnPassword(w, r, user.ID, req.Password) {
+		return
+	}
 
 	backupCodes, err := s.authManager.RegenerateBackupCodes(r.Context(), user.ID)
 	if err != nil {

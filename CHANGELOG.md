@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Disabling your own 2FA asks for your password. A global administrator still disables another user's without it.
+- Disabling your own 2FA and regenerating your backup codes ask for your password. A global administrator still disables another user's 2FA without it.
 - `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
 
 ### Fixed
