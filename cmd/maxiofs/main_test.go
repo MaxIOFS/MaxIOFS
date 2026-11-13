@@ -336,22 +336,30 @@ func serverStartTimeout() time.Duration {
 	return 200 * time.Millisecond
 }
 
-// runServerWithTimeout launches runServer in a goroutine and returns its error (or nil on timeout).
+// runServerWithTimeout runs the server and returns its error, or nil when it
+// is still running after timeout. The server is stopped and waited for before
+// returning: left running, it is still creating its databases when the test
+// removes its data directory, and it ends the whole test binary on the I/O error.
 func runServerWithTimeout(cmd *cobra.Command, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- runServer(cmd, []string{})
+		errChan <- serve(ctx, cmd)
 	}()
 
 	select {
 	case err := <-errChan:
 		return err
-	case <-ctx.Done():
-		return nil // timeout - server started, which is acceptable
+	case <-time.After(timeout):
 	}
+	cancel()
+	select {
+	case <-errChan:
+	case <-time.After(time.Minute):
+	}
+	return nil // still running after timeout: the server started, which is acceptable
 }
 
 // tempDirWithRetryCleanup creates a temp dir with retry-based cleanup for Windows,

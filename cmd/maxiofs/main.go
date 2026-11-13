@@ -51,6 +51,11 @@ built in Go with an embedded React web interface.`,
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
+	return serve(context.Background(), cmd)
+}
+
+// serve runs the server until a shutdown signal or until parent is done.
+func serve(parent context.Context, cmd *cobra.Command) error {
 	// Get TLS flags
 	tlsCert, _ := cmd.Flags().GetString("tls-cert")
 	tlsKey, _ := cmd.Flags().GetString("tls-key")
@@ -99,7 +104,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	srv.SetVersion(version, commit, date)
 
 	// Start server
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	// Handle graceful shutdown
