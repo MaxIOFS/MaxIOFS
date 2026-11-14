@@ -872,6 +872,8 @@ func completionErrorCode(err error) string {
 		return "PreconditionFailed"
 	case errors.Is(err, object.ErrObjectNotFound):
 		return "NoSuchKey"
+	case errors.Is(err, object.ErrBucketNotFound):
+		return "NoSuchBucket"
 	case errors.Is(err, cluster.ErrClusterDegraded):
 		return "ServiceUnavailable"
 	case isQuotaExceeded(err):

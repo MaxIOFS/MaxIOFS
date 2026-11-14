@@ -175,7 +175,7 @@ func TestStoreEncryptedMultipartObject(t *testing.T) {
 
 	// Create multipart upload
 	headers := http.Header{"Content-Type": []string{"text/plain"}}
-	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
+	upload, err := om.CreateMultipartUpload(ctx, "tenant-1/"+bucket, key, headers)
 	require.NoError(t, err)
 	require.NotNil(t, upload)
 

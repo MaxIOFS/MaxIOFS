@@ -139,3 +139,11 @@ func TestMultipartPartsInProgressCountAgainstTheTenantQuota(t *testing.T) {
 	require.NoError(t, m.AbortMultipartUpload(t.Context(), one))
 	assert.NoError(t, part(t, m, two, 1, 1))
 }
+
+// An upload is started in a bucket that exists: in one that does not, every
+// part was taken and only the completion failed, with an internal error.
+func TestMultipartUploadNeedsItsBucket(t *testing.T) {
+	m, _ := setupAccountingManager(t)
+	_, err := m.CreateMultipartUpload(t.Context(), "missing", "key", http.Header{})
+	assert.ErrorIs(t, err, ErrBucketNotFound)
+}

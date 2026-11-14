@@ -2205,6 +2205,12 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 	if err := om.validateObjectName(key); err != nil {
 		return nil, err
 	}
+	// An upload is started in a bucket that exists, as a PUT writes to one:
+	// otherwise every part is taken and only the completion fails.
+	bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
+	if err != nil {
+		return nil, err
+	}
 
 	// Generate unique upload ID
 	uploadID, err := om.generateUploadID(ctx)
@@ -2220,10 +2226,6 @@ func (om *objectManager) CreateMultipartUpload(ctx context.Context, bucket, key 
 		metadata[uploadTagging] = tagging
 	}
 	if hasObjectLockHeaders(headers) {
-		bucketMeta, err := om.loadBucketMetadata(ctx, bucket)
-		if err != nil {
-			return nil, err
-		}
 		kept, err := uploadObjectLock(ctx, bucketMeta, headers)
 		if err != nil {
 			return nil, err

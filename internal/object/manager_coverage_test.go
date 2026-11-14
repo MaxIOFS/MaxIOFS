@@ -453,7 +453,7 @@ func TestListParts_Success(t *testing.T) {
 	// Create multipart upload
 	key := "parts-test.bin"
 	headers := http.Header{"Content-Type": []string{"application/octet-stream"}}
-	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
+	upload, err := om.CreateMultipartUpload(ctx, "tenant-1/"+bucket, key, headers)
 	require.NoError(t, err)
 
 	// Upload a part
@@ -493,7 +493,7 @@ func TestAbortMultipartUpload_Success(t *testing.T) {
 	// Create multipart upload
 	key := "abort-test.bin"
 	headers := http.Header{"Content-Type": []string{"application/octet-stream"}}
-	upload, err := om.CreateMultipartUpload(ctx, bucket, key, headers)
+	upload, err := om.CreateMultipartUpload(ctx, "tenant-1/"+bucket, key, headers)
 	require.NoError(t, err)
 
 	// Abort multipart upload
