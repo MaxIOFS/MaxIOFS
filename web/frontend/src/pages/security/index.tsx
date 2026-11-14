@@ -535,7 +535,7 @@ export default function SecurityPage() {
                 <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <a
-                    href="https://github.com/MaxioFS/MaxioFS/blob/main/docs/SECURITY.md#standards-isoiec-27001-27017-27018-and-iso-9001"
+                    href="https://docs.maxiofs.com/reference/security/#standards-isoiec-27001-27017-27018-and-iso-9001"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium text-foreground hover:text-brand-600 dark:hover:text-brand-400 hover:underline"

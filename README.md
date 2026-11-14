@@ -9,10 +9,10 @@
 [![Downloads](https://img.shields.io/github/downloads/MaxIOFS/MaxIOFS/total)](https://github.com/MaxIOFS/MaxIOFS/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27+-00ADD8?logo=go)](https://go.dev)
-[![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](https://maxiofs.github.io/MaxIOFS/reference/api/)
-[![Security Audited](https://img.shields.io/badge/security-audited-brightgreen)](https://maxiofs.github.io/MaxIOFS/reference/security/)
+[![S3 Compatible](https://img.shields.io/badge/S3-100%25%20compatible-orange)](https://docs.maxiofs.com/reference/api/)
+[![Security Audited](https://img.shields.io/badge/security-audited-brightgreen)](https://docs.maxiofs.com/reference/security/)
 
-[Quick Start](#-quick-start) · [Documentation](https://maxiofs.github.io/MaxIOFS/) · [Changelog](CHANGELOG.md) · [Website](https://maxiofs.com)
+[Quick Start](#-quick-start) · [Documentation](https://docs.maxiofs.com/) · [Changelog](CHANGELOG.md) · [Website](https://maxiofs.com)
 
 <br/>
 
@@ -186,7 +186,7 @@ Ceph cluster.
 - Audit logging — 20+ event types (auth, object ops, admin actions), external syslog forwarding
 - Object Lock enforcement in the console UI — locked objects cannot be deleted or bulk-deleted
 - Every nightly scans the dependencies (govulncheck, npm audit) and the code (gosec)
-- ISO/IEC 27001, 27017, 27018 and ISO 9001 — MaxIOFS is not certified; [docs/SECURITY.md](https://maxiofs.github.io/MaxIOFS/reference/security/#standards-isoiec-27001-27017-27018-and-iso-9001) lists what it provides to an operator's certification
+- ISO/IEC 27001, 27017, 27018 and ISO 9001 — MaxIOFS is not certified; [the security reference](https://docs.maxiofs.com/reference/security/#standards-isoiec-27001-27017-27018-and-iso-9001) lists what it provides to an operator's certification
 
 </details>
 
@@ -254,7 +254,7 @@ first. They apply once: a deployment that already has a key ignores them.
 
 > ⚠️ Change the default password immediately after first login.
 
-> **Cluster deployments**: also expose `-p 8082:8082` and restrict port 8082 to cluster node IPs only. See [CLUSTER.md](https://maxiofs.github.io/MaxIOFS/deployment/cluster/).
+> **Cluster deployments**: also expose `-p 8082:8082` and restrict port 8082 to cluster node IPs only. See [Cluster](https://docs.maxiofs.com/deployment/cluster/).
 
 ### Docker Compose
 
@@ -327,18 +327,18 @@ make rpm          # Build RPM package (Linux only)
 ## Documentation
 
 The full help, with screenshots of every console page, is at
-**[maxiofs.github.io/MaxIOFS](https://maxiofs.github.io/MaxIOFS/)**.
+**[docs.maxiofs.com](https://docs.maxiofs.com/)**.
 
 | Guide | Description |
 |-------|-------------|
-| [Getting Started](https://maxiofs.github.io/MaxIOFS/getting-started/installation/) | Install, first sign-in, first bucket and upload |
-| [Deployment](https://maxiofs.github.io/MaxIOFS/deployment/single-node/) | systemd, Docker, TLS and reverse proxy, cluster, upgrades |
-| [Console Guide](https://maxiofs.github.io/MaxIOFS/console/) | Every page of the web console |
-| [S3 & Tools](https://maxiofs.github.io/MaxIOFS/s3/aws-cli/) | AWS CLI, rclone, s3cmd, SDKs, presigned URLs, STS |
-| [maxiofs CLI](https://maxiofs.github.io/MaxIOFS/cli/) | Flags, `recover`, `reconcile` and the other subcommands |
-| [Integrations](https://maxiofs.github.io/MaxIOFS/integrations/veeam/) | Veeam, Prometheus and Grafana, Spark |
-| [Operations](https://maxiofs.github.io/MaxIOFS/operations/) | Backups, recovery, integrity, keys, troubleshooting |
-| [Reference](https://maxiofs.github.io/MaxIOFS/reference/configuration/) | Configuration, API, security, SSO |
+| [Getting Started](https://docs.maxiofs.com/getting-started/installation/) | Install, first sign-in, first bucket and upload |
+| [Deployment](https://docs.maxiofs.com/deployment/single-node/) | systemd, Docker, TLS and reverse proxy, cluster, upgrades |
+| [Console Guide](https://docs.maxiofs.com/console/) | Every page of the web console |
+| [S3 & Tools](https://docs.maxiofs.com/s3/aws-cli/) | AWS CLI, rclone, s3cmd, SDKs, presigned URLs, STS |
+| [maxiofs CLI](https://docs.maxiofs.com/cli/) | Flags, `recover`, `reconcile` and the other subcommands |
+| [Integrations](https://docs.maxiofs.com/integrations/veeam/) | Veeam, Prometheus and Grafana, Spark |
+| [Operations](https://docs.maxiofs.com/operations/) | Backups, recovery, integrity, keys, troubleshooting |
+| [Reference](https://docs.maxiofs.com/reference/configuration/) | Configuration, API, security, SSO |
 | [TESTING.md](TESTING.md) | Test suite, per-package catalogue, benchmarks |
 
 ---

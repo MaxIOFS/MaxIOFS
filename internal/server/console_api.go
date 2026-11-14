@@ -670,7 +670,7 @@ func (s *Server) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 			"version":       "v1",
 			"serverVersion": s.version,
 			"description":   "Management REST API for MaxIOFS web console",
-			"documentation": "https://github.com/MaxIOFS/MaxIOFS/blob/main/docs/API.md",
+			"documentation": "https://docs.maxiofs.com/reference/api/",
 			"endpoints": map[string]string{
 				"health":   "/health",
 				"auth":     "/auth/*",

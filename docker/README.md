@@ -60,7 +60,7 @@ A multi-node cluster inside a single Docker host provides **no real HA**
 ships no single-host cluster compose. For real clusters, deploy one node per
 host (containers included: expose port 8082 between hosts, restricted to
 cluster node IPs, and pin each node to its host with a local volume) and
-follow [docs/CLUSTER.md](../docs/CLUSTER.md).
+follow [docs/deployment/cluster.md](../docs/deployment/cluster.md).
 
 ## Grafana Dashboard
 

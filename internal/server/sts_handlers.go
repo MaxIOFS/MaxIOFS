@@ -1,6 +1,6 @@
 package server
 
-// Console API handlers for STS temporary credentials. See docs/API.md.
+// Console API handlers for STS temporary credentials. See docs/reference/api.md.
 
 import (
 	"context"

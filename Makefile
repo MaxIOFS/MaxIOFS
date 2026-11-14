@@ -769,7 +769,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN), RPM_RELEASE=$(RPM_RELEASE)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
 	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
-	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md TESTING.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
 	@cp $(BUILD_DIR)/maxiofs $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
 	@echo "Creating tarball: $(BUILD_DIR)/rpm-build/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz"
 	@ls -la $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN) || echo "Directory listing failed"
@@ -841,7 +841,7 @@ ifneq ($(DETECTED_OS),Windows)
 	@echo "VERSION=$(VERSION), VERSION_CLEAN=$(VERSION_CLEAN), RPM_RELEASE=$(RPM_RELEASE)"
 	@mkdir -p $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build
 	@echo "Copying source files to $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/"
-	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
+	@cp -r cmd config.example.yaml go.mod go.sum internal pkg web rpm docs README.md CHANGELOG.md TODO.md TESTING.md LICENSE $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/ 2>/dev/null || true
 	@cp $(BUILD_DIR)/maxiofs-arm64 $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN)/build/maxiofs
 	@echo "Creating tarball: $(BUILD_DIR)/rpm-build-arm64/SOURCES/maxiofs-$(VERSION_CLEAN).tar.gz"
 	@ls -la $(BUILD_DIR)/maxiofs-$(VERSION_CLEAN) || echo "Directory listing failed"

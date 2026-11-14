@@ -83,7 +83,7 @@ type Manager interface {
 	RevokeAccessKey(ctx context.Context, accessKey string) error
 	ListAccessKeys(ctx context.Context, userID string) ([]AccessKey, error)
 
-	// STS temporary credentials — see docs/SECURITY.md, "Temporary Credentials"
+	// STS temporary credentials — see docs/reference/security.md, "Temporary Credentials (STS)"
 	IssueSTSSession(ctx context.Context, userID string, durationSeconds int, sessionPolicy string) (*STSSession, error)
 	ResolveSTSSessionSecret(ctx context.Context, tempAccessKeyID, sessionToken string) (*User, string, error)
 	AuthorizeSTSRequest(ctx context.Context, tempAccessKeyID, sessionToken string, r *http.Request) (*User, error)

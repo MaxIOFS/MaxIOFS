@@ -1,6 +1,6 @@
 site_name: MaxIOFS
 site_description: Self-hosted S3-compatible object storage — user guide, deployment and reference.
-site_url: https://maxiofs.github.io/MaxIOFS/
+site_url: https://docs.maxiofs.com/
 repo_url: https://github.com/MaxIOFS/MaxIOFS
 repo_name: MaxIOFS/MaxIOFS
 edit_uri: edit/main/docs/

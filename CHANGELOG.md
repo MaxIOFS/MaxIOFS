@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Documentation site at https://maxiofs.github.io/MaxIOFS/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
+- Documentation site at https://docs.maxiofs.com/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
 
 ### Changed
 - Disabling your own 2FA and regenerating your backup codes ask for your password. A global administrator still disables another user's 2FA without it.
