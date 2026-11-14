@@ -41,7 +41,7 @@ Click a user to open their page:
 
 | Button / card | Does |
 |---------------|------|
-| **Change Password** | Sets a new password. Changing your own asks for the current one. |
+| **Change Password** | Sets a new password. Changing your own asks for the current one. From v1.10.1 it also ends the account's console sessions, so the user signs in again with the new password; access keys keep working. |
 | **Manage permissions** | Opens the user in [IAM](iam.md) |
 | **Edit User** | Email, display name, roles and status (active, inactive, suspended) |
 | **Create Access Key** | A new S3 key for this user |

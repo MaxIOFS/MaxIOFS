@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A presigned URL dated ahead of the clock outlasted the 7 days `X-Amz-Expires` allows: one dated more than 15 minutes ahead is refused.
 - A POST form upload was not held to all of its policy: `eq` conditions and conditions on fields other than the bucket, key and content type were ignored, and fields the policy does not name were accepted. They are enforced as in S3, and a field outside the policy is refused.
 - An identity provider set to Inactive still signed users in: by password for LDAP, by its sign-in URL for OAuth, and for STS federation. It signs nobody in.
+- STS federation (`AssumeRoleWithWebIdentity`, `AssumeRoleWithLDAPIdentity` and their JSON endpoints) did not apply the provider's groups to a user that follows them: one in no mapped group still got temporary credentials, with its old role. It is held to them as at a console sign-in.
 - `AssumeRoleWithWebIdentity` took a token to the provider named in `ProviderId` whatever its status: a provider that is not Active is refused, as on the JSON endpoint.
 - The last global administrator that can sign in could be deleted or deactivated when an inactive one existed, and deleted through the IAM API in any case, leaving the deployment with nobody to administer it. It is kept.
 - A cluster request with a wrong signature wrote the signature expected to the log.

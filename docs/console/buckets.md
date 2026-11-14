@@ -179,7 +179,9 @@ Until then the tab says *Website hosting not available*.
 
 Limits the bytes and, optionally, the number of objects the bucket can hold.
 Uploads that would pass the limit are refused with `QuotaExceeded`, from any
-client: S3, the console or backup software. Deletes always work.
+client: S3, the console or backup software. Deletes always work. From
+v1.10.1 the parts of multipart uploads in progress count too: a part is
+refused once what is stored and what is in progress reach the limit.
 
 A tenant can also have a storage quota of its own (see
 [Tenants](users.md#tenants)); an upload must fit in both.

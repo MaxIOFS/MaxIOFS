@@ -91,7 +91,8 @@ func (s *Server) resolveLDAPIdentity(ctx context.Context, providerID, username, 
 		return nil, &federationDenied{"user is not linked to this LDAP provider"}
 	}
 
-	if _, err := s.idpManager.AuthenticateExternal(ctx, providerID, user.ExternalID, password); err != nil {
+	external, err := s.idpManager.AuthenticateExternal(ctx, providerID, user.ExternalID, password)
+	if err != nil {
 		if errors.Is(err, idp.ErrUnavailable) {
 			return nil, err
 		}
@@ -103,6 +104,12 @@ func (s *Server) resolveLDAPIdentity(ctx context.Context, providerID, username, 
 		return nil, &federationDenied{"invalid credentials"}
 	}
 
+	// As at a console sign-in: a user that follows its groups gets the role
+	// they map to now, and none if they map to none.
+	user, allowed := s.applyProviderGroups(ctx, user, external)
+	if !allowed {
+		return nil, &federationDenied{"the user is in no group mapped any more"}
+	}
 	return user, nil
 }
 
@@ -131,6 +138,14 @@ func (s *Server) resolveWebIdentity(ctx context.Context, r *http.Request, provid
 	}
 
 	user, _ := s.authManager.FindUserByExternalID(ctx, externalUser.Email, "oauth:"+providerID)
+	if user != nil {
+		// As at a console sign-in: a user that follows its groups gets the
+		// role they map to now, and none if they map to none.
+		var allowed bool
+		if user, allowed = s.applyProviderGroups(ctx, user, externalUser); !allowed {
+			return nil, &federationDenied{"the user is in no group mapped any more"}
+		}
+	}
 	if user == nil {
 		var errCode string
 		user, errCode = s.tryAutoProvision(ctx, r, providerID, externalUser)
