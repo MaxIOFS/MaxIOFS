@@ -121,13 +121,15 @@ func TestTenantScopedAdminStaysInsideTenant(t *testing.T) {
 }
 
 // TestTenantIsNotAPermission_TheOwnerStillWorks is the other half: tightening
-// the check must not lock out the person the bucket belongs to.
+// the check must not lock out the person the bucket belongs to, holding the
+// permission on it.
 func TestTenantIsNotAPermission_TheOwnerStillWorks(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 	ctx := context.Background()
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "mine", env.userID))
+	env.grantOnBucket(t, "mine", auth.ActionListBucket)
 
 	owner := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 

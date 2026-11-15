@@ -297,6 +297,24 @@ func (s *Server) handleAddGroupMember(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "User and group must belong to the same tenant scope", http.StatusForbidden)
 		return
 	}
+	// A member holds what its group grants: who adds it must hold that too.
+	if !s.isGlobalAdmin(currentUser) {
+		source, ok := s.authManager.(interface {
+			GrantedByGroup(groupID string) ([]string, error)
+		})
+		if !ok {
+			s.writeError(w, "The permissions of the group could not be read", http.StatusInternalServerError)
+			return
+		}
+		documents, err := source.GrantedByGroup(groupID)
+		if err != nil {
+			s.writeError(w, "The permissions of the group could not be read", http.StatusInternalServerError)
+			return
+		}
+		if s.refuseBeyondCaller(w, r, documents) {
+			return
+		}
+	}
 
 	if err := s.authManager.AddGroupMember(r.Context(), groupID, req.UserID, currentUser.ID); err != nil {
 		s.writeError(w, "Failed to add member", http.StatusInternalServerError)

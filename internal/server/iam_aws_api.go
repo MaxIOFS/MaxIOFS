@@ -551,6 +551,10 @@ func (s *Server) iamCreatePolicyVersion(w http.ResponseWriter, r *http.Request, 
 	}
 
 	setDefault := strings.EqualFold(r.PostForm.Get("SetAsDefault"), "true")
+	// The default version is what the policy grants wherever it is attached.
+	if setDefault && s.iamRefuseBeyondCaller(w, r, r.PostForm.Get("PolicyDocument")) {
+		return
+	}
 	version, err := im.CreateIAMPolicyVersion(r.Context(), policy.Name, r.PostForm.Get("PolicyDocument"), setDefault)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
@@ -618,6 +622,14 @@ func (s *Server) iamSetDefaultPolicyVersion(w http.ResponseWriter, r *http.Reque
 		writeIAMErrorFor(w, r, err)
 		return
 	}
+	version, err := im.GetIAMPolicyVersion(r.Context(), policy.Name, r.PostForm.Get("VersionId"))
+	if err != nil {
+		writeIAMErrorFor(w, r, err)
+		return
+	}
+	if s.iamRefuseBeyondCaller(w, r, version.Document) {
+		return
+	}
 	if err := im.SetDefaultIAMPolicyVersion(r.Context(), policy.Name, r.PostForm.Get("VersionId")); err != nil {
 		writeIAMErrorFor(w, r, err)
 		return
@@ -632,6 +644,9 @@ func (s *Server) iamPutInlinePolicy(w http.ResponseWriter, r *http.Request, im a
 	targetType, targetID, err := s.iamResolveTarget(r, im, action, iamWrite)
 	if err != nil {
 		writeIAMErrorFor(w, r, err)
+		return
+	}
+	if s.iamRefuseBeyondCaller(w, r, r.PostForm.Get("PolicyDocument")) {
 		return
 	}
 	if err := im.PutIAMInlinePolicy(r.Context(), targetType, targetID,
@@ -730,8 +745,12 @@ func (s *Server) iamAttachPolicy(w http.ResponseWriter, r *http.Request, im auth
 	}
 	// Attaching is a read of the policy and a write to the target: a tenant may
 	// hand its own identities a deployment-wide policy, never another tenant's.
-	if _, err := s.iamPolicyForCaller(r, im, caller, policyName, iamRead); err != nil {
+	policy, err := s.iamPolicyForCaller(r, im, caller, policyName, iamRead)
+	if err != nil {
 		writeIAMErrorFor(w, r, err)
+		return
+	}
+	if attach && s.iamRefuseBeyondCaller(w, r, policy.Document) {
 		return
 	}
 
@@ -1020,6 +1039,17 @@ func (s *Server) iamPolicyForCaller(r *http.Request, im auth.IAMManager, caller 
 		return nil, fmt.Errorf("%w: policy %q belongs to the deployment", auth.ErrAccessDenied, name)
 	}
 	return nil, fmt.Errorf("%w: policy %q", auth.ErrIAMNoSuchEntity, name)
+}
+
+// iamRefuseBeyondCaller answers AccessDenied when documents grant what the
+// caller does not hold, and reports whether it did.
+func (s *Server) iamRefuseBeyondCaller(w http.ResponseWriter, r *http.Request, documents ...string) bool {
+	action := s.grantBeyondCaller(r, documents)
+	if action == "" {
+		return false
+	}
+	writeIAMError(w, r, http.StatusForbidden, "AccessDenied", "You cannot grant "+action+": you do not hold it yourself.")
+	return true
 }
 
 func iamPolicyNameFromARN(arn string) (string, error) {

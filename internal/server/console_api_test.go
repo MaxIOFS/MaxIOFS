@@ -530,9 +530,7 @@ func TestHandleCreateBucket(t *testing.T) {
 func TestHandleCreateBucket_TheOwnerNamedGetsTheBucket(t *testing.T) {
 	server := newClusterTestNode(t)
 	ctx := context.Background()
-	require.NoError(t, server.authManager.CreateUser(ctx, &auth.User{
-		ID: "named-owner", Username: "named-owner", Roles: []string{"user"}, Status: auth.UserStatusActive,
-	}))
+	userHolding(t, server, "named-owner", "", auth.ActionListBucket, auth.ActionGetObject)
 
 	body, _ := json.Marshal(map[string]string{"name": "for-named-owner", "ownerId": "named-owner", "ownerType": "user"})
 	req := createAuthenticatedRequest("POST", "/api/v1/buckets", bytes.NewReader(body), "", "the-admin", true)
@@ -552,6 +550,13 @@ func TestHandleCreateBucket_TheOwnerNamedGetsTheBucket(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "named-owner", info.OwnerID)
 }
+
+// ownerReads are the reads of a bucket the console's bucket pages make.
+var ownerReads = []string{auth.ActionListBucket, auth.ActionListBucketVersions, auth.ActionGetObject,
+	"s3:GetBucketPolicy", "s3:GetBucketAcl", "s3:GetBucketVersioning", "s3:GetBucketLifecycle", "s3:GetBucketCORS",
+	"s3:GetEncryptionConfiguration", "s3:GetBucketObjectLockConfiguration", "s3:GetBucketTagging",
+	"s3:GetBucketNotification", "s3:GetInventoryConfiguration", "s3:GetBucketWebsite", "s3:GetBucketPublicAccessBlock",
+	auth.ActionGetBucketQuota}
 
 // The owner of a bucket administers nothing else: signed in to the console, it
 // neither lists, reads nor deletes another user's bucket.
@@ -595,6 +600,10 @@ func TestABucketOwnerReachesNoOtherBucket(t *testing.T) {
 	status, body = call("POST", "/users", admin, map[string]any{"username": "owner", "password": "Owner-pass-12345!", "roles": []string{"user"}})
 	require.Equal(t, http.StatusOK, status, body)
 	status, body = call("POST", "/buckets", admin, map[string]string{"name": "owners-bucket", "ownerId": "owner", "ownerType": "user"})
+	require.Equal(t, http.StatusOK, status, body)
+	// What the owner reads of its bucket an administrator gave it.
+	status, body = call("PUT", "/users/owner/permissions", admin, map[string]any{"global": []string{},
+		"buckets": []map[string]any{{"bucket": "owners-bucket", "actions": ownerReads}}})
 	require.Equal(t, http.StatusOK, status, body)
 
 	owner := login("owner", "Owner-pass-12345!")

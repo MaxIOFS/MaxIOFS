@@ -823,6 +823,16 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "AccessDenied", "You do not have permission to create buckets", bucketName, r)
 		return
 	}
+	// A bucket created with Object Lock asks, as in AWS, the permissions of
+	// the Object Lock configuration and of the versioning it turns on.
+	if strings.EqualFold(r.Header.Get("x-amz-bucket-object-lock-enabled"), "true") {
+		for _, action := range []string{auth.ActionPutBucketObjectLockConfiguration, auth.ActionPutBucketVersioning} {
+			if !h.userCanPerformS3ActionInTenant(r.Context(), user, user.TenantID, action, bucketARN(bucketName)) {
+				h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+				return
+			}
+		}
+	}
 
 	tenantID := user.TenantID
 

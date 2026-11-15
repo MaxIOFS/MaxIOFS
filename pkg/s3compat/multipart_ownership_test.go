@@ -15,6 +15,10 @@ import (
 )
 
 // startUpload initiates a multipart upload and returns its id.
+// multipartActions are what the user of these tests holds on its bucket: the
+// refusals tested are those of the upload, not of the permissions.
+var multipartActions = []string{auth.ActionPutObject, auth.ActionListMultipartUploadParts, auth.ActionAbortMultipartUpload}
+
 func startUpload(t *testing.T, env *coverageTestEnv, bucketName, objectKey string) string {
 	t.Helper()
 	upload, err := env.objectManager.CreateMultipartUpload(
@@ -39,6 +43,7 @@ func TestMultipartOwnership_ForeignUploadIsRefused(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "mpown", env.userID))
+	env.grantOnBucket(t, "mpown", multipartActions...)
 
 	// The victim's upload, and a key the caller legitimately holds.
 	victimUpload := startUpload(t, env, "mpown", "victim/secret.txt")
@@ -95,6 +100,7 @@ func TestMultipartOwnership_CompleteKeepsItsContract(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "mpc", env.userID))
+	env.grantOnBucket(t, "mpc", multipartActions...)
 	victimUpload := startUpload(t, env, "mpc", "victim/secret.txt")
 
 	caller := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
@@ -126,6 +132,7 @@ func TestMultipartOwnership_TheOwnersOwnUploadStillWorks(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "mpok", env.userID))
+	env.grantOnBucket(t, "mpok", multipartActions...)
 	uploadID := startUpload(t, env, "mpok", "mine.txt")
 
 	owner := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}

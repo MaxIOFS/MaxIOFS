@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Before upgrading
+- A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions** (#15).
+
 ### Added
 - Documentation site at https://docs.maxiofs.com/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
 
@@ -16,8 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changing a password ends the console sessions of its account, the one that changed it included: the user signs in again with the new password. Access keys are not affected.
 - The parts of multipart uploads in progress count against the bucket and tenant quotas: a part is refused with `QuotaExceeded` once what is stored and what is in progress reach the quota. Before, only the completion was checked.
 - The permission picker offers Tenant administrator only for a user of a tenant, and Super administrator only for a user of no tenant.
+- The owner of a bucket holds on it what its own permissions allow there, no longer `s3:*`: creating a bucket gives nothing its creator does not hold. Owner policies of earlier versions are cut to that at startup, so a user that held nothing on its bucket but ownership needs its permissions granted (#15).
+- A tenant administrator grants only what it holds itself: a user's permissions, a level on a bucket, a group, a role or a policy through the IAM API. What a user already has stays when it is edited (#15).
+- A tenant administrator holds every permission a bucket or an object takes, in its tenant only: replication, logging, accelerate, request payment, ownership controls and the GOVERNANCE bypass were missing.
 
 ### Fixed
+- Creating a bucket in the console asked only `s3:CreateBucket`, whatever the settings it was created with: versioning, Object Lock with a default retention, public access, lifecycle, encryption and tags. Each asks the permission of its own S3 call (#16).
+- An S3 `CreateBucket` with Object Lock asked only `s3:CreateBucket`: it asks `s3:PutBucketObjectLockConfiguration` and `s3:PutBucketVersioning`, as in AWS (#16).
+- A bucket a global administrator created with Owner Type *Tenant*, or for a user of a tenant, was created in the global namespace: outside the tenant's bucket count and out of reach of its users. It is created in the tenant (#15).
+- The Owner column of the bucket list showed *Global* for buckets in a tenant: it shows the tenant the bucket is in (#15).
 - A user of no tenant with the tenant administrator role or permission was taken for an administrator, and could set a global administrator's password. It administers nothing.
 - A presigned GET whose query the router and the handler read differently was allowed by its signature alone, without its signer's permissions: any access key could read any object.
 - A presigned URL dated ahead of the clock outlasted the 7 days `X-Amz-Expires` allows: one dated more than 15 minutes ahead is refused.

@@ -1337,21 +1337,56 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	if !s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionCreateBucket, "You do not have permission to create buckets") {
 		return
 	}
-
-	var targetTenantID string
-	if user.TenantID != "" {
-		targetTenantID = user.TenantID
+	// The bucket is created with what the request sets: each setting asks the
+	// permission its own S3 call asks, as on the S3 API.
+	for _, need := range creationSettingActions(req.Versioning, req.ObjectLock != nil && req.ObjectLock.Enabled,
+		req.Encryption, req.PublicAccessBlock, req.Lifecycle, req.Tags) {
+		if !s.requireConsoleBucketS3Action(w, r, req.Name, need.action, "You do not have permission to "+need.what) {
+			return
+		}
 	}
 
-	if targetTenantID != "" {
-		tenant, err := s.authManager.GetTenant(r.Context(), targetTenantID)
+	// The bucket is created in its owner's namespace: a tenant a global
+	// administrator names, or the tenant of the user it names; otherwise the
+	// caller's own.
+	tenantID := user.TenantID
+	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	creator := user.ID
+	if isGlobalAdmin {
+		switch req.OwnerType {
+		case "tenant":
+			if req.OwnerID == "" {
+				s.writeError(w, "An owner tenant is required", http.StatusBadRequest)
+				return
+			}
+			if _, err := s.authManager.GetTenant(r.Context(), req.OwnerID); err != nil {
+				s.writeError(w, "The owner tenant does not exist", http.StatusBadRequest)
+				return
+			}
+			tenantID = req.OwnerID
+		case "user":
+			if req.OwnerID != "" {
+				owner, err := s.authManager.GetUser(r.Context(), req.OwnerID)
+				if err != nil {
+					s.writeError(w, "The owner user does not exist", http.StatusBadRequest)
+					return
+				}
+				// A user named as the owner gets the bucket as if it had
+				// created it: the owner policy is written for that user.
+				tenantID, creator = owner.TenantID, owner.ID
+			}
+		}
+	}
+
+	if tenantID != "" {
+		tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
 		if err != nil {
 			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
 			return
 		}
 
 		if tenant.MaxBuckets > 0 {
-			count, err := s.tenantBucketCount(r.Context(), targetTenantID)
+			count, err := s.tenantBucketCount(r.Context(), tenantID)
 			if err != nil {
 				s.writeError(w, "Failed to count the tenant's buckets", http.StatusInternalServerError)
 				return
@@ -1385,17 +1420,6 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, "Object Lock mode (GOVERNANCE or COMPLIANCE) is required when a retention period is specified", http.StatusBadRequest)
 			return
 		}
-	}
-
-	// Extract tenant ID from user context
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-
-	// A user a global administrator names as the owner gets the bucket as if it
-	// had created it: the owner policy is written for that user.
-	creator := user.ID
-	if isGlobalAdmin && req.OwnerType == "user" && req.OwnerID != "" {
-		creator = req.OwnerID
 	}
 
 	// Crear el bucket
@@ -1495,6 +1519,39 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, map[string]string{"name": req.Name})
+}
+
+// settingAction is the permission one setting of a new bucket asks, and what
+// a refusal says the caller may not do.
+type settingAction struct{ action, what string }
+
+// creationSettingActions are the permissions the settings a bucket is created
+// with ask: those of the S3 calls that set them. What a new bucket has anyway
+// asks nothing: versioning off, the encryption it always has, and public
+// access blocked in full.
+func creationSettingActions(versioning *bucket.VersioningConfig, objectLock bool, encryption *bucket.EncryptionConfig,
+	publicAccess *bucket.PublicAccessBlock, lifecycle *bucket.LifecycleConfig, tags map[string]string) []settingAction {
+	var needs []settingAction
+	if objectLock || (versioning != nil && versioning.Status == "Enabled") {
+		needs = append(needs, settingAction{auth.ActionPutBucketVersioning, "enable versioning"})
+	}
+	if objectLock {
+		needs = append(needs, settingAction{auth.ActionPutBucketObjectLockConfiguration, "enable Object Lock"})
+	}
+	if encryption != nil && encryption.Type != "" && encryption.Type != "AES256" {
+		needs = append(needs, settingAction{auth.ActionPutBucketEncryption, "set the bucket's encryption"})
+	}
+	if publicAccess != nil && !(publicAccess.BlockPublicAcls && publicAccess.IgnorePublicAcls &&
+		publicAccess.BlockPublicPolicy && publicAccess.RestrictPublicBuckets) {
+		needs = append(needs, settingAction{auth.ActionPutBucketPublicAccess, "allow public access"})
+	}
+	if lifecycle != nil {
+		needs = append(needs, settingAction{auth.ActionPutBucketLifecycle, "set a lifecycle"})
+	}
+	if len(tags) > 0 {
+		needs = append(needs, settingAction{auth.ActionPutBucketTagging, "tag buckets"})
+	}
+	return needs
 }
 
 func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
@@ -2640,6 +2697,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			http.StatusForbidden)
 		return
 	}
+	if s.refuseRolesBeyondCaller(w, r, createRequest.Roles, createRequest.TenantID) {
+		return
+	}
 
 	// Create user (password will be hashed by CreateUser)
 	user := &auth.User{
@@ -2835,6 +2895,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			!containsAdminRole(user.Roles) {
 			s.writeError(w, "Only a global administrator can grant the administrator role",
 				http.StatusForbidden)
+			return
+		}
+		if s.refuseRolesBeyondCaller(w, r, newRoles(updateRequest.Roles, user.Roles), user.TenantID) {
 			return
 		}
 		user.Roles = updateRequest.Roles
@@ -4841,6 +4904,9 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 
 	if req.PermissionLevel == "" {
 		s.writeError(w, "Permission level is required", http.StatusBadRequest)
+		return
+	}
+	if s.refuseBeyondCaller(w, r, []string{auth.BucketLevelDocument(bucketName, req.PermissionLevel)}) {
 		return
 	}
 

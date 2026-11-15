@@ -34,6 +34,16 @@ func setUserInContext(ctx context.Context, user *auth.User) context.Context {
 	return context.WithValue(ctx, "user", user)
 }
 
+// grantOnBucket gives the environment's user actions on a bucket, as an
+// administrator gives them: owning a bucket gives its owner only what it holds.
+func (env *coverageTestEnv) grantOnBucket(t *testing.T, bucketName string, actions ...string) {
+	t.Helper()
+	im, ok := env.authManager.(auth.IAMManager)
+	require.True(t, ok)
+	documents := auth.SelectionDocuments(&auth.UserPermissions{Buckets: []auth.BucketGrant{{Bucket: bucketName, Actions: actions}}})
+	require.NoError(t, im.PutIAMInlinePolicy(context.Background(), auth.IAMTargetUser, env.userID, "grant-"+bucketName, documents[0]))
+}
+
 // coverageTestEnv contains the testing environment
 type coverageTestEnv struct {
 	handler       *Handler
@@ -288,6 +298,7 @@ func TestDeleteBucket_Success(t *testing.T) {
 	// Create a bucket first
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "delete-test-bucket", env.userID)
 	require.NoError(t, err)
+	env.grantOnBucket(t, "delete-test-bucket", auth.ActionDeleteBucket)
 
 	// Create user for context
 	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
@@ -330,10 +341,7 @@ func TestDeleteBucket_NotFound_WithPermission(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 
-	ctx := context.Background()
-
-	// Owning a bucket is what gives them the right to delete one.
-	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "owned-bucket", env.userID))
+	env.grantOnBucket(t, "nonexistent-bucket", auth.ActionDeleteBucket)
 
 	user := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
@@ -358,6 +366,7 @@ func TestDeleteBucket_NotEmpty(t *testing.T) {
 	// Create bucket
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "bucket-with-objects", env.userID)
 	require.NoError(t, err)
+	env.grantOnBucket(t, "bucket-with-objects", auth.ActionDeleteBucket)
 
 	// Add object to bucket
 	bucketPath := env.tenantID + "/bucket-with-objects"
@@ -441,6 +450,7 @@ func TestDeleteObjects_Success(t *testing.T) {
 	// Create bucket and objects
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "batch-delete-bucket", env.userID)
 	require.NoError(t, err)
+	env.grantOnBucket(t, "batch-delete-bucket", auth.ActionDeleteObject)
 
 	bucketPath := env.tenantID + "/batch-delete-bucket"
 	for i := 0; i < 3; i++ {
@@ -1041,6 +1051,7 @@ func TestDeleteObjects_NonexistentObjects(t *testing.T) {
 	// Create empty bucket
 	err := env.bucketManager.CreateBucket(ctx, env.tenantID, "empty-bucket", env.userID)
 	require.NoError(t, err)
+	env.grantOnBucket(t, "empty-bucket", auth.ActionDeleteObject)
 
 	// Try to delete non-existent objects
 	deleteReq := DeleteObjectsRequest{

@@ -259,6 +259,10 @@ same request whether it arrived on a console session or signed with a key.
 **A bucket's owner** — the user who created it, or the one an administrator
 made its owner — holds `s3:*` and the bucket's quota actions on the bucket and
 its objects, in the inline policy `owner-<bucket>`, and nothing outside it.
+From v1.10.1 that policy holds only what the owner's own permissions allow on
+the bucket, never `s3:*`, and the policies of earlier versions are cut to that
+on the first start: a user whose only access to a bucket was owning it gets
+`AccessDenied` there until it is granted permissions on it.
 Every console read of a bucket (its details and settings, a search, its
 versions) needs its permission on the bucket, as a change does. Administration
 (`maxiofs:SuperAdmin`) counts only when it is granted on every resource (`*`).

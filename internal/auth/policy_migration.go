@@ -286,25 +286,6 @@ func (s *SQLiteStore) ensureCataloguePolicy(name string) error {
 	}, entry.Document())
 }
 
-// bucketOwnerActions are what the owner of a bucket may do: whatever a bucket
-// and its objects take, nothing more. A permission that names no bucket, as
-// administration does, is asked of anywhere: named on a bucket, it would count.
-var bucketOwnerActions = []string{"s3:*", ActionGetBucketQuota, ActionPutBucketQuota}
-
-// GrantBucketOwnerPolicy records a bucket's owner as a policy on that owner.
-func (s *SQLiteStore) GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error {
-	if ownerType != "" && ownerType != "user" {
-		return fmt.Errorf("bucket owner must be a user, got %q", ownerType)
-	}
-	targetType := IAMTargetUser
-
-	document := bucketGrantDocument(bucketName, bucketOwnerActions)
-	if document == "" {
-		return nil
-	}
-	return s.PutIAMInlinePolicy(targetType, ownerID, "owner-"+bucketName, document)
-}
-
 // RevokeBucketPolicies removes every policy naming a bucket, so deleting one
 // does not leave grants behind that a later bucket of the same name inherits.
 func (s *SQLiteStore) RevokeBucketPolicies(bucketName string) ([]InlinePolicyRef, error) {

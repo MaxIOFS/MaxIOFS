@@ -227,8 +227,13 @@ func grantsEverythingEverywhere(document string) bool {
 	return false
 }
 
+// tenantAdminDocument is what a tenant administrator holds: its tenant's
+// administration, and every permission a bucket or an object takes, named one
+// by one and never as s3:*. The account boundary keeps it in its tenant; a
+// wildcard on everything would reach every tenant's buckets wherever a path
+// forgot the boundary.
 func tenantAdminDocument() string {
-	return allowDocument([]string{
+	return allowDocument(withEveryBucketPermission([]string{
 		ActionTenantAdmin,
 		ActionGetBucketQuota,
 		ActionPutBucketQuota,
@@ -287,7 +292,23 @@ func tenantAdminDocument() string {
 		ActionAbortMultipartUpload,
 		ActionListMultipartUploadParts,
 		ActionListBucketMultipartUploads,
-	})
+	}))
+}
+
+// withEveryBucketPermission is actions with every permission of the catalogue
+// that a bucket or an object takes.
+func withEveryBucketPermission(actions []string) []string {
+	seen := make(map[string]bool, len(actions))
+	for _, action := range actions {
+		seen[action] = true
+	}
+	for _, permission := range permissionCatalog {
+		if permission.ResourceScoped && !seen[permission.Action] {
+			seen[permission.Action] = true
+			actions = append(actions, permission.Action)
+		}
+	}
+	return actions
 }
 
 // EffectiveActionsInTenant returns every action a user's policies permit,

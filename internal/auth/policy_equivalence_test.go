@@ -382,10 +382,36 @@ func TestPolicyCatalog_CoversEveryCapability(t *testing.T) {
 	}
 }
 
+// ownerWithPermissions is a user who holds, everywhere in its tenant, the
+// actions given, and actions on bucket onlyOn alone.
+func ownerWithPermissions(t *testing.T, am *authManager, id, tenantID string, everywhere []string, onlyOn string, there []string) {
+	t.Helper()
+	require.NoError(t, am.store.CreateUser(&User{ID: id, Username: id, TenantID: tenantID, Status: UserStatusActive}))
+	if len(everywhere) > 0 {
+		require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetUser, id, "everywhere", allowDocument(everywhere)))
+	}
+	if onlyOn != "" {
+		require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetUser, id, "only-there", bucketGrantDocument(onlyOn, there)))
+	}
+}
+
+// ownerPolicyOf is the owner policy of bucket on id, "" when there is none.
+func ownerPolicyOf(t *testing.T, am *authManager, id, bucket string) string {
+	t.Helper()
+	policy, err := am.store.GetIAMInlinePolicy(IAMTargetUser, id, "owner-"+bucket)
+	if isNoSuchEntity(err) {
+		return ""
+	}
+	require.NoError(t, err)
+	return policy.Document
+}
+
 // TestBucketOwner_CannotBeAWholeTenant pins who a bucket may belong to.
 func TestBucketOwner_CannotBeAWholeTenant(t *testing.T) {
 	am, _, cleanup := setupSTSTest(t)
 	defer cleanup()
+	require.NoError(t, am.store.CreateTenant(&Tenant{ID: "t-alpha", Name: "t-alpha", Status: "active"}))
+	ownerWithPermissions(t, am, "creator", "t-alpha", []string{ActionDeleteObject}, "", nil)
 
 	require.Error(t, am.store.GrantBucketOwnerPolicy("shared", "tenant", "t-alpha"),
 		"a tenant is a namespace, not an owner")
@@ -398,23 +424,56 @@ func TestBucketOwner_CannotBeAWholeTenant(t *testing.T) {
 		"another member of the tenant gets nothing from someone else's bucket")
 }
 
-// The owner of a bucket gets the bucket, not what names no bucket: no
-// administration, IAM or console permission is granted to it anywhere.
-func TestBucketOwner_GetsTheBucketOnly(t *testing.T) {
+// The owner of a bucket gets on it what it holds there, and no more: not what
+// it holds only on another bucket, not an action it does not hold, and never
+// what names no bucket: no administration, IAM or console permission.
+func TestBucketOwner_GetsWhatItHoldsOnTheBucket(t *testing.T) {
 	am, _, cleanup := setupSTSTest(t)
 	defer cleanup()
+	ownerWithPermissions(t, am, "creator", "",
+		[]string{ActionDeleteBucket, ActionPutBucketQuota, ActionPutObject, ActionConsoleAccess},
+		"other", []string{ActionGetObject})
 	require.NoError(t, am.store.GrantBucketOwnerPolicy("owned", "user", "creator"))
 
-	documents, err := am.store.EffectivePolicyDocumentsInTenant("creator", nil, "")
-	require.NoError(t, err)
-	set := &PolicySet{UserID: "creator", Documents: documents, Actions: ActionsFromDocuments(documents)}
-	for _, action := range []string{ActionSuperAdmin, ActionTenantAdmin, "iam:CreateUser", ActionConsoleAccess} {
-		assert.False(t, set.AllowsAnywhere(action), "the owner of a bucket is granted %s", action)
-	}
+	owner := []string{ownerPolicyOf(t, am, "creator", "owned")}
 	for _, action := range []string{ActionDeleteBucket, ActionPutBucketQuota} {
-		assert.True(t, EvaluateIAMDocuments(documents, action, "arn:aws:s3:::owned"), "the owner cannot %s", action)
+		assert.True(t, EvaluateIAMDocuments(owner, action, "arn:aws:s3:::owned"), "the owner may %s, as it holds it", action)
 	}
-	assert.True(t, EvaluateIAMDocuments(documents, ActionPutObject, "arn:aws:s3:::owned/k"))
+	assert.True(t, EvaluateIAMDocuments(owner, ActionPutObject, "arn:aws:s3:::owned/k"))
+	assert.False(t, EvaluateIAMDocuments(owner, ActionGetObject, "arn:aws:s3:::owned/k"), "held on another bucket only")
+	assert.False(t, EvaluateIAMDocuments(owner, ActionPutBucketVersioning, "arn:aws:s3:::owned"), "not held at all")
+	set := &PolicySet{UserID: "creator", Documents: owner, Actions: ActionsFromDocuments(owner)}
+	for _, action := range []string{ActionSuperAdmin, ActionTenantAdmin, "iam:CreateUser", ActionConsoleAccess} {
+		assert.False(t, set.AllowsAnywhere(action), "the owner policy grants %s", action)
+	}
+	assert.NotContains(t, owner[0], `"s3:*"`)
+}
+
+// A user that holds nothing gets nothing from creating a bucket, and an owner
+// policy of an earlier release, which gave everything, is cut to what its owner
+// holds.
+func TestBucketOwner_HoldsNothingItWasNotGiven(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	ownerWithPermissions(t, am, "nobody", "", nil, "", nil)
+	require.NoError(t, am.store.GrantBucketOwnerPolicy("empty", "user", "nobody"))
+	assert.Empty(t, ownerPolicyOf(t, am, "nobody", "empty"), "no owner policy for a user that holds nothing")
+
+	ownerWithPermissions(t, am, "reader", "", []string{ActionListBucket, ActionGetObject}, "", nil)
+	require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetUser, "reader", "owner-old", bucketGrantDocument("old", []string{"s3:*"})))
+	require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetUser, "nobody", "owner-older", bucketGrantDocument("older", []string{"s3:*"})))
+
+	changed, err := am.store.RecutBucketOwnerPolicies()
+	require.NoError(t, err)
+	assert.Equal(t, 2, changed)
+	old := []string{ownerPolicyOf(t, am, "reader", "old")}
+	assert.True(t, EvaluateIAMDocuments(old, ActionGetObject, "arn:aws:s3:::old/k"), "what the owner holds stays")
+	assert.False(t, EvaluateIAMDocuments(old, ActionDeleteObject, "arn:aws:s3:::old/k"), "s3:* is cut")
+	assert.Empty(t, ownerPolicyOf(t, am, "nobody", "older"), "an owner holding nothing keeps nothing")
+
+	changed, err = am.store.RecutBucketOwnerPolicies()
+	require.NoError(t, err)
+	assert.Zero(t, changed, "a second pass changes nothing")
 }
 
 // Administration granted on one bucket is not administration.

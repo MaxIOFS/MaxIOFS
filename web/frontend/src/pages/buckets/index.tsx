@@ -414,12 +414,12 @@ export default function BucketsPage() {
   const formatDate = (ds: string) =>
     new Date(ds).toLocaleDateString(activeLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+  // A bucket is the tenant's it is in, whoever owns it.
   const getOwnerDisplay = (bucket: Bucket) => {
-    const ownerId = bucket.owner_id || bucket.ownerId;
-    const ownerType = bucket.owner_type || bucket.ownerType;
-    if (ownerType === 'tenant' && ownerId) {
-      const tenant = tenants?.find(t => t.id === ownerId);
-      return { type: 'tenant', name: tenant?.displayName || ownerId, icon: Building2 };
+    const tenantId = bucket.tenant_id || bucket.tenantId;
+    if (tenantId) {
+      const tenant = tenants?.find(t => t.id === tenantId);
+      return { type: 'tenant', name: tenant?.displayName || tenant?.name || tenantId, icon: Building2 };
     }
     return { type: 'global', name: 'Global', icon: Shield };
   };

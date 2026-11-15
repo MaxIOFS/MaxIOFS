@@ -126,6 +126,7 @@ func TestANewBucketStartsWithoutWhatAFormerOneLeft(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 
 	s.dropOrphanedBucketState(ctx)
+	userHolding(t, s, "new-owner", "", auth.ActionListBucket, auth.ActionGetObject)
 	require.NoError(t, s.bucketManager.CreateBucket(ctx, "", "left-behind", "new-owner"))
 	assert.Equal(t, []string{"owner policy"}, bucketState(t, s, "left-behind"))
 	assert.True(t, hasRow(t, s, `SELECT COUNT(*) FROM iam_inline_policies WHERE name = 'owner-left-behind' AND target_id = 'new-owner'`))

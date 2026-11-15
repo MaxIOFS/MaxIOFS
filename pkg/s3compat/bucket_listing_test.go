@@ -48,12 +48,13 @@ func TestListBuckets_ShowsWhatThePoliciesGrant(t *testing.T) {
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "mine", env.userID))
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "someone-elses", "another-user"))
+	env.grantOnBucket(t, "mine", auth.ActionListAllMyBuckets, auth.ActionListBucket)
 
 	owner := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
 	names := listedBuckets(t, env, owner)
 	assert.Contains(t, names, "mine",
-		"a bucket the caller owns carries an owner policy and must be listed")
+		"a bucket the caller was granted must be listed")
 	assert.NotContains(t, names, "someone-elses",
 		"sharing a tenant is not a grant; that bucket was never given to this caller")
 }

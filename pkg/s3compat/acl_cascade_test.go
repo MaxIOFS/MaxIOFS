@@ -77,6 +77,7 @@ func TestACLCascade_AGrantedUserStillReads(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "aclowner", env.userID))
+	env.grantOnBucket(t, "aclowner", auth.ActionListBucket)
 
 	owner := &auth.User{ID: env.userID, TenantID: env.tenantID, Roles: []string{"user"}}
 
@@ -88,5 +89,5 @@ func TestACLCascade_AGrantedUserStillReads(t *testing.T) {
 	env.handler.HeadBucket(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code,
-		"the bucket's owner holds the policy and must still reach it")
+		"a user granted the bucket must still reach it")
 }

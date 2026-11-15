@@ -199,6 +199,7 @@ func TestARecreatedBucketKeepsItsOwnerPolicy(t *testing.T) {
 		require.NoError(t, on.db.QueryRow(`SELECT COUNT(*) FROM iam_inline_policies WHERE target_type = 'user' AND target_id = ? AND name = 'owner-reborn'`, owner).Scan(&n))
 		return n == 1
 	}
+	userHolding(t, s, owner, "", auth.ActionListBucket, auth.ActionGetObject)
 	require.NoError(t, s.bucketManager.CreateBucket(ctx, "", "reborn", owner))
 	require.True(t, ownerPolicy(s))
 	require.NoError(t, s.bucketManager.DeleteBucket(ctx, "", "reborn"))

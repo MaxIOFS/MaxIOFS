@@ -55,4 +55,17 @@ func (s *Server) backfillBucketOwnerPolicies(ctx context.Context) {
 	if written > 0 {
 		logrus.WithField("buckets", written).Info("Wrote owner policies for existing buckets")
 	}
+
+	// An owner policy holds what its owner holds on its bucket: those written
+	// before gave everything, and are cut to that.
+	if recutter, ok := s.authManager.(interface{ RecutBucketOwnerPolicies() (int, error) }); ok {
+		changed, err := recutter.RecutBucketOwnerPolicies()
+		if err != nil {
+			logrus.WithError(err).Warn("Could not cut every bucket owner policy to what its owner holds")
+		}
+		if changed > 0 {
+			logrus.WithField("policies", changed).Info("Bucket owner policies cut to what their owners hold")
+			s.afterIAMWrite(ctx)
+		}
+	}
 }

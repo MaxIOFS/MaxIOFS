@@ -425,6 +425,14 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	current, err := store.GetUserPermissions(userID)
+	if err != nil {
+		s.writeIAMConsoleError(w, err)
+		return
+	}
+	if s.refuseBeyondCaller(w, r, auth.SelectionDocuments(addedPermissions(&permissions, current))) {
+		return
+	}
 	if err := store.SetUserPermissions(userID, &permissions); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
