@@ -1,0 +1,174 @@
+package server
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/audit"
+	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// callAs answers handler for the user id with vars and body, as a console
+// session of it does.
+func callAs(t *testing.T, s *Server, id string, handler http.HandlerFunc, vars map[string]string, body string) int {
+	t.Helper()
+	user, err := s.authManager.GetUser(context.Background(), id)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req = mux.SetURLVars(req.WithContext(context.WithValue(req.Context(), "user", user)), vars)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	return rec.Code
+}
+
+// administrators is a deployment with a tenant acme administered in each way
+// the server accepts, a member of it, a tenant other with its administrator,
+// and global administrators by the role and by the permission.
+func administrators(t *testing.T) *Server {
+	t.Helper()
+	auditDir := t.TempDir() // removed after the server, which closes the audit log, stops
+	s := newClusterTestNode(t)
+	auditStore, err := audit.NewSQLiteStore(filepath.Join(auditDir, "audit.db"), logrus.StandardLogger())
+	require.NoError(t, err)
+	s.auditManager = audit.NewManager(auditStore, logrus.StandardLogger())
+	ctx := context.Background()
+	for _, id := range []string{"acme", "other"} {
+		require.NoError(t, s.authManager.CreateTenant(ctx, &auth.Tenant{ID: id, Name: id, Status: "active"}))
+	}
+	store := s.authManager.(interface {
+		SetUserPermissions(string, *auth.UserPermissions) error
+	})
+	add := func(id, tenantID string, roles []string, permissions ...string) {
+		now := time.Now().Unix()
+		require.NoError(t, s.authManager.CreateUser(ctx, &auth.User{ID: id, Username: id, Password: "Secret123!",
+			Email: id + "@example.com", TenantID: tenantID, Status: auth.UserStatusActive, Roles: roles,
+			CreatedAt: now, UpdatedAt: now}))
+		if len(permissions) > 0 {
+			require.NoError(t, store.SetUserPermissions(id, &auth.UserPermissions{Global: permissions, Buckets: []auth.BucketGrant{}}))
+		}
+	}
+	add("acme-by-admin-role", "acme", []string{auth.RoleAdmin})
+	add("acme-by-tenant-admin-role", "acme", []string{auth.RoleTenantAdmin})
+	add("acme-by-permission", "acme", []string{auth.RoleUser}, auth.ActionTenantAdmin, auth.ActionConsoleAccess)
+	add("acme-member", "acme", []string{auth.RoleUser})
+	add("other-admin", "other", []string{auth.RoleTenantAdmin})
+	add("global-by-role", "", []string{auth.RoleAdmin})
+	add("global-by-permission", "", []string{auth.RoleUser}, auth.ActionSuperAdmin, auth.ActionConsoleAccess)
+	return s
+}
+
+var acmeAdministrators = []string{"acme-by-admin-role", "acme-by-tenant-admin-role", "acme-by-permission"}
+
+// Whoever administers a tenant, by a role or by the permission, reaches what
+// an administrator of a tenant reaches: the audit logs, the integrity status
+// of its buckets, recounting a bucket. A member of the tenant does not.
+func TestATenantIsAdministeredAlikeByRoleOrPermission(t *testing.T) {
+	s := administrators(t)
+	require.NoError(t, s.bucketManager.CreateBucket(context.Background(), "acme", "data", "acme-member"))
+	bucket := map[string]string{"bucket": "data"}
+
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+		vars    map[string]string
+	}{
+		{"audit logs", s.handleListAuditLogs, nil},
+		{"an audit log", s.handleGetAuditLog, map[string]string{"id": "1"}},
+		{"integrity status", s.handleGetIntegrityStatus, bucket},
+		{"recount a bucket", s.handleRecalculateBucketStats, bucket},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, id := range acmeAdministrators {
+				assert.NotEqual(t, http.StatusForbidden, callAs(t, s, id, tc.handler, tc.vars, ""), id)
+			}
+			assert.Equal(t, http.StatusForbidden, callAs(t, s, "acme-member", tc.handler, tc.vars, ""), "a member")
+		})
+	}
+}
+
+// With two-factor authentication required of administrators, an
+// administrator without it does not sign in, whatever makes it one.
+func TestAdministratorsWithoutTwoFactorDoNotSignInWhenItIsRequired(t *testing.T) {
+	s := administrators(t)
+	router := mux.NewRouter()
+	s.setupConsoleAPIRoutes(router)
+	require.NoError(t, s.settingsManager.Set("security.require_2fa_admin", "true"))
+
+	for _, id := range append([]string{"global-by-role", "global-by-permission"}, acmeAdministrators...) {
+		assert.Equal(t, http.StatusForbidden, signInFrom(t, router, "198.51.100.40", id, "Secret123!"), id)
+	}
+	assert.Equal(t, http.StatusOK, signInFrom(t, router, "198.51.100.40", "acme-member", "Secret123!"), "a member")
+}
+
+// A user sets its own preferences; another user's only who administers it:
+// the administrator of a tenant its tenant's users, never a global
+// administrator's or another tenant's.
+func TestPreferencesAreSetByTheUserOrWhoAdministersIt(t *testing.T) {
+	s := administrators(t)
+	prefs := `{"themePreference":"dark","languagePreference":"en"}`
+	of := func(id string) map[string]string { return map[string]string{"user": id} }
+
+	assert.Equal(t, http.StatusOK, callAs(t, s, "acme-member", s.handleUpdateUserPreferences, of("acme-member"), prefs), "its own")
+	assert.Equal(t, http.StatusForbidden, callAs(t, s, "acme-member", s.handleUpdateUserPreferences, of("acme-by-admin-role"), prefs), "a member, another's")
+	assert.Equal(t, http.StatusOK, callAs(t, s, "acme-by-tenant-admin-role", s.handleUpdateUserPreferences, of("acme-member"), prefs), "its tenant's user")
+	assert.Equal(t, http.StatusForbidden, callAs(t, s, "acme-by-admin-role", s.handleUpdateUserPreferences, of("global-by-role"), prefs), "a global administrator's")
+	assert.Equal(t, http.StatusForbidden, callAs(t, s, "acme-by-admin-role", s.handleUpdateUserPreferences, of("other-admin"), prefs), "another tenant's")
+	assert.Equal(t, http.StatusOK, callAs(t, s, "global-by-permission", s.handleUpdateUserPreferences, of("acme-member"), prefs), "a global administrator")
+}
+
+// An alert about the servers goes to the global administrators only: it names
+// buckets and objects of every tenant. One about a tenant goes to them and to
+// that tenant's administrators, whatever makes them so.
+func TestAlertsGoToTheAdministratorsOfWhatTheyConcern(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+
+	servers, err := s.adminEmails(ctx, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"admin@maxiofs.local", "global-by-role@example.com", "global-by-permission@example.com"}, servers)
+
+	acme, err := s.adminEmails(ctx, "acme")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"admin@maxiofs.local", "global-by-role@example.com", "global-by-permission@example.com",
+		"acme-by-admin-role@example.com", "acme-by-tenant-admin-role@example.com", "acme-by-permission@example.com"}, acme)
+}
+
+// A client of the notification stream is sent, on connecting, the state of
+// the tenants it sees: a tenant's administrator never another tenant's
+// buckets.
+func TestTheNotificationStreamSendsATenantOnlyItsOwnState(t *testing.T) {
+	s := administrators(t)
+	if s.quotaAlerts == nil {
+		s.quotaAlerts = newQuotaAlertTracker()
+	}
+	if s.bucketQuotaAlerts == nil {
+		s.bucketQuotaAlerts = newBucketQuotaAlertTracker()
+	}
+	s.quotaAlerts.levels.Store("acme", alertLevelNone)
+	s.quotaAlerts.levels.Store("other", alertLevelNone)
+	s.bucketQuotaAlerts.levels.Store(bucketAlertKey("acme", "acme-bucket"), alertLevelNone)
+	s.bucketQuotaAlerts.levels.Store(bucketAlertKey("other", "other-bucket"), alertLevelNone)
+
+	user, err := s.authManager.GetUser(context.Background(), "acme-by-permission")
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	s.syncAlertStateToClient(rec, rec, user, s.isGlobalAdmin(user))
+	assert.Contains(t, rec.Body.String(), "acme-bucket")
+	assert.NotContains(t, rec.Body.String(), "other-bucket")
+	assert.NotContains(t, rec.Body.String(), `"tenantId":"other"`)
+
+	global, err := s.authManager.GetUser(context.Background(), "global-by-permission")
+	require.NoError(t, err)
+	rec = httptest.NewRecorder()
+	s.syncAlertStateToClient(rec, rec, global, s.isGlobalAdmin(global))
+	assert.Contains(t, rec.Body.String(), "other-bucket")
+}

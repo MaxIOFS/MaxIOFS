@@ -119,8 +119,8 @@ func (s *Server) handleGetIntegrityStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	isTenantAdmin := auth.IsAdminUser(r.Context()) && user.TenantID != ""
+	isGlobalAdmin := s.isGlobalAdmin(user)
+	isTenantAdmin := !isGlobalAdmin && s.isAdmin(user)
 
 	if !isGlobalAdmin && !isTenantAdmin {
 		s.writeError(w, "Forbidden", http.StatusForbidden)

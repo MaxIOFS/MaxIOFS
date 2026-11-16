@@ -164,11 +164,24 @@ func (s *Server) handleDeleteIAMPolicy(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-// handleListIAMRoles returns every role with the policies attached to it.
+// handleListIAMRoles returns every role with the policies attached to it. The
+// administrator of a tenant gets the roles it may give its users, for the
+// Create User form; the rest of IAM is a global administrator's.
 func (s *Server) handleListIAMRoles(w http.ResponseWriter, r *http.Request) {
-	im, ok := s.iamManagerOrError(w, r)
-	if !ok {
-		return
+	caller := s.getAuthUser(r)
+	tenantAdmin := caller != nil && caller.TenantID != "" && s.isAdmin(caller)
+	var im auth.IAMManager
+	if tenantAdmin {
+		var ok bool
+		if im, ok = s.authManager.(auth.IAMManager); !ok {
+			s.writeError(w, "IAM is not available on this server", http.StatusServiceUnavailable)
+			return
+		}
+	} else {
+		var ok bool
+		if im, ok = s.iamManagerOrError(w, r); !ok {
+			return
+		}
 	}
 
 	roles, err := im.ListIAMRoles(r.Context())
@@ -179,6 +192,9 @@ func (s *Server) handleListIAMRoles(w http.ResponseWriter, r *http.Request) {
 
 	views := make([]iamRoleView, 0, len(roles))
 	for _, role := range roles {
+		if tenantAdmin && !s.tenantAdminAssigns(r, caller, role) {
+			continue
+		}
 		view := iamRoleView{
 			Name:               role.Name,
 			ARN:                role.ARN,
@@ -204,6 +220,20 @@ func (s *Server) handleListIAMRoles(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "roles": views})
+}
+
+// tenantAdminAssigns reports whether the administrator of a tenant may give
+// role to its users: a role of its tenant or of every tenant, not an
+// administrator role, within what it holds.
+func (s *Server) tenantAdminAssigns(r *http.Request, caller *auth.User, role *auth.IAMRole) bool {
+	if role.TenantID != "" && role.TenantID != caller.TenantID {
+		return false
+	}
+	if containsAdminRole([]string{role.Name}) {
+		return false
+	}
+	documents, ok := s.documentsOfRoles([]string{role.Name}, caller.TenantID)
+	return ok && s.grantBeyondCaller(r, documents) == ""
 }
 
 // handleCreateIAMRole creates a role, or replaces the trust policy of one that

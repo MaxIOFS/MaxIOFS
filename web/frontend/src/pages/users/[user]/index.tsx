@@ -28,6 +28,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { UserPreferences } from '@/components/preferences/UserPreferences';
+import { adminOf, hasAdminRole } from '@/hooks/useCurrentUser';
 import {
   Table,
   TableBody,
@@ -90,8 +91,7 @@ export default function UserDetailsPage() {
   // Check if user is editing their own profile
   const isEditingSelf = currentUser?.id === userId;
   const isCurrentUser = isEditingSelf;
-  const isCurrentUserAdmin = currentUser?.roles?.includes('admin') ?? false;
-  const isGlobalAdmin = isCurrentUserAdmin && !currentUser?.tenantId;
+  const { isGlobalAdmin, isAnyAdmin: isCurrentUserAdmin } = adminOf(currentUser);
   const canView2FAStatus = !!userId && !currentUserLoading && (isCurrentUser || isGlobalAdmin);
 
   // Fetch user data
@@ -308,11 +308,11 @@ export default function UserDetailsPage() {
     const tenantUsers = allUsers?.filter(u => u.tenantId === userData.tenantId) || [];
 
     // Count admins in this tenant
-    const adminCount = tenantUsers.filter(u => u.roles?.includes('admin')).length;
+    const adminCount = tenantUsers.filter(u => hasAdminRole(u.roles, u.tenantId)).length;
 
     // Check if current user is admin and would be removed
-    const isCurrentlyAdmin = userData.roles?.includes('admin');
-    const willRemoveAdmin = isCurrentlyAdmin && !editForm.roles.includes('admin');
+    const isCurrentlyAdmin = hasAdminRole(userData.roles, userData.tenantId);
+    const willRemoveAdmin = isCurrentlyAdmin && !hasAdminRole(editForm.roles, userData.tenantId);
 
     return adminCount === 1 && willRemoveAdmin;
   };

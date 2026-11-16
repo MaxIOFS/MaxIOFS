@@ -1,4 +1,5 @@
 import { activeLocale } from '@/lib/utils';
+import { hasAdminRole } from '@/hooks/useCurrentUser';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -88,7 +89,7 @@ export function BucketPermissionsModal({
   // Tenant bucket → only non-admin users belonging to exactly that tenant
   // Admins (global or tenant) already have full access and don't need explicit grants
   const selectableUsers = users?.filter(u => {
-    if (u.roles?.includes('admin')) return false;
+    if (hasAdminRole(u.roles, u.tenantId)) return false;
     return isGlobalBucket ? !u.tenantId : u.tenantId === tenantId;
   }) ?? [];
 

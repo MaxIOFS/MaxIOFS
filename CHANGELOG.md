@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - S3 Select ran every statement of its expression, not only a SELECT: whoever could read an object could read any database file the server can read, MaxIOFS's own included, and write files with `VACUUM INTO`. Only a SELECT runs, and the query stops when the client leaves.
+- The console took for an administrator only a user with the `admin` role: one that administers its tenant by the `tenant-admin` role or the TenantAdmin permission was sent to its own profile instead of the Users page, and got no notifications. The Create User form listed no role to a tenant's administrator: it lists the roles it may give (#17).
+- The console let the role of a tenant's last administrator be removed when its role was `tenant-admin`: it is held as for `admin`.
+- More checks took for an administrator only a user with the `admin` role. One administering a tenant by the `tenant-admin` role or the TenantAdmin permission, or every tenant by the SuperAdmin permission, got `403` on the audit logs, the integrity status and recounting a bucket, got no quota alerts, and signed in without 2FA when it is required of administrators.
+- The disk, cluster node and data corruption alerts were emailed to the administrators of every tenant, and the corruption alert names a bucket and object of any tenant. They go to the global administrators only.
+- On connecting, the notification stream sent a tenant's administrator the quota state of every tenant and bucket: it sends its own tenant's only.
+- Any user with the `admin` role, a tenant's too, could change the theme and language of any user. Another user's preferences are set only by who administers it.
 - An HTTP logging target with a large batch size or flush interval could take the node down. The batch size is at most 10,000 and the flush interval at most 3,600 seconds.
 - Creating a bucket in the console asked only `s3:CreateBucket`, whatever the settings it was created with: versioning, Object Lock with a default retention, public access, lifecycle, encryption and tags. Each asks the permission of its own S3 call (#16).
 - An S3 `CreateBucket` with Object Lock asked only `s3:CreateBucket`: it asks `s3:PutBucketObjectLockConfiguration` and `s3:PutBucketVersioning`, as in AWS (#16).

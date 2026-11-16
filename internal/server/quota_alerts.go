@@ -137,35 +137,10 @@ func (s *Server) sendQuotaAlertEmail(subject, alertMsg, tenantID, tenantName str
 		return
 	}
 
-	// Collect tenant admins + global admins with email addresses
-	users, err := s.authManager.ListUsers(context.Background())
+	recipients, err := s.adminEmails(context.Background(), tenantID)
 	if err != nil {
 		logrus.WithError(err).Error("Quota alert: failed to list users for email")
 		return
-	}
-
-	var recipients []string
-	seen := map[string]bool{}
-	for _, u := range users {
-		if u.Status != "active" || u.Email == "" {
-			continue
-		}
-		isGlobalAdmin := false
-		isTenantAdmin := false
-		for _, role := range u.Roles {
-			if role == "admin" && u.TenantID == "" {
-				isGlobalAdmin = true
-				break
-			}
-			if role == "admin" && u.TenantID == tenantID {
-				isTenantAdmin = true
-				break
-			}
-		}
-		if (isGlobalAdmin || isTenantAdmin) && !seen[u.Email] {
-			recipients = append(recipients, u.Email)
-			seen[u.Email] = true
-		}
 	}
 
 	if len(recipients) == 0 {

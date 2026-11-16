@@ -42,6 +42,7 @@ import { cn, activeLocale } from '@/lib/utils';
 import { Bucket, IntegrityResult } from '@/types';
 import ModalManager from '@/lib/modals';
 import { useAuth } from '@/hooks/useAuth';
+import { adminOf } from '@/hooks/useCurrentUser';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   BucketIntegrityModal,
@@ -66,8 +67,7 @@ export default function BucketsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
-  const isAnyAdmin    = (user?.roles?.includes('admin') ?? false);
+  const { isGlobalAdmin, isAnyAdmin } = adminOf(user);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {

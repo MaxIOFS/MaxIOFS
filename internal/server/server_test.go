@@ -5148,9 +5148,9 @@ func TestNotificationHubOperations(t *testing.T) {
 			Roles:    []string{"admin"},
 		}
 
-		assert.True(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{TenantID: "tenant-a"}))
-		assert.False(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{TenantID: "tenant-b"}))
-		assert.False(t, hub.shouldReceiveNotification(tenantAdmin, &Notification{}))
+		assert.True(t, hub.shouldReceiveNotification(&sseClient{user: tenantAdmin}, &Notification{TenantID: "tenant-a"}))
+		assert.False(t, hub.shouldReceiveNotification(&sseClient{user: tenantAdmin}, &Notification{TenantID: "tenant-b"}))
+		assert.False(t, hub.shouldReceiveNotification(&sseClient{user: tenantAdmin}, &Notification{}))
 	})
 
 	t.Run("global admin should receive all notifications", func(t *testing.T) {
@@ -5163,8 +5163,8 @@ func TestNotificationHubOperations(t *testing.T) {
 			Roles:    []string{"admin"},
 		}
 
-		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{TenantID: "tenant-a"}))
-		assert.True(t, hub.shouldReceiveNotification(globalAdmin, &Notification{}))
+		assert.True(t, hub.shouldReceiveNotification(&sseClient{user: globalAdmin, globalAdmin: true}, &Notification{TenantID: "tenant-a"}))
+		assert.True(t, hub.shouldReceiveNotification(&sseClient{user: globalAdmin, globalAdmin: true}, &Notification{}))
 	})
 }
 

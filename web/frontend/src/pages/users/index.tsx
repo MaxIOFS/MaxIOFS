@@ -36,7 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { APIClient } from '@/lib/api';
 import { User, CreateUserRequest, EditUserForm } from '@/types';
 import ModalManager from '@/lib/modals';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { hasAdminRole, useCurrentUser } from '@/hooks/useCurrentUser';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IDPStatusBadge } from '@/components/identity-providers/IDPStatusBadge';
 
@@ -347,7 +347,7 @@ export default function UsersPage() {
 
         <MetricCard compact
           title={t('adminUsers')}
-          value={filteredUsers.filter((user: User) => user.roles.includes('admin')).length}
+          value={filteredUsers.filter((user: User) => hasAdminRole(user.roles, user.tenantId)).length}
           icon={UserStar}
           description={t('usersWithAdminAccess')}
           color="blue-light"

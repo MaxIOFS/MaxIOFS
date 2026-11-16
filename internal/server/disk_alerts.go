@@ -182,28 +182,10 @@ func (s *Server) sendDiskAlertEmail(subject, alertMsg string, usedPct float64, u
 		return
 	}
 
-	// Collect emails of all active global admins
-	users, err := s.authManager.ListUsers(context.Background())
+	recipients, err := s.adminEmails(context.Background(), "")
 	if err != nil {
 		logrus.WithError(err).Error("Disk alert: failed to list users for email")
 		return
-	}
-
-	var recipients []string
-	seen := map[string]bool{}
-	for _, u := range users {
-		if u.Status != "active" || u.Email == "" {
-			continue
-		}
-		for _, role := range u.Roles {
-			if role == "admin" {
-				if !seen[u.Email] {
-					recipients = append(recipients, u.Email)
-					seen[u.Email] = true
-				}
-				break
-			}
-		}
 	}
 
 	if len(recipients) == 0 {

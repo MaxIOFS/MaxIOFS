@@ -26,10 +26,13 @@ type NotificationHub struct {
 
 // sseClient represents a connected SSE client
 type sseClient struct {
-	id       string
-	user     *auth.User
-	messages chan *Notification
-	done     chan struct{}
+	id   string
+	user *auth.User
+	// globalAdmin: the user administers every tenant, and sees what concerns
+	// any of them. Only administrators connect.
+	globalAdmin bool
+	messages    chan *Notification
+	done        chan struct{}
 }
 
 // Notification represents a system notification
@@ -78,7 +81,7 @@ func (h *NotificationHub) run() {
 			sentCount := 0
 			for _, client := range h.clients {
 				// Filter notifications based on user permissions
-				if h.shouldReceiveNotification(client.user, notification) {
+				if h.shouldReceiveNotification(client, notification) {
 					select {
 					case client.messages <- notification:
 						sentCount++
@@ -109,33 +112,10 @@ func (h *NotificationHub) CloseStreams() {
 	}
 }
 
-// shouldReceiveNotification determines if a user should receive a notification
-func (h *NotificationHub) shouldReceiveNotification(user *auth.User, notif *Notification) bool {
-	// Only admins receive blocked user notifications
-	isAdmin := false
-	for _, role := range user.Roles {
-		if role == "admin" || role == "tenant-admin" {
-			isAdmin = true
-			break
-		}
-	}
-	if !isAdmin {
-		return false
-	}
-
-	// Global admins see all notifications.
-	for _, role := range user.Roles {
-		if role == "admin" && user.TenantID == "" {
-			return true
-		}
-	}
-
-	// Tenant admins only see notifications for their tenant.
-	if user.TenantID != "" && notif.TenantID == user.TenantID {
-		return true
-	}
-
-	return false
+// shouldReceiveNotification reports whether a client is sent a notification: a
+// global administrator every one, the administrator of a tenant its tenant's.
+func (h *NotificationHub) shouldReceiveNotification(client *sseClient, notif *Notification) bool {
+	return seesTenant(client.user, client.globalAdmin, notif.TenantID)
 }
 
 // SetEventObserver sets what is told of each notification sent, by type.
@@ -154,18 +134,6 @@ func (h *NotificationHub) SendNotification(notif *Notification) {
 	default:
 		logrus.Warn("Notification channel full, dropping notification")
 	}
-}
-
-func isGlobalNotificationAdmin(user *auth.User) bool {
-	if user == nil || user.TenantID != "" {
-		return false
-	}
-	for _, role := range user.Roles {
-		if role == "admin" {
-			return true
-		}
-	}
-	return false
 }
 
 func currentDiskAlertNotification(stats *metrics.DiskStats, warnPct, critPct int, includeActive bool) *Notification {
@@ -217,8 +185,9 @@ func currentDiskAlertNotification(stats *metrics.DiskStats, warnPct, critPct int
 
 // syncAlertStateToClient sends the current alert state to a newly connected SSE
 // client. Broadcasts are live-only; this catches alerts that fired before the
-// browser connected or while it was reconnecting.
-func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher, user *auth.User) {
+// browser connected or while it was reconnecting. A client is sent only what
+// concerns a tenant it sees.
+func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flusher, user *auth.User, globalAdmin bool) {
 	send := func(n *Notification) {
 		data, err := json.Marshal(n)
 		if err != nil {
@@ -240,7 +209,7 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 			if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
 				critPct = v
 			}
-			if notif := currentDiskAlertNotification(stats, warnPct, critPct, isGlobalNotificationAdmin(user)); notif != nil {
+			if notif := currentDiskAlertNotification(stats, warnPct, critPct, globalAdmin); notif != nil {
 				send(notif)
 			}
 		}
@@ -256,7 +225,7 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 			if !ok {
 				return true
 			}
-			if level == alertLevelNone {
+			if level == alertLevelNone && seesTenant(user, globalAdmin, tenantID) {
 				send(&Notification{
 					Type:      "quota_resolved",
 					Message:   "Tenant storage quota is back to normal",
@@ -285,6 +254,9 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 			if idx := strings.IndexByte(k, '/'); idx >= 0 {
 				tenantID, bucketName = k[:idx], k[idx+1:]
 			}
+			if !seesTenant(user, globalAdmin, tenantID) {
+				return true
+			}
 			send(&Notification{
 				Type:      "bucket_quota_resolved",
 				Message:   fmt.Sprintf("Bucket %q storage quota is back to normal", bucketName),
@@ -307,14 +279,7 @@ func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request
 	}
 
 	// Only admins can connect to notification stream
-	isAdmin := false
-	for _, role := range user.Roles {
-		if role == "admin" || role == "tenant-admin" {
-			isAdmin = true
-			break
-		}
-	}
-	if !isAdmin {
+	if !s.isAdmin(user) {
 		s.writeError(w, "Forbidden: Only admins can access notifications", http.StatusForbidden)
 		return
 	}
@@ -327,10 +292,11 @@ func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request
 
 	// Create client with timestamp-based ID
 	client := &sseClient{
-		id:       fmt.Sprintf("%s-%d", user.ID, time.Now().UnixNano()),
-		user:     user,
-		messages: make(chan *Notification, 10),
-		done:     make(chan struct{}),
+		id:          fmt.Sprintf("%s-%d", user.ID, time.Now().UnixNano()),
+		user:        user,
+		globalAdmin: s.isGlobalAdmin(user),
+		messages:    make(chan *Notification, 10),
+		done:        make(chan struct{}),
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -358,7 +324,7 @@ func (s *Server) handleNotificationStream(w http.ResponseWriter, r *http.Request
 	flusher.Flush()
 
 	// Sync current alert state to this client so stale localStorage notifications are cleared
-	s.syncAlertStateToClient(w, flusher, user)
+	s.syncAlertStateToClient(w, flusher, user, client.globalAdmin)
 
 	// Listen for messages or client disconnect
 	ctx := r.Context()

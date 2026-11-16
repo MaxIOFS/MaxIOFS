@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/useAuth';
+import { adminOf } from '@/hooks/useCurrentUser';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -20,9 +21,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { effectiveTheme, setTheme } = useTheme();
   const { language, setLanguage } = useLanguage();
 
-  const isGlobalAdmin = (user?.roles?.includes('admin') ?? false) && !user?.tenantId;
-  const isTenantAdmin = (user?.roles?.includes('admin') ?? false) && !!user?.tenantId;
-  const isAnyAdmin = isGlobalAdmin || isTenantAdmin;
+  const { isGlobalAdmin, isAnyAdmin } = adminOf(user);
 
   // Mobile sidebar open/close
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -56,8 +55,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const isAdminUser = user?.roles?.includes('admin') ?? false;
-  const { notifications, unreadCount, markAsRead, markAllAsRead, clearNotification } = useNotifications(isAdminUser);
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearNotification } = useNotifications(isAnyAdmin);
   const totalUnread = unreadCount + (hasDefaultPassword ? 1 : 0);
 
   // Server config — also drives the maintenance banner (polls every 30s)

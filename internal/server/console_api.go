@@ -101,6 +101,36 @@ type UserResponse struct {
 	CreatedAt       int64 `json:"createdAt"`
 
 	PolicyCount int `json:"policyCount"`
+
+	// Given only for the user of the session, as the server decides them: what
+	// the console offers it.
+	IsAdmin       bool `json:"isAdmin,omitempty"`
+	IsGlobalAdmin bool `json:"isGlobalAdmin,omitempty"`
+}
+
+// sessionUser is the user of a session as the console receives it on signing
+// in and from /auth/me.
+func (s *Server) sessionUser(user *auth.User) UserResponse {
+	return UserResponse{
+		ID:                  user.ID,
+		Username:            user.Username,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		Status:              user.Status,
+		Roles:               user.Roles,
+		TenantID:            user.TenantID,
+		TwoFactorEnabled:    user.TwoFactorEnabled,
+		LockedUntil:         user.LockedUntil,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LastFailedLogin:     user.LastFailedLogin,
+		ThemePreference:     user.ThemePreference,
+		LanguagePreference:  user.LanguagePreference,
+		AuthProvider:        user.AuthProvider,
+		MustChangePassword:  user.MustChangePassword,
+		CreatedAt:           user.CreatedAt,
+		IsAdmin:             s.isAdmin(user),
+		IsGlobalAdmin:       s.isGlobalAdmin(user),
+	}
 }
 
 type MetricsResponse struct {
@@ -845,14 +875,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !twoFactorEnabled {
 		require2FAAdmin, _ := s.settingsManager.GetBool("security.require_2fa_admin")
 		if require2FAAdmin {
-			isAdmin := false
-			for _, role := range user.Roles {
-				if role == "admin" || role == "globalAdmin" {
-					isAdmin = true
-					break
-				}
-			}
-			if isAdmin {
+			if s.isAdmin(user) {
 				s.writeError(w, "Admin accounts must have two-factor authentication enabled. Please set up 2FA before logging in.", http.StatusForbidden)
 				return
 			}
@@ -919,22 +942,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// The console keeps the session but must send the user straight to the
 		// password form; the API refuses everything else until they do.
 		"must_change_password": user.MustChangePassword,
-		"user": UserResponse{
-			ID:                  user.ID,
-			Username:            user.Username,
-			DisplayName:         user.DisplayName,
-			Email:               user.Email,
-			Status:              user.Status,
-			Roles:               user.Roles,
-			TenantID:            user.TenantID,
-			TwoFactorEnabled:    user.TwoFactorEnabled,
-			LockedUntil:         user.LockedUntil,
-			FailedLoginAttempts: user.FailedLoginAttempts,
-			LastFailedLogin:     user.LastFailedLogin,
-			AuthProvider:        user.AuthProvider,
-			MustChangePassword:  user.MustChangePassword,
-			CreatedAt:           user.CreatedAt,
-		},
+		"user":                 s.sessionUser(user),
 	})
 }
 
@@ -1223,23 +1231,7 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, UserResponse{
-		ID:                  user.ID,
-		Username:            user.Username,
-		DisplayName:         user.DisplayName,
-		Email:               user.Email,
-		Status:              user.Status,
-		Roles:               user.Roles,
-		TenantID:            user.TenantID,
-		TwoFactorEnabled:    user.TwoFactorEnabled,
-		LockedUntil:         user.LockedUntil,
-		FailedLoginAttempts: user.FailedLoginAttempts,
-		LastFailedLogin:     user.LastFailedLogin,
-		ThemePreference:     user.ThemePreference,
-		LanguagePreference:  user.LanguagePreference,
-		MustChangePassword:  user.MustChangePassword,
-		CreatedAt:           user.CreatedAt,
-	})
+	s.writeJSON(w, s.sessionUser(user))
 }
 
 // Bucket handlers
@@ -1439,7 +1431,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tenant admins get buckets assigned to the tenant; regular tenant users own their own buckets
-	isTenantAdmin := user.TenantID != "" && auth.IsAdminUser(r.Context())
+	isTenantAdmin := user.TenantID != "" && s.isAdmin(user)
 	if isTenantAdmin {
 		bucketInfo.OwnerID = user.TenantID
 		bucketInfo.OwnerType = "tenant"
@@ -1625,7 +1617,7 @@ func (s *Server) handleRecalculateBucketStats(w http.ResponseWriter, r *http.Req
 	}
 
 	// Only admins can recalculate stats
-	if !auth.IsAdminUser(r.Context()) {
+	if !s.isAdmin(user) {
 		s.writeError(w, "Forbidden: admin access required", http.StatusForbidden)
 		return
 	}
@@ -4057,22 +4049,15 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check if current user is admin
-	isAdmin := false
-	for _, role := range currentUser.Roles {
-		if role == "admin" {
-			isAdmin = true
-			break
+	// A user sets its own preferences; another user's, only who administers it.
+	if currentUser.ID != userID {
+		if !s.isAdmin(currentUser) {
+			s.writeError(w, "Insufficient permissions", http.StatusForbidden)
+			return
 		}
-	}
-
-	// Check if user is updating their own preferences
-	isUpdatingSelf := currentUser.ID == userID
-
-	// Non-admins can only update their own preferences
-	if !isAdmin && !isUpdatingSelf {
-		s.writeError(w, "Insufficient permissions", http.StatusForbidden)
-		return
+		if !s.canAdministerUser(w, r, userID) {
+			return
+		}
 	}
 
 	// Validate required fields
@@ -6996,22 +6981,7 @@ func (s *Server) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
 		"expires_in":           pair.ExpiresIn,
 		"token_type":           pair.TokenType,
 		"must_change_password": user.MustChangePassword,
-		"user": UserResponse{
-			ID:                  user.ID,
-			Username:            user.Username,
-			DisplayName:         user.DisplayName,
-			Email:               user.Email,
-			Status:              user.Status,
-			Roles:               user.Roles,
-			TenantID:            user.TenantID,
-			TwoFactorEnabled:    user.TwoFactorEnabled,
-			LockedUntil:         user.LockedUntil,
-			FailedLoginAttempts: user.FailedLoginAttempts,
-			LastFailedLogin:     user.LastFailedLogin,
-			AuthProvider:        user.AuthProvider,
-			MustChangePassword:  user.MustChangePassword,
-			CreatedAt:           user.CreatedAt,
-		},
+		"user":                 s.sessionUser(user),
 	})
 }
 
@@ -7101,8 +7071,8 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user is admin (global or tenant)
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	isTenantAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID != ""
+	isGlobalAdmin := s.isGlobalAdmin(currentUser)
+	isTenantAdmin := !isGlobalAdmin && s.isAdmin(currentUser)
 
 	if !isGlobalAdmin && !isTenantAdmin {
 		s.writeError(w, "Forbidden: only administrators can view audit logs", http.StatusForbidden)
@@ -7329,8 +7299,8 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user is admin (global or tenant)
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-	isTenantAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID != ""
+	isGlobalAdmin := s.isGlobalAdmin(currentUser)
+	isTenantAdmin := !isGlobalAdmin && s.isAdmin(currentUser)
 
 	if !isGlobalAdmin && !isTenantAdmin {
 		s.writeError(w, "Forbidden: only administrators can view audit logs", http.StatusForbidden)
