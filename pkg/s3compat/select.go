@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/csv"
@@ -19,7 +20,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/sirupsen/logrus"
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite"
 )
 
 // reS3Object matches the literal "S3Object" (whole-word, case-insensitive) in
@@ -443,12 +444,38 @@ func jsonFieldToText(v interface{}) string {
 	}
 }
 
+// selectOnly lets the client's expression read and compute, and nothing else.
+// SQLite runs every statement of it: without this, one ATTACH reads any
+// database file the server can read, and VACUUM INTO writes a file anywhere.
+func selectOnly(action sqlite.AuthorizerActionCode, _, _, _, _ string) sqlite.AuthorizerReturnCode {
+	switch action {
+	case sqlite.AuthSelect, sqlite.AuthRead, sqlite.AuthFunction:
+		return sqlite.AuthorizerOK
+	}
+	return sqlite.AuthorizerDeny
+}
+
 // streamSelectResults executes the SQL expression, writes Records events to w,
-// and returns the total bytes returned.
-func streamSelectResults(w io.Writer, db *sql.DB, expr string, out selectOutputSerial, flusher http.Flusher) (int64, error) {
+// and returns the total bytes returned. The query stops with ctx.
+func streamSelectResults(ctx context.Context, w io.Writer, db *sql.DB, expr string, out selectOutputSerial, flusher http.Flusher) (int64, error) {
 	query := reS3Object.ReplaceAllString(expr, "s3object")
 
-	sqlRows, err := db.Query(query)
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if err := conn.Raw(func(driverConn any) error {
+		registerer, ok := driverConn.(sqlite.AuthorizerRegisterer)
+		if !ok {
+			return fmt.Errorf("the query engine cannot be limited to SELECT")
+		}
+		return registerer.RegisterAuthorizer(selectOnly)
+	}); err != nil {
+		return 0, err
+	}
+
+	sqlRows, err := conn.QueryContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
 	}
@@ -673,7 +700,7 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 
 	flusher, _ := w.(http.Flusher)
 
-	bytesReturned, queryErr := streamSelectResults(w, db, req.Expression, req.OutputSerialization, flusher)
+	bytesReturned, queryErr := streamSelectResults(r.Context(), w, db, req.Expression, req.OutputSerialization, flusher)
 	if queryErr != nil {
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,

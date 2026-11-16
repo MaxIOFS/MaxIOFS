@@ -2,6 +2,7 @@ package s3compat
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -304,7 +305,7 @@ func TestStreamSelectResults_SelectStar_CSVOut(t *testing.T) {
 	db := setupSelectDB(t, "name,age\nAlice,30\nBob,25\n")
 
 	var buf bytes.Buffer
-	returned, err := streamSelectResults(&buf, db, "SELECT * FROM S3Object",
+	returned, err := streamSelectResults(context.Background(), &buf, db, "SELECT * FROM S3Object",
 		selectOutputSerial{CSV: &selectCSVOut{}}, nil)
 	require.NoError(t, err)
 	assert.Greater(t, returned, int64(0))
@@ -326,7 +327,7 @@ func TestStreamSelectResults_SelectStar_JSONOut(t *testing.T) {
 	db := setupSelectDB(t, "name,age\nAlice,30\nBob,25\n")
 
 	var buf bytes.Buffer
-	returned, err := streamSelectResults(&buf, db, "SELECT * FROM S3Object",
+	returned, err := streamSelectResults(context.Background(), &buf, db, "SELECT * FROM S3Object",
 		selectOutputSerial{JSON: &selectJSONOut{}}, nil)
 	require.NoError(t, err)
 	assert.Greater(t, returned, int64(0))
@@ -351,7 +352,7 @@ func TestStreamSelectResults_WhereClause(t *testing.T) {
 	db := setupSelectDB(t, "name,age\nAlice,30\nBob,25\nCarol,30\n")
 
 	var buf bytes.Buffer
-	_, err := streamSelectResults(&buf, db, "SELECT name FROM S3Object WHERE age = '30'",
+	_, err := streamSelectResults(context.Background(), &buf, db, "SELECT name FROM S3Object WHERE age = '30'",
 		selectOutputSerial{CSV: &selectCSVOut{}}, nil)
 	require.NoError(t, err)
 
@@ -371,7 +372,7 @@ func TestStreamSelectResults_Projection(t *testing.T) {
 	db := setupSelectDB(t, "name,age,city\nAlice,30,NYC\n")
 
 	var buf bytes.Buffer
-	_, err := streamSelectResults(&buf, db, "SELECT name, city FROM S3Object",
+	_, err := streamSelectResults(context.Background(), &buf, db, "SELECT name, city FROM S3Object",
 		selectOutputSerial{JSON: &selectJSONOut{}}, nil)
 	require.NoError(t, err)
 
@@ -394,7 +395,7 @@ func TestStreamSelectResults_AggregateCount(t *testing.T) {
 	db := setupSelectDB(t, "name,dept\nAlice,eng\nBob,eng\nCarol,hr\n")
 
 	var buf bytes.Buffer
-	_, err := streamSelectResults(&buf, db,
+	_, err := streamSelectResults(context.Background(), &buf, db,
 		"SELECT dept, COUNT(*) AS cnt FROM S3Object GROUP BY dept ORDER BY dept",
 		selectOutputSerial{CSV: &selectCSVOut{}}, nil)
 	require.NoError(t, err)
@@ -418,7 +419,7 @@ func TestStreamSelectResults_EmptyTable(t *testing.T) {
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	returned, err := streamSelectResults(&buf, db, "SELECT * FROM S3Object",
+	returned, err := streamSelectResults(context.Background(), &buf, db, "SELECT * FROM S3Object",
 		selectOutputSerial{CSV: &selectCSVOut{}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), returned)
@@ -431,7 +432,7 @@ func TestStreamSelectResults_InvalidSQL(t *testing.T) {
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	_, err = streamSelectResults(&buf, db, "SELECT * FROM nonexistent_table",
+	_, err = streamSelectResults(context.Background(), &buf, db, "SELECT * FROM nonexistent_table",
 		selectOutputSerial{CSV: &selectCSVOut{}}, nil)
 	assert.Error(t, err)
 }
@@ -450,7 +451,7 @@ func TestStreamSelectResults_BatchFlushing(t *testing.T) {
 	flusher := &mockFlusher{onFlush: func() { flushed++ }}
 
 	var buf bytes.Buffer
-	returned, err := streamSelectResults(&buf, db, "SELECT * FROM S3Object",
+	returned, err := streamSelectResults(context.Background(), &buf, db, "SELECT * FROM S3Object",
 		selectOutputSerial{CSV: &selectCSVOut{}}, flusher)
 	require.NoError(t, err)
 	assert.Greater(t, returned, int64(0))

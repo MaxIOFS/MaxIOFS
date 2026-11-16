@@ -204,7 +204,7 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 
 **Supported input formats:** CSV, JSON Lines
 **Supported output formats:** CSV, JSON (one object per line, column order preserved)
-**SQL engine:** SQLite — supports SELECT, WHERE, GROUP BY, ORDER BY, aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+**SQL engine:** SQLite — supports SELECT, WHERE, GROUP BY, ORDER BY, aggregate functions (COUNT, SUM, AVG, MIN, MAX). From v1.10.1 only a SELECT runs: any other statement in the expression ends the query with a `QueryFailed` event.
 **Not supported:** compressed input (GZIP/BZIP2), Parquet format
 
 **Response:** `application/vnd.amazon.eventstream` — standard Amazon Event Stream binary format

@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tenant administrator holds every permission a bucket or an object takes, in its tenant only: replication, logging, accelerate, request payment, ownership controls and the GOVERNANCE bypass were missing.
 
 ### Fixed
+- S3 Select ran every statement of its expression, not only a SELECT: whoever could read an object could read any database file the server can read, MaxIOFS's own included, and write files with `VACUUM INTO`. Only a SELECT runs, and the query stops when the client leaves.
+- An HTTP logging target with a large batch size or flush interval could take the node down. The batch size is at most 10,000 and the flush interval at most 3,600 seconds.
 - Creating a bucket in the console asked only `s3:CreateBucket`, whatever the settings it was created with: versioning, Object Lock with a default retention, public access, lifecycle, encryption and tags. Each asks the permission of its own S3 call (#16).
 - An S3 `CreateBucket` with Object Lock asked only `s3:CreateBucket`: it asks `s3:PutBucketObjectLockConfiguration` and `s3:PutBucketVersioning`, as in AWS (#16).
 - A bucket a global administrator created with Owner Type *Tenant*, or for a user of a tenant, was created in the global namespace: outside the tenant's bucket count and out of reach of its users. It is created in the tenant (#15).

@@ -400,6 +400,9 @@ func validateTargetConfig(cfg *TargetConfig) error {
 		if cfg.URL == "" {
 			return fmt.Errorf("URL is required for HTTP targets")
 		}
+		if err := validateHTTPBatching(cfg.BatchSize, cfg.FlushInterval); err != nil {
+			return err
+		}
 	}
 
 	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
@@ -407,6 +410,24 @@ func validateTargetConfig(cfg *TargetConfig) error {
 		return fmt.Errorf("invalid filter level: %s (must be 'debug', 'info', 'warn', or 'error')", cfg.FilterLevel)
 	}
 
+	return nil
+}
+
+// The most an HTTP target batches. A batch is allocated whole and the interval
+// drives a ticker: a size out of range takes the node's memory, an interval out
+// of range overflows to a negative one and panics. 0 is the default.
+const (
+	maxHTTPBatchSize     = 10000
+	maxHTTPFlushInterval = 3600 // seconds
+)
+
+func validateHTTPBatching(batchSize, flushInterval int) error {
+	if batchSize > maxHTTPBatchSize {
+		return fmt.Errorf("batch size must be at most %d", maxHTTPBatchSize)
+	}
+	if flushInterval > maxHTTPFlushInterval {
+		return fmt.Errorf("flush interval must be at most %d seconds", maxHTTPFlushInterval)
+	}
 	return nil
 }
 

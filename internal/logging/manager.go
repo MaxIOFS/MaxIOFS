@@ -249,6 +249,9 @@ func (m *Manager) createOutputFromConfig(cfg *TargetConfig) (Output, error) {
 		})
 
 	case string(TargetTypeHTTP):
+		if err := validateHTTPBatching(cfg.BatchSize, cfg.FlushInterval); err != nil {
+			return nil, err
+		}
 		batchSize := cfg.BatchSize
 		if batchSize <= 0 {
 			batchSize = 100
