@@ -115,3 +115,30 @@ func TestTheS3RequestLogNamesTheClientBehindAProxy(t *testing.T) {
 	assert.Equal(t, "10.200.1.149:50000", remote("10.200.1.149:50000", ""), "a client met directly, with its port")
 	assert.Equal(t, "203.0.113.9:443", remote("203.0.113.9:443", "10.0.0.1"), "a peer that is no proxy names no other client")
 }
+
+// A presigned URL is a credential for whoever holds it: the access line keeps
+// its query, without the signature and the session token, and who signed it.
+func TestTheS3RequestLogDoesNotKeepAPresignedURLUsable(t *testing.T) {
+	logger := logrus.StandardLogger()
+	hook := new(logtest.Hook)
+	formerHooks := logger.ReplaceHooks(logrus.LevelHooks{})
+	formerLevel := logger.GetLevel()
+	logger.AddHook(hook)
+	logger.SetLevel(logrus.InfoLevel)
+	defer func() {
+		logger.ReplaceHooks(formerHooks)
+		logger.SetLevel(formerLevel)
+	}()
+
+	handler := logS3APIRequests(proxyTrust{}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet,
+		"/b/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAEXAMPLE%2F20261116%2Fus-east-1%2Fs3%2Faws4_request"+
+			"&X-Amz-Expires=604800&X-Amz-Security-Token=FwoGZXIvYXdzEXAMPLE&X-Amz-SignedHeaders=host&X-Amz-Signature=0123abcd", nil))
+	require.NotNil(t, hook.LastEntry())
+	query, _ := hook.LastEntry().Data["query"].(string)
+	assert.NotContains(t, query, "0123abcd")
+	assert.NotContains(t, query, "FwoGZXIvYXdzEXAMPLE")
+	assert.Contains(t, query, "X-Amz-Signature=[redacted]")
+	assert.Contains(t, query, "X-Amz-Credential=ASIAEXAMPLE")
+	assert.Equal(t, "ASIAEXAMPLE", hook.LastEntry().Data["access_key"])
+}

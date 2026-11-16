@@ -33,11 +33,11 @@ func VerboseLogging() func(http.Handler) http.Handler {
 			start := time.Now()
 
 			// Log incoming request with ALL details (only in DEBUG mode)
+			query := auth.LoggedQuery(r.URL.RawQuery)
 			logrus.WithFields(logrus.Fields{
 				"method":         r.Method,
-				"url":            r.URL.String(),
 				"path":           r.URL.Path,
-				"query":          r.URL.RawQuery,
+				"query":          query,
 				"proto":          r.Proto,
 				"remote_addr":    r.RemoteAddr,
 				"host":           r.Host,

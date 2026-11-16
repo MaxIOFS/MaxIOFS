@@ -804,7 +804,7 @@ func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request)
 		return nil, ErrMissingSignature
 	}
 
-	logrus.WithField("auth_header", authHeader).Info("ValidateS3Signature called")
+	logrus.WithField("auth_header", LoggedAuthorization(authHeader)).Info("ValidateS3Signature called")
 
 	// Check if it's SigV4 (from Authorization header or query param)
 	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
@@ -1791,7 +1791,7 @@ func (am *authManager) decryptSecret(stored string) (string, error) {
 // parseS3SignatureV4 parses AWS Signature Version 4
 func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*S3SignatureV4, error) {
 	// Parse Authorization header: AWS4-HMAC-SHA256 Credential=..., SignedHeaders=..., Signature=...
-	logrus.WithField("auth_header", authHeader).Debug("Starting parseS3SignatureV4")
+	logrus.WithField("auth_header", LoggedAuthorization(authHeader)).Debug("Starting parseS3SignatureV4")
 
 	if !strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") {
 		logrus.Error("Authorization header does not start with AWS4-HMAC-SHA256")
@@ -1802,7 +1802,7 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 	authHeader = strings.TrimPrefix(authHeader, "AWS4-HMAC-SHA256 ")
 	authHeader = strings.TrimSpace(authHeader)
 
-	logrus.WithField("params_string", authHeader).Debug("Extracted parameters string")
+	logrus.WithField("params_string", LoggedAuthorization(authHeader)).Debug("Extracted parameters string")
 
 	sig := &S3SignatureV4{
 		Algorithm: "AWS4-HMAC-SHA256",
@@ -2045,7 +2045,7 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 	logrus.WithFields(logrus.Fields{
 		"method":            method,
 		"uri":               uri,
-		"query":             queryString,
+		"query":             LoggedQuery(queryString),
 		"canonical_headers": loggedCanonicalHeaders(canonicalHeaders),
 		"signed_headers":    signedHeaders,
 		"payload_hash":      payloadHash,

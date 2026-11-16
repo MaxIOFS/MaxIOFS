@@ -1693,7 +1693,7 @@ func logS3APIRequests(trust proxyTrust, next http.Handler) http.Handler {
 			"ua":          r.Header.Get("User-Agent"),
 		}
 		if query := r.URL.RawQuery; query != "" {
-			fields["query"] = query
+			fields["query"] = auth.LoggedQuery(query)
 		}
 		if key := accessKeyOfRequest(r); key != "" {
 			fields["access_key"] = key

@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The disk, cluster node and data corruption alerts were emailed to the administrators of every tenant, and the corruption alert names a bucket and object of any tenant. They go to the global administrators only.
 - On connecting, the notification stream sent a tenant's administrator the quota state of every tenant and bucket: it sends its own tenant's only.
 - Any user with the `admin` role, a tenant's too, could change the theme and language of any user. Another user's preferences are set only by who administers it.
+- The S3 log kept what makes a request usable again: the signature and session token of a presigned URL in the access line, the signature of the `Authorization` header in the signature trace, and in debug the cookie carrying the console session. They are logged redacted.
 - An HTTP logging target with a large batch size or flush interval could take the node down. The batch size is at most 10,000 and the flush interval at most 3,600 seconds.
 - Creating a bucket in the console asked only `s3:CreateBucket`, whatever the settings it was created with: versioning, Object Lock with a default retention, public access, lifecycle, encryption and tags. Each asks the permission of its own S3 call (#16).
 - An S3 `CreateBucket` with Object Lock asked only `s3:CreateBucket`: it asks `s3:PutBucketObjectLockConfiguration` and `s3:PutBucketVersioning`, as in AWS (#16).
