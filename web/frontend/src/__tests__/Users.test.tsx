@@ -46,7 +46,8 @@ const mockCurrentUser = {
   isAdmin: true,
 };
 
-vi.mock('@/hooks/useCurrentUser', () => ({
+vi.mock('@/hooks/useCurrentUser', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useCurrentUser')>()),
   useCurrentUser: () => mockCurrentUser,
 }));
 

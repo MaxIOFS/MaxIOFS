@@ -25,7 +25,8 @@ vi.mock('@/lib/modals', () => ({
   default: { toast: vi.fn(), apiError: vi.fn(), success: vi.fn(), error: vi.fn(), confirm: vi.fn(), close: vi.fn(), loading: vi.fn() },
 }));
 
-const admin = { id: 'admin', username: 'admin', email: '', roles: ['admin'], status: 'active' as const, createdAt: 0 };
+const admin = { id: 'admin', username: 'admin', email: '', roles: ['admin'], status: 'active' as const, createdAt: 0,
+  isAdmin: true, isGlobalAdmin: true };
 
 function renderUser(user: Record<string, unknown>) {
   vi.mocked(APIClient.getCurrentUser).mockResolvedValue(admin as any);

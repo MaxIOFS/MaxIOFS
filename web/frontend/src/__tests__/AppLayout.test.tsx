@@ -43,6 +43,8 @@ const globalAdmin: User = {
   status: 'active',
   tenantId: undefined,
   createdAt: '2024-01-01T00:00:00Z',
+  isAdmin: true,
+  isGlobalAdmin: true,
 };
 
 const tenantAdmin: User = {
@@ -50,6 +52,7 @@ const tenantAdmin: User = {
   id: '2',
   username: 'tenantadmin',
   tenantId: 'tenant-1',
+  isGlobalAdmin: false,
 };
 
 const regularUser: User = {
@@ -58,6 +61,8 @@ const regularUser: User = {
   username: 'user1',
   roles: ['user'],
   tenantId: undefined,
+  isAdmin: false,
+  isGlobalAdmin: false,
 };
 
 const mockServerConfig = {
@@ -186,6 +191,26 @@ describe('AppLayout', () => {
       await waitFor(() => {
         expect(screen.getByText('Audit Logs')).toBeInTheDocument();
       });
+    });
+
+    // The server says who administers: the tenant-admin role or the
+    // TenantAdmin permission make one as the admin role does, and a role named
+    // admin makes none the server does not take for one.
+    it('shows Audit Logs to a tenant admin by the permission, whatever its role', async () => {
+      renderWithUser({ ...tenantAdmin, roles: ['user'] });
+
+      await waitFor(() => {
+        expect(screen.getByText('Audit Logs')).toBeInTheDocument();
+      });
+    });
+
+    it('hides Audit Logs from a user the server takes for no admin, whatever its role', async () => {
+      renderWithUser({ ...regularUser, roles: ['admin'], tenantId: undefined });
+
+      await waitFor(() => {
+        expect(screen.getByText('Buckets')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Audit Logs')).not.toBeInTheDocument();
     });
 
     it('hides Audit Logs from regular users', async () => {
