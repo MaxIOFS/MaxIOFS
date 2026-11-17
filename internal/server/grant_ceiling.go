@@ -130,3 +130,19 @@ func (s *Server) refuseRolesBeyondCaller(w http.ResponseWriter, r *http.Request,
 	}
 	return s.refuseBeyondCaller(w, r, documents)
 }
+
+// refuseIDPRoleBeyondCaller answers 403 when the role an identity provider is
+// to give its users, by an import or a group mapping, is beyond the caller: an
+// administrator role is a global administrator's to give, any other only
+// within what the caller holds, as for a user created by hand. tenantID is the
+// tenant those users belong to.
+func (s *Server) refuseIDPRoleBeyondCaller(w http.ResponseWriter, r *http.Request, role, tenantID string) bool {
+	if caller := s.getAuthUser(r); caller != nil && s.isGlobalAdmin(caller) {
+		return false
+	}
+	if containsAdminRole([]string{role}) {
+		s.writeError(w, "Only a global administrator can grant the administrator role", http.StatusForbidden)
+		return true
+	}
+	return s.refuseRolesBeyondCaller(w, r, []string{role}, tenantID)
+}

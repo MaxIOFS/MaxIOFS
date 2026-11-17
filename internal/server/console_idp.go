@@ -493,6 +493,9 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 	if provider.TenantID != "" {
 		req.TenantID = provider.TenantID
 	}
+	if s.refuseIDPRoleBeyondCaller(w, r, req.Role, req.TenantID) {
+		return
+	}
 
 	authProviderValue := authProviderOf(provider)
 
@@ -635,6 +638,9 @@ func (s *Server) handleCreateGroupMapping(w http.ResponseWriter, r *http.Request
 	if provider.TenantID != "" {
 		mapping.TenantID = provider.TenantID
 	}
+	if s.refuseIDPRoleBeyondCaller(w, r, mapping.Role, mapping.TenantID) {
+		return
+	}
 
 	if err := s.idpManager.CreateGroupMapping(r.Context(), &mapping); err != nil {
 		logrus.WithError(err).Error("Failed to create group mapping")
@@ -674,6 +680,11 @@ func (s *Server) handleUpdateGroupMapping(w http.ResponseWriter, r *http.Request
 	mapping.ProviderID = provider.ID
 	if provider.TenantID != "" {
 		mapping.TenantID = provider.TenantID
+	}
+	// The role a mapping already gave stays; a new one is held to the caller.
+	if mapping.Role != "" && mapping.Role != existing.Role &&
+		s.refuseIDPRoleBeyondCaller(w, r, mapping.Role, mapping.TenantID) {
+		return
 	}
 
 	if err := s.idpManager.UpdateGroupMapping(r.Context(), &mapping); err != nil {

@@ -125,6 +125,14 @@ func TestATenantAdministratorReachesItsTenantsProvidersOnly(t *testing.T) {
 
 	call := func(handler http.HandlerFunc, tenant, provider, mapping, body string) *httptest.ResponseRecorder {
 		req := createAuthenticatedRequest("POST", "/", strings.NewReader(body), tenant, "admin-"+tenant, true)
+		// The caller holds what an administrator of its tenant holds: what it
+		// may give through a provider is held to that.
+		caller, _ := auth.GetUserFromContext(req.Context())
+		held, err := server.authManager.(interface {
+			ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
+		}).ResolvePolicySet(ctx, caller)
+		require.NoError(t, err)
+		req = req.WithContext(auth.WithPolicySet(req.Context(), held))
 		req = mux.SetURLVars(req, map[string]string{"id": provider, "mapId": mapping})
 		rr := httptest.NewRecorder()
 		handler(rr, req)
