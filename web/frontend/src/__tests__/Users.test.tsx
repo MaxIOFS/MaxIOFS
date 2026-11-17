@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@/test/utils/test-utils';
 import UsersPage from '@/pages/users/index';
@@ -62,6 +62,7 @@ describe('Users Page', () => {
       tenantId: 'tenant-1',
       createdAt: '2024-01-01T00:00:00Z',
       twoFactorEnabled: true,
+      isAdmin: true,
     },
     {
       id: '2',
@@ -72,6 +73,9 @@ describe('Users Page', () => {
       tenantId: 'tenant-1',
       createdAt: '2024-01-02T00:00:00Z',
       twoFactorEnabled: false,
+      // An administrator of the tenant by the TenantAdmin permission: the
+      // server says so, its role does not.
+      isAdmin: true,
     },
     {
       id: '3',
@@ -432,10 +436,11 @@ describe('Users Page', () => {
         expect(spinner).toBeFalsy();
       });
 
-      // Should show 1 admin
+      // The administrators the server names: by the admin role, and by the
+      // TenantAdmin permission whatever the role.
       await waitFor(() => {
-        const heading = screen.getByRole('heading', { name: /^Users$/i });
-        expect(heading).toBeInTheDocument();
+        const card = screen.getByText('Admin Users').closest('.rounded-card') as HTMLElement;
+        expect(within(card).getByText('2')).toBeInTheDocument();
       });
     });
   });

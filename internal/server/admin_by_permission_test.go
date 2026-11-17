@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -171,4 +172,35 @@ func TestTheNotificationStreamSendsATenantOnlyItsOwnState(t *testing.T) {
 	rec = httptest.NewRecorder()
 	s.syncAlertStateToClient(rec, rec, global, s.isGlobalAdmin(global))
 	assert.Contains(t, rec.Body.String(), "other-bucket")
+}
+
+// The list of users says who administers, as the server decides it: by the
+// admin or tenant-admin role or by the permission, and who does not.
+func TestTheUserListSaysWhoAdministers(t *testing.T) {
+	s := administrators(t)
+	user, err := s.authManager.GetUser(context.Background(), "global-by-role")
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user", user))
+	rec := httptest.NewRecorder()
+	s.handleListUsers(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listed struct{ Data []UserResponse }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+
+	flags := map[string][2]bool{}
+	for _, u := range listed.Data {
+		flags[u.Username] = [2]bool{u.IsAdmin, u.IsGlobalAdmin}
+	}
+	for name, want := range map[string][2]bool{
+		"acme-by-admin-role":        {true, false},
+		"acme-by-tenant-admin-role": {true, false},
+		"acme-by-permission":        {true, false},
+		"acme-member":               {false, false},
+		"other-admin":               {true, false},
+		"global-by-role":            {true, true},
+		"global-by-permission":      {true, true},
+	} {
+		assert.Equal(t, want, flags[name], name)
+	}
 }

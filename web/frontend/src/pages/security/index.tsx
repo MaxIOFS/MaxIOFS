@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { hasAdminRole, useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { IDLE_TIMEOUT_MS } from '@/hooks/useAuth';
 import {
   Shield,
@@ -86,8 +86,8 @@ export default function SecurityPage() {
   const inactiveUsers = users.filter((u: any) => u.status === 'inactive').length;
   const users2FA = users.filter((u: any) => u.twoFactorEnabled).length;
   // Global admin is admin WITHOUT tenantId
-  const globalAdminCount = users.filter((u: any) => u.roles?.includes('admin') && !u.tenantId).length;
-  const tenantAdminCount = users.filter((u: any) => hasAdminRole(u.roles, u.tenantId) && u.tenantId).length;
+  const globalAdminCount = users.filter((u: any) => u.isGlobalAdmin).length;
+  const tenantAdminCount = users.filter((u: any) => u.isAdmin && !u.isGlobalAdmin).length;
 
   return (
     <div className="space-y-6">

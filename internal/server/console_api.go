@@ -102,8 +102,8 @@ type UserResponse struct {
 
 	PolicyCount int `json:"policyCount"`
 
-	// Given only for the user of the session, as the server decides them: what
-	// the console offers it.
+	// As the server decides them: for the user of the session, what the
+	// console offers it; in a list of users, who administers.
 	IsAdmin       bool `json:"isAdmin,omitempty"`
 	IsGlobalAdmin bool `json:"isGlobalAdmin,omitempty"`
 }
@@ -2574,6 +2574,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]UserResponse, len(filteredUsers))
 	for i, u := range filteredUsers {
+		isAdmin := s.isAdmin(&u)
 		response[i] = UserResponse{
 			ID:                  u.ID,
 			Username:            u.Username,
@@ -2593,6 +2594,8 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			ManagedByGroups:     groupManaged(&u),
 			CreatedAt:           u.CreatedAt,
 			PolicyCount:         policyCounts[u.ID],
+			IsAdmin:             isAdmin,
+			IsGlobalAdmin:       isAdmin && s.isGlobalAdmin(&u),
 		}
 	}
 

@@ -1296,19 +1296,17 @@ func (s *Server) isAdmin(user *auth.User) bool {
 		return true
 	}
 	// A tenant is administered by one of its users: the permission or the role
-	// on a user of no tenant administers nothing.
+	// on a user of no tenant administers nothing. The roles are looked at
+	// first: they cost nothing, the permission a resolution of the policies.
 	if user.TenantID == "" {
 		return false
-	}
-	if s.userHoldsPermission(user, auth.ActionTenantAdmin) {
-		return true
 	}
 	for _, role := range user.Roles {
 		if role == auth.RoleAdmin || role == auth.RoleTenantAdmin {
 			return true
 		}
 	}
-	return false
+	return s.userHoldsPermission(user, auth.ActionTenantAdmin)
 }
 
 // isGlobalAdmin reports whether a user administers every tenant.
@@ -1319,15 +1317,12 @@ func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	if user.TenantID != "" {
 		return false
 	}
-	if s.userHoldsPermissionExactly(user, auth.ActionSuperAdmin) {
-		return true
-	}
 	for _, role := range user.Roles {
 		if role == auth.RoleAdmin {
 			return true
 		}
 	}
-	return false
+	return s.userHoldsPermissionExactly(user, auth.ActionSuperAdmin)
 }
 
 // countGlobalAdmins returns the number of active global-admin users

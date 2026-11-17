@@ -307,14 +307,15 @@ export default function UserDetailsPage() {
     // Get all users from the same tenant
     const tenantUsers = allUsers?.filter(u => u.tenantId === userData.tenantId) || [];
 
-    // Count admins in this tenant
-    const adminCount = tenantUsers.filter(u => hasAdminRole(u.roles, u.tenantId)).length;
+    // The other administrators of the tenant, as the server says: by a role or
+    // by the TenantAdmin permission.
+    const otherAdmins = tenantUsers.filter(u => u.id !== userData.id && u.isAdmin).length;
 
     // Check if current user is admin and would be removed
     const isCurrentlyAdmin = hasAdminRole(userData.roles, userData.tenantId);
     const willRemoveAdmin = isCurrentlyAdmin && !hasAdminRole(editForm.roles, userData.tenantId);
 
-    return adminCount === 1 && willRemoveAdmin;
+    return otherAdmins === 0 && willRemoveAdmin;
   };
 
   // Handlers
