@@ -59,6 +59,21 @@ func (s *SQLiteStore) CreateTenant(tenant *Tenant) error {
 	return tx.Commit()
 }
 
+// TenantActive reports whether a tenant is active, reading its status alone so
+// that no other column decides it: a tenant that is gone or deleted is not, one
+// without a status is, as the column's default.
+func (s *SQLiteStore) TenantActive(tenantID string) (bool, error) {
+	var status sql.NullString
+	err := s.db.QueryRow(`SELECT status FROM tenants WHERE id = ?`, tenantID).Scan(&status)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !status.Valid || status.String == "" || status.String == TenantStatusActive, nil
+}
+
 // GetTenant retrieves a tenant by ID
 func (s *SQLiteStore) GetTenant(tenantID string) (*Tenant, error) {
 	var tenant Tenant

@@ -47,7 +47,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 |---------|---------|--------|--------|------------|
 | **Licence** | MIT — use, modify and redistribute freely | Proprietary; licence file required, no redistribution | AGPL-3.0 | LGPL |
 | **Deployment** | Single binary, zero dependencies | Single binary + licence file | Single binary | Monitors, managers, OSDs and RGW daemons, usually through cephadm or Rook |
-| **Multi-node cluster / HA** | ✅ Up to 5 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Paid tiers only (Enterprise Lite below 400 TiB, Enterprise); Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
+| **Multi-node cluster / HA** | ✅ Up to 10 nodes tested; 1 to 3 copies of each object, on the nodes with the most free space | ⚠️ Paid tiers only (Enterprise Lite below 400 TiB, Enterprise); Free is single node | ✅ Copies spread across zones (sites) | ✅ Hundreds of nodes |
 | **Erasure coding** | ✅ Reed-Solomon parity across nodes, 1 parity shard up to 4 nodes, 2 from 5 | ✅ Free: across one node's drives; paid tiers: across nodes | ❌ Replication only | ✅ |
 | **Replication to another site or S3 endpoint** | ✅ AWS S3, any S3-compatible endpoint, or another MaxIOFS (realtime, scheduled, batch) | ✅ Active-active, site, bucket and batch | ❌ No replication API | ✅ Between multisite zones; the cloud sync module pushes to any S3 endpoint, one way |
 | **Tiering** (lifecycle transitions to colder storage) | ✅ Storage classes on groups of nodes, each with its own copies or parity; lifecycle transitions move objects to them | ✅ Lifecycle transitions to remote tiers | ❌ | ✅ Storage classes and cloud transition |
@@ -67,7 +67,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Audit logging** | ✅ 20+ event types, console viewer, CSV export, syslog | ✅ Webhook | — | ✅ Operations log |
 | **Metrics** | ✅ Prometheus (bearer token), Grafana dashboard | ✅ Prometheus | ✅ Prometheus | ✅ Prometheus |
 | **Support** | Community | Free: community; Enterprise Lite: basic SUBNET; Enterprise: 24/7, SLA under 4 h | Community | Community; commercial vendors |
-| **Target scale** | Single node to a 5-node cluster | Free: one node; Enterprise Lite: below 400 TiB; Enterprise: unlimited | Small to medium clusters across sites | Large clusters, petabytes and beyond |
+| **Target scale** | Single node to a 10-node cluster | Free: one node; Enterprise Lite: below 400 TiB; Enterprise: unlimited | Small to medium clusters across sites | Large clusters, petabytes and beyond |
 
 **Use MaxIOFS when:** you want one binary with the console, multi-tenancy, SSO,
 IAM, Object Lock and replication included, on one node or a few, without a
@@ -81,7 +81,7 @@ drives (Free), or you need petabyte-scale clusters, tiering and a support SLA
 unreliable links, on modest hardware, and do not need versioning, Object Lock,
 bucket policies or server-side encryption.
 
-**Use Ceph when:** you need large scale, erasure coding across nodes in a stable release, tiering, or
+**Use Ceph when:** you need large scale, hundreds of nodes and petabytes, or
 block and file storage next to object storage, and you have the people to run a
 Ceph cluster.
 
@@ -193,7 +193,7 @@ Ceph cluster.
 <details>
 <summary><strong>Cluster & High Availability</strong></summary>
 
-- Multi-node cluster — up to 5 nodes tested
+- Multi-node cluster — up to 10 nodes tested
 - **Dedicated cluster port 8082** — inter-node coordination fully separated from S3 (8080) and Console (8081)
 - Automatic failover and health monitoring
 - Synchronous replication: a factor of 2 is a mirror (RAID 1) that keeps writing with one node down; a factor of 3 needs one of its two peers
@@ -371,7 +371,7 @@ cd web/frontend && npm run test        # 161 frontend tests
 - **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); external KMS/HSM integration is planned; SSE-C keys are the client's
 - **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time
-- **Cluster tested up to 5 nodes**
+- **Cluster tested up to 10 nodes**
 - **No SAML** — use OAuth2/OIDC instead
 - **No SOC 2 / ISO 27001 certification** — comprehensive internal audit completed
 

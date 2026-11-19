@@ -1542,8 +1542,8 @@ func (am *authManager) TenantActive(ctx context.Context, tenantID string) bool {
 	if tenantID == "" {
 		return true
 	}
-	tenant, err := am.store.GetTenant(tenantID)
-	return err == nil && tenant != nil && (tenant.Status == "" || tenant.Status == TenantStatusActive)
+	active, err := am.store.TenantActive(tenantID)
+	return err == nil && active
 }
 
 func (am *authManager) GetTenantByName(ctx context.Context, name string) (*Tenant, error) {

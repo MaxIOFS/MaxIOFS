@@ -68,3 +68,21 @@ func TestATenantSetInactiveStopsItsUsers(t *testing.T) {
 	assert.True(t, manager.TenantActive(ctx, ""), "no tenant")
 	assert.False(t, manager.TenantActive(ctx, "no-such-tenant"), "a tenant that cannot be found")
 }
+
+// Only the status decides whether a tenant is active: a tenant whose other
+// columns are empty, as a replicated or older row may have them, is active by
+// the column's default; a deleted one is not.
+func TestATenantIsActiveByItsStatusAlone(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+	ctx := context.Background()
+
+	_, err := manager.store.db.Exec(`INSERT INTO tenants (id, name, created_at, updated_at) VALUES ('sparse', 'sparse', 1, 1)`)
+	require.NoError(t, err)
+	assert.True(t, manager.TenantActive(ctx, "sparse"), "a tenant with nothing but its name")
+
+	_, err = manager.store.db.Exec(`UPDATE tenants SET status = 'deleted' WHERE id = 'sparse'`)
+	require.NoError(t, err)
+	assert.False(t, manager.TenantActive(ctx, "sparse"), "a deleted tenant")
+}

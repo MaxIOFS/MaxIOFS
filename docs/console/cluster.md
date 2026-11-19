@@ -1,6 +1,6 @@
 # Cluster
 
-**Cluster** (global administrators) builds and runs a cluster of up to five
+**Cluster** (global administrators) builds and runs a cluster, tested up to ten
 nodes. Planning, networking and load balancing are in
 [Deployment → Cluster](../deployment/cluster.md); this page covers the
 console.

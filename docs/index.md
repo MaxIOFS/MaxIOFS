@@ -54,7 +54,7 @@ built in: no external database, no separate console process, no cloud account.
 
     ---
 
-    systemd, Docker, TLS behind a reverse proxy, and a cluster of up to five
+    systemd, Docker, TLS behind a reverse proxy, and a cluster of up to ten
     nodes with copies or parity.
 
     [:octicons-arrow-right-24: Deployment](deployment/single-node.md)
@@ -78,7 +78,7 @@ built in: no external database, no separate console process, no cloud account.
 | **Access control** | Users, groups and tenants, the AWS IAM protocol (policies, roles, `AssumeRole`), STS temporary credentials, two-factor authentication |
 | **Identity providers** | LDAP / Active Directory and OAuth2 / OIDC (Keycloak, Google, Microsoft), group mappings, hourly Auto Sync |
 | **Data protection** | Encryption at rest always on (AES-256-GCM, per-object keys), SSE-C, background integrity scans, a recovery tool that rebuilds the index from disk |
-| **Cluster** | Up to five nodes, 1 to 3 copies or Reed-Solomon parity, storage classes for tiering, any node serves any bucket |
+| **Cluster** | Up to ten nodes tested, 1 to 3 copies or Reed-Solomon parity, storage classes for tiering, any node serves any bucket |
 | **Operations** | Audit log with CSV export and syslog, Prometheus metrics and a Grafana dashboard, email alerts, maintenance mode |
 
 ## Ports
