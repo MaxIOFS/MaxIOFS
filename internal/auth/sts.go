@@ -251,7 +251,7 @@ func (am *authManager) IssueSTSSession(ctx context.Context, userID string, durat
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(context.Background(), user) {
 		return nil, ErrUserInactive
 	}
 
@@ -506,7 +506,7 @@ func (am *authManager) resolveSTSSession(tempAccessKeyID, presentedToken string)
 	if err != nil {
 		return nil, "", nil, ErrUserNotFound
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(context.Background(), user) {
 		return nil, "", nil, ErrAccessDenied
 	}
 

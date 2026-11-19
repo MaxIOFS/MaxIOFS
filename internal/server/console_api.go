@@ -857,6 +857,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Whatever signed the user in, an inactive account or one of an inactive
+	// tenant gets no session.
+	if !s.authManager.AccountActive(r.Context(), user) {
+		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
 	// Step 4.5: Check console:access capability before proceeding.
 	if !s.userHasConsoleAccess(r.Context(), user) {
 		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)

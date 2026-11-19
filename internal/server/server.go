@@ -1906,7 +1906,7 @@ func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bu
 		return
 	}
 
-	if bucketMeta.Website == nil {
+	if bucketMeta.Website == nil || !s.authManager.TenantActive(ctx, bucketMeta.TenantID) {
 		s.writeWebsiteAccessDenied(w, r)
 		return
 	}

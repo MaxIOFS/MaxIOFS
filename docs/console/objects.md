@@ -79,7 +79,9 @@ Two ways to give someone an object without an account:
 for a period you choose or with no expiry. Shared objects are marked in the
 list; clicking **Share** on one again copies its link or ends the share with
 **Stop sharing**. The file itself stays. Whoever may read an object may share
-it, and may end its share.
+it, and may end its share. From v1.10.1 a link works only while the user who
+made it and its tenant are active: deactivating either stops it, reactivating
+gives it back.
 
 **Presigned URL.** A URL signed with your access key, valid for a limited
 time, that anyone can open. It cannot be revoked before it expires, except

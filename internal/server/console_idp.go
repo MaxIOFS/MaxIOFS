@@ -1033,7 +1033,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 // session or, when the user has two-factor authentication, for the second
 // step's token.
 func (s *Server) finishOAuthSignIn(w http.ResponseWriter, r *http.Request, user *auth.User, providerID string, external *idp.ExternalUser) {
-	if user.Status != auth.UserStatusActive {
+	if !s.authManager.AccountActive(r.Context(), user) {
 		http.Redirect(w, r, s.consoleRelativePath("/login?error=account_inactive"), http.StatusFound)
 		return
 	}

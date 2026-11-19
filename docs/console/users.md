@@ -136,5 +136,11 @@ display name, and its limits:
 The list shows each tenant's usage against its limits. Make one of the
 tenant's users an **Admin** to let them run the tenant themselves.
 
+From v1.10.1 a tenant set **inactive** is stopped as a whole: none of its users
+signs in or authenticates (console, access keys, presigned URLs, temporary
+credentials), and nothing of it is served without credentials (share links,
+public buckets, static websites). Nothing is deleted: setting it active again
+gives everything back.
+
 A global administrator can open a tenant's buckets to read them, as an
 audit view, but not to change their settings.

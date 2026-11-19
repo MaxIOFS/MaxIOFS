@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The permission picker offers Tenant administrator only for a user of a tenant, and Super administrator only for a user of no tenant.
 - The owner of a bucket holds on it what its own permissions allow there, no longer `s3:*`: creating a bucket gives nothing its creator does not hold. Owner policies of earlier versions are cut to that at startup, so a user that held nothing on its bucket but ownership needs its permissions granted (#15).
 - A tenant administrator grants only what it holds itself: a user's permissions, a level on a bucket, a group, a role or a policy through the IAM API. What a user already has stays when it is edited (#15).
+- A tenant set inactive stops as a whole: none of its users signs in or authenticates (console, access keys, presigned URLs, temporary credentials) and nothing of it is served without credentials (share links, public buckets, static websites). Before, the status changed nothing. A share link also stops while the user who made it is inactive. Reactivating gives everything back (#18).
 - The same holds through an identity provider: importing users or mapping a group gives no administrator role, and no role granting more than the tenant administrator holds. A mapping edited without changing its role keeps it.
 - A tenant administrator holds every permission a bucket or an object takes, in its tenant only: replication, logging, accelerate, request payment, ownership controls and the GOVERNANCE bypass were missing.
 

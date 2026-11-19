@@ -48,6 +48,12 @@ type Manager interface {
 	EndSession(ctx context.Context, token, reason string) error
 	RevokeIdPSessions(ctx context.Context, providerID, subject, idpSession, reason string) (int, error)
 	RevokeUserSessions(ctx context.Context, userID, reason string) (int, error)
+	// AccountActive reports whether a user may sign in or authenticate: it is
+	// active and so is its tenant.
+	AccountActive(ctx context.Context, user *User) bool
+	// TenantActive reports whether a tenant is active: nothing of an inactive
+	// one is served, and none of its users authenticates.
+	TenantActive(ctx context.Context, tenantID string) bool
 	ApplyPeerSessions(ctx context.Context, sessions []*ConsoleSession) error
 	SetSessionsChangedCallback(cb func())
 	SetSessionNode(node func(ctx context.Context) string)
@@ -457,7 +463,7 @@ func (am *authManager) ValidateCredentials(ctx context.Context, accessKey, secre
 	}
 
 	// Check user status
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -479,7 +485,7 @@ func (am *authManager) ValidateConsoleCredentials(ctx context.Context, username,
 		return nil, ErrInvalidCredentials
 	}
 
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -575,7 +581,7 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, err
 	}
 
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrUserInactive
 	}
 
@@ -685,7 +691,7 @@ func (am *authManager) ValidateDownloadToken(ctx context.Context, token, resourc
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrUserInactive
 	}
 	return user, nil
@@ -759,7 +765,7 @@ func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (
 
 	// NEW-05: reject refresh tokens for deactivated/suspended users so that
 	// disabling an account immediately prevents session renewal.
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrInvalidToken
 	}
 
@@ -790,7 +796,7 @@ func (am *authManager) ValidateTwoFactorToken(ctx context.Context, token string)
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrUserInactive
 	}
 	return user, nil
@@ -863,7 +869,7 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		logrus.WithField("user_id", accessKey.UserID).Warn("User not found for access key")
 		return nil, ErrUserNotFound
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrAccessDenied
 	}
 
@@ -938,7 +944,7 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrAccessDenied
 	}
 
@@ -1201,7 +1207,7 @@ func (am *authManager) GenerateAccessKey(ctx context.Context, userID string) (*A
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
-	if user.Status != UserStatusActive {
+	if !am.AccountActive(ctx, user) {
 		return nil, ErrAccessDenied
 	}
 
@@ -1521,6 +1527,23 @@ func (am *authManager) CreateTenant(ctx context.Context, tenant *Tenant) error {
 
 func (am *authManager) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
 	return am.store.GetTenant(tenantID)
+}
+
+// AccountActive reports whether a user may sign in or authenticate: it is
+// active and so is its tenant. Setting a tenant inactive stops every user of
+// it as deactivating each one would, and reactivating it gives them back.
+func (am *authManager) AccountActive(ctx context.Context, user *User) bool {
+	return user != nil && user.Status == UserStatusActive && am.TenantActive(ctx, user.TenantID)
+}
+
+// TenantActive reports whether a tenant is active. No tenant, the global
+// namespace, always is; a tenant that cannot be read is not.
+func (am *authManager) TenantActive(ctx context.Context, tenantID string) bool {
+	if tenantID == "" {
+		return true
+	}
+	tenant, err := am.store.GetTenant(tenantID)
+	return err == nil && tenant != nil && (tenant.Status == "" || tenant.Status == TenantStatusActive)
 }
 
 func (am *authManager) GetTenantByName(ctx context.Context, name string) (*Tenant, error) {

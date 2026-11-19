@@ -594,7 +594,7 @@ func (h *Handler) presignedSigner(r *http.Request, accessKeyID, sessionToken str
 	if user == nil {
 		return nil, fmt.Errorf("access key resolved to no user")
 	}
-	if user.Status != auth.UserStatusActive {
+	if !h.authManager.AccountActive(r.Context(), user) {
 		return nil, auth.ErrAccessDenied
 	}
 	return user, nil
@@ -653,7 +653,7 @@ func (h *Handler) getSecretKeyForCredential(ctx context.Context, accessKeyID, se
 	if err != nil {
 		return "", fmt.Errorf("access key user not found: %w", err)
 	}
-	if user.Status != auth.UserStatusActive {
+	if !h.authManager.AccountActive(ctx, user) {
 		return "", auth.ErrAccessDenied
 	}
 

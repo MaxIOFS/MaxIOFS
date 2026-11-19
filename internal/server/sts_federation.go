@@ -318,7 +318,7 @@ func (s *Server) completeSTSFederation(
 // credentials at all. Shared by every issuance path that does not go through the
 // console: the JSON federation endpoints and the AWS STS XML surface.
 func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error {
-	if user.Status != auth.UserStatusActive {
+	if !s.authManager.AccountActive(ctx, user) {
 		return &federationDenied{"account is not active"}
 	}
 	if locked, _, _ := s.authManager.IsAccountLocked(ctx, user.ID); locked {

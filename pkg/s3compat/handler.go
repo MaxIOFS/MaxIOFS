@@ -2771,6 +2771,16 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 	if !ok || s == nil {
 		return "", "", "", fmt.Errorf("share manager returned invalid type")
 	}
+	// A share is served while who made it may act: an inactive user, one of an
+	// inactive tenant or one deleted shares nothing, until it is active again.
+	if h.authManager != nil {
+		creator, err := h.authManager.GetUser(r.Context(), s.CreatedBy)
+		if err != nil || !h.authManager.AccountActive(r.Context(), creator) || !h.authManager.TenantActive(r.Context(), s.TenantID) {
+			logrus.WithFields(logrus.Fields{"bucket": s.BucketName, "object": s.ObjectKey, "tenant": s.TenantID}).
+				Warn("Unauthenticated access denied - the share's owner or tenant is not active")
+			return "", "", "", fmt.Errorf("the share's owner or tenant is not active")
+		}
+	}
 
 	// Return the share's bucket/object so path resolution uses the canonical stored values
 	shareTenantID := s.TenantID
@@ -3949,6 +3959,11 @@ func (h *Handler) userCanPerformS3ActionInTenant(ctx context.Context, user *auth
 // Deny refuses it, a bucket policy Allow to everyone grants it, and otherwise
 // the public ACL decides.
 func (h *Handler) anonymousAllowed(ctx context.Context, tenantID, action, resource string, aclAllows func() bool) bool {
+	// Nothing of an inactive tenant is served, whatever its buckets allow.
+	if h.authManager != nil && !h.authManager.TenantActive(ctx, tenantID) {
+		auth.NoteRefusal(ctx, "anonymous", action, resource, "the tenant is inactive")
+		return false
+	}
 	switch bucket.DecideAnonymousBucketPolicy(ctx, h.bucketManager, tenantID, action, resource) {
 	case auth.BucketPolicyDeny:
 		auth.NoteRefusal(ctx, "anonymous", action, resource, "the bucket policy denies it")

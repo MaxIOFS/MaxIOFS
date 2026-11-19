@@ -102,7 +102,7 @@ func TestAnonymousGetObject_PrivateBucketWithoutShareDenied(t *testing.T) {
 func TestAnonymousGetObject_ShareGrantsPrivateObject(t *testing.T) {
 	env := setupACLTestEnvironment(t)
 	defer env.cleanup()
-	env.handler.SetShareManager(&mockShareManagerFull{})
+	env.handler.SetShareManager(&mockShareManagerFull{createdBy: env.userID})
 	putAnonymousTestObject(t, env, "private", false)
 
 	rec := anonymousGet(env.handler, "private", "09.png")

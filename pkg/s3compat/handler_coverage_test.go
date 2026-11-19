@@ -1175,8 +1175,9 @@ func TestValidateShareAccess_TenantBucket(t *testing.T) {
 	defer env.cleanup()
 
 	// Set mock share manager
-	mockSM := &mockShareManagerFull{}
+	mockSM := &mockShareManagerFull{createdBy: env.userID}
 	env.handler.SetShareManager(mockSM)
+	require.NoError(t, env.authManager.CreateTenant(context.Background(), &auth.Tenant{ID: "tenant-abc", Name: "tenant-abc", Status: "active"}))
 
 	req := httptest.NewRequest(http.MethodGet, "/tenant-abc/real-bucket/object.txt", nil)
 
@@ -1193,8 +1194,9 @@ func TestValidateShareAccess_TenantBucketSinglePart(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()
 
-	mockSM := &mockShareManagerFull{}
+	mockSM := &mockShareManagerFull{createdBy: env.userID}
 	env.handler.SetShareManager(mockSM)
+	require.NoError(t, env.authManager.CreateTenant(context.Background(), &auth.Tenant{ID: "tenant-abc", Name: "tenant-abc", Status: "active"}))
 
 	req := httptest.NewRequest(http.MethodGet, "/tenant-abc/mybucket", nil)
 
@@ -1554,13 +1556,15 @@ func TestGenerateSystemXML_AdvertisesIAMSTSWhenServed(t *testing.T) {
 // Additional mock for validateShareAccess
 // ============================================
 
-type mockShareManagerFull struct{}
+// mockShareManagerFull holds a share of every object, made by createdBy.
+type mockShareManagerFull struct{ createdBy string }
 
 func (m *mockShareManagerFull) GetShareByObject(ctx context.Context, bucketName, objectKey, tenantID string) (interface{}, error) {
 	return &share.Share{
 		BucketName: bucketName,
 		ObjectKey:  objectKey,
 		TenantID:   tenantID,
+		CreatedBy:  m.createdBy,
 	}, nil
 }
 

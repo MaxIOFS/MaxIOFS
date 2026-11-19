@@ -629,6 +629,14 @@ func (m *MockAuthManager) ApplyPeerSessions(ctx context.Context, s []*auth.Conso
 func (m *MockAuthManager) SetSessionsChangedCallback(cb func())                 {}
 func (m *MockAuthManager) SetSessionNode(node func(ctx context.Context) string) {}
 func (m *MockAuthManager) SessionIDOf(token string) string                      { return "" }
+func (m *MockAuthManager) AccountActive(ctx context.Context, user *auth.User) bool {
+	return user != nil && user.Status == auth.UserStatusActive
+}
+
+func (m *MockAuthManager) TenantActive(ctx context.Context, tenantID string) bool {
+	return true
+}
+
 func (m *MockAuthManager) RevokeUserSessions(ctx context.Context, userID, reason string) (int, error) {
 	return 0, nil
 }

@@ -193,6 +193,12 @@ const (
 	UserStatusLocked    = "locked"
 )
 
+// Constants for tenant status
+const (
+	TenantStatusActive   = "active"
+	TenantStatusInactive = "inactive"
+)
+
 // Constants for access key status
 const (
 	AccessKeyStatusActive   = "active"
