@@ -295,6 +295,7 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	var twoFactorSetupAt sql.NullInt64
 	var backupCodesJSON sql.NullString
 	var backupCodesUsedJSON sql.NullString
+	var lockedUntil sql.NullInt64
 	var themePreference sql.NullString
 	var languagePreference sql.NullString
 	var authProvider sql.NullString
@@ -302,7 +303,7 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 
 	stmt, err := s.prepared(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
-		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used,
+		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
 		       theme_preference, language_preference, auth_provider, external_id, must_change_password
 		FROM users
 		WHERE id = ? AND status != 'deleted'
@@ -314,7 +315,7 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	err = stmt.QueryRow(userID).Scan(
 		&user.ID, &user.Username, &user.Password, &user.DisplayName, &user.Email, &user.Status,
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
-		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON,
+		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
 		&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
 	)
 
@@ -328,6 +329,10 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 
 	if twoFactorSetupAt.Valid {
 		user.TwoFactorSetupAt = twoFactorSetupAt.Int64
+	}
+
+	if lockedUntil.Valid {
+		user.LockedUntil = lockedUntil.Int64
 	}
 
 	if themePreference.Valid {

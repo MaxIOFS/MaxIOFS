@@ -19,7 +19,6 @@ import (
 type AccessLogEntry struct {
 	Timestamp  time.Time
 	BucketName string
-	TenantID   string
 	ObjectKey  string
 	Operation  string
 	RemoteIP   string
@@ -35,17 +34,20 @@ type AccessLogEntry struct {
 type BucketAccessLogger struct {
 	bucketManager bucket.Manager
 	objectManager object.Manager
+	tenantOf      func(ctx context.Context, bucketName string) (string, error)
 	entries       chan AccessLogEntry
 	done          chan struct{}
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
 }
 
-// NewBucketAccessLogger creates and starts the background log-delivery goroutine.
-func NewBucketAccessLogger(bm bucket.Manager, om object.Manager) *BucketAccessLogger {
+// NewBucketAccessLogger creates and starts the background log-delivery
+// goroutine. tenantOf gives the tenant a bucket is in.
+func NewBucketAccessLogger(bm bucket.Manager, om object.Manager, tenantOf func(ctx context.Context, bucketName string) (string, error)) *BucketAccessLogger {
 	l := &BucketAccessLogger{
 		bucketManager: bm,
 		objectManager: om,
+		tenantOf:      tenantOf,
 		entries:       make(chan AccessLogEntry, 1000),
 		done:          make(chan struct{}),
 	}
@@ -111,17 +113,22 @@ func (l *BucketAccessLogger) run() {
 
 // flushEntries groups entries by source bucket, looks up the logging target for each,
 // formats lines in AWS S3 access log format, and writes a single object per bucket.
+// A bucket's requests are its own whoever made them, anonymous clients and
+// other tenants' users included.
 func (l *BucketAccessLogger) flushEntries(entries []AccessLogEntry) {
-	// Group by (tenantID, bucketName)
 	type bucketKey struct{ tenantID, bucket string }
-	grouped := make(map[bucketKey][]AccessLogEntry)
+	byName := make(map[string][]AccessLogEntry)
 	for _, e := range entries {
-		k := bucketKey{e.TenantID, e.BucketName}
-		grouped[k] = append(grouped[k], e)
+		byName[e.BucketName] = append(byName[e.BucketName], e)
 	}
 
 	ctx := context.Background()
-	for k, bEntries := range grouped {
+	for name, bEntries := range byName {
+		tenantID, err := l.tenantOf(ctx, name)
+		if err != nil {
+			continue // No such bucket
+		}
+		k := bucketKey{tenantID, name}
 		cfg, err := l.bucketManager.GetLogging(ctx, k.tenantID, k.bucket)
 		if err != nil || cfg == nil || cfg.TargetBucket == "" {
 			continue // No logging configured for this bucket
@@ -160,7 +167,12 @@ func (l *BucketAccessLogger) flushEntries(entries []AccessLogEntry) {
 			fmt.Sprintf("%d", time.Now().UnixNano()),
 		)
 
+		// The logs go to a bucket of the source bucket's tenant: a target
+		// elsewhere, configured before that was checked, gets nothing.
 		targetBucketPath := cfg.TargetBucket
+		if k.tenantID != "" {
+			targetBucketPath = k.tenantID + "/" + cfg.TargetBucket
+		}
 		content := strings.NewReader(lines.String())
 		hdrs := make(http.Header)
 		hdrs.Set("Content-Type", "text/plain")
@@ -235,11 +247,9 @@ func (s *Server) s3AccessLoggingMiddleware() mux.MiddlewareFunc {
 			}
 
 			// Auth info from context (available only after auth middleware ran).
-			tenantID := ""
 			requester := "-"
 			if user, ok := auth.GetUserFromContext(r.Context()); ok {
 				requester = user.Username
-				tenantID = user.TenantID
 			}
 
 			// The client, which a trusted proxy names.
@@ -250,7 +260,6 @@ func (s *Server) s3AccessLoggingMiddleware() mux.MiddlewareFunc {
 			s.accessLogger.Log(AccessLogEntry{
 				Timestamp:  start,
 				BucketName: bucketName,
-				TenantID:   tenantID,
 				ObjectKey:  objectKey,
 				Operation:  inferS3Operation(r, objectKey != ""),
 				RemoteIP:   remoteIP,
@@ -325,4 +334,17 @@ func inferS3Operation(r *http.Request, isObject bool) string {
 		}
 	}
 	return method
+}
+
+// bucketTenant is the tenant a bucket is in: bucket names are unique across
+// tenants.
+func (s *Server) bucketTenant(ctx context.Context, name string) (string, error) {
+	meta, err := s.metadataStore.GetBucketByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if meta == nil {
+		return "", fmt.Errorf("bucket %s not found", name)
+	}
+	return meta.TenantID, nil
 }

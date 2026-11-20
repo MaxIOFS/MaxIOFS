@@ -173,7 +173,7 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 - **Storage classes** — `x-amz-storage-class` on PUT, CreateMultipartUpload and CopyObject (a copy without one is STANDARD); returned on GET and HEAD for every class but STANDARD, as S3 does, and in listings for every class; a class S3 does not have is refused (`InvalidStorageClass`)
 - **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored
 - **SelectObjectContent** — SQL queries on object data streamed via Amazon Event Stream binary protocol (Records/Stats/End events, CRC32-framed); see section below
-- **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`
+- **Server Access Logging** — async delivery to a target bucket in AWS S3 access log format; configure via `PUT /{bucket}?logging`. The target is a bucket of the same tenant that the caller may write to
 
 ### S3 Select Reference
 

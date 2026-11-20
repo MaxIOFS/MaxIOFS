@@ -262,3 +262,24 @@ func TestTheLastGlobalAdministratorIsKeptWhateverMakesItOne(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, callAs(t, s, "global-by-permission", s.handleDeleteUser, of("global-by-role"), ""), "one by the role, one by the permission left")
 	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleUpdateUser, of("global-by-permission"), inactive), "the last one")
 }
+
+// A locked user's own record says until when it is locked, as the list does.
+func TestAUsersRecordSaysItIsLocked(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	maxFailed, err := s.settingsManager.GetInt("security.max_failed_attempts")
+	require.NoError(t, err)
+	for range maxFailed {
+		require.NoError(t, s.authManager.RecordFailedLogin(ctx, "acme-member", "203.0.113.9"))
+	}
+	admin, err := s.authManager.GetUser(ctx, "acme-by-admin-role")
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodGet, "/users/acme-member", nil)
+	req = mux.SetURLVars(req.WithContext(context.WithValue(req.Context(), "user", admin)), map[string]string{"user": "acme-member"})
+	rec := httptest.NewRecorder()
+	s.handleGetUser(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct{ Data UserResponse }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Greater(t, got.Data.LockedUntil, time.Now().Unix(), "locked until a time to come")
+}

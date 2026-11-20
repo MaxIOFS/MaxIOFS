@@ -92,6 +92,12 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 			s.writeError(w, "Destination bucket not found or access denied", http.StatusBadRequest)
 			return
 		}
+		// The reports are written where the caller may write.
+		if !s.userCanPerformConsoleS3Action(r, currentUser, tenantID, auth.ActionPutObject,
+			consoleObjectARN(req.DestinationBucket, req.DestinationPrefix)) {
+			s.writeError(w, "You do not have permission to write to the destination bucket", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Validate included fields

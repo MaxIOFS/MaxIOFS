@@ -1396,7 +1396,7 @@ func (s *Server) setupRoutes() error {
 	}
 
 	// Start S3 access logger (delivers requests to configured target buckets)
-	s.accessLogger = supervise(s.componentRegistry(), "accessLogger", NewBucketAccessLogger(s.bucketManager, s.objectManager))
+	s.accessLogger = supervise(s.componentRegistry(), "accessLogger", NewBucketAccessLogger(s.bucketManager, s.objectManager, s.bucketTenant))
 
 	// Apply middleware only to S3 subrouter (not to /metrics)
 	// Log every S3 request at Info (logrus) first so "first probe" (e.g. VEEAM capabilities) is visible

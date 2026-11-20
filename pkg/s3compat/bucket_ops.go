@@ -1349,6 +1349,11 @@ func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
 			TargetBucket: xmlCfg.LoggingEnabled.TargetBucket,
 			TargetPrefix: xmlCfg.LoggingEnabled.TargetPrefix,
 		}
+		if !h.deliveryTargetAllowed(r, tenantID, cfg.TargetBucket, cfg.TargetPrefix) {
+			h.writeError(w, "InvalidTargetBucketForLogging",
+				"The target bucket for logging must be a bucket of the same tenant that the caller may write to", bucketName, r)
+			return
+		}
 		if err := h.bucketManager.SetLogging(r.Context(), tenantID, bucketName, cfg); err != nil {
 			if err == bucket.ErrBucketNotFound {
 				h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
@@ -1360,6 +1365,20 @@ func (h *Handler) PutBucketLogging(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// deliveryTargetAllowed reports whether what the server writes for a bucket of
+// tenantID, its access logs or its inventory reports, may go to target under
+// prefix: a bucket of the same tenant, where the caller may write.
+func (h *Handler) deliveryTargetAllowed(r *http.Request, tenantID, target, prefix string) bool {
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		return false
+	}
+	if _, err := h.bucketManager.GetBucketInfo(r.Context(), tenantID, target); err != nil {
+		return false
+	}
+	return h.userCanPerformS3ActionInTenant(r.Context(), user, tenantID, auth.ActionPutObject, objectARN(target, prefix))
 }
 
 // publicAccessBlockXML is the AWS XML envelope for GetPublicAccessBlock / PutPublicAccessBlock.

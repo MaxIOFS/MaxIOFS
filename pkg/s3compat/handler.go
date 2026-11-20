@@ -2211,7 +2211,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart", "InvalidPartOrder",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
 		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge",
-		"InvalidEncryptionAlgorithmError":
+		"InvalidEncryptionAlgorithmError", "InvalidTargetBucketForLogging":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":

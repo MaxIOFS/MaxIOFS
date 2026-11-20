@@ -257,6 +257,10 @@ func (h *Handler) PutBucketInventoryConfiguration(w http.ResponseWriter, r *http
 		h.writeError(w, "InvalidArgument", "Destination bucket cannot be the same as the source bucket", bucketName, r)
 		return
 	}
+	if !h.deliveryTargetAllowed(r, tenantID, cfg.DestinationBucket, cfg.DestinationPrefix) {
+		h.writeError(w, "InvalidArgument", "The destination bucket must be a bucket of the same tenant that the caller may write to", bucketName, r)
+		return
+	}
 	if cfg.Frequency != "daily" && cfg.Frequency != "weekly" {
 		h.writeError(w, "InvalidArgument", "Schedule frequency must be Daily or Weekly", bucketName, r)
 		return
