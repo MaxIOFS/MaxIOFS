@@ -1325,23 +1325,18 @@ func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	return s.userHoldsPermissionExactly(user, auth.ActionSuperAdmin)
 }
 
-// countGlobalAdmins returns the number of active global-admin users
-// (role == "admin", TenantID == ""). Used to prevent removing the last admin.
+// countGlobalAdmins returns the number of active global administrators, by
+// the role or by the permission. Used to prevent removing the last admin.
 func (s *Server) countGlobalAdmins(ctx context.Context) (int, error) {
 	users, err := s.authManager.ListUsers(ctx)
 	if err != nil {
 		return 0, err
 	}
 	count := 0
-	for _, u := range users {
-		if u.TenantID != "" || u.Status != auth.UserStatusActive {
-			continue
-		}
-		for _, r := range u.Roles {
-			if r == auth.RoleAdmin {
-				count++
-				break
-			}
+	for i := range users {
+		user := &users[i]
+		if user.Status == auth.UserStatusActive && s.isGlobalAdmin(user) {
+			count++
 		}
 	}
 	return count, nil

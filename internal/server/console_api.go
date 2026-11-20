@@ -3055,7 +3055,15 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unlock account (permissions are checked in authManager)
+	// An administrator unlocks the users it administers.
+	if !s.isAdmin(currentUser) {
+		s.writeError(w, "insufficient permissions to unlock account", http.StatusForbidden)
+		return
+	}
+	if !s.canAdministerUser(w, r, targetUserID) {
+		return
+	}
+
 	err := s.authManager.UnlockAccount(r.Context(), currentUser.ID, targetUserID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {

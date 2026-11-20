@@ -14,7 +14,7 @@ import (
 
 // grantExactly attaches a policy allowing precisely the listed actions on a
 // bucket and its keys, and nothing else.
-func grantExactly(t *testing.T, env *coverageTestEnv, userID, bucketName string, actions ...string) {
+func grantExactly(t *testing.T, am auth.Manager, userID, bucketName string, actions ...string) {
 	t.Helper()
 
 	quoted := ""
@@ -25,7 +25,7 @@ func grantExactly(t *testing.T, env *coverageTestEnv, userID, bucketName string,
 		quoted += `"` + a + `"`
 	}
 
-	writer, ok := env.authManager.(interface {
+	writer, ok := am.(interface {
 		PutIAMInlinePolicy(ctx context.Context, targetType, targetID, name, document string) error
 	})
 	require.True(t, ok)
@@ -42,7 +42,7 @@ func TestVersionPermission_CurrentObjectGrantDoesNotReachAVersion(t *testing.T) 
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "versioned", env.userID))
 
 	const caller = "reader-of-current"
-	grantExactly(t, env, caller, "versioned",
+	grantExactly(t, env.authManager, caller, "versioned",
 		auth.ActionGetObject, auth.ActionGetObjectTagging)
 
 	user := &auth.User{ID: caller, TenantID: env.tenantID, Roles: []string{"user"}}
@@ -69,7 +69,7 @@ func TestVersionPermission_AVersionGrantStillWorks(t *testing.T) {
 	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "versioned2", env.userID))
 
 	const caller = "reader-of-versions"
-	grantExactly(t, env, caller, "versioned2",
+	grantExactly(t, env.authManager, caller, "versioned2",
 		auth.ActionGetObject, auth.ActionGetObjectTagging, auth.ActionGetObjectVersion)
 
 	user := &auth.User{ID: caller, TenantID: env.tenantID, Roles: []string{"user"}}

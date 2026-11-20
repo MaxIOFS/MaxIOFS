@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/acl"
+	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/share"
 	"github.com/stretchr/testify/assert"
@@ -99,11 +100,22 @@ func TestAnonymousGetObject_PrivateBucketWithoutShareDenied(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
+// putSharedTestObject creates a bucket of the environment's tenant holding one
+// object its user may read, and shares every object as that user.
+func putSharedTestObject(t *testing.T, env *aclTestEnv, bucketName string) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+	_, err := env.objectManager.PutObject(ctx, env.tenantID+"/"+bucketName, "09.png", strings.NewReader("avatar"), http.Header{})
+	require.NoError(t, err)
+	grantExactly(t, env.authManager, env.userID, bucketName, auth.ActionGetObject)
+	env.handler.SetShareManager(&mockShareManagerFull{createdBy: env.userID, tenantID: env.tenantID})
+}
+
 func TestAnonymousGetObject_ShareGrantsPrivateObject(t *testing.T) {
 	env := setupACLTestEnvironment(t)
 	defer env.cleanup()
-	env.handler.SetShareManager(&mockShareManagerFull{createdBy: env.userID})
-	putAnonymousTestObject(t, env, "private", false)
+	putSharedTestObject(t, env, "private")
 
 	rec := anonymousGet(env.handler, "private", "09.png")
 

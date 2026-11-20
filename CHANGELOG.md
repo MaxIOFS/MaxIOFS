@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Before upgrading
-- A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions** (#15).
+- A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions**. One that lists its buckets, as Veeam does when a repository is added, also needs **List buckets** (`s3:ListAllMyBuckets`), granted in **Users → Permissions** only: without it the list gets `AccessDenied` (#15).
 
 ### Added
 - Documentation site at https://docs.maxiofs.com/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The console took for an administrator only a user with the `admin` role: one that administers its tenant by the `tenant-admin` role or the TenantAdmin permission was sent to its own profile instead of the Users page, and got no notifications. The Create User form listed no role to a tenant's administrator: it lists the roles it may give (#17).
 - The console let the role of a tenant's last administrator be removed when its role was `tenant-admin`: it is held as for `admin`.
 - The console counted as administrators only users with an administrator role: the Admin Users card, the administrator counts of the Security page and the users a bucket's permissions leave out missed an administrator by the TenantAdmin or SuperAdmin permission. The user list says who administers.
-- More checks took for an administrator only a user with the `admin` role. One administering a tenant by the `tenant-admin` role or the TenantAdmin permission, or every tenant by the SuperAdmin permission, got `403` on the audit logs, the integrity status and recounting a bucket, got no quota alerts, and signed in without 2FA when it is required of administrators.
+- More checks took for an administrator only a user with the `admin` role. One administering a tenant by the `tenant-admin` role or the TenantAdmin permission, or every tenant by the SuperAdmin permission, got `403` on the audit logs, the integrity status, recounting a bucket and unlocking an account, got no quota alerts, and signed in without 2FA when it is required of administrators.
 - The disk, cluster node and data corruption alerts were emailed to the administrators of every tenant, and the corruption alert names a bucket and object of any tenant. They go to the global administrators only.
 - On connecting, the notification stream sent a tenant's administrator the quota state of every tenant and bucket: it sends its own tenant's only.
 - Any user with the `admin` role, a tenant's too, could change the theme and language of any user. Another user's preferences are set only by who administers it.
@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AssumeRoleWithWebIdentity` took a token to the provider named in `ProviderId` whatever its status: a provider that is not Active is refused, as on the JSON endpoint.
 - The last global administrator that can sign in could be deleted or deactivated when an inactive one existed, and deleted through the IAM API in any case, leaving the deployment with nobody to administer it. It is kept.
 - A cluster request with a wrong signature wrote the signature expected to the log.
+- Deleting or deactivating a global administrator counted only the others with the `admin` role: with one by the role and one by the SuperAdmin permission, neither could be removed.
+- A share link kept serving its object after the user who made it lost the permission to read it, and served any version of it: it serves what that user may read now, a version only if it may read versions.
 - Webhooks, the HTTP log target and replication reached addresses in the shared address space (`100.64.0.0/10`), where some clouds serve their metadata: they are refused as the private ranges are.
 - A public WRITE grant let an anonymous request remove a version of an object: it deletes the object only, adding a delete marker in a versioned bucket.
 - Enabling 2FA on an account that already has it replaced its secret and backup codes: it answers `409`, and 2FA is disabled first.

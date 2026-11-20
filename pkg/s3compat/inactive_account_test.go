@@ -3,8 +3,10 @@ package s3compat
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,8 +58,7 @@ func TestAnInactiveTenantPublishesNoBucket(t *testing.T) {
 func TestAShareStopsWithItsOwner(t *testing.T) {
 	env := setupACLTestEnvironment(t)
 	defer env.cleanup()
-	env.handler.SetShareManager(&mockShareManagerFull{createdBy: env.userID})
-	putAnonymousTestObject(t, env, "private", false)
+	putSharedTestObject(t, env, "private")
 
 	require.Equal(t, http.StatusOK, anonymousGet(env.handler, "private", "09.png").Code, "a share")
 	setUserStatus(t, env, auth.UserStatusInactive)
@@ -69,6 +70,30 @@ func TestAShareStopsWithItsOwner(t *testing.T) {
 	setTenantStatus(t, env, auth.TenantStatusActive)
 	assert.Equal(t, http.StatusOK, anonymousGet(env.handler, "private", "09.png").Code, "its owner's tenant active again")
 
-	env.handler.SetShareManager(&mockShareManagerFull{createdBy: "a-user-deleted-since"})
+	env.handler.SetShareManager(&mockShareManagerFull{createdBy: "a-user-deleted-since", tenantID: env.tenantID})
 	assert.Equal(t, http.StatusForbidden, anonymousGet(env.handler, "private", "09.png").Code, "an owner that is gone")
+}
+
+// A share serves what its owner may read now: not once its permission on the
+// object is taken away, again once it is given back. A version of the object
+// needs the owner to read versions.
+func TestAShareServesWhatItsOwnerMayRead(t *testing.T) {
+	env := setupACLTestEnvironment(t)
+	defer env.cleanup()
+	putSharedTestObject(t, env, "private")
+	version := func() int {
+		req := httptest.NewRequest(http.MethodGet, "/private/09.png?versionId=null", nil)
+		req = mux.SetURLVars(req, map[string]string{"bucket": "private", "object": "09.png"})
+		rec := httptest.NewRecorder()
+		env.handler.GetObject(rec, req)
+		return rec.Code
+	}
+
+	require.Equal(t, http.StatusOK, anonymousGet(env.handler, "private", "09.png").Code, "a share")
+	assert.Equal(t, http.StatusForbidden, version(), "a version, its owner not reading versions")
+	grantExactly(t, env.authManager, env.userID, "private", auth.ActionGetObjectTagging)
+	assert.Equal(t, http.StatusForbidden, anonymousGet(env.handler, "private", "09.png").Code, "its owner no longer reading the object")
+	grantExactly(t, env.authManager, env.userID, "private", auth.ActionGetObject, auth.ActionGetObjectVersion)
+	assert.Equal(t, http.StatusOK, anonymousGet(env.handler, "private", "09.png").Code, "its owner reading it again")
+	assert.Equal(t, http.StatusOK, version(), "a version, its owner reading versions")
 }

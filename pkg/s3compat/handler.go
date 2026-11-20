@@ -2773,12 +2773,18 @@ func (h *Handler) validateShareAccess(r *http.Request, bucketName, objectKey str
 	}
 	// A share is served while who made it may act: an inactive user, one of an
 	// inactive tenant or one deleted shares nothing, until it is active again.
+	// It serves what its maker may read now, as a presigned URL does.
 	if h.authManager != nil {
 		creator, err := h.authManager.GetUser(r.Context(), s.CreatedBy)
 		if err != nil || !h.authManager.AccountActive(r.Context(), creator) || !h.authManager.TenantActive(r.Context(), s.TenantID) {
 			logrus.WithFields(logrus.Fields{"bucket": s.BucketName, "object": s.ObjectKey, "tenant": s.TenantID}).
 				Warn("Unauthenticated access denied - the share's owner or tenant is not active")
 			return "", "", "", fmt.Errorf("the share's owner or tenant is not active")
+		}
+		if !h.userCanPerformS3ActionInTenant(r.Context(), creator, s.TenantID, readObjectAction(r), objectARN(s.BucketName, s.ObjectKey)) {
+			logrus.WithFields(logrus.Fields{"bucket": s.BucketName, "object": s.ObjectKey, "tenant": s.TenantID}).
+				Warn("Unauthenticated access denied - the share's owner may no longer read the object")
+			return "", "", "", fmt.Errorf("the share's owner may no longer read the object")
 		}
 	}
 

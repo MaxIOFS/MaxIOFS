@@ -204,3 +204,61 @@ func TestTheUserListSaysWhoAdministers(t *testing.T) {
 		assert.Equal(t, want, flags[name], name)
 	}
 }
+
+// A locked account is unlocked by whoever administers it, by a role or by the
+// permission; not by a member, another tenant's administrator or a tenant's
+// administrator for a global user.
+func TestAnAccountIsUnlockedByWhoAdministersIt(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	maxFailed, err := s.settingsManager.GetInt("security.max_failed_attempts")
+	require.NoError(t, err)
+	lock := func(id string) {
+		for range maxFailed {
+			require.NoError(t, s.authManager.RecordFailedLogin(ctx, id, "203.0.113.9"))
+		}
+		locked, _, err := s.authManager.IsAccountLocked(ctx, id)
+		require.NoError(t, err)
+		require.True(t, locked, id+" locked")
+	}
+	unlock := func(by, id string, want int) {
+		t.Helper()
+		lock(id)
+		assert.Equal(t, want, callAs(t, s, by, s.handleUnlockAccount, map[string]string{"user": id}, ""), by+" unlocking "+id)
+		locked, _, err := s.authManager.IsAccountLocked(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, want != http.StatusOK, locked, id+" locked after "+by)
+		require.NoError(t, s.authManager.UnlockAccount(ctx, "global-by-role", id))
+	}
+
+	for _, id := range append([]string{"global-by-role", "global-by-permission"}, acmeAdministrators...) {
+		unlock(id, "acme-member", http.StatusOK)
+	}
+	unlock("acme-member", "acme-member", http.StatusForbidden)
+	unlock("other-admin", "acme-member", http.StatusForbidden)
+	unlock("acme-by-tenant-admin-role", "global-by-role", http.StatusForbidden)
+}
+
+// The last active global administrator is not removed, whatever makes it one:
+// one by the permission counts as one by the role does.
+func TestTheLastGlobalAdministratorIsKeptWhateverMakesItOne(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	users, err := s.authManager.ListUsers(ctx)
+	require.NoError(t, err)
+	builtIn := ""
+	for _, u := range users {
+		if u.Username == "admin" {
+			builtIn = u.ID
+		}
+	}
+	require.NotEmpty(t, builtIn)
+	of := func(id string) map[string]string { return map[string]string{"user": id} }
+	inactive, active := `{"status":"inactive"}`, `{"status":"active"}`
+
+	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of(builtIn), inactive), "the built-in one deactivated")
+	assert.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of("global-by-permission"), inactive), "one by the permission, one by the role left")
+	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of("global-by-permission"), active))
+	assert.Equal(t, http.StatusNoContent, callAs(t, s, "global-by-permission", s.handleDeleteUser, of("global-by-role"), ""), "one by the role, one by the permission left")
+	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleUpdateUser, of("global-by-permission"), inactive), "the last one")
+}

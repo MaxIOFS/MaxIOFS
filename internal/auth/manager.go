@@ -2417,8 +2417,8 @@ func (am *authManager) LockAccount(ctx context.Context, userID string) error {
 	return nil
 }
 
-// UnlockAccount unlocks a user account
-// Can only be done by Global Admin or Tenant Admin (for users in same tenant)
+// UnlockAccount unlocks a user account. Who may is the caller's to decide: an
+// administrator of the user, by role or by permission.
 func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUserID string) error {
 	// Get admin user
 	admin, err := am.store.GetUserByID(adminUserID)
@@ -2432,14 +2432,6 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 		return fmt.Errorf("target user not found: %w", err)
 	}
 
-	// Check permissions
-	isGlobalAdmin := admin.TenantID == "" && containsRole(admin.Roles, "admin")
-	isTenantAdmin := admin.TenantID != "" && admin.TenantID == target.TenantID && containsRole(admin.Roles, "admin")
-
-	if !isGlobalAdmin && !isTenantAdmin {
-		return fmt.Errorf("insufficient permissions to unlock account")
-	}
-
 	// Each node counts its own failed sign-ins: the unlock must reach them all.
 	err = am.store.ClearAccountLock(targetUserID)
 	if err != nil {
@@ -2447,9 +2439,8 @@ func (am *authManager) UnlockAccount(ctx context.Context, adminUserID, targetUse
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"admin_user_id":   adminUserID,
-		"target_user_id":  targetUserID,
-		"is_global_admin": isGlobalAdmin,
+		"admin_user_id":  adminUserID,
+		"target_user_id": targetUserID,
 	}).Info("Account unlocked by admin")
 
 	// Log audit event for user unblocked
@@ -2607,16 +2598,6 @@ func (am *authManager) RecordSuccessfulLogin(ctx context.Context, userID string)
 	}).Info("Successful login - failed attempts reset")
 
 	return nil
-}
-
-// containsRole checks if a role exists in a slice of roles
-func containsRole(roles []string, role string) bool {
-	for _, r := range roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
 }
 
 // Setup2FA initiates 2FA setup for a user
