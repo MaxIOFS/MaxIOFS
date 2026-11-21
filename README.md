@@ -61,7 +61,7 @@ Most S3-compatible servers give you object storage. MaxIOFS gives you object sto
 | **Lifecycle rules** | ✅ Expiration of objects and noncurrent versions, expired delete markers, incomplete uploads; transitions to storage classes | ✅ Expiration and transitions | ⚠️ Expiration and incomplete uploads only | ✅ Including transitions |
 | **Bucket notifications** | ✅ Webhook | ✅ Webhook, Kafka, NATS, Redis and more | ❌ | ✅ HTTP, Kafka, AMQP |
 | **Static website hosting** | ✅ Index and error documents, routing rules | ✅ | ⚠️ Index and error documents, routing rules; no `RedirectAllRequestsTo` | ✅ |
-| **S3 Select** | ✅ SQL on CSV/JSON | ✅ | ❌ | ✅ CSV, JSON, Parquet |
+| **S3 Select** | ✅ SQL on CSV, JSON, Parquet | ✅ | ❌ | ✅ CSV, JSON, Parquet |
 | **Encryption at rest** | ✅ Always on: AES-256-GCM envelope, per-object keys, KEK rotation, recovery bundle; SSE-C | ✅ SSE-S3, SSE-KMS, SSE-C | ⚠️ SSE-C only; disk encryption recommended | ✅ SSE-S3, SSE-KMS, SSE-C |
 | **Background integrity check** | ✅ Scrubber recomputes the MD5 of every version, multipart objects included; corruption raises an alert | ✅ Bitrot detection and healing | ✅ Data scrub | ✅ Deep scrub |
 | **Audit logging** | ✅ 20+ event types, console viewer, CSV export, syslog | ✅ Webhook | — | ✅ Operations log |
@@ -111,7 +111,7 @@ Ceph cluster.
 - `PublicAccessBlock` — the four flags enforced as in AWS: public ACLs and public bucket policies refused when set or voided for requests without credentials
 - `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
 - `RestoreObject` — `POST ?restore`; accepts `<RestoreRequest>` XML; returns `x-amz-restore` header on HEAD/GET; tools with Glacier lifecycle rules (Veeam, NetBackup) work without errors
-- `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects, uncompressed or compressed with GZIP or BZIP2; streams results using the Amazon Event Stream binary protocol
+- `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects, uncompressed or compressed with GZIP or BZIP2, and on Parquet objects; streams results using the Amazon Event Stream binary protocol
 - `GetObjectAttributes` — lightweight object metadata (ETag, size, storage class, parts) without downloading the object body
 - Conditional writes — `PutObject If-None-Match: *` returns 412 if the object already exists (atomic create-if-absent)
 - Object search & filters — content-type, size range, date range, tags

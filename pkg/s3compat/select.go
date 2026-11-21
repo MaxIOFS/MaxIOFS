@@ -43,6 +43,7 @@ type selectInputSerial struct {
 	CompressionType string        `xml:"CompressionType"`
 	CSV             *selectCSVIn  `xml:"CSV"`
 	JSON            *selectJSONIn `xml:"JSON"`
+	Parquet         *struct{}     `xml:"Parquet"`
 }
 
 type selectCSVIn struct {
@@ -167,11 +168,16 @@ func quoteColIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// createSelectTable creates a table named "s3object" in db with TEXT columns.
-func createSelectTable(db *sql.DB, cols []string) error {
+// createSelectTable creates a table named "s3object" in db, its columns TEXT
+// unless types names theirs.
+func createSelectTable(db *sql.DB, cols, types []string) error {
 	parts := make([]string, len(cols))
 	for i, c := range cols {
-		parts[i] = quoteColIdent(c) + " TEXT"
+		sqlType := "TEXT"
+		if i < len(types) {
+			sqlType = types[i]
+		}
+		parts[i] = quoteColIdent(c) + " " + sqlType
 	}
 	_, err := db.Exec(`CREATE TABLE s3object (` + strings.Join(parts, ", ") + `)`)
 	return err
@@ -209,14 +215,9 @@ func (rw *rowWriter) ensureColumns(names []string) error {
 	}
 
 	if rw.tx == nil {
-		if err := createSelectTable(rw.db, rw.cols); err != nil {
+		if err := rw.begin(nil); err != nil {
 			return err
 		}
-		tx, err := rw.db.Begin()
-		if err != nil {
-			return err
-		}
-		rw.tx = tx
 	} else {
 		for _, name := range fresh {
 			if _, err := rw.tx.Exec(`ALTER TABLE s3object ADD COLUMN ` + quoteColIdent(name) + ` TEXT`); err != nil {
@@ -231,6 +232,33 @@ func (rw *rowWriter) ensureColumns(names []string) error {
 		rw.stmt = nil
 	}
 	return nil
+}
+
+// begin creates the table with the current columns, of types when given, and
+// opens the transaction rows go in.
+func (rw *rowWriter) begin(types []string) error {
+	if err := createSelectTable(rw.db, rw.cols, types); err != nil {
+		return err
+	}
+	tx, err := rw.db.Begin()
+	if err != nil {
+		return err
+	}
+	rw.tx = tx
+	return nil
+}
+
+// typedColumns creates the table with a type for each column, which a source
+// that states them, Parquet, has.
+func (rw *rowWriter) typedColumns(names, types []string) error {
+	for _, name := range names {
+		rw.index[name] = len(rw.cols)
+		rw.cols = append(rw.cols, name)
+	}
+	if len(rw.cols) == 0 {
+		return nil
+	}
+	return rw.begin(types)
 }
 
 func (rw *rowWriter) prepare() error {
@@ -265,7 +293,18 @@ func (rw *rowWriter) writeValues(values []string) error {
 			vals[i] = values[i]
 		}
 	}
-	_, err := rw.stmt.Exec(vals...)
+	return rw.insert(vals)
+}
+
+// insert inserts one row of values, one per column, as they are.
+func (rw *rowWriter) insert(values []interface{}) error {
+	if len(rw.cols) == 0 {
+		return nil
+	}
+	if err := rw.prepare(); err != nil {
+		return err
+	}
+	_, err := rw.stmt.Exec(values...)
 	return err
 }
 
@@ -482,6 +521,19 @@ func jsonFieldToText(v interface{}) string {
 	}
 }
 
+// jsonOutputValue is a value of a JSON record: a number as a number, as S3
+// returns it, anything else as its text.
+func jsonOutputValue(v any, text string) []byte {
+	switch v.(type) {
+	case int64, float64:
+		if b, err := json.Marshal(v); err == nil {
+			return b
+		}
+	}
+	b, _ := json.Marshal(text)
+	return b
+}
+
 // selectOnly lets the client's expression read and compute, and nothing else.
 // SQLite runs every statement of it: without this, one ATTACH reads any
 // database file the server can read, and VACUUM INTO writes a file anywhere.
@@ -589,7 +641,7 @@ func streamSelectResults(ctx context.Context, w io.Writer, db *sql.DB, expr stri
 					sb.WriteByte(',')
 				}
 				keyJSON, _ := json.Marshal(col)
-				valJSON, _ := json.Marshal(strs[i])
+				valJSON := jsonOutputValue(vals[i], strs[i])
 				sb.Write(keyJSON)
 				sb.WriteByte(':')
 				sb.Write(valJSON)
@@ -653,8 +705,14 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 			"CompressionType "+req.InputSerialization.CompressionType+" is not supported: it is NONE, GZIP or BZIP2", bucketName, r)
 		return
 	}
-	if req.InputSerialization.CSV == nil && req.InputSerialization.JSON == nil {
-		h.writeError(w, "InvalidRequest", "InputSerialization must specify CSV or JSON", bucketName, r)
+	in := req.InputSerialization
+	if in.CSV == nil && in.JSON == nil && in.Parquet == nil {
+		h.writeError(w, "InvalidRequest", "InputSerialization must specify CSV, JSON or Parquet", bucketName, r)
+		return
+	}
+	// Parquet compresses its columns itself: the object as a whole is not.
+	if ct := strings.ToUpper(in.CompressionType); in.Parquet != nil && ct != "" && ct != "NONE" {
+		h.writeError(w, "InvalidRequest", "CompressionType must be NONE for Parquet input", bucketName, r)
 		return
 	}
 	if req.InputSerialization.JSON != nil {
@@ -732,9 +790,12 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	// BytesScanned is what was read of the stored object, BytesProcessed what
 	// the query read once it was decompressed.
 	var bytesProcessed int64
-	if req.InputSerialization.CSV != nil {
-		_, bytesProcessed, err = loadCSV(db, input, req.InputSerialization.CSV)
-	} else {
+	switch {
+	case in.Parquet != nil:
+		bytesProcessed, err = h.loadParquetObject(db, input)
+	case in.CSV != nil:
+		_, bytesProcessed, err = loadCSV(db, input, in.CSV)
+	default:
 		_, bytesProcessed, err = loadJSONLines(db, input)
 	}
 
@@ -746,6 +807,19 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, errSelectRecordTooLarge) {
 			h.writeError(w, "OverMaxRecordSize",
 				"The character number in one record is more than our max threshold, maxCharsPerRecord: 1,048,576", objectKey, r)
+			return
+		}
+		if errors.Is(err, errSelectParquetCodec) {
+			h.writeError(w, "InvalidRequest", "A column is compressed with a codec S3 Select does not read: it reads uncompressed, Snappy, GZIP, ZSTD, Brotli and LZ4_RAW columns", objectKey, r)
+			return
+		}
+		if errors.Is(err, errSelectRowGroupTooLarge) {
+			h.writeError(w, "InvalidRequest", "A row group is larger than 512 MB uncompressed, the most S3 Select reads", objectKey, r)
+			return
+		}
+		if errors.Is(err, errSelectTooLarge) {
+			h.writeError(w, "InvalidRequest",
+				fmt.Sprintf("The object decompresses to more than %d bytes, the most S3 Select reads", maxSelectDecompressed), objectKey, r)
 			return
 		}
 		switch selectInputFailure(input) {

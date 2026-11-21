@@ -12,10 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions**. One that lists its buckets, as Veeam does when a repository is added, also needs **List buckets** (`s3:ListAllMyBuckets`), granted in **Users → Permissions** only: without it the list gets `AccessDenied` (#15).
 
 ### Added
+- S3 Select reads Parquet objects (`<Parquet/>`), as AWS does, their columns uncompressed or compressed with Snappy, GZIP, ZSTD, Brotli or LZ4. Columns keep their types: numbers compare and sort as numbers, dates and timestamps (the INT96 of Spark and Hive too) read as ISO 8601 text, lists, maps and structs as JSON. A row group is at most 512 MB uncompressed.
 - S3 Select reads objects compressed with GZIP or BZIP2 (`CompressionType`), as AWS does. An object that is not compressed as the request says is refused with `InvalidCompressionFormat`, and one that decompresses to more than 5 GiB with `InvalidRequest`. `BytesScanned` now counts what was read of the stored object and `BytesProcessed` what was read once decompressed.
 - Documentation site at https://docs.maxiofs.com/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
 
 ### Changed
+- S3 Select gives numbers as numbers in JSON records, as AWS does: a `COUNT(*)` is `2`, not `"2"`.
 - S3 Select refuses a record longer than 1,048,576 characters with `OverMaxRecordSize`, as AWS does. A record was held whole in memory, so one long line could take the node's memory.
 - Disabling your own 2FA and regenerating your backup codes ask for your password. A global administrator still disables another user's 2FA without it.
 - `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
