@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -488,4 +489,25 @@ func TestIsAdminUser_NotFromAPermissionOnOneBucket(t *testing.T) {
 		`"Resource":["arn:aws:s3:::b","arn:aws:s3:::b/*"]}]}`)), "everything on one bucket makes an administrator")
 	assert.True(t, IsAdminUser(holding(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
 		`"Action":"maxiofs:SuperAdmin","Resource":"*"}]}`)))
+}
+
+// A permission held exactly is one named on every resource that no Deny takes
+// back: the SuperAdmin permission granted on a bucket, or denied by a
+// wildcard, makes no global administrator.
+func TestAnExactPermissionIsNamedOnEveryResourceAndNotDenied(t *testing.T) {
+	am, _, cleanup := setupSTSTest(t)
+	defer cleanup()
+	held := func(id string, documents ...string) bool {
+		for i, document := range documents {
+			require.NoError(t, am.store.PutIAMInlinePolicy(IAMTargetUser, id, fmt.Sprintf("p%d", i), document))
+		}
+		return am.HasExactPermissionInTenant(id, []string{RoleUser}, "", ActionSuperAdmin)
+	}
+	doc := func(statement string) string { return `{"Version":"2012-10-17","Statement":[` + statement + `]}` }
+
+	assert.True(t, held("named", doc(`{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"*"}`)))
+	assert.False(t, held("wildcard", doc(`{"Effect":"Allow","Action":"*","Resource":"*"}`)), "a wildcard")
+	assert.False(t, held("on-a-bucket", doc(`{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"arn:aws:s3:::b"}`)), "on a bucket")
+	assert.False(t, held("denied", doc(`{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"*"}`),
+		doc(`{"Effect":"Deny","Action":"maxiofs:*","Resource":"*"}`)), "denied")
 }

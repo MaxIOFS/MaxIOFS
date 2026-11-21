@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Before upgrading
+- A user of no tenant that reached the tenants only through `*` (the FullAccess policy), without the `admin` role or the Super administrator permission, no longer reads them. Grant it Super administrator if it should.
 - A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions**. One that lists its buckets, as Veeam does when a repository is added, also needs **List buckets** (`s3:ListAllMyBuckets`), granted in **Users → Permissions** only: without it the list gets `AccessDenied` (#15).
 
 ### Added
@@ -53,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A user could have the server write the access logs of its bucket, under a prefix of its choosing, into a bucket of no tenant it may not write to. The target of a bucket's access logs is a bucket of the same tenant the caller may write to; `PutBucketLogging` answers `InvalidTargetBucketForLogging` otherwise, and a target configured elsewhere before gets nothing.
 - A bucket's inventory reports could be sent to a bucket of its tenant the caller may not write to, and through the S3 API to any bucket name. The destination is a bucket of the same tenant the caller may write to; otherwise the configuration is refused.
 - The access logs of a bucket of a tenant never reached their target, and requests made without credentials or by anyone outside the bucket's tenant were logged nowhere. Every request to a bucket is logged to its target.
+- A user of no tenant allowed everything (`*`, the FullAccess policy) without the `admin` role or the Super administrator permission was taken for a global administrator by most of the console and by S3: it listed every user and read the buckets and objects of every tenant, while user management refused it. Only the `admin` role or `maxiofs:SuperAdmin` named on every resource makes one; a Deny of it takes it back, and granted on a bucket it is not administration.
+- In a cluster, a console session renewed in the instant it started, or after the clock went back, could leave the other nodes with the identity provider's spent refresh token, ending the session there. A renewal is always taken as the later change.
 - A user's record in the console API (`GET /users/{id}`) never said it was locked: it gives `lockedUntil` as the user list does.
 - A share link kept serving its object after the user who made it lost the permission to read it, and served any version of it: it serves what that user may read now, a version only if it may read versions.
 - Webhooks, the HTTP log target and replication reached addresses in the shared address space (`100.64.0.0/10`), where some clouds serve their metadata: they are refused as the private ranges are.

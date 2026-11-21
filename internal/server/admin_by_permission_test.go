@@ -283,3 +283,50 @@ func TestAUsersRecordSaysItIsLocked(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Greater(t, got.Data.LockedUntil, time.Now().Unix(), "locked until a time to come")
 }
+
+// A user of no tenant allowed everything by a role of its own, without the
+// admin role or the SuperAdmin permission, is no global administrator anywhere:
+// it lists no other user, sees no tenant's buckets and reads no tenant's
+// objects, in the console or through S3.
+func TestAWildcardMakesNoGlobalAdministrator(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	im := s.authManager.(auth.IAMManager)
+	_, err := im.CreateIAMRole(ctx, "operators", "/", "", "", 0, "")
+	require.NoError(t, err)
+	require.NoError(t, im.AttachIAMPolicy(ctx, auth.PolicyFullAccess, auth.IAMTargetRole, "operators"))
+	now := time.Now().Unix()
+	require.NoError(t, s.authManager.CreateUser(ctx, &auth.User{ID: "global-by-wildcard", Username: "global-by-wildcard",
+		Password: "Secret123!", Status: auth.UserStatusActive, Roles: []string{"operators"}, CreatedAt: now, UpdatedAt: now}))
+	require.NoError(t, s.bucketManager.CreateBucket(ctx, "acme", "acme-data", "acme-member"))
+
+	user, err := s.authManager.GetUser(ctx, "global-by-wildcard")
+	require.NoError(t, err)
+	set, err := s.authManager.(interface {
+		ResolvePolicySet(context.Context, *auth.User) (*auth.PolicySet, error)
+	}).ResolvePolicySet(ctx, user)
+	require.NoError(t, err)
+	as := func(method, target string, vars map[string]string) *http.Request {
+		req := httptest.NewRequest(method, target, nil)
+		reqCtx := auth.WithPolicySet(context.WithValue(req.Context(), "user", user), set)
+		return mux.SetURLVars(req.WithContext(reqCtx), vars)
+	}
+
+	assert.False(t, s.isGlobalAdmin(user), "the console's own answer")
+	assert.False(t, auth.IsAdminUser(as(http.MethodGet, "/", nil).Context()), "every other console check")
+
+	rec := httptest.NewRecorder()
+	s.handleListUsers(rec, as(http.MethodGet, "/users", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listed struct{ Data []UserResponse }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+	require.Len(t, listed.Data, 1, "only itself")
+	assert.Equal(t, "global-by-wildcard", listed.Data[0].Username)
+
+	assert.False(t, s.userCanPerformConsoleS3Action(as(http.MethodGet, "/", nil), user, "acme", auth.ActionGetObject, consoleObjectARN("acme-data", "k")),
+		"a tenant's object in the console")
+	assert.False(t, set.Allows(auth.AccessRequest{Action: auth.ActionGetObject, Resource: "arn:aws:s3:::acme-data/k", Owner: auth.OwnedBy("acme")}),
+		"a tenant's object through S3")
+	assert.True(t, set.Allows(auth.AccessRequest{Action: auth.ActionPutObject, Resource: "arn:aws:s3:::global-data/k", Owner: auth.OwnedBy("")}),
+		"everything in the global namespace")
+}

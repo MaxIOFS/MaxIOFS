@@ -265,7 +265,9 @@ on the first start: a user whose only access to a bucket was owning it gets
 `AccessDenied` there until it is granted permissions on it.
 Every console read of a bucket (its details and settings, a search, its
 versions) needs its permission on the bucket, as a change does. Administration
-(`maxiofs:SuperAdmin`) counts only when it is granted on every resource (`*`).
+(`maxiofs:SuperAdmin`) counts only when it is named and granted on every
+resource (`*`), and no Deny takes it back: `*` or `maxiofs:*` is not
+administration. The `admin` role is administration by itself.
 
 **The account boundary is not a policy.** A principal that belongs to a tenant
 never leaves it, whatever its own policies say. A global administrator reaches

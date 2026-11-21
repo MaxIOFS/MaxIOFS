@@ -380,7 +380,8 @@ func (am *authManager) HasPermissionInTenant(userID string, roles []string, tena
 }
 
 // HasExactPermission reports whether an action is named outright by one of the
-// user's policies. A wildcard does not satisfy it.
+// user's policies, on every resource, and no Deny takes it back. A wildcard does
+// not satisfy it.
 func (am *authManager) HasExactPermission(userID string, roles []string, action string) bool {
 	return am.HasExactPermissionInTenant(userID, roles, "", action)
 }
@@ -392,24 +393,7 @@ func (am *authManager) HasExactPermissionInTenant(userID string, roles []string,
 	if err != nil {
 		return false
 	}
-
-	for _, raw := range documents {
-		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
-		if err != nil {
-			continue
-		}
-		for _, st := range policy.Statement {
-			if st.Effect != EffectAllow {
-				continue
-			}
-			for _, named := range policyStringValues(st.Action) {
-				if strings.EqualFold(named, action) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return namesOnEveryResource(documents, action)
 }
 
 // CountDirectPolicies returns how many policies are attached to each of the

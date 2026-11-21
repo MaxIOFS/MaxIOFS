@@ -54,6 +54,38 @@ func EvaluateIAMDocuments(documents []string, action, resource string) bool {
 	return allowed && !denied
 }
 
+// namesOnEveryResource reports whether policy documents allow an action by
+// naming it, on every resource, with no Deny taking it back. A wildcard does
+// not name it, though it does deny it: it is how administration is decided, and
+// "*" is everything in the holder's own namespace, never administration.
+func namesOnEveryResource(documents []string, action string) bool {
+	named := false
+	for _, raw := range documents {
+		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
+		if err != nil {
+			return false // A document that cannot be read denies.
+		}
+		for _, st := range policy.Statement {
+			if !stsResourceMatches(st.Resource, "*") {
+				continue
+			}
+			switch st.Effect {
+			case EffectDeny:
+				if stsActionMatches(st.Action, action) {
+					return false
+				}
+			case EffectAllow:
+				for _, a := range policyStringValues(st.Action) {
+					if strings.EqualFold(a, action) {
+						named = true
+					}
+				}
+			}
+		}
+	}
+	return named
+}
+
 // evaluateIAMDocuments reports whether the set of documents allows the request
 // and whether it denies it explicitly. A document that cannot be read denies.
 func evaluateIAMDocuments(documents []string, action, resource string) (allowed, denied bool) {

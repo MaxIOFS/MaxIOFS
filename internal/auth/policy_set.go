@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"slices"
 	"strings"
 )
 
@@ -13,6 +14,9 @@ type PolicySet struct {
 	Documents     []string
 	Actions       []string
 	SessionPolicy *Policy
+	// adminRole: the principal holds the admin role, which makes one of no
+	// tenant a super administrator by itself.
+	adminRole bool
 }
 
 // AccessRequest is one authorization question: a principal asking to perform an
@@ -134,7 +138,7 @@ func (p *PolicySet) accountRefusal(req AccessRequest) string {
 	if p.TenantID != "" {
 		return "the bucket belongs to tenant " + owner + " and the caller to tenant " + p.TenantID
 	}
-	if !EvaluateIAMDocuments(p.Documents, ActionSuperAdmin, "*") {
+	if !p.adminRole && !namesOnEveryResource(p.Documents, ActionSuperAdmin) {
 		return "the bucket belongs to tenant " + owner
 	}
 	if !ReadOnlyAuditAction(req.Action) {
@@ -282,7 +286,8 @@ func (am *authManager) buildPolicySetFor(userID string, roles []string, tenantID
 	// user knows it, and an empty value means the shared namespace rather than
 	// "unresolved". Guessing it from the stored row would override a caller
 	// that deliberately asks about a tenant-less identity.
-	return &PolicySet{UserID: userID, TenantID: tenantID, Documents: documents, Actions: actions}, nil
+	return &PolicySet{UserID: userID, TenantID: tenantID, Documents: documents, Actions: actions,
+		adminRole: slices.Contains(roles, RoleAdmin)}, nil
 }
 
 // ReadOnlyAuditAction reports whether an action only observes. It is the set a

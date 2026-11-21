@@ -88,7 +88,9 @@ func (s *SQLiteStore) ApplyPeerConsoleSession(sess *ConsoleSession) error {
 // RenewConsoleSession writes what a renewal changes in sess, unless the session
 // was ended meanwhile, and reports whether it did.
 func (s *SQLiteStore) RenewConsoleSession(sess *ConsoleSession) (bool, error) {
-	res, err := s.db.Exec(`UPDATE console_sessions SET idp_refresh_token = ?, refreshed_at = ?, expires_at = ?, updated_at = ?
+	// A renewal is always later than what it renews, whatever the clock says,
+	// or the other nodes would keep the spent refresh token.
+	res, err := s.db.Exec(`UPDATE console_sessions SET idp_refresh_token = ?, refreshed_at = ?, expires_at = ?, updated_at = MAX(?, updated_at + 1)
 		WHERE id = ? AND revoked_at = 0`, sess.IdPRefreshToken, sess.RefreshedAt, sess.ExpiresAt, sess.UpdatedAt, sess.ID)
 	if err != nil {
 		return false, fmt.Errorf("failed to renew console session: %w", err)

@@ -59,4 +59,23 @@ func TestIsAdminUser_HeldByRoleOrByPolicy(t *testing.T) {
 	t.Run("no user at all does not", func(t *testing.T) {
 		assert.False(t, IsAdminUser(context.Background()))
 	})
+
+	t.Run("a wildcard does not", func(t *testing.T) {
+		user := &User{ID: "u6", Roles: []string{"operators"}}
+		assert.False(t, IsAdminUser(ctxWithUser(user, allowing("u6", "", "*"))), "everything is not administration")
+		assert.False(t, IsAdminUser(ctxWithUser(user, allowing("u6", "", "maxiofs:*"))))
+	})
+
+	t.Run("SuperAdmin on a bucket does not", func(t *testing.T) {
+		user := &User{ID: "u7", Roles: []string{RoleUser}}
+		set := &PolicySet{UserID: "u7", Documents: []string{`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"arn:aws:s3:::b"}]}`}}
+		assert.False(t, IsAdminUser(ctxWithUser(user, set)))
+	})
+
+	t.Run("a Deny takes it back", func(t *testing.T) {
+		user := &User{ID: "u8", Roles: []string{RoleUser}}
+		set := allowing("u8", "", ActionSuperAdmin)
+		set.Documents = append(set.Documents, `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"maxiofs:SuperAdmin","Resource":"*"}]}`)
+		assert.False(t, IsAdminUser(ctxWithUser(user, set)))
+	})
 }

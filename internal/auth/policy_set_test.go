@@ -52,6 +52,7 @@ func TestARefusalSaysWhy(t *testing.T) {
 	s3Only := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
 	denyPut := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:PutObject","Resource":"*"}]}`
 	readOnly := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+	superAdmin := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"*"}]}`
 	put := func(owner ResourceOwner) AccessRequest {
 		return AccessRequest{Action: ActionPutObject, Resource: "arn:aws:s3:::b/k", Owner: owner}
 	}
@@ -67,7 +68,8 @@ func TestARefusalSaysWhy(t *testing.T) {
 		{"a tenant in the shared namespace", "t1", []string{allowAll}, put(OwnedBy("")), "the bucket belongs to no tenant and the caller to tenant t1"},
 		{"a tenant in another", "t1", []string{allowAll}, put(OwnedBy("t2")), "the bucket belongs to tenant t2 and the caller to tenant t1"},
 		{"a global user in a tenant", "", []string{s3Only}, put(OwnedBy("t2")), "the bucket belongs to tenant t2"},
-		{"a super administrator writing in a tenant", "", []string{allowAll}, put(OwnedBy("t2")), "the bucket belongs to tenant t2: a global administrator only reads it"},
+		{"a global user allowed everything in a tenant", "", []string{allowAll}, put(OwnedBy("t2")), "the bucket belongs to tenant t2"},
+		{"a super administrator writing in a tenant", "", []string{allowAll, superAdmin}, put(OwnedBy("t2")), "the bucket belongs to tenant t2: a global administrator only reads it"},
 		{"a policy that denies", "t1", []string{allowAll, denyPut}, put(OwnedBy("t1")), "a policy of the caller denies it"},
 		{"no policy that allows", "t1", []string{readOnly}, put(OwnedBy("t1")), "no policy of the caller or of the bucket allows it"},
 	}
@@ -96,7 +98,7 @@ func TestAccountBoundary_SuperAdminReadsAcrossAndWritesNowhere(t *testing.T) {
 		UserID:   "root",
 		TenantID: "",
 		Documents: []string{
-			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["*","maxiofs:SuperAdmin"],"Resource":"*"}]}`,
 		},
 	}
 
@@ -143,5 +145,38 @@ func TestAccountBoundary_AnUnstatedOwnerIsRefused(t *testing.T) {
 		Action: ActionPutObject, Resource: "arn:aws:s3:::b/k", Owner: OwnedBy(""),
 	}) {
 		t.Fatal("a tenant principal must not reach the shared namespace")
+	}
+}
+
+// Only the admin role or maxiofs:SuperAdmin named on every resource reaches
+// into another tenant, to read it. A wildcard is everything in the
+// principal's own namespace and nothing beyond; SuperAdmin granted on a bucket
+// is not administration, and a Deny of it takes it back.
+func TestAccountBoundary_OnlyNamedAdministrationCrosses(t *testing.T) {
+	doc := func(statements string) string {
+		return `{"Version":"2012-10-17","Statement":[` + statements + `]}`
+	}
+	everything := `{"Effect":"Allow","Action":"*","Resource":"*"}`
+	cases := []struct {
+		name      string
+		adminRole bool
+		documents []string
+		crosses   bool
+	}{
+		{"everything", false, []string{doc(everything)}, false},
+		{"every maxiofs action", false, []string{doc(everything), doc(`{"Effect":"Allow","Action":"maxiofs:*","Resource":"*"}`)}, false},
+		{"SuperAdmin on a bucket", false, []string{doc(everything), doc(`{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"arn:aws:s3:::b"}`)}, false},
+		{"SuperAdmin named", false, []string{doc(`{"Effect":"Allow","Action":"maxiofs:SuperAdmin","Resource":"*"}`), doc(`{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}`)}, true},
+		{"SuperAdmin named and denied", false, []string{doc(`{"Effect":"Allow","Action":["maxiofs:SuperAdmin","s3:GetObject"],"Resource":"*"}`), doc(`{"Effect":"Deny","Action":"maxiofs:*","Resource":"*"}`)}, false},
+		{"the admin role", true, []string{doc(everything)}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			set := &PolicySet{UserID: "u", Documents: tc.documents, adminRole: tc.adminRole}
+			got := set.Allows(AccessRequest{Action: ActionGetObject, Resource: "arn:aws:s3:::b/k", Owner: OwnedBy("t2")})
+			if got != tc.crosses {
+				t.Fatalf("reads another tenant's object = %v, want %v", got, tc.crosses)
+			}
+		})
 	}
 }

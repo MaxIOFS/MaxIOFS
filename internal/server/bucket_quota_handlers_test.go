@@ -46,7 +46,10 @@ func TestBucketQuotaAuthorization(t *testing.T) {
 					user := &auth.User{ID: "quota-reader", TenantID: tc.tenant, Roles: tc.roles}
 					doc := fmt.Sprintf("{\"Statement\":[{\"Effect\":\"Allow\",\"Action\":%q,\"Resource\":%q}]}", tc.allow, consoleBucketARN(tc.bucket))
 					if tc.allow == "*" && tc.tenant == "" {
-						doc = "{\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"}]}"
+						// A global administrator. The admin role makes one when the set is
+						// resolved, which a set built here does not carry: the permission
+						// named does, "*" alone never does.
+						doc = "{\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"*\",\"maxiofs:SuperAdmin\"],\"Resource\":\"*\"}]}"
 					}
 					set := &auth.PolicySet{UserID: user.ID, TenantID: tc.tenant, Documents: []string{doc}}
 					if tc.deny != "" {

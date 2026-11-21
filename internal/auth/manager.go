@@ -2228,11 +2228,11 @@ func IsAdminUser(ctx context.Context) bool {
 		}
 	}
 
-	// Administration is granted on every resource: granted on a bucket, it is
-	// not administration.
+	// Administration is maxiofs:SuperAdmin named on every resource: granted on
+	// a bucket it is not administration, and "*" never is.
 	set, ok := PolicySetFromContext(ctx)
 	return ok && set != nil && set.UserID == user.ID &&
-		EvaluateSessionPolicy(set.SessionPolicy, ActionSuperAdmin, "*") && EvaluateIAMDocuments(set.Documents, ActionSuperAdmin, "*")
+		EvaluateSessionPolicy(set.SessionPolicy, ActionSuperAdmin, "*") && namesOnEveryResource(set.Documents, ActionSuperAdmin)
 }
 
 // writeS3Error writes an S3-compatible XML error response and sets

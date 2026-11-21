@@ -44,7 +44,7 @@ groups or roles. The built-in ones cover the usual cases:
 | Policy | Grants |
 |--------|--------|
 | `ConsoleAccess` | Signing in to the web console |
-| `FullAccess` | Every operation on every resource |
+| `FullAccess` | Every operation on every resource the user may reach; it does not make a global administrator, the `admin` role or Super administrator does |
 | `ManageOwnKeys` | Creating and revoking one's own access keys and temporary credentials |
 | `ReadOnlyAccess` | Reading objects and listing buckets; no writes |
 | `ReadWriteAccess` | Full access to buckets and objects |
