@@ -872,13 +872,15 @@ func (s *SQLiteStore) UnlockAccount(userID string) error {
 // ClearAccountLock unlocks a user account and resets failed login attempts as
 // a change to the user, which the user sync carries to every node.
 func (s *SQLiteStore) ClearAccountLock(userID string) error {
+	now := time.Now().Unix()
 	_, err := s.db.Exec(`
 		UPDATE users
 		SET failed_login_attempts = 0,
 		    locked_until = 0,
+		    unlocked_at = ?,
 		    updated_at = MAX(?, updated_at + 1)
 		WHERE id = ?
-	`, time.Now().Unix(), userID)
+	`, now, now, userID)
 	return err
 }
 

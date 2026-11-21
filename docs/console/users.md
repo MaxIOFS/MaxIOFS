@@ -53,6 +53,12 @@ Click a user to open their page:
 A user locked after too many failed sign-ins shows **Locked** in the list;
 an administrator unlocks them with **Unlock account**.
 
+The deployment always keeps an active global administrator with the `admin`
+role: the last one is not deleted, deactivated or left without the role.
+Permissions can be taken from anybody, so a global administrator by the Super
+administrator permission alone does not count for this. The built-in `admin`
+user is deactivated, never deleted.
+
 ### Two-factor authentication
 
 On your own profile, **Enable 2FA** shows a QR code for an authenticator

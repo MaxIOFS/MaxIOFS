@@ -32,6 +32,7 @@ type UserData struct {
 	FailedLoginAttempts int    `json:"failed_login_attempts"`
 	LockedUntil         int64  `json:"locked_until"`
 	LastFailedLogin     int64  `json:"last_failed_login"`
+	UnlockedAt          int64  `json:"unlocked_at"`
 	ThemePreference     string `json:"theme_preference"`
 	LanguagePreference  string `json:"language_preference"`
 	AuthProvider        string `json:"auth_provider"`
@@ -279,7 +280,7 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 		       COALESCE(auth_provider, 'local'), COALESCE(external_id, ''),
 		       created_at, updated_at,
 		       COALESCE(two_factor_enabled, 0), COALESCE(two_factor_secret, ''), COALESCE(two_factor_setup_at, 0),
-		       COALESCE(backup_codes, ''), COALESCE(backup_codes_used, '')
+		       COALESCE(backup_codes, ''), COALESCE(backup_codes_used, ''), COALESCE(unlocked_at, 0)
 		FROM users
 		WHERE status != 'deleted'
 	`
@@ -318,6 +319,7 @@ func (m *UserSyncManager) listLocalUsers(ctx context.Context) ([]*UserData, erro
 			&user.TwoFactorSetupAt,
 			&user.BackupCodes,
 			&user.BackupCodesUsed,
+			&user.UnlockedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)

@@ -239,9 +239,12 @@ func TestAnAccountIsUnlockedByWhoAdministersIt(t *testing.T) {
 	unlock("acme-by-tenant-admin-role", "global-by-role", http.StatusForbidden)
 }
 
-// The last active global administrator is not removed, whatever makes it one:
-// one by the permission counts as one by the role does.
-func TestTheLastGlobalAdministratorIsKeptWhateverMakesItOne(t *testing.T) {
+// The deployment always keeps an active global administrator by the admin
+// role: permissions can be taken from anybody, through a user, a group, a role
+// or a policy, and the role from nobody. One by the permission is removed while
+// one by the role remains, and taking its permission leaves the deployment
+// administered.
+func TestAGlobalAdministratorByTheRoleIsAlwaysKept(t *testing.T) {
 	s := administrators(t)
 	ctx := context.Background()
 	users, err := s.authManager.ListUsers(ctx)
@@ -259,8 +262,42 @@ func TestTheLastGlobalAdministratorIsKeptWhateverMakesItOne(t *testing.T) {
 	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of(builtIn), inactive), "the built-in one deactivated")
 	assert.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of("global-by-permission"), inactive), "one by the permission, one by the role left")
 	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of("global-by-permission"), active))
-	assert.Equal(t, http.StatusNoContent, callAs(t, s, "global-by-permission", s.handleDeleteUser, of("global-by-role"), ""), "one by the role, one by the permission left")
-	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleUpdateUser, of("global-by-permission"), inactive), "the last one")
+
+	// global-by-role is the last active one by the role.
+	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleDeleteUser, of("global-by-role"), ""), "not deleted")
+	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleUpdateUser, of("global-by-role"), inactive), "nor deactivated")
+	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-permission", s.handleUpdateUser, of("global-by-role"), `{"roles":["user"]}`), "nor left without the role")
+
+	permissions := func(id, body string) int {
+		user, err := s.authManager.GetUser(ctx, id)
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPut, "/users/"+id+"/permissions", strings.NewReader(body))
+		req = mux.SetURLVars(req.WithContext(context.WithValue(req.Context(), "user", user)), map[string]string{"id": id})
+		rec := httptest.NewRecorder()
+		s.handleSetUserPermissions(rec, req)
+		return rec.Code
+	}
+	require.Equal(t, http.StatusOK, permissions("global-by-permission", `{"global":["console:Access"],"buckets":[]}`), "its own SuperAdmin taken")
+	administered := 0
+	for _, u := range must(s.authManager.ListUsers(ctx)) {
+		if u.Status == auth.UserStatusActive && s.isGlobalAdmin(&u) {
+			administered++
+		}
+	}
+	assert.Equal(t, 1, administered, "the one by the role is left")
+
+	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateUser, of(builtIn), active))
+	assert.Equal(t, http.StatusConflict, callAs(t, s, "global-by-role", s.handleDeleteUser, of(builtIn), ""), "the built-in one is deactivated, never deleted")
+	assert.Equal(t, http.StatusNoContent, callAs(t, s, "global-by-role", s.handleDeleteUser, of("global-by-permission"), ""), "one by the permission, while one by the role is left")
+	assert.Equal(t, http.StatusNoContent, callAs(t, s, builtIn, s.handleDeleteUser, of("global-by-role"), ""), "one of two by the role")
+	assert.Equal(t, http.StatusConflict, callAs(t, s, builtIn, s.handleUpdateUser, of(builtIn), inactive), "the last one by the role")
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // A locked user's own record says until when it is locked, as the list does.

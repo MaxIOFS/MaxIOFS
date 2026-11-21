@@ -1116,9 +1116,10 @@ func (am *authManager) SetMustChangePassword(ctx context.Context, userID string,
 }
 
 func (am *authManager) DeleteUser(ctx context.Context, userID string) error {
-	// Don't allow deleting admin user (last resort account)
+	// The built-in admin is the last resort account: it is deactivated, never
+	// deleted.
 	if userID == "admin" {
-		return fmt.Errorf("cannot delete admin user")
+		return fmt.Errorf("%w: the built-in admin user is not deleted, it can be deactivated", ErrIAMDeleteConflict)
 	}
 
 	// Get user info before deleting

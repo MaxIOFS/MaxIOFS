@@ -2862,9 +2862,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An inactive administrator signs in to nothing: only an active one counts,
-	// and deactivating the last one locks the deployment as removing it does.
-	if s.isGlobalAdmin(user) && user.Status == auth.UserStatusActive {
+	// The deployment keeps an active global administrator by the admin role:
+	// deactivating the last one locks the deployment as removing it does.
+	if isGlobalAdminByRole(user) && user.Status == auth.UserStatusActive {
 		rolesChangingAwayFromAdmin := updateRequest.Roles != nil && !func() bool {
 			for _, r := range updateRequest.Roles {
 				if r == "admin" {
@@ -2876,13 +2876,13 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		tenantChanging := updateRequest.TenantID != nil && *updateRequest.TenantID != ""
 		deactivating := updateRequest.Status != "" && updateRequest.Status != auth.UserStatusActive
 		if rolesChangingAwayFromAdmin || tenantChanging || deactivating {
-			n, err := s.countGlobalAdmins(r.Context())
+			another, err := s.anotherGlobalAdminByRole(r.Context(), user.ID)
 			if err != nil {
 				s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
 				return
 			}
-			if n <= 1 {
-				s.writeError(w, "Cannot remove the last global admin. Assign another admin first.", http.StatusConflict)
+			if !another {
+				s.writeError(w, "Cannot remove the last global admin with the admin role. Give the role to another user first.", http.StatusConflict)
 				return
 			}
 		}
@@ -2994,15 +2994,15 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Last-admin guard ---
-	// A global admin cannot be deleted if they are the only one.
-	if s.isGlobalAdmin(targetUser) && targetUser.Status == auth.UserStatusActive {
-		n, err := s.countGlobalAdmins(r.Context())
+	// The last active global administrator by the admin role is not deleted.
+	if isGlobalAdminByRole(targetUser) && targetUser.Status == auth.UserStatusActive {
+		another, err := s.anotherGlobalAdminByRole(r.Context(), targetUser.ID)
 		if err != nil {
 			s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
 			return
 		}
-		if n <= 1 {
-			s.writeError(w, "Cannot delete the last global admin. Assign another admin first.", http.StatusConflict)
+		if !another {
+			s.writeError(w, "Cannot delete the last global admin with the admin role. Give the role to another user first.", http.StatusConflict)
 			return
 		}
 	}
@@ -3025,6 +3025,8 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if err := s.authManager.DeleteUser(r.Context(), userID); err != nil {
 		if err == auth.ErrUserNotFound {
 			s.writeError(w, "User not found", http.StatusNotFound)
+		} else if errors.Is(err, auth.ErrIAMDeleteConflict) {
+			s.writeError(w, err.Error(), http.StatusConflict)
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -4617,6 +4619,22 @@ func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 
 	// If tenant has buckets
 	if len(buckets) > 0 {
+		// COMPLIANCE retention and legal holds bind a forced delete of the tenant
+		// as they bind one of the bucket: it deletes nothing while one is active.
+		if force {
+			for _, b := range buckets {
+				held, err := s.objectManager.HasActiveComplianceRetention(r.Context(), tenantID+"/"+b.Name)
+				if err != nil {
+					s.writeError(w, "Failed to check Object Lock retention status: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if held {
+					s.writeError(w, fmt.Sprintf("Cannot delete tenant: objects of bucket %s are protected by active COMPLIANCE retention or legal hold. "+
+						"Nothing was deleted. Wait until all retention periods expire before deleting this tenant.", b.Name), http.StatusConflict)
+					return
+				}
+			}
+		}
 		if force {
 			// Force delete all buckets associated with this tenant
 			logrus.WithFields(logrus.Fields{

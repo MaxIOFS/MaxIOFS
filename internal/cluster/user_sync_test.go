@@ -59,7 +59,8 @@ func TestUserSyncManager_ListLocalUsers(t *testing.T) {
 			two_factor_secret TEXT,
 			two_factor_setup_at INTEGER,
 			backup_codes TEXT,
-			backup_codes_used TEXT
+			backup_codes_used TEXT,
+			unlocked_at INTEGER DEFAULT 0
 		)
 	`)
 	require.NoError(t, err)
@@ -420,7 +421,8 @@ func TestUserSyncManager_SyncLoop(t *testing.T) {
 			two_factor_secret TEXT,
 			two_factor_setup_at INTEGER,
 			backup_codes TEXT,
-			backup_codes_used TEXT
+			backup_codes_used TEXT,
+			unlocked_at INTEGER DEFAULT 0
 		)
 	`)
 	require.NoError(t, err)

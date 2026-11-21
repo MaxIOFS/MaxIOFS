@@ -1686,3 +1686,57 @@ func TestHandleListAuditLogs(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, response.Success)
 }
+
+// A forced delete of a tenant is bound as one of its buckets is: while any of
+// its objects is under COMPLIANCE retention or a legal hold, nothing of the
+// tenant is deleted. Once the hold is released, the tenant goes.
+func TestAForcedTenantDeleteKeepsProtectedObjects(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, err := server.authManager.ValidateJWT(ctx, getAdminToken(t, server))
+	require.NoError(t, err)
+
+	put := func(tenantID, name, key string, headers http.Header) {
+		t.Helper()
+		require.NoError(t, server.bucketManager.CreateBucket(ctx, tenantID, name, ""))
+		if headers.Get("x-amz-object-lock-mode") != "" || headers.Get("x-amz-object-lock-legal-hold") != "" {
+			require.NoError(t, server.bucketManager.SetObjectLockConfig(ctx, tenantID, name, &bucket.ObjectLockConfig{ObjectLockEnabled: true}))
+		}
+		_, err := server.objectManager.PutObject(ctx, tenantID+"/"+name, key, bytes.NewReader([]byte("data")), headers)
+		require.NoError(t, err)
+	}
+	deleteTenant := func(id string) int {
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/tenants/"+id+"?force=true", nil)
+		req = mux.SetURLVars(req.WithContext(context.WithValue(req.Context(), "user", admin)), map[string]string{"tenant": id})
+		rr := httptest.NewRecorder()
+		server.handleDeleteTenant(rr, req)
+		return rr.Code
+	}
+	stillThere := func(tenantID, name, key string) bool {
+		_, err := server.objectManager.GetObjectMetadata(ctx, tenantID+"/"+name, key)
+		return err == nil
+	}
+
+	for _, id := range []string{"worm", "held"} {
+		require.NoError(t, server.authManager.CreateTenant(ctx, &auth.Tenant{ID: id, Name: id, Status: "active"}))
+	}
+	compliance := http.Header{}
+	compliance.Set("x-amz-object-lock-mode", "COMPLIANCE")
+	compliance.Set("x-amz-object-lock-retain-until-date", time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339))
+	put("worm", "worm-free", "plain", http.Header{})
+	put("worm", "worm-locked", "kept", compliance)
+	hold := http.Header{}
+	hold.Set("x-amz-object-lock-legal-hold", "ON")
+	put("held", "held-bucket", "kept", hold)
+
+	assert.Equal(t, http.StatusConflict, deleteTenant("worm"), "COMPLIANCE retention")
+	assert.True(t, stillThere("worm", "worm-locked", "kept"), "the protected object is kept")
+	assert.True(t, stillThere("worm", "worm-free", "plain"), "and nothing else of the tenant is deleted")
+
+	assert.Equal(t, http.StatusConflict, deleteTenant("held"), "a legal hold")
+	assert.True(t, stillThere("held", "held-bucket", "kept"))
+	require.NoError(t, server.objectManager.SetObjectLegalHold(ctx, "held/held-bucket", "kept", &object.LegalHoldConfig{Status: "OFF"}))
+	assert.Equal(t, http.StatusNoContent, deleteTenant("held"), "the hold released")
+	assert.False(t, stillThere("held", "held-bucket", "kept"))
+}

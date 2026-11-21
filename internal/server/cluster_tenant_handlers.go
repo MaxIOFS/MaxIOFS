@@ -314,9 +314,9 @@ func (s *Server) upsertUser(ctx context.Context, user *cluster.UserData) error {
 				roles = ?,
 				policies = ?,
 				metadata = ?,
-				failed_login_attempts = ?,
-				locked_until = ?,
-				last_failed_login = ?,
+				failed_login_attempts = CASE WHEN ? > COALESCE(unlocked_at, 0) AND ? >= COALESCE(last_failed_login, 0) THEN 0 ELSE failed_login_attempts END,
+				locked_until = CASE WHEN ? > COALESCE(unlocked_at, 0) AND ? >= COALESCE(last_failed_login, 0) THEN 0 ELSE locked_until END,
+				unlocked_at = MAX(COALESCE(unlocked_at, 0), ?),
 				theme_preference = ?,
 				language_preference = ?,
 				auth_provider = ?,
@@ -338,9 +338,11 @@ func (s *Server) upsertUser(ctx context.Context, user *cluster.UserData) error {
 			user.Roles,
 			user.Policies,
 			user.Metadata,
-			user.FailedLoginAttempts,
-			user.LockedUntil,
-			user.LastFailedLogin,
+			// Each node keeps the lock its failed sign-ins set: only an unlock
+			// later than them clears it, not whatever else changed in the user.
+			user.UnlockedAt, user.UnlockedAt,
+			user.UnlockedAt, user.UnlockedAt,
+			user.UnlockedAt,
 			user.ThemePreference,
 			user.LanguagePreference,
 			user.AuthProvider,
@@ -366,8 +368,8 @@ func (s *Server) upsertUser(ctx context.Context, user *cluster.UserData) error {
 				roles, policies, metadata, failed_login_attempts, locked_until,
 				last_failed_login, theme_preference, language_preference,
 				auth_provider, external_id, two_factor_enabled, two_factor_secret, two_factor_setup_at,
-				backup_codes, backup_codes_used, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				backup_codes, backup_codes_used, created_at, updated_at, unlocked_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			user.ID,
 			user.Username,
@@ -393,6 +395,7 @@ func (s *Server) upsertUser(ctx context.Context, user *cluster.UserData) error {
 			nullableString(user.BackupCodesUsed),
 			user.CreatedAt,
 			user.UpdatedAt,
+			user.UnlockedAt,
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {

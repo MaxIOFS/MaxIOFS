@@ -33,6 +33,22 @@ func getAllMigrations() []Migration {
 		migration20_v170_IAMPolicyTenant(),
 		migration21_v180_EncryptionSecret(),
 		migration22_v190_ConsoleSessions(),
+		migration23_v1101_AccountUnlockedAt(),
+	}
+}
+
+// migration23_v1101_AccountUnlockedAt records when an administrator last
+// unlocked an account. Each node keeps the lock it set; a peer's copy of the
+// user clears it only for an unlock later than the failed sign-ins that set
+// it, not for whatever else changed in the user.
+func migration23_v1101_AccountUnlockedAt() Migration {
+	return Migration{
+		Version:     23,
+		Description: "v1.10.1 - Add unlocked_at to users",
+		Up: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE users ADD COLUMN unlocked_at INTEGER DEFAULT 0`)
+			return err
+		},
 	}
 }
 

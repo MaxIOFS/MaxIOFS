@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -1325,21 +1326,28 @@ func (s *Server) isGlobalAdmin(user *auth.User) bool {
 	return s.userHoldsPermissionExactly(user, auth.ActionSuperAdmin)
 }
 
-// countGlobalAdmins returns the number of active global administrators, by
-// the role or by the permission. Used to prevent removing the last admin.
-func (s *Server) countGlobalAdmins(ctx context.Context) (int, error) {
+// isGlobalAdminByRole reports whether a user administers every tenant by the
+// admin role.
+func isGlobalAdminByRole(user *auth.User) bool {
+	return user != nil && user.TenantID == "" && slices.Contains(user.Roles, auth.RoleAdmin)
+}
+
+// anotherGlobalAdminByRole reports whether an active global administrator by
+// the admin role other than userID exists. The deployment always keeps one: a
+// change of permissions takes the SuperAdmin permission from anybody, through
+// a user, a group, a role or a policy, and the role from nobody.
+func (s *Server) anotherGlobalAdminByRole(ctx context.Context, userID string) (bool, error) {
 	users, err := s.authManager.ListUsers(ctx)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
-	count := 0
 	for i := range users {
 		user := &users[i]
-		if user.Status == auth.UserStatusActive && s.isGlobalAdmin(user) {
-			count++
+		if user.ID != userID && user.Status == auth.UserStatusActive && isGlobalAdminByRole(user) {
+			return true, nil
 		}
 	}
-	return count, nil
+	return false, nil
 }
 
 // countTenantAdmins returns the number of active users that can administer a

@@ -307,11 +307,12 @@ func (s *Server) iamDeleteUser(w http.ResponseWriter, r *http.Request, im auth.I
 		return
 	}
 	userID := target.ID
-	// As in the console: the last active global administrator is not deleted.
-	if s.isGlobalAdmin(target) && target.Status == auth.UserStatusActive {
-		if n, err := s.countGlobalAdmins(r.Context()); err != nil || n <= 1 {
+	// As in the console: the last active global administrator by the admin
+	// role is not deleted.
+	if isGlobalAdminByRole(target) && target.Status == auth.UserStatusActive {
+		if another, err := s.anotherGlobalAdminByRole(r.Context(), target.ID); err != nil || !another {
 			writeIAMError(w, r, http.StatusConflict, "DeleteConflict",
-				"Cannot delete the last global administrator. Assign another administrator first.")
+				"Cannot delete the last global administrator with the admin role. Give the role to another user first.")
 			return
 		}
 	}

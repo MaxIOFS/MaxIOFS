@@ -48,7 +48,7 @@ such as Veeam uses for immutable backups.
 | Mode | Before the retention date |
 |------|---------------------------|
 | **Governance** | Users allowed to bypass governance retention can still delete or shorten it |
-| **Compliance** | Nobody can delete the version or shorten its retention, administrators included |
+| **Compliance** | Nobody can delete the version or shorten its retention, administrators included. A bucket or a tenant holding one, or one under a legal hold, is not deleted, not even with force |
 
 The default retention, in days or years, applies to every new object.
 Clients can set their own retention per object.
