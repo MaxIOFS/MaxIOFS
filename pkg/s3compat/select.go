@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -303,22 +304,49 @@ func (rw *rowWriter) rollback() {
 	}
 }
 
-// countingReader wraps an io.Reader and counts total bytes read.
-type countingReader struct {
-	r io.Reader
-	n int64
+// maxSelectRecord is the longest record S3 Select reads, 1 MB as in AWS: a
+// record is held whole in memory while it is read.
+var maxSelectRecord int64 = 1 << 20
+
+// selectRecordSlack is how far the readers of the loaders read ahead of the
+// record they parse.
+const selectRecordSlack = 64 << 10
+
+var errSelectRecordTooLarge = errors.New("a record is longer than the 1,048,576 characters S3 Select reads")
+
+// recordGuard counts what a loader reads and holds each record to
+// maxSelectRecord: the loader tells it where each record it read ends, and it
+// gives nothing more once the record being read is longer than that.
+type recordGuard struct {
+	r     io.Reader
+	n     int64
+	start int64
 }
 
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
+func (g *recordGuard) Read(p []byte) (int, error) {
+	if g.n-g.start > maxSelectRecord+selectRecordSlack {
+		return 0, errSelectRecordTooLarge
+	}
+	n, err := g.r.Read(p)
+	g.n += int64(n)
 	return n, err
+}
+
+// recordRead takes the record that ends at offset as read, and refuses it when
+// it is longer than a record may be.
+func (g *recordGuard) recordRead(offset int64) error {
+	length := offset - g.start
+	g.start = offset
+	if length > maxSelectRecord {
+		return errSelectRecordTooLarge
+	}
+	return nil
 }
 
 // loadCSV reads CSV data from r into the s3object SQLite table.
 // Returns column names and total bytes read.
 func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned int64, err error) {
-	counter := &countingReader{r: r}
+	counter := &recordGuard{r: r}
 	cr := csv.NewReader(counter)
 	cr.LazyQuotes = true
 	cr.TrimLeadingSpace = true
@@ -340,6 +368,9 @@ func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned 
 	first, err := cr.Read()
 	if err == io.EOF {
 		return nil, counter.n, nil
+	}
+	if err == nil {
+		err = counter.recordRead(cr.InputOffset())
 	}
 	if err != nil {
 		return nil, counter.n, fmt.Errorf("parsing CSV: %w", err)
@@ -373,6 +404,9 @@ func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned 
 		if readErr == io.EOF {
 			break
 		}
+		if readErr == nil {
+			readErr = counter.recordRead(cr.InputOffset())
+		}
 		if readErr != nil {
 			return nil, counter.n, fmt.Errorf("parsing CSV: %w", readErr)
 		}
@@ -392,7 +426,7 @@ func loadCSV(db *sql.DB, r io.Reader, cfg *selectCSVIn) (cols []string, scanned 
 // later record adds a column, so the input never has to be buffered to learn
 // its shape.
 func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err error) {
-	counter := &countingReader{r: r}
+	counter := &recordGuard{r: r}
 	dec := json.NewDecoder(counter)
 
 	writer := newRowWriter(db)
@@ -400,10 +434,14 @@ func loadJSONLines(db *sql.DB, r io.Reader) (cols []string, scanned int64, err e
 
 	for {
 		var obj map[string]interface{}
-		if decErr := dec.Decode(&obj); decErr != nil {
-			if decErr == io.EOF {
-				break
-			}
+		decErr := dec.Decode(&obj)
+		if decErr == io.EOF {
+			break
+		}
+		if decErr == nil {
+			decErr = counter.recordRead(dec.InputOffset())
+		}
+		if decErr != nil {
 			return nil, counter.n, fmt.Errorf("parsing JSON lines: %w", decErr)
 		}
 
@@ -610,9 +648,9 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, "InvalidRequest", "Expression is required", bucketName, r)
 		return
 	}
-	if ct := strings.ToUpper(req.InputSerialization.CompressionType); ct != "" && ct != "NONE" {
+	if !selectCompressionSupported(req.InputSerialization.CompressionType) {
 		h.writeError(w, "InvalidRequest",
-			"CompressionType "+req.InputSerialization.CompressionType+" is not supported", bucketName, r)
+			"CompressionType "+req.InputSerialization.CompressionType+" is not supported: it is NONE, GZIP or BZIP2", bucketName, r)
 		return
 	}
 	if req.InputSerialization.CSV == nil && req.InputSerialization.JSON == nil {
@@ -659,8 +697,10 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	// The engine loads the object into a database before querying it, so that
 	// database is backed by a temporary file rather than by RAM: a large object
 	// costs disk, which is bounded and reclaimed, instead of memory the node
-	// shares with every other request.
-	scratch, scratchErr := os.CreateTemp("", "maxiofs-select-*.db")
+	// shares with every other request. It goes in the storage root, as an
+	// upload's temporary file does and named like one: the system's /tmp may be
+	// RAM, every walk of the root skips the name and a restart removes it.
+	scratch, scratchErr := os.CreateTemp(h.dataDir, "maxiofs-upload-select-*.db")
 	if scratchErr != nil {
 		h.writeError(w, "InternalError", "failed to initialise query engine", objectKey, r)
 		return
@@ -677,11 +717,25 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 	db.SetMaxOpenConns(1) // all operations must share one connection
 
-	var bytesScanned int64
+	source := &selectSource{r: reader}
+	input, err := selectInput(req.InputSerialization.CompressionType, source)
+	if errors.Is(err, errSelectCompression) {
+		h.writeError(w, "InvalidCompressionFormat",
+			"The file is not in a supported compression format. Only GZIP and BZIP2 are supported.", objectKey, r)
+		return
+	}
+	if err != nil {
+		h.writeError(w, "InternalError", err.Error(), objectKey, r)
+		return
+	}
+
+	// BytesScanned is what was read of the stored object, BytesProcessed what
+	// the query read once it was decompressed.
+	var bytesProcessed int64
 	if req.InputSerialization.CSV != nil {
-		_, bytesScanned, err = loadCSV(db, reader, req.InputSerialization.CSV)
+		_, bytesProcessed, err = loadCSV(db, input, req.InputSerialization.CSV)
 	} else {
-		_, bytesScanned, err = loadJSONLines(db, reader)
+		_, bytesProcessed, err = loadJSONLines(db, input)
 	}
 
 	if err != nil {
@@ -689,7 +743,21 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 			"bucket": bucketName,
 			"key":    objectKey,
 		}).WithError(err).Warn("SelectObjectContent: failed to load data")
-		h.writeError(w, "InvalidRequest", "Failed to parse input: "+err.Error(), objectKey, r)
+		if errors.Is(err, errSelectRecordTooLarge) {
+			h.writeError(w, "OverMaxRecordSize",
+				"The character number in one record is more than our max threshold, maxCharsPerRecord: 1,048,576", objectKey, r)
+			return
+		}
+		switch selectInputFailure(input) {
+		case errSelectCompression:
+			h.writeError(w, "InvalidCompressionFormat",
+				"The file is not in a supported compression format. Only GZIP and BZIP2 are supported.", objectKey, r)
+		case errSelectTooLarge:
+			h.writeError(w, "InvalidRequest",
+				fmt.Sprintf("The object decompresses to more than %d bytes, the most S3 Select reads", maxSelectDecompressed), objectKey, r)
+		default:
+			h.writeError(w, "InvalidRequest", "Failed to parse input: "+err.Error(), objectKey, r)
+		}
 		return
 	}
 
@@ -715,7 +783,7 @@ func (h *Handler) SelectObjectContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = writeStatsEvent(w, bytesScanned, bytesScanned, bytesReturned)
+	_ = writeStatsEvent(w, source.n, bytesProcessed, bytesReturned)
 	_ = writeEndEvent(w)
 	if flusher != nil {
 		flusher.Flush()

@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A user loses access to the buckets it owns unless its own permissions allow it there: the owner of a bucket no longer holds `s3:*` on it. Its password and access keys keep working, its requests get `AccessDenied`. Grant each user that works on its own buckets (a Veeam account, for one) its permissions on them before upgrading, in **Users → Permissions** or the bucket's **Permissions**. One that lists its buckets, as Veeam does when a repository is added, also needs **List buckets** (`s3:ListAllMyBuckets`), granted in **Users → Permissions** only: without it the list gets `AccessDenied` (#15).
 
 ### Added
+- S3 Select reads objects compressed with GZIP or BZIP2 (`CompressionType`), as AWS does. An object that is not compressed as the request says is refused with `InvalidCompressionFormat`, and one that decompresses to more than 5 GiB with `InvalidRequest`. `BytesScanned` now counts what was read of the stored object and `BytesProcessed` what was read once decompressed.
 - Documentation site at https://docs.maxiofs.com/: installation, deployment, every console page with screenshots, S3 tools, the `maxiofs` CLI, integrations and operations.
 
 ### Changed
+- S3 Select refuses a record longer than 1,048,576 characters with `OverMaxRecordSize`, as AWS does. A record was held whole in memory, so one long line could take the node's memory.
 - Disabling your own 2FA and regenerating your backup codes ask for your password. A global administrator still disables another user's 2FA without it.
 - `GET /config` of the console gives the data directory, storage root and backend, ports, log level and metrics settings only to a global administrator.
 - Changing a password ends the console sessions of its account, the one that changed it included: the user signs in again with the new password. Access keys are not affected.
@@ -55,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A bucket's inventory reports could be sent to a bucket of its tenant the caller may not write to, and through the S3 API to any bucket name. The destination is a bucket of the same tenant the caller may write to; otherwise the configuration is refused.
 - The access logs of a bucket of a tenant never reached their target, and requests made without credentials or by anyone outside the bucket's tenant were logged nowhere. Every request to a bucket is logged to its target.
 - A user of no tenant allowed everything (`*`, the FullAccess policy) without the `admin` role or the Super administrator permission was taken for a global administrator by most of the console and by S3: it listed every user and read the buckets and objects of every tenant, while user management refused it. Only the `admin` role or `maxiofs:SuperAdmin` named on every resource makes one; a Deny of it takes it back, and granted on a bucket it is not administration.
+- S3 Select kept the database it loads an object into in the system's temporary directory, which on some systems (Debian 13, for one) is RAM: a large query took memory. It is kept in the storage root.
 - In a cluster, a console session renewed in the instant it started, or after the clock went back, could leave the other nodes with the identity provider's spent refresh token, ending the session there. A renewal is always taken as the later change.
 - A user's record in the console API (`GET /users/{id}`) never said it was locked: it gives `lockedUntil` as the user list does.
 - A share link kept serving its object after the user who made it lost the permission to read it, and served any version of it: it serves what that user may read now, a version only if it may read versions.

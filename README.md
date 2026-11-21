@@ -111,7 +111,7 @@ Ceph cluster.
 - `PublicAccessBlock` — the four flags enforced as in AWS: public ACLs and public bucket policies refused when set or voided for requests without credentials
 - `OwnershipControls` — `GET/PUT/DELETE ?ownershipControls`; default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`
 - `RestoreObject` — `POST ?restore`; accepts `<RestoreRequest>` XML; returns `x-amz-restore` header on HEAD/GET; tools with Glacier lifecycle rules (Veeam, NetBackup) work without errors
-- `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects; streams results using the Amazon Event Stream binary protocol
+- `SelectObjectContent` — `POST ?select`; run SQL queries (SELECT, WHERE, GROUP BY, ORDER BY, aggregates) on CSV and JSON Lines objects, uncompressed or compressed with GZIP or BZIP2; streams results using the Amazon Event Stream binary protocol
 - `GetObjectAttributes` — lightweight object metadata (ETag, size, storage class, parts) without downloading the object body
 - Conditional writes — `PutObject If-None-Match: *` returns 412 if the object already exists (atomic create-if-absent)
 - Object search & filters — content-type, size range, date range, tags
@@ -368,7 +368,6 @@ cd web/frontend && npm run test        # 161 frontend tests
 
 - **No erasure coding within one node** — parity is across nodes; a single node's redundancy relies on filesystem/RAID
 - **No transition to an external cloud** — lifecycle transitions move objects to storage classes kept on nodes of the cluster
-- **S3 Select compression** — GZIP/BZIP2 compressed input not supported; objects must be stored uncompressed
 - **No per-tenant encryption keys** — envelope encryption uses one server KEK (rotatable, per-object DEKs); external KMS/HSM integration is planned; SSE-C keys are the client's
 - **Quotas are enforced per node** — writes in flight on different cluster nodes do not see each other, so usage can pass a quota by what was in flight at the same time
 - **Cluster tested up to 10 nodes**

@@ -186,7 +186,7 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
   <Expression>SELECT s.name, s.age FROM S3Object s WHERE s.age > 25</Expression>
   <ExpressionType>SQL</ExpressionType>
   <InputSerialization>
-    <CompressionType>NONE</CompressionType>
+    <CompressionType>NONE</CompressionType>   <!-- NONE | GZIP | BZIP2 -->
     <CSV>
       <FileHeaderInfo>USE</FileHeaderInfo>   <!-- USE | IGNORE | NONE -->
       <FieldDelimiter>,</FieldDelimiter>
@@ -202,10 +202,10 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 </SelectObjectContentRequest>
 ```
 
-**Supported input formats:** CSV, JSON Lines
+**Supported input formats:** CSV, JSON Lines, uncompressed or compressed with GZIP or BZIP2. An object that is not compressed as `CompressionType` says is refused with `InvalidCompressionFormat`; one that decompresses to more than 5 GiB, with `InvalidRequest`. `BytesScanned` counts the bytes read of the stored object, `BytesProcessed` those read once decompressed. A record is at most 1,048,576 characters, as in AWS; a longer one is refused with `OverMaxRecordSize`.
 **Supported output formats:** CSV, JSON (one object per line, column order preserved)
 **SQL engine:** SQLite — supports SELECT, WHERE, GROUP BY, ORDER BY, aggregate functions (COUNT, SUM, AVG, MIN, MAX). From v1.10.1 only a SELECT runs: any other statement in the expression ends the query with a `QueryFailed` event.
-**Not supported:** compressed input (GZIP/BZIP2), Parquet format
+**Not supported:** Parquet format
 
 **Response:** `application/vnd.amazon.eventstream` — standard Amazon Event Stream binary format
 
