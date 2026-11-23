@@ -117,6 +117,53 @@ func TestPagination_EveryListingReturnsEveryKeyExactlyOnce(t *testing.T) {
 	}
 }
 
+// A folder object "dir/" listed by "dir/" is a key: a page ending on it goes on
+// with the rest of the folder, and a marker shorter than the prefix starts at it.
+func TestPagination_AFolderObjectIsAKeyNotACommonPrefix(t *testing.T) {
+	dir, err := os.MkdirTemp("", "maxiofs-pagination-folder-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	store, err := NewPebbleStore(PebbleOptions{DataDir: dir, Logger: logrus.StandardLogger()})
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Close() })
+
+	ctx := context.Background()
+	const bucket = "folder"
+	require.NoError(t, store.CreateBucket(ctx, &BucketMetadata{Name: bucket, OwnerID: "u"}))
+	for _, key := range []string{"dir/", "dir/a", "dir/b", "dir/sub/x"} {
+		require.NoError(t, store.PutObject(ctx, &ObjectMetadata{Bucket: bucket, Key: key, Size: 1, ETag: "e"}))
+	}
+
+	walk := func(prefix, marker string, pageSize int) (keys, prefixes []string) {
+		for pages := 0; pages < 20; pages++ {
+			res, err := store.ListObjectsDelimited(ctx, bucket, prefix, "/", marker, pageSize)
+			require.NoError(t, err)
+			keys = append(keys, keysOf(res.Objects)...)
+			prefixes = append(prefixes, res.CommonPrefixes...)
+			if !res.IsTruncated {
+				return
+			}
+			marker = res.NextMarker
+		}
+		t.Fatal("paging did not terminate")
+		return
+	}
+
+	for _, pageSize := range []int{1, 2, 100} {
+		keys, prefixes := walk("dir/", "", pageSize)
+		require.Equal(t, []string{"dir/", "dir/a", "dir/b"}, keys, "pages of %d", pageSize)
+		require.Equal(t, []string{"dir/sub/"}, prefixes, "pages of %d", pageSize)
+	}
+
+	keys, prefixes := walk("dir/", "dir/", 100)
+	require.Equal(t, []string{"dir/a", "dir/b"}, keys, "start after the folder object")
+	require.Equal(t, []string{"dir/sub/"}, prefixes)
+
+	keys, _ = walk("dir/sub/", "dir/", 100)
+	require.Equal(t, []string{"dir/sub/x"}, keys, "a marker before the prefix")
+}
+
 // The delimited listing pages over two kinds of entry — keys and the common
 // prefixes that stand for a whole folder — and both have to survive the page
 // boundary intact.

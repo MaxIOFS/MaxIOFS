@@ -176,7 +176,7 @@
     "privateLabel": "Privado",
     "privateDesc": "Las peticiones sin credenciales se deniegan.",
     "publicReadLabel": "Lectura Pública",
-    "publicReadDesc": "Las peticiones sin credenciales pueden leer y listar los objetos.",
+    "publicReadDesc": "Las peticiones sin credenciales pueden listar los objetos. Para que puedan descargarlos, añade la regla «Todos pueden descargar» a la política del bucket.",
     "publicReadWriteLabel": "Lectura/Escritura Pública",
     "publicReadWriteDesc": "Las peticiones sin credenciales también pueden escribir y borrar objetos.",
     "publicReadWriteCaution": "¡Usar con precaución!",

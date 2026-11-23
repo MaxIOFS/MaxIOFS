@@ -1,14 +1,21 @@
 package logging
 
 import (
+	"reflect"
+	"sync"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 )
 
+// maxPendingWrites bounds the entries waiting on one output. A target that does
+// not take them loses the entries past it, not the node's memory.
+const maxPendingWrites = 1000
+
 // DispatchHook is a single logrus hook that dispatches log entries
 type DispatchHook struct {
 	snapshot atomic.Pointer[[]outputWithFilter]
+	pending  sync.Map // Output → *atomic.Int64, entries being written to it
 }
 
 // NewDispatchHook creates a dispatch hook
@@ -22,6 +29,28 @@ func NewDispatchHook() *DispatchHook {
 // UpdateSnapshot replaces the current outputs snapshot (called by Manager under write lock)
 func (h *DispatchHook) UpdateSnapshot(outputs []outputWithFilter) {
 	h.snapshot.Store(&outputs)
+	h.pending.Range(func(key, _ any) bool {
+		for _, ow := range outputs {
+			if ow.output == key {
+				return true
+			}
+		}
+		h.pending.Delete(key)
+		return true
+	})
+}
+
+// pendingOf returns the count of entries being written to out, nil for an
+// output that cannot be a map key.
+func (h *DispatchHook) pendingOf(out Output) *atomic.Int64 {
+	if !reflect.TypeOf(out).Comparable() {
+		return nil
+	}
+	if v, ok := h.pending.Load(out); ok {
+		return v.(*atomic.Int64)
+	}
+	v, _ := h.pending.LoadOrStore(out, new(atomic.Int64))
+	return v.(*atomic.Int64)
 }
 
 // Levels returns all log levels this hook handles
@@ -57,12 +86,18 @@ func (h *DispatchHook) Fire(entry *logrus.Entry) error {
 
 		// Send to output asynchronously to avoid blocking the logging pipeline
 		out := ow.output
+		pending := h.pendingOf(out)
+		if pending != nil && pending.Add(1) > maxPendingWrites {
+			pending.Add(-1)
+			continue
+		}
 		le := logEntry
 		go func() {
-			if err := out.Write(le); err != nil {
-				// Avoid recursion: do NOT use logrus here
-				// Errors are silently dropped to prevent log storms
+			if pending != nil {
+				defer pending.Add(-1)
 			}
+			// Errors are dropped: logging them here would log again.
+			_ = out.Write(le)
 		}()
 	}
 

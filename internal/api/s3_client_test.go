@@ -28,6 +28,13 @@ func TestABrowserFormUploadReachesS3(t *testing.T) {
 	assert.True(t, h.isS3Client(browser(http.MethodPost, "/", form)), "a form upload to a virtual-hosted bucket")
 	assert.True(t, h.isS3Client(browser(http.MethodGet, "/uploads/doc.txt", "")), "a shared object")
 
+	fetch := browser(http.MethodGet, "/uploads?list-type=2", "")
+	fetch.Header.Set("Origin", "https://app.example")
+	assert.True(t, h.isS3Client(fetch), "a script's cross-origin request, answered by the bucket's CORS")
+	preflight := browser(http.MethodOptions, "/uploads", "")
+	preflight.Header.Set("Origin", "https://app.example")
+	assert.True(t, h.isS3Client(preflight), "a preflight")
+
 	assert.False(t, h.isS3Client(browser(http.MethodGet, "/", "")), "the console's address typed on the S3 port")
 	assert.False(t, h.isS3Client(browser(http.MethodGet, "/uploads", "")))
 	assert.False(t, h.isS3Client(browser(http.MethodPost, "/uploads", "text/plain")))

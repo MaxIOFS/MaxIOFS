@@ -176,7 +176,7 @@
     "privateLabel": "Privat",
     "privateDesc": "Anfragen ohne Anmeldedaten werden abgelehnt.",
     "publicReadLabel": "Öffentliches Lesen",
-    "publicReadDesc": "Anfragen ohne Anmeldedaten können die Objekte lesen und auflisten.",
+    "publicReadDesc": "Anfragen ohne Anmeldedaten können die Objekte auflisten. Damit sie herunterladen können, fügen Sie der Bucket-Richtlinie die Regel „Alle dürfen herunterladen“ hinzu.",
     "publicReadWriteLabel": "Öffentliches Lesen/Schreiben",
     "publicReadWriteDesc": "Anfragen ohne Anmeldedaten können außerdem Objekte schreiben und löschen.",
     "publicReadWriteCaution": "Mit Vorsicht verwenden!",

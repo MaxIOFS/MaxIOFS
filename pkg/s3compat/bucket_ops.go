@@ -570,6 +570,28 @@ func (h *Handler) GetBucketACL(w http.ResponseWriter, r *http.Request) {
 	h.writeXMLResponse(w, http.StatusOK, s3ACL)
 }
 
+// cannedBucketACL is the ACL a canned ACL gives a bucket of the requester; nil
+// for a value that is not a canned ACL.
+func cannedBucketACL(r *http.Request, cannedACL string) *acl.ACL {
+	if !acl.IsValidCannedACL(cannedACL) {
+		return nil
+	}
+	ownerID, ownerDisplayName := "maxiofs", "MaxIOFS"
+	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
+		ownerID = user.ID
+		ownerDisplayName = user.Username
+	}
+	grants := acl.GetCannedACLGrants(cannedACL, ownerID, ownerDisplayName)
+	if grants == nil {
+		return nil
+	}
+	return &acl.ACL{
+		Owner:     acl.Owner{ID: ownerID, DisplayName: ownerDisplayName},
+		Grants:    grants,
+		CannedACL: cannedACL,
+	}
+}
+
 // PutBucketACL sets the bucket ACL
 func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -588,31 +610,9 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 	var aclData *acl.ACL
 
 	if cannedACL != "" {
-		// Use canned ACL
-		if !acl.IsValidCannedACL(cannedACL) {
+		if aclData = cannedBucketACL(r, cannedACL); aclData == nil {
 			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
 			return
-		}
-
-		// Create ACL from canned ACL using helper function
-		ownerID, ownerDisplayName := "maxiofs", "MaxIOFS"
-		if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil {
-			ownerID = user.ID
-			ownerDisplayName = user.Username
-		}
-		grants := acl.GetCannedACLGrants(cannedACL, ownerID, ownerDisplayName)
-		if grants == nil {
-			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
-			return
-		}
-
-		aclData = &acl.ACL{
-			Owner: acl.Owner{
-				ID:          ownerID,
-				DisplayName: ownerDisplayName,
-			},
-			Grants:    grants,
-			CannedACL: cannedACL,
 		}
 	} else {
 		// Parse XML ACL from body

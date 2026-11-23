@@ -1456,6 +1456,39 @@ func signedV2TestRequest(t *testing.T, manager *authManager, accessKey, secretKe
 	return req
 }
 
+// A bucket addressed by path is signed "/bucket/" by botocore, as AWS names a
+// bucket addressed by host, and "/bucket" by other clients; ?versions, ?cors and
+// ?tagging are part of what is signed.
+func TestSigV2AcceptsTheResourceClientsSign(t *testing.T) {
+	managerInterface, tmpDir := setupTestAuthManager(t)
+	defer cleanupTestAuthManager(t, tmpDir)
+	manager := managerInterface.(*authManager)
+	const secret = "secret-of-the-test"
+	const date = "Tue, 27 Mar 2007 19:36:42 +0000"
+	sign := func(resource string) *S3SignatureV2 {
+		mac := hmac.New(sha1.New, []byte(secret))
+		mac.Write([]byte("GET\n\n\n" + date + "\n" + resource))
+		return &S3SignatureV2{AccessKey: "K", Signature: base64.StdEncoding.EncodeToString(mac.Sum(nil))}
+	}
+	request := func(target string) *http.Request {
+		req, _ := http.NewRequest("GET", target, nil)
+		req.Header.Set("Date", date)
+		return req
+	}
+
+	for _, c := range []struct{ target, signed string }{
+		{"/bucket", "/bucket/"},
+		{"/bucket", "/bucket"},
+		{"/bucket?versions", "/bucket/?versions"},
+		{"/bucket?cors", "/bucket/?cors"},
+		{"/bucket/key?tagging", "/bucket/key?tagging"},
+	} {
+		assert.True(t, manager.verifyS3SignatureV2(request(c.target), sign(c.signed), secret), "%s signed as %s", c.target, c.signed)
+	}
+	assert.False(t, manager.verifyS3SignatureV2(request("/bucket"), sign("/other/"), secret), "another bucket's resource")
+	assert.False(t, manager.verifyS3SignatureV2(request("/bucket/key"), sign("/bucket/key/"), secret), "an object is signed as sent")
+}
+
 // TestCreateStringToSignV2CanonicalAmzHeaders verifies that x-amz-* headers are correctly
 // included in the SigV2 string-to-sign per the AWS SigV2 specification.
 func TestCreateStringToSignV2CanonicalAmzHeaders(t *testing.T) {

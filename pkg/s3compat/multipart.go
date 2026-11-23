@@ -685,7 +685,7 @@ func (h *Handler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request
 
 	// Validate parts
 	if len(completeRequest.Parts) == 0 {
-		h.writeError(w, "InvalidRequest", "You must specify at least one part", objectKey, r)
+		h.writeError(w, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema", objectKey, r)
 		return
 	}
 

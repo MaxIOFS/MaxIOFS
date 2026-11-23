@@ -176,7 +176,7 @@
     "privateLabel": "Privé",
     "privateDesc": "Les requêtes sans identifiants sont refusées.",
     "publicReadLabel": "Lecture publique",
-    "publicReadDesc": "Les requêtes sans identifiants peuvent lire et lister les objets.",
+    "publicReadDesc": "Les requêtes sans identifiants peuvent lister les objets. Pour qu'elles puissent les télécharger, ajoutez la règle « Tout le monde peut télécharger » à la politique du bucket.",
     "publicReadWriteLabel": "Lecture/écriture publique",
     "publicReadWriteDesc": "Les requêtes sans identifiants peuvent aussi écrire et supprimer des objets.",
     "publicReadWriteCaution": "À utiliser avec précaution !",

@@ -176,7 +176,7 @@
     "privateLabel": "Private",
     "privateDesc": "Requests without credentials are denied.",
     "publicReadLabel": "Public Read",
-    "publicReadDesc": "Requests without credentials can read and list the objects.",
+    "publicReadDesc": "Requests without credentials can list the objects. To let them download, add the rule “Everyone can download” to the bucket policy.",
     "publicReadWriteLabel": "Public Read/Write",
     "publicReadWriteDesc": "Requests without credentials can also write and delete objects.",
     "publicReadWriteCaution": "Use with caution!",

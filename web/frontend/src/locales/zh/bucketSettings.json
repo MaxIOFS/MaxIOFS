@@ -176,7 +176,7 @@
     "privateLabel": "私有",
     "privateDesc": "没有凭证的请求将被拒绝。",
     "publicReadLabel": "公开读取",
-    "publicReadDesc": "没有凭证的请求可以读取和列出对象。",
+    "publicReadDesc": "没有凭证的请求可以列出对象。要允许下载，请在存储桶策略中添加“所有人可下载”规则。",
     "publicReadWriteLabel": "公开读写",
     "publicReadWriteDesc": "没有凭证的请求还可以写入和删除对象。",
     "publicReadWriteCaution": "请谨慎使用！",

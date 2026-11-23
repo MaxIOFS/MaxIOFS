@@ -631,7 +631,7 @@ Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL
 
 An object ACL belongs to the version it was set on. The next object written at the key, by overwrite, as a new version or after a delete, starts `private`.
 
-A request without credentials reads, heads and lists a bucket whose ACL grants READ to everyone (`public-read`), unless its PublicAccessBlock ignores public ACLs or its bucket policy denies it; it needs no share link or presigned URL. A signed request is decided by its IAM policies and the bucket policy; the ACL plays no part.
+A request without credentials is decided as in AWS: the bucket policy first (a Deny refuses it, an Allow to `"*"` grants it), then the ACLs, unless the PublicAccessBlock ignores public ACLs. READ on the bucket (`public-read`) lists it; WRITE on the bucket (`public-read-write`) writes and deletes its objects. Reading an object (GET, HEAD) takes READ on that object, of the version read: its own ACL, or a bucket policy allowing `s3:GetObject` to `"*"` (the console's rule *Everyone can download*). A key that does not exist answers `404` where the bucket can be listed, `403` elsewhere. Share links and presigned URLs need neither. A signed request is decided by its IAM policies and the bucket policy; the ACL plays no part.
 
 A read without credentials, a share link's included, cannot choose the headers it is sent: a GET with `response-content-type` or another `response-*` parameter is refused (`400 InvalidRequest`), as in S3, so a public object cannot be served as a page of another type.
 

@@ -1956,13 +1956,21 @@ func (am *authManager) verifyS3SignatureV4(r *http.Request, sig *S3SignatureV4, 
 // verifyS3SignatureV2 verifies AWS Signature Version 2.
 // AWS SigV2 uses HMAC-SHA1 with standard base64 encoding (RFC 4648).
 func (am *authManager) verifyS3SignatureV2(r *http.Request, sig *S3SignatureV2, secretKey string) bool {
-	stringToSign := am.createStringToSignV2(r)
-
-	hash := hmac.New(sha1.New, []byte(secretKey))
-	hash.Write([]byte(stringToSign))
-	calculatedSig := base64.StdEncoding.EncodeToString(hash.Sum(nil))
-
-	return hmac.Equal([]byte(calculatedSig), []byte(sig.Signature))
+	path := pathSignedV2(r)
+	paths := []string{path}
+	// A bucket addressed by path is signed "/bucket/" by botocore and others,
+	// as AWS names a bucket addressed by host, and "/bucket" by the rest.
+	if len(path) > 1 && strings.Count(path, "/") == 1 {
+		paths = append(paths, path+"/")
+	}
+	for _, p := range paths {
+		hash := hmac.New(sha1.New, []byte(secretKey))
+		hash.Write([]byte(stringToSignV2(r, p)))
+		if hmac.Equal([]byte(base64.StdEncoding.EncodeToString(hash.Sum(nil))), []byte(sig.Signature)) {
+			return true
+		}
+	}
+	return false
 }
 
 // URIEncode is a path escaped as SigV4 escapes it (RFC 3986): every byte but
@@ -2080,6 +2088,26 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 
 // createStringToSignV2 creates string to sign for SigV2.
 func (am *authManager) createStringToSignV2(r *http.Request) string {
+	return stringToSignV2(r, pathSignedV2(r))
+}
+
+// pathSignedV2 is the path of r as its client sent it.
+func pathSignedV2(r *http.Request) string {
+	path := "/"
+	if r.URL != nil {
+		path = r.URL.Path
+		if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
+			path = origPath
+		}
+		if path == "" {
+			path = "/"
+		}
+	}
+	return path
+}
+
+// stringToSignV2 is the SigV2 string to sign of r, its resource path.
+func stringToSignV2(r *http.Request, path string) string {
 	method := r.Method
 	contentMD5 := r.Header.Get("Content-MD5")
 	contentType := r.Header.Get("Content-Type")
@@ -2114,17 +2142,6 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 		canonAmzHeaders.WriteString(k + ":" + strings.Join(trimmed, ",") + "\n")
 	}
 
-	path := "/"
-	if r.URL != nil {
-		path = r.URL.Path
-		if origPath, ok := OriginalSigV4PathFromContext(r.Context()); ok {
-			path = origPath
-		}
-		if path == "" {
-			path = "/"
-		}
-	}
-
 	// CanonicalizedResource = path + recognized sub-resource query params (sorted).
 	// Ref: https://docs.aws.amazon.com/AmazonS3/latest/userguide/RESTAuthentication.html
 	resource := canonicalizedResourceV2(path, r.URL.Query())
@@ -2134,10 +2151,24 @@ func (am *authManager) createStringToSignV2(r *http.Request) string {
 }
 
 // s3v2SubResources is the set of query-string parameters that AWS SigV2 requires
-// to be included in the CanonicalizedResource element of the StringToSign.
+// to be included in the CanonicalizedResource element of the StringToSign, and
+// those botocore signs too.
 var s3v2SubResources = map[string]bool{
+	"accelerate":                   true,
 	"acl":                          true,
+	"analytics":                    true,
+	"cors":                         true,
 	"delete":                       true,
+	"inventory":                    true,
+	"metrics":                      true,
+	"object-lock":                  true,
+	"replication":                  true,
+	"restore":                      true,
+	"select":                       true,
+	"select-type":                  true,
+	"storageClass":                 true,
+	"tagging":                      true,
+	"versions":                     true,
 	"lifecycle":                    true,
 	"location":                     true,
 	"logging":                      true,

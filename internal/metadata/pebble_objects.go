@@ -317,6 +317,15 @@ func (s *PebbleStore) ListObjects(ctx context.Context, bucket, prefix, marker st
 	return objects, nextMarker, nil
 }
 
+// isCommonPrefix reports whether a marker can be a common prefix of a listing by
+// prefix and delimiter, so the listing resumes after its whole group. A common
+// prefix is longer than the prefix: a marker equal to it, as the key of a folder
+// object "dir/" listed by "dir/", or shorter, is a key.
+func isCommonPrefix(marker, prefix, delimiter string) bool {
+	return delimiter != "" && len(marker) > len(prefix) &&
+		strings.HasPrefix(marker, prefix) && strings.HasSuffix(marker, delimiter)
+}
+
 // ListObjectsDelimited lists objects with delimiter support using SeekGE to skip
 func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, delimiter, marker string, maxKeys int) (*DelimitedListResult, error) {
 	if bucket == "" {
@@ -349,7 +358,7 @@ func (s *PebbleStore) ListObjectsDelimited(ctx context.Context, bucket, prefix, 
 	var valid bool
 	started := marker == ""
 	if marker != "" {
-		if delimiter != "" && strings.HasSuffix(marker, delimiter) {
+		if isCommonPrefix(marker, prefix, delimiter) {
 			// The marker is a common prefix returned by a previous page:
 			// resume after the entire prefix group.
 			skipTarget := prefixEnd(objectPrefixKey(bucket, marker))
@@ -673,7 +682,7 @@ func (s *PebbleStore) ListObjectVersionsPage(ctx context.Context, bucket, prefix
 		start = objectPrefixKey(bucket, prefix)
 	case versionIDMarker != "":
 		start = objectKey(bucket, keyMarker)
-	case delimiter != "" && strings.HasSuffix(keyMarker, delimiter):
+	case isCommonPrefix(keyMarker, prefix, delimiter):
 		start = prefixEnd(objectKey(bucket, keyMarker))
 	default:
 		start = append(objectKey(bucket, keyMarker), 0)
@@ -1078,6 +1087,18 @@ func (s *PebbleStore) DeleteObjectVersion(ctx context.Context, bucket, key, vers
 	return s.commitNoSync(batch)
 }
 
+// newerVersion orders two versions of a key as a listing of its versions does:
+// versions of one second by when they were written, then by ID.
+func newerVersion(a, b *ObjectMetadata) bool {
+	if !a.LastModified.Equal(b.LastModified) {
+		return a.LastModified.After(b.LastModified)
+	}
+	if a.WrittenAt != b.WrittenAt {
+		return a.WrittenAt > b.WrittenAt
+	}
+	return a.VersionID > b.VersionID
+}
+
 // newestRemainingVersion returns the newest version of an object other than the
 // one being removed, or nil when none is left.
 func (s *PebbleStore) newestRemainingVersion(bucket, key, excludingVersionID string) (*ObjectMetadata, error) {
@@ -1095,10 +1116,11 @@ func (s *PebbleStore) newestRemainingVersion(bucket, key, excludingVersionID str
 		if err := json.Unmarshal(valCopy, &candidate); err != nil {
 			continue
 		}
-		if candidate.VersionID == excludingVersionID {
+		// A key that goes on after a colon shares the prefix.
+		if candidate.VersionID == excludingVersionID || candidate.Key != key {
 			continue
 		}
-		if newest == nil || candidate.LastModified.After(newest.LastModified) {
+		if newest == nil || newerVersion(&candidate, newest) {
 			c := candidate
 			newest = &c
 		}

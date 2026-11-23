@@ -3,6 +3,7 @@ package s3compat
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -360,7 +361,7 @@ func TestPresignedPost_Redirect(t *testing.T) {
 	assert.Contains(t, loc, "https://example.com/done", "Redirect should contain original URL")
 	assert.Contains(t, loc, "bucket="+bucketName, "Redirect should contain bucket")
 	assert.Contains(t, loc, "key="+objectKey, "Redirect should contain key")
-	assert.Contains(t, loc, "etag=", "Redirect should contain etag")
+	assert.Contains(t, loc, fmt.Sprintf("etag=%%22%x%%22", md5.Sum(content)), "the ETag between quotes, as AWS")
 }
 
 // TestPresignedPost_CustomerKey: SSE-C fields of a form are taken as the

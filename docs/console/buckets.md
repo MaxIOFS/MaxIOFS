@@ -92,7 +92,7 @@ Versioning, Object Lock status, the default retention, and tags.
 | **Customer-provided keys (SSE-C)** | Whether clients may send their own encryption key with each request. Blocked by default, as in AWS. Only taken over HTTPS. |
 | **Block Public Access** | Overrides anything public in the ACL and the policy. It grants nothing itself. Share links, presigned URLs and websites are not affected. |
 | **Bucket Policy** | Grants or denies actions on the bucket to users of its tenant or to everyone. A `Deny` here wins over any other permission. Edited as rules, not JSON. |
-| **ACL** | What requests *without credentials* may do: private, public read, or public read-write. |
+| **ACL** | What requests *without credentials* may do with the bucket, as in AWS: public read lists it, public read-write also writes and deletes objects. Downloading an object takes its own ACL or a policy rule such as *Everyone can download*. |
 | **CORS** | Which web origins may call the bucket from a browser. |
 
 To publish a folder to the internet, for example:

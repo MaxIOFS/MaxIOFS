@@ -5,6 +5,25 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Before upgrading
+- A bucket whose ACL grants READ to everyone (`public-read`) no longer opens its objects to requests without credentials, as in AWS: it lists them. Where objects are downloaded without credentials, add the bucket policy rule *Everyone can download* (`s3:GetObject` to `"*"`), or give the objects a `public-read` ACL, before upgrading. Share links, presigned URLs and static websites are not affected.
+
+### Changed
+- A read without credentials (GET, HEAD) is decided by the object's own ACL, of the version read, or the bucket policy, as in AWS; READ on the bucket lists it. A key that does not exist answers `404` where the bucket can be listed, `403` elsewhere.
+
+### Fixed
+- Deleting the current version of an object whose versions were written within one second made the oldest the current one, not the one before it. The versions of a key followed by a colon (`a:b` for `a`) could become the current object of the other key.
+- The CORS rules of a bucket in a tenant were never applied, and a script's request to a bucket without credentials was redirected to the console: a browser got no `Access-Control-Allow-Origin`. A request carrying `Origin` reaches S3. An allowed origin takes one `*` anywhere, as in AWS (`https://*.example.com`, `*suffix`).
+- `CreateBucket` ignored `x-amz-acl`: the bucket was created private. The ACL is applied and asks `s3:PutBucketAcl`, as in AWS.
+- Signature V2 refused every request to a bucket signed as botocore and AWS sign it (`/bucket/`), and requests on `?versions`, `?cors`, `?tagging` and other subresources.
+- A `304 Not Modified` carried no `ETag` or `Last-Modified`.
+- The redirect after a form upload (`success_action_redirect`) gives the ETag between quotes, as AWS does.
+- Listing a folder `dir/` that holds a folder object `dir/`, with the delimiter `/`, lost every key after a page that ended on that object, and a `start-after`, `marker` or `key-marker` equal to the prefix, or shorter and ending in the delimiter, listed nothing. They list what follows it.
+- `CompleteMultipartUpload` without parts answers `MalformedXML`, as AWS does, not `InvalidRequest`.
+- A syslog logging target whose server stopped reading held every log line in memory, and could take the node down; one that failed to reconnect once was never connected again, and one down when MaxIOFS started was not created. A write waits 5 seconds at most, at most 1,000 lines wait per target, and the server is connected again every 30 seconds.
+
 ## [1.11.0] - 2026-11-22
 
 ### Before upgrading

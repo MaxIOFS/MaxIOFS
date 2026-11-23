@@ -176,7 +176,7 @@
     "privateLabel": "プライベート",
     "privateDesc": "認証情報のないリクエストは拒否されます。",
     "publicReadLabel": "パブリック読み取り",
-    "publicReadDesc": "認証情報のないリクエストでオブジェクトの読み取りと一覧表示ができます。",
+    "publicReadDesc": "認証情報のないリクエストでオブジェクトを一覧表示できます。ダウンロードを許可するには、バケットポリシーに「全員がダウンロード可能」ルールを追加してください。",
     "publicReadWriteLabel": "パブリック読み取り/書き込み",
     "publicReadWriteDesc": "認証情報のないリクエストでオブジェクトの書き込みと削除もできます。",
     "publicReadWriteCaution": "注意して使用してください！",

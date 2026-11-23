@@ -1173,7 +1173,7 @@ func TestReadyEndpoint_ChecksAuthReadiness(t *testing.T) {
 
 // TestS3Operation_MissingAuthentication tests that S3 operations require authentication
 func TestS3Operation_MissingAuthentication(t *testing.T) {
-	handler, mockBucket, _, _ := setupTestHandler()
+	handler, mockBucket, mockObject, _ := setupTestHandler()
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -1209,7 +1209,11 @@ func TestS3Operation_MissingAuthentication(t *testing.T) {
 				mockBucket.On("BucketExists", mock.Anything, mock.Anything, "test-bucket").Return(
 					true, nil,
 				).Once()
-				// Mock GetBucketACL - called when checking public access for unauthenticated requests
+				// A read without credentials asks the object's ACL; of a key that
+				// does not exist, the bucket's, which does not let it be listed.
+				mockObject.On("GetObjectACL", mock.Anything, "test-bucket", "test-object").Return(
+					nil, object.ErrObjectNotFound,
+				).Once()
 				mockBucket.On("GetBucketACL", mock.Anything, mock.Anything, "test-bucket").Return(
 					nil, nil,
 				).Once()

@@ -24,7 +24,17 @@ type SyslogOutput struct {
 	format    string // "rfc3164" or "rfc5424"
 	tlsConfig *tls.Config
 	mu        sync.Mutex
+	lastDial  time.Time
+	lastErr   error // why the server is not connected
+	closed    bool
+
+	// A server that does not answer holds a write this long at most, and is
+	// connected again at most this often.
+	writeTimeout time.Duration
+	redialEvery  time.Duration
 }
+
+const syslogDialTimeout = 10 * time.Second
 
 // Syslog severity levels (RFC 5424)
 const (
@@ -75,10 +85,12 @@ func NewSyslogOutputWithConfig(cfg SyslogConfig) (*SyslogOutput, error) {
 	}
 
 	output := &SyslogOutput{
-		protocol: cfg.Protocol,
-		addr:     addr,
-		tag:      cfg.Tag,
-		format:   cfg.Format,
+		protocol:     cfg.Protocol,
+		addr:         addr,
+		tag:          cfg.Tag,
+		format:       cfg.Format,
+		writeTimeout: 5 * time.Second,
+		redialEvery:  30 * time.Second,
 	}
 
 	// Build TLS config if needed
@@ -90,20 +102,18 @@ func NewSyslogOutputWithConfig(cfg SyslogConfig) (*SyslogOutput, error) {
 		output.tlsConfig = tlsCfg
 	}
 
-	// Connect
-	conn, err := output.dial()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to syslog: %w", err)
-	}
-	output.conn = conn
+	// A server that does not answer now is connected by a later Write, which
+	// reports the error meanwhile.
+	output.redial()
 
 	return output, nil
 }
 
 // dial establishes a connection to the syslog server
 func (s *SyslogOutput) dial() (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: syslogDialTimeout}
 	if s.tlsConfig != nil {
-		return tls.Dial("tcp", s.addr, s.tlsConfig)
+		return tls.DialWithDialer(dialer, "tcp", s.addr, s.tlsConfig)
 	}
 
 	protocol := s.protocol
@@ -112,7 +122,37 @@ func (s *SyslogOutput) dial() (net.Conn, error) {
 		protocol = "tcp"
 	}
 
-	return net.DialTimeout(protocol, s.addr, 10*time.Second)
+	return dialer.Dial(protocol, s.addr)
+}
+
+// redial connects to the server, at most once every redialEvery.
+func (s *SyslogOutput) redial() bool {
+	if time.Since(s.lastDial) < s.redialEvery {
+		return false
+	}
+	s.lastDial = time.Now()
+	conn, err := s.dial()
+	if err != nil {
+		s.lastErr = err
+		return false
+	}
+	s.conn = conn
+	return true
+}
+
+// send writes one message, for writeTimeout at most.
+func (s *SyslogOutput) send(message string) error {
+	if err := s.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
+		return err
+	}
+	_, err := s.conn.Write([]byte(message))
+	return err
+}
+
+func (s *SyslogOutput) disconnect(err error) {
+	s.conn.Close()
+	s.conn = nil
+	s.lastErr = err
 }
 
 // Write sends a log entry to syslog
@@ -120,8 +160,11 @@ func (s *SyslogOutput) Write(entry *LogEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.conn == nil {
+	if s.closed {
 		return fmt.Errorf("syslog connection is closed")
+	}
+	if s.conn == nil && !s.redial() {
+		return fmt.Errorf("syslog server not connected: %w", s.lastErr)
 	}
 
 	severity := levelToSeverity(entry.Level)
@@ -135,20 +178,15 @@ func (s *SyslogOutput) Write(entry *LogEntry) error {
 		message = s.formatRFC3164(priority, entry)
 	}
 
-	_, err := s.conn.Write([]byte(message))
-	if err != nil {
-		// Try to reconnect on write failure
-		s.conn.Close()
-		conn, reconnectErr := s.dial()
-		if reconnectErr != nil {
-			s.conn = nil
+	if err := s.send(message); err != nil {
+		// One new connection now; past it the entry is lost.
+		s.disconnect(err)
+		s.lastDial = time.Time{}
+		if !s.redial() {
 			return fmt.Errorf("failed to write to syslog and reconnect failed: %w", err)
 		}
-		s.conn = conn
-
-		// Retry write
-		_, err = s.conn.Write([]byte(message))
-		if err != nil {
+		if err := s.send(message); err != nil {
+			s.disconnect(err)
 			return fmt.Errorf("failed to write to syslog after reconnect: %w", err)
 		}
 	}
@@ -228,6 +266,7 @@ func (s *SyslogOutput) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.closed = true
 	if s.conn != nil {
 		err := s.conn.Close()
 		s.conn = nil

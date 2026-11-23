@@ -81,6 +81,11 @@ func TestACompletionIsAnsweredWithItsVersionAndItsStatus(t *testing.T) {
 	w = env.sendSigned("POST", "/versioned/other?uploadId="+id, []byte(wrongPart), nil)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "<Code>InvalidPart</Code>")
+
+	// No parts: MalformedXML, as AWS.
+	w = env.sendSigned("POST", "/versioned/other?uploadId="+id, []byte(`<CompleteMultipartUpload></CompleteMultipartUpload>`), nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "<Code>MalformedXML</Code>")
 }
 
 type slowCompletion struct{ object.Manager }

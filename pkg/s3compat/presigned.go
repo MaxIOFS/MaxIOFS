@@ -892,7 +892,7 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 			sep = "&"
 		}
 		http.Redirect(w, r, fmt.Sprintf("%s%sbucket=%s&key=%s&etag=%s",
-			redirect, sep, url.QueryEscape(bucketName), url.QueryEscape(objectKey), url.QueryEscape(result.ETag)), http.StatusSeeOther)
+			redirect, sep, url.QueryEscape(bucketName), url.QueryEscape(objectKey), url.QueryEscape(QuoteETag(result.ETag))), http.StatusSeeOther)
 		return
 	}
 

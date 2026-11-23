@@ -111,7 +111,7 @@ func TestS3AReadIsSentWithTheHeadersItAsksFor(t *testing.T) {
 	acls := setupACLTestEnvironment(t)
 	defer acls.cleanup()
 	acls.handler.SetShareManager(noShareManager{})
-	putAnonymousTestObject(t, acls, "avatars", true)
+	putAnonymousTestObject(t, acls, "avatars", false, true)
 	req := httptest.NewRequest(http.MethodGet, "/avatars/09.png?response-content-type=text%2Fhtml", nil)
 	req = mux.SetURLVars(req, map[string]string{"bucket": "avatars", "object": "09.png"})
 	rec := httptest.NewRecorder()
@@ -183,7 +183,12 @@ func TestS3AnETagIsSentQuoted(t *testing.T) {
 	for _, condition := range []string{quoted, hex.EncodeToString(sum[:])} {
 		got := env.sendSigned("GET", "/quoted/k", nil, map[string]string{"If-None-Match": condition})
 		assert.Equal(t, http.StatusNotModified, got.Code, condition)
+		assert.Equal(t, quoted, got.Header().Get("ETag"), "a 304 names the ETag the cache keeps")
+		assert.NotEmpty(t, got.Header().Get("Last-Modified"))
 	}
+	got := env.sendSigned("GET", "/quoted/k", nil, map[string]string{"If-Modified-Since": time.Now().Add(time.Hour).UTC().Format(http.TimeFormat)})
+	assert.Equal(t, http.StatusNotModified, got.Code)
+	assert.Equal(t, quoted, got.Header().Get("ETag"), "If-Modified-Since")
 }
 
 // HEAD and GET name the storage class of an object of any class but

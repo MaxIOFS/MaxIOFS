@@ -114,6 +114,29 @@ func TestAPageFollowsThePrefixAndTheDelimiter(t *testing.T) {
 	assert.Empty(t, common)
 }
 
+// A key marker equal to the prefix, the key of a folder object "dir/", starts
+// after that key and not after the whole folder; a shorter one starts at the prefix.
+func TestAKeyMarkerOnAFolderObjectStartsAfterThatKey(t *testing.T) {
+	store, cleanup := newVersionTestStore(t)
+	defer cleanup()
+	at := time.Unix(1_700_000_000, 0)
+	for _, key := range []string{"dir/", "dir/a", "dir/sub/x"} {
+		putVersion(t, store, "folder", key, "v1", 1, at, true)
+	}
+	ctx := context.Background()
+
+	page, err := store.ListObjectVersionsPage(ctx, "folder", "dir/", "/", "dir/", "", 100)
+	require.NoError(t, err)
+	require.Len(t, page.Versions, 1)
+	assert.Equal(t, "dir/a", page.Versions[0].Key)
+	assert.Equal(t, []string{"dir/sub/"}, page.CommonPrefixes)
+
+	page, err = store.ListObjectVersionsPage(ctx, "folder", "dir/sub/", "/", "dir/", "", 100)
+	require.NoError(t, err)
+	require.Len(t, page.Versions, 1)
+	assert.Equal(t, "dir/sub/x", page.Versions[0].Key)
+}
+
 // A key marker alone starts after that key; with a version marker, after that
 // version. A marker deleted since places the page by its ID.
 func TestAPageStartsAfterItsMarkers(t *testing.T) {

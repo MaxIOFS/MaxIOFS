@@ -93,6 +93,33 @@ func TestBlockPublicAcls_PutBucketACL(t *testing.T) {
 	assert.True(t, env.bucketACLIsPublic(t, open), "only BlockPublicAcls refuses a public ACL")
 }
 
+// The canned ACL a bucket is created with is its ACL, as in AWS, and asks
+// s3:PutBucketAcl; a bucket refused its ACL is not created.
+func TestCreateBucketKeepsItsCannedACL(t *testing.T) {
+	env := setupCompleteS3Environment(t)
+	defer env.cleanup()
+	create := func(name, canned string, actions ...string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("PUT", "/"+name, nil)
+		req.Header.Set("x-amz-acl", canned)
+		w := httptest.NewRecorder()
+		env.handler.CreateBucket(w, env.asUserWith(req, name, "", actions...))
+		return w
+	}
+
+	w := create("canned-public", "public-read", "s3:CreateBucket", "s3:PutBucketAcl")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.True(t, env.bucketACLIsPublic(t, "canned-public"), "public-read on creation")
+
+	assert.Equal(t, http.StatusForbidden, create("canned-denied", "public-read", "s3:CreateBucket").Code,
+		"an ACL without s3:PutBucketAcl")
+	assert.Equal(t, http.StatusBadRequest, create("canned-invalid", "everyone", "s3:CreateBucket", "s3:PutBucketAcl").Code,
+		"a value that is no canned ACL")
+	for _, name := range []string{"canned-denied", "canned-invalid"} {
+		_, err := env.bucketManager.GetBucketInfo(context.Background(), env.tenantID, name)
+		assert.ErrorIs(t, err, bucket.ErrBucketNotFound, name)
+	}
+}
+
 func TestBlockPublicAcls_PutObjectACL(t *testing.T) {
 	env := setupCompleteS3Environment(t)
 	defer env.cleanup()

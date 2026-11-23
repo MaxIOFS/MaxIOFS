@@ -382,6 +382,12 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		}
 	}
 
+	// A script's cross-origin request, answered by the bucket's CORS rules: a
+	// browser sends Origin there, never when the address is typed.
+	if r.Header.Get("Origin") != "" {
+		return true
+	}
+
 	// Allow GET/HEAD to /{bucket}/{object} so shared/public objects work in browsers.
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && isObjectPath(r.URL.Path) {
 		return true
@@ -443,11 +449,9 @@ func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Determine tenant — auth middleware may have already set the user in context.
-		tenantID := ""
-		if user, ok := auth.GetUserFromContext(r.Context()); ok {
-			tenantID = user.TenantID
-		}
+		// This runs before authentication, and a preflight carries no
+		// credentials: the tenant is the bucket's.
+		tenantID := h.s3Handler.BucketTenantID(r, bucketName)
 
 		corsConfig, err := h.bucketManager.GetCORS(r.Context(), tenantID, bucketName)
 		if err != nil || corsConfig == nil || len(corsConfig.CORSRules) == 0 {
@@ -501,17 +505,17 @@ func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 }
 
 // corsOriginMatches reports whether origin matches any entry in the allowed list.
-// Entries may be exact origins or wildcard patterns like "*.example.com".
+// An entry holds at most one "*", anywhere, as in AWS: "*", "https://*.example.com".
 func corsOriginMatches(origin string, allowed []string) bool {
 	for _, a := range allowed {
-		if a == "*" || a == origin {
+		if a == origin {
 			return true
 		}
-		if strings.HasPrefix(a, "*.") {
-			domain := strings.TrimPrefix(a, "*.")
-			if strings.HasSuffix(origin, "."+domain) {
-				return true
-			}
+		before, after, wildcard := strings.Cut(a, "*")
+		if wildcard && !strings.Contains(after, "*") &&
+			len(origin) >= len(before)+len(after) &&
+			strings.HasPrefix(origin, before) && strings.HasSuffix(origin, after) {
+			return true
 		}
 	}
 	return false

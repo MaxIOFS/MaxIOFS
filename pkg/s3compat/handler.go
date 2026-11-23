@@ -833,6 +833,18 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// An ACL to create the bucket with asks, as in AWS, s3:PutBucketAcl.
+	var createACL *acl.ACL
+	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
+		if createACL = cannedBucketACL(r, cannedACL); createACL == nil {
+			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
+			return
+		}
+		if !h.userCanPerformS3ActionInTenant(r.Context(), user, user.TenantID, auth.ActionPutBucketAcl, bucketARN(bucketName)) {
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+	}
 
 	tenantID := user.TenantID
 
@@ -908,6 +920,19 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 			"bucket":   bucketName,
 			"tenantID": tenantID,
 		}).Info("CreateBucket: Object Lock enabled via x-amz-bucket-object-lock-enabled header")
+	}
+
+	// The bucket is not left without the ACL it was asked with.
+	if createACL != nil {
+		if !h.requirePublicACLAllowed(w, r, bucketName, bucketName, createACL.IsPublic()) {
+			_ = h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName)
+			return
+		}
+		if err := h.bucketManager.SetBucketACL(r.Context(), tenantID, bucketName, createACL); err != nil {
+			_ = h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName)
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		}
 	}
 
 	// AWS S3 requires a Location header on successful bucket creation.
@@ -2189,6 +2214,12 @@ func (h *Handler) resolveBucketTenantID(r *http.Request, bucketName string) stri
 	return h.getTenantIDFromRequest(r)
 }
 
+// BucketTenantID is the tenant a bucket is in, found by its name, which is
+// unique in the installation; for a request made before authentication too.
+func (h *Handler) BucketTenantID(r *http.Request, bucketName string) string {
+	return h.resolveBucketTenantID(r, bucketName)
+}
+
 // getBucketPath constructs the full bucket path with tenant prefix for object manager
 // Format: "tenantID/bucketName" for tenant buckets, or "bucketName" for global buckets
 // This is transparent to S3 clients - they only see "bucketName"
@@ -2576,6 +2607,40 @@ func (h *Handler) checkPublicBucketAccess(ctx context.Context, tenantID, bucketN
 	}
 
 	return aclManager.CheckPublicAccess(aclData, permission)
+}
+
+// publicObjectRead decides a read without credentials by the ACL of the object,
+// of the version read, as AWS does: READ on the bucket lists it and opens none
+// of its objects. A key or version that does not exist is told (404) to whoever
+// may list the bucket, and refused (403) to the rest.
+func (h *Handler) publicObjectRead(ctx context.Context, tenantID, bucketName, objectKey, versionID string) bool {
+	if h.objectManager == nil || h.bucketManager == nil {
+		return false
+	}
+	if pab, err := h.bucketManager.GetPublicAccessBlock(ctx, tenantID, bucketName); err == nil && pab != nil && pab.IgnorePublicAcls {
+		return false
+	}
+	bucketPath := bucketName
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + bucketName
+	}
+	var version []string
+	if versionID != "" {
+		version = []string{versionID}
+	}
+	objectACL, err := h.objectManager.GetObjectACL(ctx, bucketPath, objectKey, version...)
+	if errors.Is(err, object.ErrObjectNotFound) {
+		return h.checkPublicBucketAccess(ctx, tenantID, bucketName, acl.PermissionRead)
+	}
+	if err != nil {
+		return false
+	}
+	aclData := h.convertObjectACLToInternal(objectACL)
+	aclManager := h.getACLManager()
+	if aclData == nil || aclManager == nil {
+		return false
+	}
+	return aclManager.CheckPublicAccess(aclData, acl.PermissionRead)
 }
 
 // checkPublicObjectAccess checks if an object allows public access via ACL
@@ -3113,7 +3178,7 @@ func (h *Handler) validateBucketReadPermission(
 	}
 
 	if h.anonymousAllowed(r.Context(), tenantID, readObjectAction(r), objectARN(bucketName, objectKey), func() bool {
-		return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+		return h.publicObjectRead(r.Context(), tenantID, bucketName, objectKey, r.URL.Query().Get("versionId"))
 	}) {
 		return true
 	}
@@ -3121,7 +3186,7 @@ func (h *Handler) validateBucketReadPermission(
 	logrus.WithFields(logrus.Fields{
 		"bucket": bucketName,
 		"object": objectKey,
-	}).Warn("Public access denied - bucket not publicly readable (bucket-level)")
+	}).Warn("Public access denied - object not publicly readable")
 	h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 	return false
 }
@@ -3139,9 +3204,15 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 
-	// A 304 carries no body by definition, so it is written directly.
-	if ifNoneMatch != "" && etagSatisfies(etag, ifNoneMatch) {
+	// A 304 carries no body, and names the object a cache keeps: its ETag and
+	// time, as AWS and RFC 7232 give them.
+	notModified := func() {
+		w.Header().Set("ETag", QuoteETag(etag))
+		w.Header().Set("Last-Modified", lastModified.UTC().Format(http.TimeFormat))
 		w.WriteHeader(http.StatusNotModified)
+	}
+	if ifNoneMatch != "" && etagSatisfies(etag, ifNoneMatch) {
+		notModified()
 		return false
 	}
 
@@ -3150,7 +3221,7 @@ func (h *Handler) validateConditionalHeaders(w http.ResponseWriter, r *http.Requ
 		if t, err := http.ParseTime(ifModifiedSince); err == nil {
 			// Object has NOT been modified since the given time → 304.
 			if !lastModified.After(t) {
-				w.WriteHeader(http.StatusNotModified)
+				notModified()
 				return false
 			}
 		}
@@ -3544,7 +3615,7 @@ func (h *Handler) validateHeadBucketReadPermission(
 ) bool {
 	if !userExists {
 		if h.anonymousAllowed(r.Context(), tenantID, readObjectAction(r), objectARN(bucketName, objectKey), func() bool {
-			return h.checkPublicBucketAccess(r.Context(), tenantID, bucketName, acl.PermissionRead)
+			return h.publicObjectRead(r.Context(), tenantID, bucketName, objectKey, r.URL.Query().Get("versionId"))
 		}) {
 			return true
 		}
@@ -3552,7 +3623,7 @@ func (h *Handler) validateHeadBucketReadPermission(
 		logrus.WithFields(logrus.Fields{
 			"bucket": bucketName,
 			"object": objectKey,
-		}).Warn("Public access denied for HeadObject - bucket not publicly readable")
+		}).Warn("Public access denied for HeadObject - object not publicly readable")
 		h.writeError(w, "AccessDenied", "Access Denied", objectKey, r)
 		return false
 	}
