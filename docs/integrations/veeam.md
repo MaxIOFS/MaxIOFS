@@ -12,8 +12,10 @@ repository's capacity and capabilities from it.
    **Object Lock** in the *Object Lock & WORM* tab. Leave the default
    retention off: Veeam sets the retention of each object itself.
 2. **A user for Veeam.** **Users → Create User**, for example `veeam`, role
-   *User*. In **IAM → Permissions**, add the bucket and give it full access
-   to that bucket only.
+   *User*. In **Users → IAM → Permissions**, pick the user, **Add a bucket**
+   with the bucket and give it full access there. In *Everywhere*, tick only
+   **List buckets** (`s3:ListAllMyBuckets`): Veeam lists the buckets when the
+   repository is added, and gets `AccessDenied` without it.
 3. **An access key** for that user: open the user → **Create Access Key**,
    and copy both values.
 4. **Optional: a quota** on the bucket (**Settings → Quota**). Veeam then

@@ -28,7 +28,7 @@ required; everything else can be changed later, except Object Lock.
 |-------|-------|
 | **Bucket Name** | 3 to 63 characters: lowercase letters, numbers, dots and hyphens. Unique in the installation. |
 | **Region** | The region S3 clients see. `us-east-1` unless your clients expect another. |
-| **Ownership** | A global administrator can give the bucket to a tenant or a user. The owner gets full control of it. From v1.11.0 the owner holds on it only what its own permissions allow: a user with none needs them granted on the bucket. |
+| **Ownership** | A global administrator can give the bucket to a tenant or a user. The owner holds on it only what its own permissions allow: a user with none on the bucket needs them granted there. |
 | **Enable Object Versioning** | Keeps every version of each object. Required for Object Lock and recommended for replication. |
 | **Tags** | Key–value labels for your own organisation. |
 
