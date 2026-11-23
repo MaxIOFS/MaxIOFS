@@ -8,7 +8,7 @@
 # Do NOT hardcode version here - it will be overridden during build
 
 %define name maxiofs
-%{!?version: %define version 1.10.0}
+%{!?version: %define version 1.11.0}
 %{!?release: %define release 1}
 %define debug_package %{nil}
 
@@ -200,6 +200,17 @@ fi
 %{_docdir}/%{name}/
 
 %changelog
+* Sun Nov 22 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.11.0-1
+- Release v1.11.0 — S3 Select over Parquet, permissions held to what each user
+  holds, security fixes
+- Before upgrading: a bucket owner no longer holds s3:* on its bucket, only what
+  its own permissions allow. Grant them first (a Veeam account, for one)
+- S3 Select reads Parquet and objects compressed with GZIP or BZIP2; only a
+  SELECT runs
+- A tenant administrator grants only what it holds; an inactive tenant stops as
+  a whole; parts of uploads in progress count against the quotas
+- Built with Go 1.27.4 (GO-2026-6859)
+
 * Wed Nov 11 2026 Aluisco Ricardo <aluisco@maxiofs.com> - 1.10.0-1
 - Release v1.10.0 — disk-full handling, recovery, cluster sync
 - Writes stop at 99.5% of the disk with 507 InsufficientStorage; reads, deletes

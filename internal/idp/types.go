@@ -70,6 +70,9 @@ type ExternalUser struct {
 	RawAttrs    map[string]string `json:"rawAttrs"` // All attributes for display
 	// Grant is what the provider gave for a sign-in; internal.
 	Grant *Grant `json:"-"`
+	// GroupsUnknown: the directory that gives the groups did not answer, so
+	// Groups are not the user's. Internal.
+	GroupsUnknown bool `json:"-"`
 }
 
 // ExternalGroup represents a group found in an external directory

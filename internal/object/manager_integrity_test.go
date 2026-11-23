@@ -3,10 +3,12 @@ package object
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/maxiofs/maxiofs/internal/kek"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -370,4 +372,24 @@ func TestVerifyBucketIntegrity_ChecksMultipart(t *testing.T) {
 	assert.Equal(t, 0, report.Skipped)
 	assert.Equal(t, 0, report.OK)
 	assert.Equal(t, 1, report.Corrupted, "it has no data on storage")
+}
+
+// kekGone hands out no KEK, as a node that lacks a version, or a store that
+// does not answer, does.
+type kekGone struct{ kek.Provider }
+
+func (kekGone) KEKByVersion(int) ([]byte, error) { return nil, errors.New("KEK version not found") }
+
+// An object whose key cannot be had is not known to be damaged: the scrub
+// reports it could not check it, and never calls it corrupted.
+func TestVerifyObjectIntegrity_AKeyThatCannotBeHadIsNoCorruption(t *testing.T) {
+	om, metaStore, cleanup := setupTestManagerWithStore(t)
+	defer cleanup()
+	bucket := "tenant1/key-bucket"
+	putTestObject(t, om, metaStore, bucket, "file.txt", []byte("hello integrity world"))
+	om.kekProvider = kekGone{om.kekProvider}
+
+	result, err := om.VerifyObjectIntegrity(context.Background(), bucket, "file.txt")
+	require.NoError(t, err)
+	assert.Equal(t, IntegrityError, result.Status, result.Reason)
 }

@@ -35,6 +35,8 @@ func TestWritesStopWhenADiskIsFull(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDiskFull)
 	_, err = om.CompleteMultipartUpload(ctx, upload.UploadID, []Part{*part})
 	assert.ErrorIs(t, err, ErrDiskFull)
+	assert.ErrorIs(t, om.PutShard(ctx, ShardInfo{Bucket: "full", Key: "shard", Layout: testLayout, Size: 4}, strings.NewReader("data")), ErrDiskFull,
+		"a shard another node sends")
 
 	_, reader, err := om.GetObject(ctx, "full", "kept", version)
 	require.NoError(t, err)

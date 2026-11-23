@@ -65,3 +65,45 @@ func TestSettingsReachEveryNode(t *testing.T) {
 	send(cluster.SettingsSyncPayload{LoggingTargets: []cluster.LoggingTargetRow{deleted}})
 	assert.Empty(t, host("t2"), "a target older than its deletion")
 }
+
+// Two targets of the same name under different ids, as the migration of the
+// old settings leaves one on each node, end as one on every node: the later,
+// or the one of the smaller id when both are as late.
+func TestLoggingTargetsOfTheSameNameConverge(t *testing.T) {
+	s := newClusterTestNode(t)
+	send := func(targets ...cluster.LoggingTargetRow) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.handleReceiveSettingsSync(w, fromPeer(t, http.MethodPost, "/api/internal/cluster/settings-sync", cluster.SettingsSyncPayload{LoggingTargets: targets}))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+	ids := func() []string {
+		t.Helper()
+		rows, err := s.db.Query(`SELECT id FROM logging_targets WHERE name = 'Syslog (migrated)' ORDER BY id`)
+		require.NoError(t, err)
+		defer rows.Close() //nolint:errcheck
+		var got []string
+		for rows.Next() {
+			var id string
+			require.NoError(t, rows.Scan(&id))
+			got = append(got, id)
+		}
+		return got
+	}
+	migrated := func(id string, at int64) cluster.LoggingTargetRow {
+		return cluster.LoggingTargetRow{ID: id, Name: "Syslog (migrated)", Type: "syslog", Protocol: "tcp", Host: "10.0.0.9", Port: 514,
+			Tag: "maxiofs", Format: "rfc3164", FilterLevel: "info", CreatedAt: 1, UpdatedAt: at}
+	}
+	_, err := s.db.Exec(`INSERT INTO logging_targets (id, name, type, enabled, protocol, host, port, tag, format, filter_level, created_at, updated_at)
+		VALUES ('local', 'Syslog (migrated)', 'syslog', 1, 'tcp', '10.0.0.9', 514, 'maxiofs', 'rfc3164', 'info', 1, 100)`)
+	require.NoError(t, err)
+
+	send(migrated("older", 99))
+	assert.Equal(t, []string{"local"}, ids(), "an older one of the same name")
+	send(migrated("later", 101))
+	assert.Equal(t, []string{"later"}, ids(), "a later one replaces it")
+	send(migrated("a-tie", 101))
+	assert.Equal(t, []string{"a-tie"}, ids(), "as late, the smaller id")
+	send(migrated("z-tie", 101))
+	assert.Equal(t, []string{"a-tie"}, ids())
+}

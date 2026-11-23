@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -366,4 +369,89 @@ func TestAWildcardMakesNoGlobalAdministrator(t *testing.T) {
 		"a tenant's object through S3")
 	assert.True(t, set.Allows(auth.AccessRequest{Action: auth.ActionPutObject, Resource: "arn:aws:s3:::global-data/k", Owner: auth.OwnedBy("")}),
 		"everything in the global namespace")
+}
+
+// A secret set through the settings, the metrics token or the SMTP password,
+// is not kept by the audit log, set alone or with others.
+func TestTheAuditLogKeepsNoSettingSecret(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleUpdateSetting,
+		map[string]string{"key": "metrics.token"}, `{"value":"token-alone-SECRET"}`))
+	require.Equal(t, http.StatusOK, callAs(t, s, "global-by-role", s.handleBulkUpdateSettings, nil,
+		`{"settings":{"metrics.token":"token-bulk-SECRET","email.smtp_password":"smtp-SECRET"}}`))
+
+	// The audit log is written in the background.
+	var audited []string
+	require.Eventually(t, func() bool {
+		logs, _, err := s.auditManager.GetLogs(ctx, &audit.AuditLogFilters{Page: 1, PageSize: 100})
+		require.NoError(t, err)
+		audited = audited[:0]
+		for _, entry := range logs {
+			details, err := json.Marshal(entry.Details)
+			require.NoError(t, err)
+			if strings.Contains(string(details), "metrics.token") {
+				audited = append(audited, string(details))
+			}
+		}
+		return len(audited) == 2
+	}, 10*time.Second, 50*time.Millisecond, "both changes are audited")
+	for _, details := range audited {
+		assert.NotContains(t, details, "SECRET")
+	}
+}
+
+// usersUnreadable is an auth manager whose list of users cannot be read.
+type usersUnreadable struct{ auth.Manager }
+
+func (usersUnreadable) ListUsers(context.Context) ([]auth.User, error) {
+	return nil, errors.New("database is locked")
+}
+
+// A delete of a global administrator by the IAM API that cannot count the
+// others fails as the failure it is, not as the last administrator.
+func TestIAMDeleteUserThatCannotCountTheAdministratorsSaysSo(t *testing.T) {
+	s := administrators(t)
+	ctx := context.Background()
+	caller, err := s.authManager.GetUser(ctx, "global-by-role")
+	require.NoError(t, err)
+	im := s.authManager.(auth.IAMManager)
+	s.authManager = usersUnreadable{s.authManager}
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.PostForm = url.Values{"UserName": {caller.Username}}
+	rec := httptest.NewRecorder()
+	s.iamDeleteUser(rec, req, im, caller)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+	assert.Equal(t, "ServiceFailure", iamErrorCodeOf(t, rec.Body.String()))
+}
+
+// A directory that did not give the groups holds back the sign-in of a user
+// they decide, or one to be made from them; anyone else signs in.
+func TestASignInWithoutItsGroupsWaitsOnlyForThoseTheyDecide(t *testing.T) {
+	managed := &auth.User{ID: "m"}
+	markGroupManaged(managed)
+	unknown := &idp.ExternalUser{Email: "ana@empresa.com", GroupsUnknown: true}
+	known := &idp.ExternalUser{Email: "ana@empresa.com"}
+
+	assert.True(t, waitsForGroups(nil, unknown), "a user to be made from the groups")
+	assert.True(t, waitsForGroups(managed, unknown), "a user the groups decide")
+	assert.False(t, waitsForGroups(&auth.User{ID: "linked"}, unknown), "a user the groups do not decide")
+	assert.False(t, waitsForGroups(nil, known))
+	assert.False(t, waitsForGroups(managed, known))
+}
+
+// A setting set alone takes what a bulk update takes: an empty text, and no
+// empty number.
+func TestASettingSetAloneTakesAnEmptyText(t *testing.T) {
+	s := administrators(t)
+	put := func(key, body string) int {
+		return callAs(t, s, "global-by-role", s.handleUpdateSetting, map[string]string{"key": key}, body)
+	}
+	require.Equal(t, http.StatusOK, put("metrics.token", `{"value":"a-token"}`))
+	require.Equal(t, http.StatusOK, put("metrics.token", `{"value":""}`), "no token: /metrics answers 401")
+	value, err := s.settingsManager.Get("metrics.token")
+	require.NoError(t, err)
+	assert.Empty(t, value)
+	assert.Equal(t, http.StatusBadRequest, put("security.ratelimit_api_per_second", `{"value":""}`), "an empty number")
 }

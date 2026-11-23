@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/maxiofs/maxiofs/internal/cluster"
@@ -55,6 +57,26 @@ func (s *Server) applyLoggingTargets(ctx context.Context, targets []cluster.Logg
 	applied := 0
 	for _, t := range targets {
 		if cluster.DeletionSupersedes(ctx, s.db, cluster.EntityTypeLoggingTarget, t.ID, t.UpdatedAt) {
+			continue
+		}
+		// A target of the same name under another id, as the migration of the
+		// old settings leaves one on each node: every node keeps the later one,
+		// or the one of the smaller id when both are as late.
+		var otherID string
+		var otherUpdatedAt int64
+		err := s.db.QueryRowContext(ctx, `SELECT id, updated_at FROM logging_targets WHERE name = ? AND id != ?`,
+			t.Name, t.ID).Scan(&otherID, &otherUpdatedAt)
+		switch {
+		case err == nil:
+			if otherUpdatedAt > t.UpdatedAt || (otherUpdatedAt == t.UpdatedAt && otherID < t.ID) {
+				continue
+			}
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM logging_targets WHERE id = ?`, otherID); err != nil {
+				logrus.WithError(err).WithField("target", t.Name).Warn("Failed to replace a logging target of the same name")
+				continue
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			logrus.WithError(err).WithField("target", t.Name).Warn("Failed to read the logging targets")
 			continue
 		}
 		res, err := s.db.ExecContext(ctx, `

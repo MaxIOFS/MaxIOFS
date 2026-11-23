@@ -934,6 +934,33 @@ func TestHandleGetSecurityStatus(t *testing.T) {
 		assert.Contains(t, securityData, "policies")
 	})
 
+	t.Run("gives the audit retention and state the console settings set", func(t *testing.T) {
+		for key, value := range map[string]string{"audit.retention_days": "365", "audit.enabled": "false"} {
+			was, err := server.settingsManager.Get(key)
+			require.NoError(t, err)
+			require.NoError(t, server.settingsManager.Set(key, value))
+			t.Cleanup(func() { _ = server.settingsManager.Set(key, was) })
+		}
+		req := createAuthenticatedRequest("GET", "/api/v1/security/status", nil, "", "admin", true)
+		rr := httptest.NewRecorder()
+		server.handleGetSecurityStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+		var response struct {
+			Data struct {
+				Data struct {
+					Audit struct {
+						Enabled      bool `json:"enabled"`
+						LogRetention int  `json:"logRetention"`
+					} `json:"audit"`
+				} `json:"data"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		assert.Equal(t, 365, response.Data.Data.Audit.LogRetention)
+		assert.False(t, response.Data.Data.Audit.Enabled)
+	})
+
 	t.Run("should require authentication", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
 

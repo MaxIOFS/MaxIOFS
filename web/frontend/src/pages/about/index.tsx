@@ -328,89 +328,97 @@ export default function AboutPage() {
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Full Disks
+                S3 Select over Parquet
               </h3>
               <p className="text-sm text-muted-foreground">
-                Writes stop at 99.5% of the disk that holds the objects or the metadata, with
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">507 InsufficientStorage</code>: Pebble and SQLite keep room, and reads, deletes and
-                retention changes keep working. SOSAPI reports only what can still be written. With
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">storage.root</code> on another disk, the console, alerts, the cluster and SOSAPI show that
-                disk's space.
+                S3 Select reads Parquet objects, as AWS does, their columns uncompressed or compressed with
+                Snappy, GZIP, ZSTD, Brotli or LZ4. Columns keep their types: numbers compare as numbers,
+                decimals are exact, dates and timestamps read as ISO 8601. Objects compressed with GZIP or
+                BZIP2 are read too, and only a SELECT runs.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Recovery
+                Bucket Owners
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs recover</code> gives back each bucket's settings, kept in the bucket's marker:
-                versioning, Object Lock and its default retention, policy, lifecycle, quota and the rest. It
-                says every 30 seconds how far it is and when it should end, continues where it stopped, and
-                takes <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">--storage-root</code> when the objects are on another disk.
+                The owner of a bucket holds on it what its own permissions allow, no longer{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">s3:*</code>. Before upgrading, grant each user that works on its own buckets, a
+                Veeam account for one, its permissions on them, and{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">s3:ListAllMyBuckets</code> if it lists them.
               </p>
             </div>
 
             <div className="border-l-4 border-emerald-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Cluster Synchronization
+                Tenant Administrators
               </h3>
               <p className="text-sm text-muted-foreground">
-                A node joining a cluster takes everything the cluster replicates. Settings and logging
-                targets are the same on every node: a change made on any node reaches the others.
+                A tenant administrator grants only what it holds, and holds every permission a bucket or an
+                object takes in its tenant. The console takes for an administrator whoever administers by
+                role or by permission.
               </p>
             </div>
 
             <div className="border-l-4 border-amber-500 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Auto Sync for Google and Microsoft
+                Inactive Tenants
               </h3>
               <p className="text-sm text-muted-foreground">
-                Auto Sync reads Google Workspace, with a service account key, and Microsoft tenants every
-                hour, as it reads LDAP directories and Keycloak realms. Google and Microsoft sign-ins take
-                their groups from the directory.
+                A tenant set inactive stops as a whole: none of its users signs in or authenticates, and
+                nothing of it is served without credentials, share links and public buckets included.
+                Reactivating it gives everything back.
               </p>
             </div>
 
             <div className="border-l-4 border-red-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Integrity Scans
+                Quotas Count Uploads in Progress
               </h3>
               <p className="text-sm text-muted-foreground">
-                Scans cover every version of a bucket and objects written in parts. A byte changed on disk,
-                a lost sidecar or a lost key is reported as corruption, with its audit event and an alert.
+                The parts of multipart uploads in progress count against the bucket and tenant quotas: a part
+                is refused with <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">QuotaExceeded</code> once what is stored and what is in progress
+                reach the quota.
               </p>
             </div>
 
             <div className="border-l-4 border-blue-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Faster Writes
+                Accounts
               </h3>
               <p className="text-sm text-muted-foreground">
-                S3 writes are about 5 times faster under load. An upload is encrypted as it arrives: its
-                temporary file never holds it in clear. A page of <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">ListObjectVersions</code> costs what it
-                returns.
+                Changing a password ends the console sessions of its account. Disabling your own 2FA and
+                regenerating your backup codes ask for your password.
               </p>
             </div>
 
             <div className="border-l-4 border-purple-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Metrics and Proxies
+                Signed Requests
               </h3>
               <p className="text-sm text-muted-foreground">
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/metrics</code> answers only with the token set in Settings → Metrics.
-                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">trust_private_networks</code> is off by default: behind a proxy or WAF, list its address
-                in <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">trusted_proxies</code>.
+                A presigned URL and a share link serve only what their signer may read now, a POST form
+                upload is held to all of its policy, and STS federation applies the provider's groups.
+                Built with Go 1.27.4.
               </p>
             </div>
 
             <div className="border-l-4 border-emerald-600 pl-4">
               <h3 className="text-sm font-semibold text-foreground mb-1">
-                Console Permissions
+                Documentation
               </h3>
               <p className="text-sm text-muted-foreground">
-                A bucket owner reaches its own bucket only, and reading a bucket's settings needs its
-                permission on the bucket, as changing them does.
+                The documentation is at{' '}
+                <a
+                  href="https://docs.maxiofs.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-600 dark:text-brand-400 hover:underline"
+                >
+                  docs.maxiofs.com
+                </a>: installation, deployment, every console page with screenshots, S3 tools, the{' '}
+                <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">maxiofs</code> CLI, integrations and operations.
               </p>
             </div>
 

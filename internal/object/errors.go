@@ -14,7 +14,10 @@ var (
 	ErrDataUnavailable = errors.New("no node that holds the object's data answered")
 	// ErrObjectUnreadable: the object is recorded and what is on disk no longer
 	// gives it back: its sidecar or its key is lost.
-	ErrObjectUnreadable    = errors.New("object is unreadable")
+	ErrObjectUnreadable = errors.New("object is unreadable")
+	// ErrKeyUnavailable: the key an object is encrypted with cannot be had
+	// here, now. The object is not known to be damaged.
+	ErrKeyUnavailable      = errors.New("the key the object is encrypted with is not available")
 	ErrObjectExists        = errors.New("object already exists")
 	ErrBucketNotFound      = errors.New("bucket not found")
 	ErrInvalidObjectName   = errors.New("invalid object name")

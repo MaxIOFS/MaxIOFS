@@ -41,7 +41,7 @@ Click a user to open their page:
 
 | Button / card | Does |
 |---------------|------|
-| **Change Password** | Sets a new password. Changing your own asks for the current one. From v1.10.1 it also ends the account's console sessions, so the user signs in again with the new password; access keys keep working. |
+| **Change Password** | Sets a new password. Changing your own asks for the current one. From v1.11.0 it also ends the account's console sessions, so the user signs in again with the new password; access keys keep working. |
 | **Manage permissions** | Opens the user in [IAM](iam.md) |
 | **Edit User** | Email, display name, roles and status (active, inactive, suspended) |
 | **Create Access Key** | A new S3 key for this user |
@@ -142,7 +142,7 @@ display name, and its limits:
 The list shows each tenant's usage against its limits. Make one of the
 tenant's users an **Admin** to let them run the tenant themselves.
 
-From v1.10.1 a tenant set **inactive** is stopped as a whole: none of its users
+From v1.11.0 a tenant set **inactive** is stopped as a whole: none of its users
 signs in or authenticates (console, access keys, presigned URLs, temporary
 credentials), and nothing of it is served without credentials (share links,
 public buckets, static websites). Nothing is deleted: setting it active again

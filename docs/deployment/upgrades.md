@@ -14,8 +14,8 @@ and, when a release changes it, the on-disk layout. Read the
 === "Debian / Ubuntu"
 
     ```bash
-    wget https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs_v1.10.0_amd64.deb
-    sudo dpkg -i maxiofs_v1.10.0_amd64.deb
+    wget https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs_v1.11.0_amd64.deb
+    sudo dpkg -i maxiofs_v1.11.0_amd64.deb
     ```
 
     The package keeps `/etc/maxiofs/config.yaml` and restarts the service if
@@ -24,7 +24,7 @@ and, when a release changes it, the on-disk layout. Read the
 === "RHEL / Rocky / Alma"
 
     ```bash
-    sudo rpm -U https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-1.10.0-1.x86_64.rpm
+    sudo rpm -U https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-1.11.0-1.x86_64.rpm
     sudo systemctl restart maxiofs
     ```
 
@@ -41,7 +41,7 @@ and, when a release changes it, the on-disk layout. Read the
 === "Binary"
 
     ```bash
-    wget -O maxiofs.new https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-linux-amd64-v1.10.0
+    wget -O maxiofs.new https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-linux-amd64-v1.11.0
     sudo install -m 755 maxiofs.new /usr/local/bin/maxiofs
     sudo systemctl restart maxiofs
     ```

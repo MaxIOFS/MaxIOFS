@@ -28,8 +28,8 @@ Nothing else is needed at runtime: no database server, no Node.js, no Go.
     and install it:
 
     ```bash
-    wget https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs_v1.10.0_amd64.deb
-    sudo dpkg -i maxiofs_v1.10.0_amd64.deb
+    wget https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs_v1.11.0_amd64.deb
+    sudo dpkg -i maxiofs_v1.11.0_amd64.deb
     ```
 
     The package creates the `maxiofs` system user, the service
@@ -43,17 +43,17 @@ Nothing else is needed at runtime: no database server, no Node.js, no Go.
     sudo systemctl status maxiofs
     ```
 
-    For arm64 servers use `maxiofs_v1.10.0_arm64.deb`.
+    For arm64 servers use `maxiofs_v1.11.0_arm64.deb`.
 
 === "RHEL / Rocky / Alma"
 
     ```bash
-    sudo rpm -i https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-1.10.0-1.x86_64.rpm
+    sudo rpm -i https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-1.11.0-1.x86_64.rpm
     sudo nano /etc/maxiofs/config.yaml
     sudo systemctl enable --now maxiofs
     ```
 
-    For arm64 servers use `maxiofs-1.10.0-1.aarch64.rpm`. The package lays out
+    For arm64 servers use `maxiofs-1.11.0-1.aarch64.rpm`. The package lays out
     the same user, service and paths as the Debian one.
 
 === "Docker"
@@ -79,22 +79,22 @@ Nothing else is needed at runtime: no database server, no Node.js, no Go.
 === "Linux binary"
 
     ```bash
-    wget -O maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-linux-amd64-v1.10.0
+    wget -O maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-linux-amd64-v1.11.0
     chmod +x maxiofs
     ./maxiofs --data-dir ./data
     ```
 
-    Use `maxiofs-linux-arm64-v1.10.0` on arm64. To run it as a service, see
+    Use `maxiofs-linux-arm64-v1.11.0` on arm64. To run it as a service, see
     [Single Node](../deployment/single-node.md).
 
 === "Windows"
 
-    Download `maxiofs-windows-amd64-v1.10.0.exe` from the
+    Download `maxiofs-windows-amd64-v1.11.0.exe` from the
     [latest release](https://github.com/MaxIOFS/MaxIOFS/releases/latest) and,
     in PowerShell:
 
     ```powershell
-    .\maxiofs-windows-amd64-v1.10.0.exe --data-dir C:\MaxIOFS\data
+    .\maxiofs-windows-amd64-v1.11.0.exe --data-dir C:\MaxIOFS\data
     ```
 
     Allow ports 8080 and 8081 in Windows Defender Firewall if clients on other
@@ -103,13 +103,13 @@ Nothing else is needed at runtime: no database server, no Node.js, no Go.
 === "macOS"
 
     ```bash
-    curl -L -o maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-darwin-arm64-v1.10.0
+    curl -L -o maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-darwin-arm64-v1.11.0
     chmod +x maxiofs
     xattr -d com.apple.quarantine maxiofs   # downloaded binaries are quarantined
     ./maxiofs --data-dir ./data
     ```
 
-    Use `maxiofs-darwin-amd64-v1.10.0` on Intel Macs.
+    Use `maxiofs-darwin-amd64-v1.11.0` on Intel Macs.
 
 === "From source"
 
@@ -123,7 +123,7 @@ Nothing else is needed at runtime: no database server, no Node.js, no Go.
     ```
 
 !!! note "Release numbers"
-    The commands above name v1.10.0. The
+    The commands above name v1.11.0. The
     [releases page](https://github.com/MaxIOFS/MaxIOFS/releases) always has
     the newest version; replace the number in the file names.
 

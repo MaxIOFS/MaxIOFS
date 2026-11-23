@@ -8,11 +8,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -691,16 +692,12 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		io.Closer
 	}{bandwidth.ThrottleReader(r.Context(), r.Body, h.tenantBandwidthLimiter(r.Context(), r, bucketName)), r.Body}
 
-	// Parse multipart form — 32 MB in memory, rest on disk.
-	if err := r.ParseMultipartForm(32 << 20); err != nil { //nolint:gosec // G120: the body is capped by system.max_upload_size_mb
+	form, err := h.readPostForm(r)
+	defer form.close()
+	if err != nil {
 		h.writeError(w, "MalformedPOSTRequest", "Unable to parse multipart form: "+err.Error(), bucketName, r)
 		return
 	}
-
-	form := r.MultipartForm
-	// The server removes the files of the request it was given, and a middleware
-	// may have handed this handler a copy of it.
-	defer form.RemoveAll() //nolint:errcheck
 	field := func(name string) string {
 		if vs := form.Value[name]; len(vs) > 0 {
 			return vs[0]
@@ -818,32 +815,18 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the uploaded file — the file field must be named "file" or "content".
-	var fileHeader *multipart.FileHeader
-	for _, name := range []string{"file", "content"} {
-		if fhs := form.File[name]; len(fhs) > 0 {
-			fileHeader = fhs[0]
-			break
-		}
-	}
-	if fileHeader == nil {
+	if form.file == nil {
 		h.writeError(w, "MalformedPOSTRequest", "Missing file field in multipart form", bucketName, r)
 		return
 	}
 
 	// Validate content length range.
-	fileSize := fileHeader.Size
+	fileSize := form.size
 	if fileSize < minLen || fileSize > maxLen {
 		h.writeError(w, "EntityTooSmall", fmt.Sprintf("File size %d is outside the allowed range [%d, %d]", fileSize, minLen, maxLen), bucketName, r)
 		return
 	}
-
-	src, err := fileHeader.Open()
-	if err != nil {
-		h.writeError(w, "InternalError", "Failed to open uploaded file: "+err.Error(), bucketName, r)
-		return
-	}
-	defer src.Close()
+	src := form.file
 
 	// Build synthetic headers for PutObject (mirrors what an actual PUT request would carry).
 	syntheticHeaders := http.Header{}
@@ -944,6 +927,73 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("ETag", QuoteETag(result.ETag))
 	w.WriteHeader(statusCode)
+}
+
+// postForm is a POST form as S3 reads it, in its order: the fields before the
+// file, and the file. What follows the file is not read, as a submit button.
+type postForm struct {
+	Value map[string][]string
+	file  *os.File
+	size  int64
+}
+
+// maxPostFields is the most the fields of a form other than its file take, as
+// Go reads them; maxPostParts the most fields it has.
+const (
+	maxPostFields = 10 << 20
+	maxPostParts  = 1000
+)
+
+// readPostForm reads the form of r. The file, the field named file or
+// content, is copied to a temporary file of the storage root; close removes it.
+func (h *Handler) readPostForm(r *http.Request) (*postForm, error) {
+	form := &postForm{Value: map[string][]string{}}
+	parts, err := r.MultipartReader()
+	if err != nil {
+		return form, err
+	}
+	room := int64(maxPostFields)
+	for read := 0; ; read++ {
+		if read == maxPostParts {
+			return form, errors.New("the form has too many fields")
+		}
+		part, err := parts.NextPart()
+		if errors.Is(err, io.EOF) {
+			return form, nil
+		}
+		if err != nil {
+			return form, err
+		}
+		name := part.FormName()
+		switch name {
+		case "":
+			continue
+		case "file", "content":
+			if form.file, err = os.CreateTemp(h.dataDir, "maxiofs-upload-post-*"); err != nil {
+				return form, err
+			}
+			if form.size, err = io.Copy(form.file, part); err != nil {
+				return form, err
+			}
+			_, err = form.file.Seek(0, io.SeekStart)
+			return form, err
+		}
+		value, err := io.ReadAll(io.LimitReader(part, room+1))
+		if err != nil {
+			return form, err
+		}
+		if room -= int64(len(value)); room < 0 {
+			return form, errors.New("the fields of the form are too long")
+		}
+		form.Value[name] = append(form.Value[name], string(value))
+	}
+}
+
+func (f *postForm) close() {
+	if f.file != nil {
+		_ = f.file.Close()
+		_ = os.Remove(f.file.Name())
+	}
 }
 
 // postFieldsOutsidePolicy are the form fields a POST policy need not name:

@@ -174,6 +174,10 @@ func (om *objectManager) PutShard(ctx context.Context, info ShardInfo, data io.R
 	if !info.Layout.Valid() || info.Index < 0 || info.Index >= info.Layout.Width() {
 		return fmt.Errorf("no shard %d in a layout of %d+%d", info.Index, info.Layout.Data, info.Layout.Parity)
 	}
+	// A shard is a write as any other: a full disk takes none.
+	if err := om.checkDiskSpace(); err != nil {
+		return err
+	}
 	if info.VersionID != "" {
 		if err := validateReplicatedVersionID(info.VersionID); err != nil {
 			return err

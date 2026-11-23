@@ -79,7 +79,7 @@ Two ways to give someone an object without an account:
 for a period you choose or with no expiry. Shared objects are marked in the
 list; clicking **Share** on one again copies its link or ends the share with
 **Stop sharing**. The file itself stays. Whoever may read an object may share
-it, and may end its share. From v1.10.1 a link works only while the user who
+it, and may end its share. From v1.11.0 a link works only while the user who
 made it and its tenant are active and that user may still read the object:
 deactivating either or taking the permission away stops it, reactivating or
 granting it again gives it back. A version other than the current one is served

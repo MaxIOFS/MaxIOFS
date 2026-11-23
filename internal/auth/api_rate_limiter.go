@@ -118,21 +118,15 @@ func APIRateLimitMiddleware(sm SettingsManager, rl *APIRateLimiter, clientIP fun
 				ratePerSecond = v
 			}
 
-			// Identify user: prefer Authorization header value (access key), fall back to IP
-			key := r.Header.Get("Authorization")
-			client := accessKeyOf(key)
+			// A request counts against its access key, or its client when it
+			// names none: never against its signature or anything else the
+			// client changes from one request to the next.
+			client := accessKeyOf(r.Header.Get("Authorization"))
 			if client == "" {
 				client = anonymousClient(r, clientIP)
 			}
-			if key == "" {
-				key = client
-			}
-			// Use just the first 64 chars to keep map keys small
-			if len(key) > 64 {
-				key = key[:64]
-			}
 
-			if !rl.Allow(key, ratePerSecond) {
+			if !rl.Allow(client, ratePerSecond) {
 				logrus.WithFields(logrus.Fields{
 					"client": client,
 					"rate":   ratePerSecond,

@@ -5,7 +5,7 @@ All notable changes to MaxIOFS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] - 2026-11-22
 
 ### Before upgrading
 - A user of no tenant that reached the tenants only through `*` (the FullAccess policy), without the `admin` role or the Super administrator permission, no longer reads them. Grant it Super administrator if it should.
@@ -26,9 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The permission picker offers Tenant administrator only for a user of a tenant, and Super administrator only for a user of no tenant.
 - The owner of a bucket holds on it what its own permissions allow there, no longer `s3:*`: creating a bucket gives nothing its creator does not hold. Owner policies of earlier versions are cut to that at startup, so a user that held nothing on its bucket but ownership needs its permissions granted (#15).
 - A tenant administrator grants only what it holds itself: a user's permissions, a level on a bucket, a group, a role or a policy through the IAM API. What a user already has stays when it is edited (#15).
-- A tenant set inactive stops as a whole: none of its users signs in or authenticates (console, access keys, presigned URLs, temporary credentials) and nothing of it is served without credentials (share links, public buckets, static websites). Before, the status changed nothing. A share link also stops while the user who made it is inactive. Reactivating gives everything back (#18).
 - The same holds through an identity provider: importing users or mapping a group gives no administrator role, and no role granting more than the tenant administrator holds. A mapping edited without changing its role keeps it.
 - A tenant administrator holds every permission a bucket or an object takes, in its tenant only: replication, logging, accelerate, request payment, ownership controls and the GOVERNANCE bypass were missing.
+- A tenant set inactive stops as a whole: none of its users signs in or authenticates (console, access keys, presigned URLs, temporary credentials) and nothing of it is served without credentials (share links, public buckets, static websites). Before, the status changed nothing. A share link also stops while the user who made it is inactive. Reactivating gives everything back (#18).
+
+### Security
+- Built with Go 1.27.4: closes GO-2026-6859, an HTTP/1 server crash in `net/http`.
 
 ### Fixed
 - S3 Select ran every statement of its expression, not only a SELECT: whoever could read an object could read any database file the server can read, MaxIOFS's own included, and write files with `VACUUM INTO`. Only a SELECT runs, and the query stops when the client leaves.
@@ -48,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A user of no tenant with the tenant administrator role or permission was taken for an administrator, and could set a global administrator's password. It administers nothing.
 - A presigned GET whose query the router and the handler read differently was allowed by its signature alone, without its signer's permissions: any access key could read any object.
 - A presigned URL dated ahead of the clock outlasted the 7 days `X-Amz-Expires` allows: one dated more than 15 minutes ahead is refused.
-- A POST form upload was not held to all of its policy: `eq` conditions and conditions on fields other than the bucket, key and content type were ignored, and fields the policy does not name were accepted. They are enforced as in S3, and a field outside the policy is refused.
+- A POST form upload was not held to all of its policy: `eq` conditions and conditions on fields other than the bucket, key and content type were ignored, and fields the policy does not name were accepted. They are enforced as in S3, and a field outside the policy is refused. As in S3, the fields after the file, such as a submit button, are not read.
 - An identity provider set to Inactive still signed users in: by password for LDAP, by its sign-in URL for OAuth, and for STS federation. It signs nobody in.
 - STS federation (`AssumeRoleWithWebIdentity`, `AssumeRoleWithLDAPIdentity` and their JSON endpoints) did not apply the provider's groups to a user that follows them: one in no mapped group still got temporary credentials, with its old role. It is held to them as at a console sign-in.
 - `AssumeRoleWithWebIdentity` took a token to the provider named in `ProviderId` whatever its status: a provider that is not Active is refused, as on the JSON endpoint.
@@ -73,6 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The console dashboard named buckets the user cannot list.
 - Any console user could end the share of an object of a bucket they cannot read.
 - A stop waited for the integrity scan and the lifecycle pass in progress to end: both stop with the server.
+- The audit log kept the metrics token and the SMTP password set through the settings, in clear: it keeps `(not logged)`.
+- The integrity scan reported as corrupted an object whose encryption key the node could not read: it reports that it could not check it.
+- A damaged chunk length in an encrypted object made a read reserve up to 4 GiB of memory: the object is reported damaged.
+- In a cluster, two logging targets of the same name, as the migration of the old logging settings leaves one on each node, stayed different: a change to one never reached the other nodes. Every node keeps the later one.
+- With Google or Microsoft, a directory that did not answer stopped every OAuth sign-in: only users that follow their groups, or would be created from them, wait for it.
+- The S3 API rate limit took each request signed with Signature V2 for a different client, so it never limited them: a request counts against its access key.
+- Writing the shards of an object in a cluster did not stop at 99.5% of the disk, as other writes do.
+- A form upload from a browser (POST policy) was redirected to the console with a `307` and never stored: it reaches S3.
+- `PUT /settings/{key}` of the console API refused an empty value, so the metrics token could not be cleared with it: it takes one, as the bulk update does.
+- `GET /security/status` of the console API gave the audit log retention and state of the config file: it gives those set in Settings → Audit, which are the ones applied.
 
 ## [1.10.0] - 2026-11-11
 

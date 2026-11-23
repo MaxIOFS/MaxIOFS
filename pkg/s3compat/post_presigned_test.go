@@ -431,3 +431,53 @@ func TestPresignedPost_TheFormIsHeldToItsPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, post(nil, map[string]string{"x-ignore-note": "anything"}).Code, "an x-ignore- field")
 	assert.Equal(t, http.StatusForbidden, post([]interface{}{[]interface{}{"matches", "$key", "doc"}}, nil).Code, "a condition S3 does not define")
 }
+
+// withFieldsAfterTheFile writes again the form of req with fields after its
+// file, as an HTML form with a submit button sends it.
+func withFieldsAfterTheFile(t *testing.T, req *http.Request, after map[string]string) *http.Request {
+	t.Helper()
+	parts, err := req.MultipartReader()
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for {
+		part, err := parts.NextPart()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		w, err := mw.CreatePart(part.Header)
+		require.NoError(t, err)
+		_, err = io.Copy(w, part)
+		require.NoError(t, err)
+	}
+	for k, v := range after {
+		require.NoError(t, mw.WriteField(k, v))
+	}
+	require.NoError(t, mw.Close())
+	again := httptest.NewRequest(http.MethodPost, req.URL.Path, &buf)
+	again.Header.Set("Content-Type", mw.FormDataContentType())
+	return again
+}
+
+// S3 reads a form up to its file: what follows, as the submit button of the
+// HTML form AWS documents, is neither held to the policy nor taken.
+func TestPresignedPost_FieldsAfterTheFileAreNotRead(t *testing.T) {
+	env := setupPresignedPostEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	bucketName := "post-presigned-after"
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+
+	req := buildPostPresignedRequest(t, bucketName, "form.txt", []byte("from a form"), "", env.accessKey, env.secretKey, nil, nil)
+	req = withFieldsAfterTheFile(t, req, map[string]string{"submit": "Upload to Amazon S3", "x-amz-meta-owner": "eva"})
+	w := httptest.NewRecorder()
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+
+	obj, _, err := env.objectManager.GetObject(ctx, env.tenantID+"/"+bucketName, "form.txt")
+	require.NoError(t, err)
+	assert.Equal(t, int64(len("from a form")), obj.Size)
+	assert.NotContains(t, obj.Metadata, "x-amz-meta-owner", "a field after the file is not taken")
+	assert.NotContains(t, obj.Metadata, "owner", "a field after the file is not taken")
+}

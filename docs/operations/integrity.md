@@ -45,6 +45,7 @@ and from time to time on critical buckets.
 |---------|------------|
 | A missing file | Look for disk or filesystem errors (`dmesg`, `smartctl`). Restore the object from a backup or a replica. |
 | A changed byte (fails to decrypt or MD5 mismatch) | The disk returned different data: check its health, and restore the object from a backup or a replica |
+| An object that could not be checked | The node could not read the key the object is encrypted with. The data is not known to be damaged: the node's log names the key version. |
 | An object that is on disk but does not list | Run [`maxiofs reconcile`](../cli/index.md#reconcile) with the server stopped |
 
 In a cluster with copies or parity, the repair rebuilds a damaged copy from

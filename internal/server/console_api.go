@@ -4204,7 +4204,17 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// What the audit log does: the settings of the console over the config file.
 	auditEnabled := s.config.Audit.Enable && s.auditManager != nil
+	auditRetention := s.config.Audit.RetentionDays
+	if s.settingsManager != nil {
+		if on, err := s.settingsManager.GetBool("audit.enabled"); err == nil && !on {
+			auditEnabled = false
+		}
+		if days, err := s.settingsManager.GetInt("audit.retention_days"); err == nil && days > 0 {
+			auditRetention = days
+		}
+	}
 	totalAuditEvents := 0
 	auditEventsToday := 0
 	if auditEnabled {
@@ -4267,7 +4277,7 @@ func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request)
 		},
 		"audit": map[string]interface{}{
 			"enabled":      auditEnabled,
-			"logRetention": s.config.Audit.RetentionDays,
+			"logRetention": auditRetention,
 			"totalEvents":  totalAuditEvents,
 			"eventsToday":  auditEventsToday,
 		},
@@ -7510,17 +7520,14 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate value is not empty
-	if req.Value == "" {
-		s.writeError(w, "Value cannot be empty", http.StatusBadRequest)
-		return
-	}
+	// An empty text is a value, as a bulk update takes it: the metrics token
+	// empty answers 401. A number or a boolean empty fails its validation.
 
 	// Update the setting
 	if err := s.settingsManager.Set(key, req.Value); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"key":   key,
-			"value": req.Value,
+			"value": settings.LoggedValue(key, req.Value),
 		}).Error("Failed to update setting")
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -7541,7 +7548,7 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 		UserAgent:    r.UserAgent(),
 		Details: map[string]interface{}{
 			"key":   key,
-			"value": req.Value,
+			"value": settings.LoggedValue(key, req.Value),
 		},
 	})
 
@@ -7609,7 +7616,7 @@ func (s *Server) handleBulkUpdateSettings(w http.ResponseWriter, r *http.Request
 		UserAgent:    r.UserAgent(),
 		Details: map[string]interface{}{
 			"count":    len(req.Settings),
-			"settings": req.Settings,
+			"settings": loggedSettings(req.Settings),
 		},
 	})
 
@@ -8215,4 +8222,14 @@ func (s *Server) handleDeletePublicAccessBlock(w http.ResponseWriter, r *http.Re
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// loggedSettings are settings as an audit entry keeps them: a sensitive one's
+// value is not kept.
+func loggedSettings(values map[string]string) map[string]string {
+	logged := make(map[string]string, len(values))
+	for key, value := range values {
+		logged[key] = settings.LoggedValue(key, value)
+	}
+	return logged
 }

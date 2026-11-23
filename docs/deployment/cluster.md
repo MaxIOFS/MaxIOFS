@@ -1,6 +1,6 @@
 # Cluster
 **Status**: Production-Ready
-**Last Updated**: November 11, 2026
+**Last Updated**: November 22, 2026
 
 ---
 
@@ -880,8 +880,8 @@ For cluster test coverage and commands, see [TESTING.md](https://github.com/MaxI
 
 ---
 
-**Version**: 1.10.0
-**Last Updated**: November 11, 2026
+**Version**: 1.11.0
+**Last Updated**: November 22, 2026
 **Documentation Status**: Complete
 
 For questions or issues, see [README.md](https://github.com/MaxIOFS/MaxIOFS/blob/main/README.md).

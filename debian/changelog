@@ -1,3 +1,17 @@
+maxiofs (1:1.11.0) stable; urgency=high
+
+  * Release v1.11.0 — S3 Select over Parquet, permissions held to what each
+    user holds, security fixes.
+  * Before upgrading: a bucket owner no longer holds s3:* on its bucket, only
+    what its own permissions allow. Grant them first (a Veeam account, for one).
+  * S3 Select reads Parquet and objects compressed with GZIP or BZIP2; only a
+    SELECT runs.
+  * A tenant administrator grants only what it holds; an inactive tenant stops
+    as a whole; parts of uploads in progress count against the quotas.
+  * Built with Go 1.27.4 (GO-2026-6859).
+
+ -- Aluisco Ricardo <aluisco@maxiofs.com>  Sun, 22 Nov 2026 12:00:00 -0300
+
 maxiofs (1:1.10.0) stable; urgency=high
 
   * Release v1.10.0 — disk-full handling, recovery, cluster sync.

@@ -128,8 +128,8 @@ func (om *objectManager) admitPart(ctx context.Context, uploadID, bucket, key st
 		var refusal error
 		if q := meta.Quota; q != nil && q.MaxSizeBytes > 0 && inBucket >= q.MaxSizeBytes-meta.TotalSize+ownRoom {
 			refusal = ErrBucketQuotaExceeded
-		} else if u.tenant != "" && ownRoom == 0 {
-			if err := om.authManager.CheckTenantStorageQuota(ctx, u.tenant, inTenant+1); err != nil {
+		} else if u.tenant != "" {
+			if err := om.authManager.CheckTenantStorageQuota(ctx, u.tenant, inTenant+1-ownRoom); err != nil {
 				refusal = fmt.Errorf("storage quota exceeded: %w", err)
 			}
 		}

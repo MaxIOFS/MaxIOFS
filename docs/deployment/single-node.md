@@ -30,7 +30,7 @@ sudo chown -R maxiofs:maxiofs /var/lib/maxiofs
 ## 2. Binary
 
 ```bash
-wget -O maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.10.0/maxiofs-linux-amd64-v1.10.0
+wget -O maxiofs https://github.com/MaxIOFS/MaxIOFS/releases/download/v1.11.0/maxiofs-linux-amd64-v1.11.0
 sudo install -m 755 maxiofs /usr/local/bin/maxiofs
 maxiofs --version
 ```

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -132,4 +133,29 @@ func TestAPIRateLimit_ZeroMeansNoLimit(t *testing.T) {
 func TestAPIRateLimit_DisabledLetsEverythingThrough(t *testing.T) {
 	rec := rateLimited(t, fixedSettings{enabled: false, rate: 1}, 50)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// A client counts once whatever changes from one of its requests to the next:
+// the signature of each SigV2 request, or an Authorization header that names no
+// key, which counts against the client's address.
+func TestAPIRateLimit_ASignatureThatChangesCountsOnce(t *testing.T) {
+	limiter := NewAPIRateLimiter()
+	defer limiter.Stop()
+	handler := APIRateLimitMiddleware(fixedSettings{enabled: true, rate: 1}, limiter, nil)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	last := func(header func(int) string) int {
+		code := 0
+		for i := 0; i < 5; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/bucket/object", nil)
+			req.RemoteAddr = "198.51.100.7:4000"
+			req.Header.Set("Authorization", header(i))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			code = rec.Code
+		}
+		return code
+	}
+
+	assert.Equal(t, http.StatusServiceUnavailable, last(func(i int) string { return fmt.Sprintf("AWS AKIASIGV2:signature%d=", i) }), "SigV2")
+	assert.Equal(t, http.StatusServiceUnavailable, last(func(i int) string { return fmt.Sprintf("nonsense-%d", i) }), "a header that names no key")
 }

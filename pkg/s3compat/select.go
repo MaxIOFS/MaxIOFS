@@ -554,7 +554,7 @@ func streamSelectResults(ctx context.Context, w io.Writer, db *sql.DB, expr stri
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	if err := conn.Raw(func(driverConn any) error {
 		registerer, ok := driverConn.(sqlite.AuthorizerRegisterer)
 		if !ok {

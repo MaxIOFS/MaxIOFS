@@ -147,3 +147,26 @@ func TestMultipartUploadNeedsItsBucket(t *testing.T) {
 	_, err := m.CreateMultipartUpload(t.Context(), "missing", "key", http.Header{})
 	assert.ErrorIs(t, err, ErrBucketNotFound)
 }
+
+// An upload over an object in place has the room of that object in the tenant
+// quota too, and no more: the parts in progress of the tenant's other uploads,
+// past its quota, count against it.
+func TestMultipartOverAnObjectInPlaceUsesItsRoomInTheTenant(t *testing.T) {
+	m, s := setupAccountingManager(t)
+	for _, name := range []string{"one", "two"} {
+		require.NoError(t, s.CreateBucket(t.Context(), &metadata.BucketMetadata{Name: name, TenantID: "t1"}))
+	}
+	_, err := m.PutObject(t.Context(), "t1/one", "big", strings.NewReader(strings.Repeat("x", 50)), http.Header{})
+	require.NoError(t, err)
+	m.SetAuthManager(&tenantOfHundred{stored: 60})
+
+	other := startUpload(t, m, "t1/two", "key")
+	require.NoError(t, part(t, m, other, 1, 90), "60 stored: the part that passes the quota was not known to pass it")
+	over := startUpload(t, m, "t1/one", "big")
+	err = part(t, m, over, 1, 1)
+	require.Error(t, err, "150 with the other upload, 100 with the room of the object")
+	assert.Contains(t, err.Error(), "storage quota exceeded")
+
+	require.NoError(t, m.AbortMultipartUpload(t.Context(), other))
+	require.NoError(t, part(t, m, over, 1, 50), "the room of the object it overwrites")
+}

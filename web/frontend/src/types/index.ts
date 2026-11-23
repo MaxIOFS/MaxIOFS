@@ -35,8 +35,8 @@ export interface User {
   // How many policies are attached to this user directly. Permissions can come
   // from a role, from policies, or both.
   policyCount?: number;
-  // Given for the signed-in user only, as the server decides them: a role or a
-  // permission can make an administrator.
+  // As the server decides them, for the signed-in user and for each user of a
+  // list: a role or a permission can make an administrator.
   isAdmin?: boolean;
   isGlobalAdmin?: boolean;
 }

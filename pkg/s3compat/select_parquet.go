@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -41,13 +43,16 @@ type parquetColumn struct {
 	name    string
 	sqlType string
 	store   func(any) any
+	// leaf, when not negative, is the column store takes the value of as it
+	// was read, a parquet.Value: a decimal is exact only from there.
+	leaf int
 }
 
 // parquetColumnOf decides how a field is stored. Numbers stay numbers, so they
 // compare and sort as numbers; dates and times become ISO 8601 text; a group, a
 // list or a map becomes its JSON, as a nested JSON value does.
-func parquetColumnOf(field parquet.Field) parquetColumn {
-	c := parquetColumn{name: field.Name(), sqlType: "TEXT", store: parquetText}
+func parquetColumnOf(schema *parquet.Schema, field parquet.Field) parquetColumn {
+	c := parquetColumn{name: field.Name(), sqlType: "TEXT", store: parquetText, leaf: -1}
 	if !field.Leaf() || field.Repeated() {
 		c.store = parquetJSON
 		return c
@@ -64,12 +69,17 @@ func parquetColumnOf(field parquet.Field) parquetColumn {
 			c.store = parquetTimeOfDay(t.Unit)
 			return c
 		case *format.DecimalType:
-			c.sqlType, c.store = "NUMERIC", parquetNumber
+			if leaf, ok := schema.Lookup(field.Name()); ok {
+				c.sqlType, c.store, c.leaf = "NUMERIC", parquetDecimal(t.Scale), leaf.ColumnIndex
+			}
+			return c
+		case *format.UUIDType:
+			c.store = parquetUUID
 			return c
 		case *format.IntType:
 			c.sqlType, c.store = "INTEGER", parquetNumber
 			return c
-		case *format.StringType, *format.EnumType, *format.JsonType, *format.UUIDType:
+		case *format.StringType, *format.EnumType, *format.JsonType:
 			return c
 		}
 	}
@@ -127,15 +137,69 @@ func parquetJSON(v any) any {
 	return string(b)
 }
 
-// unitOf is how many nanoseconds one count of a Parquet time unit lasts.
-func unitOf(u format.TimeUnit) int64 {
-	switch u.Value.(type) {
-	case *format.MilliSeconds:
-		return int64(time.Millisecond)
-	case *format.MicroSeconds:
-		return int64(time.Microsecond)
+// parquetDecimal stores a decimal as its exact text, which the NUMERIC
+// column takes as a number: the unscaled integer, in an INT32, an INT64 or
+// big-endian two's complement bytes, over 10 to the scale.
+func parquetDecimal(scale int32) func(any) any {
+	return func(v any) any {
+		value, ok := v.(parquet.Value)
+		if !ok || value.IsNull() {
+			return nil
+		}
+		unscaled := new(big.Int)
+		switch value.Kind() {
+		case parquet.Int32:
+			unscaled.SetInt64(int64(value.Int32()))
+		case parquet.Int64:
+			unscaled.SetInt64(value.Int64())
+		case parquet.ByteArray, parquet.FixedLenByteArray:
+			b := value.ByteArray()
+			unscaled.SetBytes(b)
+			if len(b) > 0 && b[0]&0x80 != 0 {
+				unscaled.Sub(unscaled, new(big.Int).Lsh(big.NewInt(1), uint(len(b))*8))
+			}
+		default:
+			return parquetText(value.String())
+		}
+		digits := new(big.Int).Abs(unscaled).String()
+		if scale > 0 {
+			if pad := int(scale) + 1 - len(digits); pad > 0 {
+				digits = strings.Repeat("0", pad) + digits
+			}
+			digits = digits[:len(digits)-int(scale)] + "." + digits[len(digits)-int(scale):]
+		}
+		if unscaled.Sign() < 0 {
+			return "-" + digits
+		}
+		return digits
 	}
-	return 1
+}
+
+// parquetUUID stores a UUID in its usual form, as AWS returns it.
+func parquetUUID(v any) any {
+	var b []byte
+	switch t := v.(type) {
+	case [16]byte:
+		b = t[:]
+	case []byte:
+		b = t
+	}
+	if len(b) != 16 {
+		return parquetText(v)
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// instant is n counts of unit after the Unix epoch, without the overflow of n
+// in nanoseconds an instant after 2262, as 9999-12-31, would have.
+func instant(unit format.TimeUnit, n int64) time.Time {
+	switch unit.Value.(type) {
+	case *format.MilliSeconds:
+		return time.UnixMilli(n).UTC()
+	case *format.MicroSeconds:
+		return time.UnixMicro(n).UTC()
+	}
+	return time.Unix(0, n).UTC()
 }
 
 func asInt64(v any) (int64, bool) {
@@ -151,13 +215,12 @@ func asInt64(v any) (int64, bool) {
 // parquetTimestamp renders an instant; one not adjusted to UTC is a local
 // time and is written without a zone.
 func parquetTimestamp(unit format.TimeUnit, utc bool) func(any) any {
-	scale := unitOf(unit)
 	return func(v any) any {
 		n, ok := asInt64(v)
 		if !ok {
 			return parquetText(v)
 		}
-		t := time.Unix(0, 0).UTC().Add(time.Duration(n * scale))
+		t := instant(unit, n)
 		if !utc {
 			return t.Format("2006-01-02T15:04:05.999999999")
 		}
@@ -174,13 +237,12 @@ func parquetDate(v any) any {
 }
 
 func parquetTimeOfDay(unit format.TimeUnit) func(any) any {
-	scale := unitOf(unit)
 	return func(v any) any {
 		n, ok := asInt64(v)
 		if !ok {
 			return parquetText(v)
 		}
-		return time.Unix(0, 0).UTC().Add(time.Duration(n * scale)).Format("15:04:05.999999999")
+		return instant(unit, n).Format("15:04:05.999999999")
 	}
 }
 
@@ -239,11 +301,12 @@ func loadParquet(db *sql.DB, r io.ReaderAt, size int64) (cols []string, processe
 		}
 	}
 
-	fields := file.Schema().Fields()
+	schema := file.Schema()
+	fields := schema.Fields()
 	columns := make([]parquetColumn, len(fields))
 	names, types := make([]string, len(fields)), make([]string, len(fields))
 	for i, field := range fields {
-		columns[i] = parquetColumnOf(field)
+		columns[i] = parquetColumnOf(schema, field)
 		names[i], types[i] = columns[i].name, columns[i].sqlType
 	}
 
@@ -254,19 +317,28 @@ func loadParquet(db *sql.DB, r io.ReaderAt, size int64) (cols []string, processe
 	}
 
 	reader := parquet.NewReader(file)
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	values := make([]any, len(columns))
+	read := make([]parquet.Row, 1)
 	for {
-		row := map[string]any{}
-		if readErr := reader.Read(&row); readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
+		n, readErr := reader.ReadRows(read)
+		if readErr != nil && readErr != io.EOF {
 			return nil, processed, fmt.Errorf("parsing Parquet: %w", readErr)
+		}
+		if n == 0 {
+			break
+		}
+		row := map[string]any{}
+		if err := schema.Reconstruct(&row, read[0]); err != nil {
+			return nil, processed, fmt.Errorf("parsing Parquet: %w", err)
 		}
 		var length int64
 		for i, c := range columns {
-			values[i] = c.store(row[c.name])
+			if c.leaf >= 0 {
+				values[i] = c.store(leafValue(read[0], c.leaf))
+			} else {
+				values[i] = c.store(row[c.name])
+			}
 			length += storedLength(values[i])
 		}
 		if length > maxSelectRecord {
@@ -283,6 +355,17 @@ func loadParquet(db *sql.DB, r io.ReaderAt, size int64) (cols []string, processe
 	return names, processed, nil
 }
 
+// leafValue is the value of column leaf in row, which holds one for a field
+// that is neither a group nor repeated.
+func leafValue(row parquet.Row, leaf int) any {
+	for _, v := range row {
+		if v.Column() == leaf {
+			return v
+		}
+	}
+	return nil
+}
+
 // loadParquetObject loads a Parquet object, which is read from its end: it is
 // copied first to a temporary file of the storage root, named like the
 // query's database.
@@ -291,8 +374,8 @@ func (h *Handler) loadParquetObject(db *sql.DB, object io.Reader) (int64, error)
 	if err != nil {
 		return 0, err
 	}
-	defer os.Remove(spool.Name())
-	defer spool.Close()
+	defer os.Remove(spool.Name()) //nolint:errcheck
+	defer spool.Close()           //nolint:errcheck
 	size, err := io.Copy(spool, object)
 	if err != nil {
 		return 0, err

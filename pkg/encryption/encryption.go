@@ -308,6 +308,11 @@ func (e *aesGCMEncryptor) decryptGCMStream(src io.Reader, dst io.Writer, key []b
 		}
 
 		chunkLen := int(lenBuf[0])<<24 | int(lenBuf[1])<<16 | int(lenBuf[2])<<8 | int(lenBuf[3])
+		// No chunk is written longer: a longer length is damage, and is never
+		// allocated, which a damaged file could make up to 4 GiB.
+		if chunkLen > gcmStreamChunkSize+gcm.Overhead() {
+			return fmt.Errorf("chunk %d: a length of %d bytes is more than a chunk is written with — object may be corrupted", chunkIdx, chunkLen)
+		}
 		ciphertext := make([]byte, chunkLen)
 		if _, err := io.ReadFull(src, ciphertext); err != nil {
 			return fmt.Errorf("failed to read chunk %d: %w", chunkIdx, err)

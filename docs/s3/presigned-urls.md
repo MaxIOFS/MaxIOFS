@@ -73,7 +73,8 @@ post = s3.generate_presigned_post(
 ```
 
 MaxIOFS checks the policy's expiration and every condition, and refuses a
-file outside the size range.
+file outside the size range. As in S3, the file is the last field read: the
+fields after it, such as a submit button, are ignored.
 
 ## Things to know
 

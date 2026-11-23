@@ -187,12 +187,12 @@ func (s *SQLiteStore) RecutBucketOwnerPolicies() (int, error) {
 	for rows.Next() {
 		var p ownerPolicy
 		if err := rows.Scan(&p.owner, &p.name, &p.document); err != nil {
-			rows.Close()
+			rows.Close() //nolint:errcheck
 			return 0, err
 		}
 		policies = append(policies, p)
 	}
-	rows.Close()
+	rows.Close() //nolint:errcheck
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}

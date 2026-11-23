@@ -140,10 +140,11 @@ func (p *Provider) ExchangeCode(ctx context.Context, code string) (*idp.External
 	user.Grant.Session = session
 	user.Grant.RefreshToken = token.RefreshToken
 
-	// A user who needs its groups is refused without them; anyone else signs in.
+	// A directory that does not answer leaves the groups unknown: the server
+	// refuses a user they decide, and signs anyone else in.
 	if err := p.directoryGroups(ctx, user); err != nil {
 		if errors.Is(err, idp.ErrUnavailable) {
-			return nil, err
+			user.GroupsUnknown = true
 		}
 		logrus.WithError(err).WithField("email", user.Email).Warn("OAuth sign-in: failed to read the user's groups from the directory")
 	}

@@ -19,7 +19,8 @@ import (
 
 // The fixtures were written by pyarrow 26: pyarrow.parquet with Snappy and
 // dictionary encoding, int96.parquet with GZIP and the INT96 timestamps of
-// Spark and Hive, lz4.parquet with LZ4 (LZ4_RAW).
+// Spark and Hive, lz4.parquet with LZ4 (LZ4_RAW), exact.parquet with decimals
+// in INT32, INT64 and bytes, a UUID and instants of 9999.
 func parquetFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "select", name))
@@ -41,7 +42,7 @@ func queryRows(t *testing.T, db *sql.DB, query string) [][]any {
 	t.Helper()
 	rows, err := db.Query(query)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	cols, err := rows.Columns()
 	require.NoError(t, err)
 	var got [][]any
@@ -86,6 +87,20 @@ func TestSelectReadsInt96Timestamps(t *testing.T) {
 	db := loadParquetFixture(t, "int96.parquet")
 	assert.Equal(t, [][]any{{int64(1), "2026-11-21T10:30:00Z"}, {int64(2), "1970-01-02T00:00:01Z"}},
 		queryRows(t, db, `SELECT id, at FROM s3object ORDER BY id`))
+}
+
+// A decimal is its exact value whatever it is stored in, a UUID its usual
+// form, and an instant after 2262 the instant it is.
+func TestSelectReadsParquetValuesExactly(t *testing.T) {
+	db := loadParquetFixture(t, "exact.parquet")
+	got := queryRows(t, db, `SELECT id, d32, d64, d128, uid, at_ms, at_us FROM s3object ORDER BY id`)
+	require.Len(t, got, 2)
+	assert.Equal(t, []any{int64(1), 1234567.89, 123456789012.34, -0.005, "12345678-1234-5678-9abc-def012345678",
+		"9999-12-31T23:59:59.999Z", "9999-12-31T23:59:59.999Z"}, got[0])
+	assert.Equal(t, []any{int64(2), -0.05, nil, int64(42), nil, "2026-11-22T00:00:00Z", "1969-12-31T23:59:59Z"}, got[1])
+
+	// Compared as numbers.
+	assert.Equal(t, [][]any{{int64(2)}}, queryRows(t, db, `SELECT id FROM s3object WHERE d32 < 0 AND d128 = 42`))
 }
 
 // Columns compressed with LZ4, as pyarrow writes it (LZ4_RAW), are read.
@@ -160,7 +175,7 @@ func TestSelectQueriesAParquetObject(t *testing.T) {
 // A damaged Parquet object is refused, whatever byte is wrong: the reader
 // never takes the server down.
 func TestSelectSurvivesADamagedParquetObject(t *testing.T) {
-	for _, name := range []string{"pyarrow.parquet", "int96.parquet"} {
+	for _, name := range []string{"pyarrow.parquet", "int96.parquet", "exact.parquet"} {
 		data := parquetFixture(t, name)
 		for at := 0; at < len(data); at++ {
 			damaged := append([]byte(nil), data...)
@@ -189,4 +204,17 @@ func TestSelectJSONRecordsKeepNumbers(t *testing.T) {
 		}
 	}
 	assert.Equal(t, `{"name":"Alice","small":10,"ratio":0.5,"active":"true","n":1}`+"\n", records)
+
+	db = loadParquetFixture(t, "exact.parquet")
+	buf.Reset()
+	_, err = streamSelectResults(context.Background(), &buf, db,
+		"SELECT d32, d64, d128 FROM S3Object WHERE id = 1", selectOutputSerial{JSON: &selectJSONOut{}}, nil)
+	require.NoError(t, err)
+	records = ""
+	for _, ev := range parseEventMessages(t, buf.Bytes()) {
+		if ev.EventType == "Records" {
+			records += ev.Payload
+		}
+	}
+	assert.Equal(t, `{"d32":1234567.89,"d64":123456789012.34,"d128":-0.005}`+"\n", records, "a decimal as it is written")
 }

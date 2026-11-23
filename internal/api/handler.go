@@ -392,6 +392,13 @@ func (h *Handler) isS3Client(r *http.Request) bool {
 		return true
 	}
 
+	// A browser's form upload to a bucket (a POST policy): its signature is in
+	// the form, and a browser sends nothing else an S3 client does.
+	if r.Method == http.MethodPost && !isObjectPath(r.URL.Path) &&
+		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		return true
+	}
+
 	ua := strings.ToLower(r.Header.Get("User-Agent"))
 	clients := []string{
 		"aws-cli", "aws-sdk", "boto", "boto3", "s3cmd", "s5cmd", "mc", "rclone",

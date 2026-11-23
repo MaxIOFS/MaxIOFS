@@ -589,6 +589,15 @@ var secretSettings = map[string]bool{"jwt_secret": true}
 // logged.
 var sensitiveSettings = map[string]bool{"email.smtp_password": true, "metrics.token": true}
 
+// LoggedValue is a setting's value as a log or an audit entry keeps it: a
+// sensitive one's is not kept.
+func LoggedValue(key, value string) string {
+	if sensitiveSettings[key] {
+		return "(not logged)"
+	}
+	return value
+}
+
 // GetSetting retrieves a full setting object
 func (m *Manager) GetSetting(key string) (*Setting, error) {
 	if secretSettings[key] {
@@ -652,13 +661,9 @@ func (m *Manager) Set(key, value string) error {
 		return fmt.Errorf("failed to update setting: %w", err)
 	}
 
-	logged := value
-	if sensitiveSettings[key] {
-		logged = "(not logged)"
-	}
 	m.logger.WithFields(logrus.Fields{
 		"key":   key,
-		"value": logged,
+		"value": LoggedValue(key, value),
 	}).Info("Setting updated")
 
 	return nil

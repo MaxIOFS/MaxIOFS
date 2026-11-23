@@ -131,6 +131,14 @@ func (om *objectManager) verifyObjectVersion(ctx context.Context, bucket, key st
 			Reason:     "data held by other nodes of the cluster",
 		}
 	}
+	if errors.Is(err, ErrKeyUnavailable) {
+		// Not knowing the key is not knowing the data is damaged.
+		return &IntegrityResult{
+			Key:    key,
+			Status: IntegrityError,
+			Error:  fmt.Sprintf("the object could not be checked: %v", err),
+		}
+	}
 	if errors.Is(err, ErrObjectUnreadable) {
 		return &IntegrityResult{
 			Key:          key,

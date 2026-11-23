@@ -36,8 +36,6 @@ func withForwardedFacts(ctx context.Context, r *http.Request) context.Context {
 	return bucket.WithRequestFacts(ctx, facts)
 }
 
-// fromTrustedProxy reports whether the direct peer of the request is a proxy
-// whose forwarding headers are honoured.
 // clientAddr is who sent r, for a log: the client a trusted proxy forwarded it
 // for, or the peer itself with its port.
 func clientAddr(r *http.Request, trust proxyTrust) string {
@@ -47,6 +45,8 @@ func clientAddr(r *http.Request, trust proxyTrust) string {
 	return r.RemoteAddr
 }
 
+// fromTrustedProxy reports whether the direct peer of the request is a proxy
+// whose forwarding headers are honoured.
 func fromTrustedProxy(r *http.Request, trust proxyTrust) bool {
 	host := r.RemoteAddr
 	if idx := strings.LastIndex(host, ":"); idx != -1 {

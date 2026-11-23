@@ -10,8 +10,7 @@ import (
 // session token never reach a log. The rest of the query does, as sent.
 func TestLoggedQueryRedactsWhatMakesAPresignedURLACredential(t *testing.T) {
 	for raw, want := range map[string]string{
-		"X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20261116&X-Amz-Expires=3600&X-Amz-Security-Token=FwoGZ&X-Amz-Signature=abc123":
-		"X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20261116&X-Amz-Expires=3600&X-Amz-Security-Token=[redacted]&X-Amz-Signature=[redacted]",
+		"X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20261116&X-Amz-Expires=3600&X-Amz-Security-Token=FwoGZ&X-Amz-Signature=abc123": "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20261116&X-Amz-Expires=3600&X-Amz-Security-Token=[redacted]&X-Amz-Signature=[redacted]",
 		"AWSAccessKeyId=AKIA&Expires=1&Signature=v2sig%3D": "AWSAccessKeyId=AKIA&Expires=1&Signature=[redacted]",
 		"x-amz-signature=lower":                            "x-amz-signature=[redacted]",
 		"X%2DAmz%2DSignature=encoded":                      "X-Amz-Signature=[redacted]",

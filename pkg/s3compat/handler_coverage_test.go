@@ -1577,4 +1577,3 @@ func (m *mockShareManagerFull) GetShareByObject(ctx context.Context, bucketName,
 		CreatedBy:  m.createdBy,
 	}, nil
 }
-

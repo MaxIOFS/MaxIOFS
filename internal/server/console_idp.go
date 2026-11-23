@@ -1002,6 +1002,11 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// An email is one user's, signed in by that user's provider only.
 	user, _ := s.authManager.FindUserByExternalID(r.Context(), externalUser.Email, "oauth:"+providerID)
+	if waitsForGroups(user, externalUser) {
+		logrus.WithField("provider_id", providerID).Warn("OAuth sign-in: the directory that gives the user's groups is unavailable")
+		http.Redirect(w, r, s.consoleRelativePath("/login?error=provider_unavailable"), http.StatusFound)
+		return
+	}
 	if user != nil {
 		var allowed bool
 		if user, allowed = s.applyProviderGroups(r.Context(), user, externalUser); !allowed {
@@ -1369,6 +1374,12 @@ func (s *Server) countTenantAdmins(ctx context.Context, tenantID string) (int, e
 		}
 	}
 	return count, nil
+}
+
+// waitsForGroups reports whether a sign-in waits for the groups its directory
+// did not give: those of a user they decide, or of one to be made from them.
+func waitsForGroups(user *auth.User, external *idp.ExternalUser) bool {
+	return external.GroupsUnknown && (user == nil || groupManaged(user))
 }
 
 // tryAutoProvision creates the user an OAuth provider signs in for the first

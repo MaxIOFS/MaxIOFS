@@ -317,6 +317,7 @@ func TestAGoogleSignInGetsItsGroupsFromTheDirectory(t *testing.T) {
 		user, err := p.ExchangeCode(ctx, "code")
 		require.NoError(t, err)
 		assert.Empty(t, user.Groups)
+		assert.False(t, user.GroupsUnknown, "a directory that refuses answered")
 
 		_, err = p.Revalidate(ctx, idp.Grant{Subject: "100", RefreshToken: "refresh"})
 		require.Error(t, err, "a renewal without groups would end the session of a user that follows them")
@@ -326,8 +327,10 @@ func TestAGoogleSignInGetsItsGroupsFromTheDirectory(t *testing.T) {
 	t.Run("a directory that does not answer", func(t *testing.T) {
 		w.set(func(w *fakeWorkspace) { w.down = true })
 		defer w.set(func(w *fakeWorkspace) { w.down = false })
-		_, err := p.ExchangeCode(ctx, "code")
-		assert.ErrorIs(t, err, idp.ErrUnavailable)
+		user, err := p.ExchangeCode(ctx, "code")
+		require.NoError(t, err, "the server decides who needs the groups")
+		assert.True(t, user.GroupsUnknown)
+		assert.Empty(t, user.Groups)
 		_, err = p.Revalidate(ctx, idp.Grant{Subject: "100", RefreshToken: "refresh"})
 		assert.ErrorIs(t, err, idp.ErrUnavailable)
 	})

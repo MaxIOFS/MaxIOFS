@@ -302,7 +302,7 @@ func TestSTSXML_WebIdentityRefusesAProviderThatIsNotActive(t *testing.T) {
 				Preset: "google", ClientID: "id", ClientSecret: "secret", RedirectURI: "http://localhost/callback"}},
 		}
 		require.NoError(t, server.idpManager.CreateProvider(ctx, &provider))
-		t.Cleanup(func() { server.idpManager.DeleteProvider(ctx, provider.ID) })
+		t.Cleanup(func() { server.idpManager.DeleteProvider(ctx, provider.ID) }) //nolint:errcheck
 
 		rec := postSTSForm(t, url.Values{"Action": {"AssumeRoleWithWebIdentity"},
 			"WebIdentityToken": {"tok"}, "ProviderId": {provider.ID}}, nil)

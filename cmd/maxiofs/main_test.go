@@ -356,7 +356,7 @@ func runServerWithTimeout(cmd *cobra.Command, timeout time.Duration) error {
 	}
 	cancel()
 	select {
-	case <-errChan:
+	case <-errChan: //nolint:errcheck
 	case <-time.After(time.Minute):
 	}
 	return nil // still running after timeout: the server started, which is acceptable

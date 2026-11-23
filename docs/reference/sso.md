@@ -222,7 +222,7 @@ Users are deactivated, never deleted: a configuration mistake, such as a wrong u
 
 **Test Connection** reads one user of the directory, and warns when it cannot: sign-ins work without it.
 
-With Google and Microsoft a sign-in and a renewal read the user's groups from the directory too. If the directory refuses, a sign-in goes on without groups: only a user who needs them is refused. A renewal keeps the session. Microsoft Graph answers a group's members from an index, so a new member may take a moment to appear; the groups of a user are read at once.
+With Google and Microsoft a sign-in and a renewal read the user's groups from the directory too. If the directory refuses, a sign-in goes on without groups: only a user who needs them is refused. If it does not answer, a user who needs them gets `provider_unavailable` and anyone else signs in. A renewal keeps the session. Microsoft Graph answers a group's members from an index, so a new member may take a moment to appear; the groups of a user are read at once.
 
 ---
 

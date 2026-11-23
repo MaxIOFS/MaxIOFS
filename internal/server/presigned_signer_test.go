@@ -53,7 +53,7 @@ func TestAPresignedURLGivesOnlyItsSignersAccess(t *testing.T) {
 		resp, err := http.Get(url)
 		require.NoError(t, err, name)
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode, "%s: %s", name, body)
 		assert.NotContains(t, string(body), "classified-content", name)
 	}
@@ -85,7 +85,7 @@ func TestAPublicWriteGrantDoesNotRemoveAVersion(t *testing.T) {
 		req.Header.Set("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 		return resp.StatusCode
 	}
 

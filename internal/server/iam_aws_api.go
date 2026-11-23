@@ -310,7 +310,12 @@ func (s *Server) iamDeleteUser(w http.ResponseWriter, r *http.Request, im auth.I
 	// As in the console: the last active global administrator by the admin
 	// role is not deleted.
 	if isGlobalAdminByRole(target) && target.Status == auth.UserStatusActive {
-		if another, err := s.anotherGlobalAdminByRole(r.Context(), target.ID); err != nil || !another {
+		another, err := s.anotherGlobalAdminByRole(r.Context(), target.ID)
+		if err != nil {
+			writeIAMError(w, r, http.StatusInternalServerError, "ServiceFailure", "Failed to verify the global administrators.")
+			return
+		}
+		if !another {
 			writeIAMError(w, r, http.StatusConflict, "DeleteConflict",
 				"Cannot delete the last global administrator with the admin role. Give the role to another user first.")
 			return

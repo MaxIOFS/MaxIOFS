@@ -24,7 +24,7 @@ func deliveredLogs(t *testing.T, s *Server, path, prefix string) string {
 		_, reader, err := s.objectManager.GetObject(ctx, path, o.Key)
 		require.NoError(t, err)
 		body, err := io.ReadAll(reader)
-		reader.Close()
+		reader.Close() //nolint:errcheck
 		require.NoError(t, err)
 		all += string(body)
 	}

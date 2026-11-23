@@ -680,7 +680,9 @@ func (om *objectManager) decrypting(ctx context.Context, encryptedReader io.Read
 	decryptKey, keyErr := om.dataKeyFor(ctx, storageMetadata)
 	if keyErr != nil {
 		encryptedReader.Close()
-		if errors.Is(keyErr, ErrCustomerKeyRequired) || errors.Is(keyErr, ErrCustomerKeyMismatch) {
+		// A key that cannot be had here says nothing of the object's data; one
+		// that does not unwrap, or a sidecar that does not parse, is damage.
+		if errors.Is(keyErr, ErrCustomerKeyRequired) || errors.Is(keyErr, ErrCustomerKeyMismatch) || errors.Is(keyErr, ErrKeyUnavailable) {
 			return nil, keyErr
 		}
 		return nil, fmt.Errorf("%w: failed to resolve decryption key: %w", ErrObjectUnreadable, keyErr)
@@ -3142,7 +3144,11 @@ func (om *objectManager) newEnvelope() ([]byte, map[string]string, error) {
 func (om *objectManager) decryptionKeyFor(storageMetadata map[string]string) ([]byte, error) {
 	wrappedHex := storageMetadata["wrapped-dek"]
 	if wrappedHex == "" {
-		return om.kekProvider.KEKByVersion(1)
+		key, err := om.kekProvider.KEKByVersion(1)
+		if err != nil {
+			return nil, fmt.Errorf("%w: KEK version 1: %w", ErrKeyUnavailable, err)
+		}
+		return key, nil
 	}
 
 	wrapped, err := hex.DecodeString(wrappedHex)
@@ -3163,7 +3169,7 @@ func (om *objectManager) decryptionKeyFor(storageMetadata map[string]string) ([]
 	}
 	kekKey, err := om.kekProvider.KEKByVersion(kekVersion)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: KEK version %d: %w", ErrKeyUnavailable, kekVersion, err)
 	}
 
 	dek, err := om.encryptor.Decrypt(&encryption.EncryptedData{Data: wrapped, IV: iv}, kekKey)
