@@ -59,6 +59,10 @@ type Manager struct {
 	// taskObserver is told of each anti-entropy cycle, dead-node check and
 	// initial sync.
 	taskObserver atomic.Pointer[bgwork.TaskObserver]
+	// drainRead is LocalDrainDone as OutOfService last read it; a reading of an
+	// older drainGeneration is not used.
+	drainRead       atomic.Pointer[drainReading]
+	drainGeneration atomic.Uint64
 }
 
 // SetTaskObserver sets what is told of each run of the cluster's background

@@ -25,6 +25,9 @@ func (s *Server) handleReceiveSettingsSync(w http.ResponseWriter, r *http.Reques
 	}
 	ctx := r.Context()
 	applied := s.applySettings(ctx, payload.Settings)
+	if applied > 0 && s.settingsManager != nil {
+		s.settingsManager.Forget()
+	}
 	targets := s.applyLoggingTargets(ctx, payload.LoggingTargets)
 	if (applied > 0 || targets > 0) && s.loggingManager != nil {
 		s.loggingManager.Reconfigure()

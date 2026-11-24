@@ -167,6 +167,7 @@ func (m *Manager) setLocalDrainDone(ctx context.Context) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
+		m.drainGeneration.Add(1)
 		m.log.Info("This node is drained: it holds no data and is out of service")
 	}
 	return nil
@@ -179,6 +180,28 @@ func (m *Manager) LocalDrainDone(ctx context.Context) bool {
 	err := m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cluster_config c JOIN cluster_nodes n ON n.id = c.node_id
 		WHERE c.is_cluster_enabled = 1 AND n.drained = 1 AND n.health_status = ?`, HealthStatusDead).Scan(&done)
 	return err == nil && done > 0
+}
+
+// outOfServiceReadFor is how long OutOfService keeps what it read.
+const outOfServiceReadFor = time.Second
+
+type drainReading struct {
+	done       bool
+	read       time.Time
+	generation uint64
+}
+
+// OutOfService is LocalDrainDone read at most once a second, for the S3
+// requests that each ask it. The end of this node's drain shows at once; any
+// other change, within the second.
+func (m *Manager) OutOfService(ctx context.Context) bool {
+	generation := m.drainGeneration.Load()
+	if r := m.drainRead.Load(); r != nil && r.generation == generation && time.Since(r.read) < outOfServiceReadFor {
+		return r.done
+	}
+	done := m.LocalDrainDone(ctx)
+	m.drainRead.Store(&drainReading{done: done, read: time.Now(), generation: generation})
+	return done
 }
 
 // noteDrainDone records what a drained node's last health check said of its

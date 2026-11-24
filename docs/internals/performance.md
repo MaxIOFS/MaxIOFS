@@ -6,10 +6,10 @@ One node on a virtual machine: 16 vCPU (Xeon E5-2699 v4), 62 GB RAM, SSD by Fibr
 
 | Load | Clients | Rate | p50 | p99 |
 |------|---------|------|-----|-----|
-| GET 4 KiB | 128 | 5,255 req/s | 20 ms | 84 ms |
-| HEAD | 128 | 6,247 req/s | 17 ms | 73 ms |
-| GET 1 MiB | 64 | 1,115 MiB/s | 54 ms | 145 ms |
-| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 456 ms |
+| GET 4 KiB | 128 | 10,789 req/s | 5.9 ms | 70 ms |
+| HEAD | 128 | 17,302 req/s | 5.5 ms | 40 ms |
+| GET 1 MiB | 64 | 1,257 MiB/s | 47 ms | 130 ms |
+| GET 16 MiB | 32 | 1,494 MiB/s | 335 ms | 449 ms |
 | PUT 64 KB, Object Lock | 64 | 667 req/s | 54 ms | 365 ms |
 | PUT 4 MB, Object Lock | 64 | 594 MB/s | 362 ms | 724 ms |
 
@@ -84,7 +84,7 @@ sum(increase(maxiofs_http_requests_total{status!~"5.."}[30d]))
 
 | Target | Measurement | Baseline |
 |--------|-------------|----------|
-| **> 1,000 req/s** sustained | Rolling 5-minute window | 5,255 GET/s on one node ([Reads](#reads-november-24-2026)) |
+| **> 1,000 req/s** sustained | Rolling 5-minute window | 10,789 GET/s on one node ([Reads](#reads-november-24-2026)) |
 
 ### 5. Error Rate
 
@@ -284,17 +284,18 @@ The same virtual machine, a fresh instance: encryption at rest on, no API rate l
 
 | Load | Clients | Rate | p50 | p90 | p99 | Server CPU |
 |------|---------|------|-----|-----|-----|------------|
-| GET 4 KiB | 32 | 5,038 req/s | 6.1 ms | 11.5 ms | 29 ms | 11 cores |
-| GET 4 KiB | 64 | 5,192 req/s | 12.1 ms | 26.8 ms | 47 ms | 11 cores |
-| GET 4 KiB | 128 | 5,255 req/s | 20.3 ms | 50.4 ms | 84 ms | 11 cores |
-| GET 4 KiB | 256 | 5,345 req/s | 41.6 ms | 129.5 ms | 221 ms | 11 cores |
-| HEAD | 128 | 6,247 req/s | 17.0 ms | 43.2 ms | 73 ms | 10.6 cores |
-| GET 64 KiB | 128 | 4,592 req/s, 287 MiB/s | 23.1 ms | 59.2 ms | 107 ms | 11 cores |
-| GET 1 MiB | 64 | 1,115 MiB/s | 53.8 ms | 97.2 ms | 145 ms | 9 cores |
-| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 404 ms | 456 ms | 8.5 cores |
+| GET 4 KiB | 32 | 10,281 req/s | 2.7 ms | 7.3 ms | 15 ms | 9.4 cores |
+| GET 4 KiB | 64 | 10,839 req/s | 4.1 ms | 16.9 ms | 34 ms | 9.6 cores |
+| GET 4 KiB | 128 | 10,789 req/s | 5.9 ms | 33.4 ms | 70 ms | 9.7 cores |
+| GET 4 KiB | 256 | 10,634 req/s | 8.6 ms | 76.2 ms | 148 ms | 9.8 cores |
+| HEAD | 128 | 17,302 req/s | 5.5 ms | 17.0 ms | 40 ms | 9.8 cores |
+| GET 64 KiB | 128 | 7,413 req/s, 463 MiB/s | 10.8 ms | 43.4 ms | 79 ms | 9.4 cores |
+| GET 1 MiB | 64 | 1,257 MiB/s | 46.8 ms | 86.2 ms | 130 ms | 8.6 cores |
+| GET 16 MiB | 32 | 1,494 MiB/s | 335 ms | 395 ms | 449 ms | 8.5 cores |
 
-- The ceiling is the CPU, about 2 ms of it a request: more clients only queue.
-- HEAD is 19% faster than a GET of 4 KiB: the cost is the request (signature, permissions, metadata), not the data.
+- The ceiling is the CPU, about 0.9 ms of it a GET of 4 KiB: more clients only queue. A profile puts the largest parts in reading the file, sending it, decrypting it and checking the signature.
+- A request no longer reads its access key, user and permissions from SQLite while they do not change, nor its settings and the drain state more than once a second; routing skips the routes a request cannot match. The same runs gave 5,255 GET/s and 6,247 HEAD/s before.
+- Large objects are bound by decrypting and copying the data.
 - At the default limit of 1,000 requests/s per access key, one key gets `SlowDown` above it. The limit is per key, not per server.
 - Objects not in the page cache are read from the disk: small ones then depend on its IOPS.
 

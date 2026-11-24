@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,6 +38,10 @@ type PebbleStore struct {
 	reconcileOwed    atomic.Bool // an unclean shutdown's reconciliation has not finished
 	deferSync        bool
 	bucketWritten    func(ctx context.Context, tenantID, name string)
+	// bucketTenants is the tenant each bucket name was last found in. A name is
+	// unique in the installation: a bucket of that name read there is the one,
+	// and a name no longer there is looked for again.
+	bucketTenants sync.Map
 }
 
 // PebbleOptions contains configuration options for PebbleStore
@@ -641,16 +646,29 @@ func (s *PebbleStore) ClearBucketRemoval(ctx context.Context, bucketPath string)
 }
 
 func (s *PebbleStore) GetBucketByName(ctx context.Context, name string) (*BucketMetadata, error) {
+	if tenantID, ok := s.bucketTenants.Load(name); ok {
+		if bucket, err := s.GetBucket(ctx, tenantID.(string), name); err == nil && bucket.Name == name {
+			return bucket, nil
+		}
+		s.bucketTenants.Delete(name)
+	}
+
 	iter, err := s.pebbleIter([]byte("bucket:"))
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close() //nolint:errcheck
 
+	// A bucket's key ends with its name: only those records are read.
+	suffix := []byte(":" + name)
 	for iter.First(); iter.Valid(); iter.Next() {
+		if !bytes.HasSuffix(iter.Key(), suffix) {
+			continue
+		}
 		var bucket BucketMetadata
 		if err := json.Unmarshal(iter.Value(), &bucket); err == nil {
 			if bucket.Name == name {
+				s.bucketTenants.Store(name, bucket.TenantID)
 				return &bucket, nil
 			}
 		}

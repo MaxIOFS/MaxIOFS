@@ -379,10 +379,10 @@ One node on a virtual machine: 16 vCPU (Xeon E5-2699 v4), 62 GB RAM, SSD by Fibr
 
 | Load | Clients | Rate | p50 | p99 |
 |------|---------|------|-----|-----|
-| GET 4 KiB | 128 | 5,255 req/s | 20 ms | 84 ms |
-| HEAD | 128 | 6,247 req/s | 17 ms | 73 ms |
-| GET 1 MiB | 64 | 1,115 MiB/s | 54 ms | 145 ms |
-| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 456 ms |
+| GET 4 KiB | 128 | 10,789 req/s | 5.9 ms | 70 ms |
+| HEAD | 128 | 17,302 req/s | 5.5 ms | 40 ms |
+| GET 1 MiB | 64 | 1,257 MiB/s | 47 ms | 130 ms |
+| GET 16 MiB | 32 | 1,494 MiB/s | 335 ms | 449 ms |
 | PUT 64 KB, Object Lock | 64 | 667 req/s | 54 ms | 365 ms |
 | PUT 4 MB, Object Lock | 64 | 594 MB/s | 362 ms | 724 ms |
 

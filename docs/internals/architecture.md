@@ -232,6 +232,18 @@ writes, deletes and encryption migration.
 | `metadata/` | Pebble v2.1 | Object metadata (ETags, content-type, size), versioning info, object lock/retention, bucket configurations, tags, ACLs, multipart upload state |
 | `objects/` | Filesystem | Encrypted object data and sidecars, one directory per bucket |
 
+### What a request keeps in memory
+
+| What | Kept until |
+|------|-----------|
+| An access key with its user and whether its tenant is active; a user's permissions | The auth tables change. Triggers count every change to them in `auth_generation`, from this node, another one or SQL; a request reads the count once |
+| A setting | It is written through the settings manager or received from another node, or a second passes |
+| Whether this node is drained and out of service | Its drain ends, or a second passes |
+| A policy document, parsed | Never: it is kept by its text, up to 4,096 documents |
+| The tenant a bucket name was found in | Never: it is checked against the bucket read there, and looked for again when it fails |
+
+A migration that rebuilds one of the auth tables creates its `auth_generation` triggers again.
+
 ---
 
 ## Multi-Tenancy

@@ -211,11 +211,11 @@ func withoutUnscopedFullAccess(documents []string) []string {
 }
 
 func grantsEverythingEverywhere(document string) bool {
-	policy, err := ParseIAMPolicy(document, IAMMaxManagedPolicyBytes)
-	if err != nil {
+	d := parsed(document)
+	if d.valid != nil {
 		return false
 	}
-	for _, st := range policy.Statement {
+	for _, st := range d.policy.Statement {
 		if st.Effect != EffectAllow {
 			continue
 		}
@@ -324,11 +324,11 @@ func (s *SQLiteStore) EffectiveActionsInTenant(userID string, roles []string, te
 func ActionsFromDocuments(documents []string) []string {
 	var allowed, denied []string
 	for _, raw := range documents {
-		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
-		if err != nil {
+		d := parsed(raw)
+		if d.valid != nil {
 			continue
 		}
-		for _, st := range policy.Statement {
+		for _, st := range d.policy.Statement {
 			if st.Effect == EffectDeny {
 				denied = append(denied, policyStringValues(st.Action)...)
 			} else {

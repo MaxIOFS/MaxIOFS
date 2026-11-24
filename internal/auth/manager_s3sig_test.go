@@ -226,7 +226,7 @@ func TestTheCanonicalHeadersAreLoggedOneByOne(t *testing.T) {
 	hook := new(logtest.Hook)
 	formerHooks, formerLevel := logger.ReplaceHooks(logrus.LevelHooks{}), logger.GetLevel()
 	logger.AddHook(hook)
-	logger.SetLevel(logrus.InfoLevel)
+	logger.SetLevel(logrus.DebugLevel)
 	defer func() {
 		logger.ReplaceHooks(formerHooks)
 		logger.SetLevel(formerLevel)

@@ -38,8 +38,14 @@ func TestSettingsReachEveryNode(t *testing.T) {
 
 	send(cluster.SettingsSyncPayload{Settings: []cluster.SettingRow{setting("metrics.token", "older", 99), setting("metrics.token", "same", 100)}})
 	assert.Equal(t, "local", value("metrics.token"), "a copy not newer")
+	read, err := s.settingsManager.Get("metrics.token")
+	require.NoError(t, err)
+	require.Equal(t, "local", read)
 	send(cluster.SettingsSyncPayload{Settings: []cluster.SettingRow{setting("metrics.token", "newer", 101)}})
 	assert.Equal(t, "newer", value("metrics.token"))
+	read, err = s.settingsManager.Get("metrics.token")
+	require.NoError(t, err)
+	assert.Equal(t, "newer", read, "the node uses it at once")
 	send(cluster.SettingsSyncPayload{Settings: []cluster.SettingRow{setting("metrics.sent", "x", 1)}})
 	assert.Equal(t, "x", value("metrics.sent"), "a setting this node did not hold")
 

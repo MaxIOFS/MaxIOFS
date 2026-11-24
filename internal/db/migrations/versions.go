@@ -34,6 +34,60 @@ func getAllMigrations() []Migration {
 		migration21_v180_EncryptionSecret(),
 		migration22_v190_ConsoleSessions(),
 		migration23_v1110_AccountUnlockedAt(),
+		migration24_v1111_AuthGeneration(),
+	}
+}
+
+// authGenerationTables are the tables a signed request reads to authenticate
+// and authorize, with the columns whose change counts; none counts every
+// column. An access key's last use and a tenant's usage are written by
+// requests, and change neither.
+var authGenerationTables = []struct{ table, columns string }{
+	{"users", ""},
+	{"access_keys", "access_key_id, secret_access_key, user_id, status"},
+	{"tenants", "id, status"},
+	{"groups", ""},
+	{"group_members", ""},
+	{"iam_inline_policies", ""},
+	{"iam_policy_attachments", ""},
+	{"iam_policies", ""},
+	{"iam_policy_versions", ""},
+	{"iam_roles", ""},
+	{"bucket_permissions", ""},
+	{"user_capability_overrides", ""},
+}
+
+// migration24_v1111_AuthGeneration counts every change to the auth tables in
+// auth_generation, whoever makes it: the server keeps what requests read from
+// them while the count stands. A migration that rebuilds one of these tables
+// creates its triggers again.
+func migration24_v1111_AuthGeneration() Migration {
+	return Migration{
+		Version:     24,
+		Description: "v1.11.1 - Count changes to the auth tables in auth_generation",
+		Up: func(tx *sql.Tx) error {
+			stmts := []string{
+				`CREATE TABLE IF NOT EXISTS auth_generation (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)`,
+				`INSERT OR IGNORE INTO auth_generation (id, n) VALUES (1, 0)`,
+			}
+			for _, t := range authGenerationTables {
+				update := "UPDATE"
+				if t.columns != "" {
+					update = "UPDATE OF " + t.columns
+				}
+				for _, event := range []string{"INSERT", "DELETE", update} {
+					name := "auth_generation_" + t.table + "_" + strings.ToLower(strings.Fields(event)[0])
+					stmts = append(stmts, `CREATE TRIGGER IF NOT EXISTS `+name+` AFTER `+event+` ON `+t.table+
+						` BEGIN UPDATE auth_generation SET n = n + 1 WHERE id = 1; END`)
+				}
+			}
+			for _, stmt := range stmts {
+				if _, err := tx.Exec(stmt); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	}
 }
 

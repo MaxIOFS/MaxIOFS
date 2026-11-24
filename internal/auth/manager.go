@@ -287,6 +287,8 @@ type authManager struct {
 	revokedSessions         sync.Map
 	sessionsChangedCallback func()
 	sessionNode             func(ctx context.Context) string
+	// cache keeps what signed requests read from the auth tables.
+	cache authCache
 	bgwork.Worker
 	closeOnce sync.Once
 	closeErr  error
@@ -810,16 +812,24 @@ func (am *authManager) ValidateS3Signature(ctx context.Context, r *http.Request)
 		return nil, ErrMissingSignature
 	}
 
-	logrus.WithField("auth_header", LoggedAuthorization(authHeader)).Info("ValidateS3Signature called")
+	// The signature trace is Debug: at Info it cost a sixth of a request's CPU.
+	trace := logrus.IsLevelEnabled(logrus.DebugLevel)
+	if trace {
+		logrus.WithField("auth_header", LoggedAuthorization(authHeader)).Debug("ValidateS3Signature called")
+	}
 
 	// Check if it's SigV4 (from Authorization header or query param)
 	if strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") || r.Header.Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" {
-		logrus.Info("Delegating to ValidateS3SignatureV4")
+		if trace {
+			logrus.Debug("Delegating to ValidateS3SignatureV4")
+		}
 		return am.ValidateS3SignatureV4(ctx, r)
 	}
 
 	// Otherwise assume SigV2
-	logrus.Info("Delegating to ValidateS3SignatureV2")
+	if trace {
+		logrus.Debug("Delegating to ValidateS3SignatureV2")
+	}
 	return am.ValidateS3SignatureV2(ctx, r)
 }
 
@@ -846,9 +856,8 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 		return am.validateSTSSignatureV4(r, sig)
 	}
 
-	// Get access key from database
-	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
-	if err != nil {
+	accessKey, user, tenantActive, err := am.signerOf(ctx, sig.AccessKey)
+	if accessKey == nil {
 		logrus.WithField("access_key", sig.AccessKey).Warn("Access key not found")
 		return nil, ErrInvalidCredentials
 	}
@@ -863,13 +872,11 @@ func (am *authManager) ValidateS3SignatureV4(ctx context.Context, r *http.Reques
 	}
 	accessKey.SecretAccessKey = plainSecret
 
-	// Get user associated with this key
-	user, err := am.store.GetUserByID(accessKey.UserID)
 	if err != nil {
 		logrus.WithField("user_id", accessKey.UserID).Warn("User not found for access key")
 		return nil, ErrUserNotFound
 	}
-	if !am.AccountActive(ctx, user) {
+	if user.Status != UserStatusActive || !tenantActive {
 		return nil, ErrAccessDenied
 	}
 
@@ -923,9 +930,8 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 		return nil, ErrInvalidCredentials
 	}
 
-	// Get access key from database
-	accessKey, err := am.store.GetAccessKey(sig.AccessKey)
-	if err != nil {
+	accessKey, user, tenantActive, err := am.signerOf(ctx, sig.AccessKey)
+	if accessKey == nil {
 		return nil, ErrInvalidCredentials
 	}
 	if accessKey.Status != AccessKeyStatusActive {
@@ -939,12 +945,10 @@ func (am *authManager) ValidateS3SignatureV2(ctx context.Context, r *http.Reques
 	}
 	accessKey.SecretAccessKey = plainSecret
 
-	// Get user associated with this key
-	user, err := am.store.GetUserByID(accessKey.UserID)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
-	if !am.AccountActive(ctx, user) {
+	if user.Status != UserStatusActive || !tenantActive {
 		return nil, ErrAccessDenied
 	}
 
@@ -1333,7 +1337,7 @@ func (am *authManager) Middleware() func(http.Handler) http.Handler {
 			// The validation keeps what it resolves, a session's policies, in
 			// r itself, so r is what it is given.
 			holder := &chunkSigningHolder{}
-			*r = *r.WithContext(context.WithValue(r.Context(), chunkSigningHolderKey{}, holder))
+			*r = *r.WithContext(withRequestGeneration(context.WithValue(r.Context(), chunkSigningHolderKey{}, holder)))
 			user, err := am.ValidateS3Signature(r.Context(), r)
 			if err != nil {
 				// If there WAS an auth header but it's invalid, return error
@@ -1886,14 +1890,16 @@ func (am *authManager) parseS3SignatureV4(authHeader string, r *http.Request) (*
 		}
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"access_key":     sig.AccessKey,
-		"date":           sig.Date,
-		"region":         sig.Region,
-		"service":        sig.Service,
-		"signed_headers": sig.SignedHeaders,
-		"credential":     sig.Credential,
-	}).Info("Parsed SigV4 signature")
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.WithFields(logrus.Fields{
+			"access_key":     sig.AccessKey,
+			"date":           sig.Date,
+			"region":         sig.Region,
+			"service":        sig.Service,
+			"signed_headers": sig.SignedHeaders,
+			"credential":     sig.Credential,
+		}).Debug("Parsed SigV4 signature")
+	}
 
 	return sig, nil
 }
@@ -2074,14 +2080,16 @@ func (am *authManager) createCanonicalRequest(r *http.Request, signedHeaders str
 		signedHeaders + "\n" +
 		payloadHash
 
-	logrus.WithFields(logrus.Fields{
-		"method":            method,
-		"uri":               uri,
-		"query":             LoggedQuery(queryString),
-		"canonical_headers": loggedCanonicalHeaders(canonicalHeaders),
-		"signed_headers":    signedHeaders,
-		"payload_hash":      payloadHash,
-	}).Info("Canonical request components")
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.WithFields(logrus.Fields{
+			"method":            method,
+			"uri":               uri,
+			"query":             LoggedQuery(queryString),
+			"canonical_headers": loggedCanonicalHeaders(canonicalHeaders),
+			"signed_headers":    signedHeaders,
+			"payload_hash":      payloadHash,
+		}).Debug("Canonical request components")
+	}
 
 	return canonicalRequest
 }

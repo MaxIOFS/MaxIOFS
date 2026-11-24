@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CreateBucket` of a bucket the requester already owns answers `200` and resets its ACL to the one asked for, `private` if none, as AWS does in `us-east-1`; it answered `409 BucketAlreadyOwnedByYou`.
 - GET and HEAD give the object's checksum when asked with `x-amz-checksum-mode: ENABLED`, as AWS does.
 - Owners are shown by ID alone, as AWS shows them since November 2025: no `DisplayName`.
+- An S3 request takes half the CPU it took: one node serves twice the GETs of small objects (10,789 per second of 4 KiB, from 5,255 on the same machine) and almost three times the HEADs.
+- The signature trace of each S3 request (`ValidateS3Signature called`, `Delegating…`, `Parsed SigV4 signature`, `Canonical request components`) is logged at Debug: at Info it took a sixth of a request's CPU.
 - Errors as AWS gives them: an expired presigned URL is `403 AccessDenied` "Request has expired" with its `X-Amz-Expires`, `Expires` and `ServerTime`; an `X-Amz-Expires` negative or over a week `400 AuthorizationQueryParametersError`, and 0 expired; a request without credentials about a bucket that does not exist, but creating it, `404 NoSuchBucket`; reading the retention or legal hold of an object in a bucket without Object Lock `400 InvalidRequest`.
 
 ### Fixed
@@ -31,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ACLs, object listings, versions and multipart uploads named a fixed owner `maxiofs`: they name the bucket's owner.
 - `GetBucketPolicy` gave the policy written anew: it gives it as it was put.
 - A lifecycle rule put without an ID was kept without one: it gets one, as AWS gives it.
+- Finding a bucket by its name read every bucket, several times per request: a request took longer the more buckets the installation had.
+- A copy (`x-amz-copy-source`) was counted as `PutObject` in the metrics: it is counted as `CopyObject`.
 - `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
 - Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.
 - A form upload ignored its `acl` field: it is set on the object, as in AWS.

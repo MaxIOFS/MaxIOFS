@@ -10,7 +10,7 @@ import (
 // sending it requests. The console still answers.
 func (s *Server) drainedNodeGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.clusterManager == nil || !s.clusterManager.LocalDrainDone(r.Context()) {
+		if s.clusterManager == nil || !s.clusterManager.OutOfService(r.Context()) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,22 @@ import (
 type Manager struct {
 	db     *sql.DB
 	logger *logrus.Logger
+
+	// The values Get read, kept for cachedFor: the request path reads the same
+	// settings on every request. A write through the manager or Forget drops
+	// them; generation keeps a read that crossed one from being kept.
+	mu         sync.RWMutex
+	cached     map[string]cachedSetting
+	generation uint64
+}
+
+// cachedFor is how long Get keeps a value. A setting written to the database
+// by anything that does not call Forget shows within it.
+const cachedFor = time.Second
+
+type cachedSetting struct {
+	value string
+	read  time.Time
 }
 
 // NewManager creates a new settings manager
@@ -22,6 +39,7 @@ func NewManager(db *sql.DB, logger *logrus.Logger) (*Manager, error) {
 	m := &Manager{
 		db:     db,
 		logger: logger,
+		cached: make(map[string]cachedSetting),
 	}
 
 	// Initialize database schema
@@ -536,6 +554,14 @@ func (m *Manager) insertDefaults() error {
 
 // Get retrieves a setting value as a string
 func (m *Manager) Get(key string) (string, error) {
+	m.mu.RLock()
+	c, ok := m.cached[key]
+	generation := m.generation
+	m.mu.RUnlock()
+	if ok && time.Since(c.read) < cachedFor {
+		return c.value, nil
+	}
+
 	var value string
 	query := `SELECT value FROM system_settings WHERE key = ?`
 	err := m.db.QueryRow(query, key).Scan(&value)
@@ -545,7 +571,22 @@ func (m *Manager) Get(key string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get setting: %w", err)
 	}
+
+	m.mu.Lock()
+	if m.generation == generation {
+		m.cached[key] = cachedSetting{value: value, read: time.Now()}
+	}
+	m.mu.Unlock()
 	return value, nil
+}
+
+// Forget drops the values Get keeps. A setting written to the database
+// directly, as those another node sends, shows at once after it.
+func (m *Manager) Forget() {
+	m.mu.Lock()
+	m.generation++
+	clear(m.cached)
+	m.mu.Unlock()
 }
 
 // GetInt retrieves a setting value as an integer
@@ -657,6 +698,7 @@ func (m *Manager) Set(key, value string) error {
 	now := time.Now().Unix()
 
 	_, err = m.db.Exec(query, value, now, key)
+	m.Forget()
 	if err != nil {
 		return fmt.Errorf("failed to update setting: %w", err)
 	}
@@ -824,7 +866,9 @@ func (m *Manager) BulkUpdate(updates map[string]string) error {
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	err = tx.Commit()
+	m.Forget()
+	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 

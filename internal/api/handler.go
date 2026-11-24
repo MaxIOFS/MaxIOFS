@@ -119,96 +119,168 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	bucketRouter := router.PathPrefix("/{bucket}").Subrouter()
 	bucketRouter.Use(h.s3Handler.RequireExpectedBucketOwner, h.s3Handler.AnswerMissingBucket)
 
+	// The object routes come first: their paths never match a bucket's, and an
+	// object request then skips the bucket routes.
+	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
+	objectRouter.Use(h.s3Handler.RequireUTF8Key)
+
+	// Gorilla Mux matches in registration order. The routes that need a query
+	// parameter are grouped behind one check, so a request without a query skips
+	// them without matching each one's expressions.
+	subresources := objectRouter.MatcherFunc(hasQuery).Subrouter()
+	subresources.HandleFunc("", h.s3Handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "").Name("CreateMultipartUpload")
+	subresources.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "").Name("ListMultipartUploads")
+	subresources.HandleFunc("", h.s3Handler.UploadPart).Methods("PUT").Queries("partNumber", "{partNumber}", "uploadId", "{uploadId}").Name("UploadPart")
+	subresources.HandleFunc("", h.s3Handler.ListParts).Methods("GET").Queries("uploadId", "{uploadId}").Name("ListParts")
+	subresources.HandleFunc("", h.s3Handler.CompleteMultipartUpload).Methods("POST").Queries("uploadId", "{uploadId}").Name("CompleteMultipartUpload")
+	subresources.HandleFunc("", h.s3Handler.AbortMultipartUpload).Methods("DELETE").Queries("uploadId", "{uploadId}").Name("AbortMultipartUpload")
+
+	// Before the version delete: mux matches in order, and `?tagging&versionId=`
+	// names a subresource of that version, not the version.
+	subresources.HandleFunc("", h.s3Handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "").Name("DeleteObjectTagging")
+
+	// Object versioning (with query parameters)
+	subresources.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}").Name("DeleteObjectVersion")
+
+	// Restore object
+	subresources.HandleFunc("", h.s3Handler.RestoreObject).Methods("POST").Queries("restore", "").Name("RestoreObject")
+
+	// S3 Select
+	subresources.HandleFunc("", h.s3Handler.SelectObjectContent).Methods("POST").Queries("select", "").Name("SelectObjectContent")
+
+	// GetObjectTorrent — BitTorrent manifests. Not implemented; returns NotImplemented.
+	subresources.HandleFunc("", h.s3Handler.GetObjectTorrent).Methods("GET").Queries("torrent", "").Name("GetObjectTorrent")
+
+	// Object Lock operations (with query parameters)
+	subresources.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "").Name("GetObjectRetention")
+	subresources.HandleFunc("", h.s3Handler.PutObjectRetention).Methods("PUT").Queries("retention", "").Name("PutObjectRetention")
+	subresources.HandleFunc("", h.s3Handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "").Name("GetObjectLegalHold")
+	subresources.HandleFunc("", h.s3Handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "").Name("PutObjectLegalHold")
+
+	// Object attributes (must be before generic GET)
+	subresources.HandleFunc("", h.s3Handler.GetObjectAttributes).Methods("GET").Queries("attributes", "").Name("GetObjectAttributes")
+
+	// Object metadata operations (with query parameters)
+	subresources.HandleFunc("", h.s3Handler.GetObjectACL).Methods("GET").Queries("acl", "").Name("GetObjectAcl")
+	subresources.HandleFunc("", h.s3Handler.PutObjectACL).Methods("PUT").Queries("acl", "").Name("PutObjectAcl")
+	subresources.HandleFunc("", h.s3Handler.GetObjectTagging).Methods("GET").Queries("tagging", "").Name("GetObjectTagging")
+	subresources.HandleFunc("", h.s3Handler.PutObjectTagging).Methods("PUT").Queries("tagging", "").Name("PutObjectTagging")
+
+	// Presigned URL operations (must be before basic object operations)
+	// V4 presigned URLs contain X-Amz-Algorithm query parameter
+	presigned := objectRouter.MatcherFunc(hasQuery).Subrouter()
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET").Queries("X-Amz-Algorithm", "{algorithm}").Name("GetObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("PUT").Queries("X-Amz-Algorithm", "{algorithm}").Name("PutObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("DELETE").Queries("X-Amz-Algorithm", "{algorithm}").Name("DeleteObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("HEAD").Queries("X-Amz-Algorithm", "{algorithm}").Name("HeadObject")
+	// V2 presigned URLs contain AWSAccessKeyId query parameter
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET").Queries("AWSAccessKeyId", "{keyid}").Name("GetObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("PUT").Queries("AWSAccessKeyId", "{keyid}").Name("PutObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("DELETE").Queries("AWSAccessKeyId", "{keyid}").Name("DeleteObject")
+	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("HEAD").Queries("AWSAccessKeyId", "{keyid}").Name("HeadObject")
+
+	// A copy, before PutObject and after the presigned PUT, which PutObject
+	// copies too. An empty value matches any: "{source}" matched only itself.
+	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "").Name("CopyObject")
+
+	// Basic object operations (without query parameters - registered LAST)
+	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD").Name("HeadObject")
+	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET").Name("GetObject")
+	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT").Name("PutObject")
+	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE").Name("DeleteObject")
+
 	for _, path := range []string{"", "/"} {
+		bucketSubresources := bucketRouter.MatcherFunc(hasQuery).Subrouter()
+
 		// Bucket configuration endpoints (with query parameters - must be registered first)
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLocation).Methods("GET").Queries("location", "").Name("GetBucketLocation")
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "").Name("GetBucketVersioning")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "").Name("PutBucketVersioning")
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketPolicy).Methods("GET").Queries("policy", "").Name("GetBucketPolicy")
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketPolicyStatus).Methods("GET").Queries("policyStatus", "").Name("GetBucketPolicyStatus")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketPolicy).Methods("PUT").Queries("policy", "").Name("PutBucketPolicy")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "").Name("DeleteBucketPolicy")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketLocation).Methods("GET").Queries("location", "").Name("GetBucketLocation")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "").Name("GetBucketVersioning")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "").Name("PutBucketVersioning")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketPolicy).Methods("GET").Queries("policy", "").Name("GetBucketPolicy")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketPolicyStatus).Methods("GET").Queries("policyStatus", "").Name("GetBucketPolicyStatus")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketPolicy).Methods("PUT").Queries("policy", "").Name("PutBucketPolicy")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "").Name("DeleteBucketPolicy")
 
 		// Object Lock configuration
-		bucketRouter.HandleFunc(path, h.s3Handler.GetObjectLockConfiguration).Methods("GET").Queries("object-lock", "").Name("GetObjectLockConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutObjectLockConfiguration).Methods("PUT").Queries("object-lock", "").Name("PutObjectLockConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetObjectLockConfiguration).Methods("GET").Queries("object-lock", "").Name("GetObjectLockConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutObjectLockConfiguration).Methods("PUT").Queries("object-lock", "").Name("PutObjectLockConfiguration")
 
 		// Lifecycle configuration
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "").Name("GetBucketLifecycleConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "").Name("PutBucketLifecycleConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "").Name("DeleteBucketLifecycle")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketLifecycle).Methods("GET").Queries("lifecycle", "").Name("GetBucketLifecycleConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketLifecycle).Methods("PUT").Queries("lifecycle", "").Name("PutBucketLifecycleConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketLifecycle).Methods("DELETE").Queries("lifecycle", "").Name("DeleteBucketLifecycle")
 
 		// CORS configuration
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketCORS).Methods("GET").Queries("cors", "").Name("GetBucketCors")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "").Name("PutBucketCors")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "").Name("DeleteBucketCors")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketCORS).Methods("GET").Queries("cors", "").Name("GetBucketCors")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketCORS).Methods("PUT").Queries("cors", "").Name("PutBucketCors")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketCORS).Methods("DELETE").Queries("cors", "").Name("DeleteBucketCors")
 
 		// Bucket Tagging
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketTagging).Methods("GET").Queries("tagging", "").Name("GetBucketTagging")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketTagging).Methods("PUT").Queries("tagging", "").Name("PutBucketTagging")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketTagging).Methods("DELETE").Queries("tagging", "").Name("DeleteBucketTagging")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketTagging).Methods("GET").Queries("tagging", "").Name("GetBucketTagging")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketTagging).Methods("PUT").Queries("tagging", "").Name("PutBucketTagging")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketTagging).Methods("DELETE").Queries("tagging", "").Name("DeleteBucketTagging")
 
 		// Bucket ACL
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketACL).Methods("GET").Queries("acl", "").Name("GetBucketAcl")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketACL).Methods("PUT").Queries("acl", "").Name("PutBucketAcl")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketACL).Methods("GET").Queries("acl", "").Name("GetBucketAcl")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketACL).Methods("PUT").Queries("acl", "").Name("PutBucketAcl")
 
 		// Versioning - list all object versions in bucket
-		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketVersions).Methods("GET").Queries("versions", "").Name("ListObjectVersions")
+		bucketSubresources.HandleFunc(path, h.s3Handler.ListBucketVersions).Methods("GET").Queries("versions", "").Name("ListObjectVersions")
 
 		// ListObjectsV2 (list-type=2) - must be registered BEFORE generic ListObjects
-		bucketRouter.HandleFunc(path, h.s3Handler.ListObjectsV2).Methods("GET").Queries("list-type", "2").Name("ListObjectsV2")
+		bucketSubresources.HandleFunc(path, h.s3Handler.ListObjectsV2).Methods("GET").Queries("list-type", "2").Name("ListObjectsV2")
 
 		// Bucket notification
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketNotification).Methods("GET").Queries("notification", "").Name("GetBucketNotificationConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketNotification).Methods("PUT").Queries("notification", "").Name("PutBucketNotificationConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketNotification).Methods("DELETE").Queries("notification", "").Name("DeleteBucketNotification")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketNotification).Methods("GET").Queries("notification", "").Name("GetBucketNotificationConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketNotification).Methods("PUT").Queries("notification", "").Name("PutBucketNotificationConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketNotification).Methods("DELETE").Queries("notification", "").Name("DeleteBucketNotification")
 
 		// Bucket website
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketWebsite).Methods("GET").Queries("website", "").Name("GetBucketWebsite")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketWebsite).Methods("PUT").Queries("website", "").Name("PutBucketWebsite")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketWebsite).Methods("DELETE").Queries("website", "").Name("DeleteBucketWebsite")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketWebsite).Methods("GET").Queries("website", "").Name("GetBucketWebsite")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketWebsite).Methods("PUT").Queries("website", "").Name("PutBucketWebsite")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketWebsite).Methods("DELETE").Queries("website", "").Name("DeleteBucketWebsite")
 
 		// Transfer acceleration
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketAccelerateConfiguration).Methods("GET").Queries("accelerate", "").Name("GetBucketAccelerateConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketAccelerateConfiguration).Methods("PUT").Queries("accelerate", "").Name("PutBucketAccelerateConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketAccelerateConfiguration).Methods("GET").Queries("accelerate", "").Name("GetBucketAccelerateConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketAccelerateConfiguration).Methods("PUT").Queries("accelerate", "").Name("PutBucketAccelerateConfiguration")
 
 		// Request payment
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketRequestPayment).Methods("GET").Queries("requestPayment", "").Name("GetBucketRequestPayment")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketRequestPayment).Methods("PUT").Queries("requestPayment", "").Name("PutBucketRequestPayment")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketRequestPayment).Methods("GET").Queries("requestPayment", "").Name("GetBucketRequestPayment")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketRequestPayment).Methods("PUT").Queries("requestPayment", "").Name("PutBucketRequestPayment")
 
 		// Bucket encryption
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketEncryption).Methods("GET").Queries("encryption", "").Name("GetBucketEncryption")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketEncryption).Methods("PUT").Queries("encryption", "").Name("PutBucketEncryption")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketEncryption).Methods("DELETE").Queries("encryption", "").Name("DeleteBucketEncryption")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketEncryption).Methods("GET").Queries("encryption", "").Name("GetBucketEncryption")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketEncryption).Methods("PUT").Queries("encryption", "").Name("PutBucketEncryption")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketEncryption).Methods("DELETE").Queries("encryption", "").Name("DeleteBucketEncryption")
 
 		// Bucket replication
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketReplication).Methods("GET").Queries("replication", "").Name("GetBucketReplication")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketReplication).Methods("PUT").Queries("replication", "").Name("PutBucketReplication")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketReplication).Methods("DELETE").Queries("replication", "").Name("DeleteBucketReplication")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketReplication).Methods("GET").Queries("replication", "").Name("GetBucketReplication")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketReplication).Methods("PUT").Queries("replication", "").Name("PutBucketReplication")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketReplication).Methods("DELETE").Queries("replication", "").Name("DeleteBucketReplication")
 
 		// Bucket logging
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketLogging).Methods("GET").Queries("logging", "").Name("GetBucketLogging")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketLogging).Methods("PUT").Queries("logging", "").Name("PutBucketLogging")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketLogging).Methods("GET").Queries("logging", "").Name("GetBucketLogging")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketLogging).Methods("PUT").Queries("logging", "").Name("PutBucketLogging")
 
 		// Public access block
-		bucketRouter.HandleFunc(path, h.s3Handler.GetPublicAccessBlock).Methods("GET").Queries("publicAccessBlock", "").Name("GetPublicAccessBlock")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutPublicAccessBlock).Methods("PUT").Queries("publicAccessBlock", "").Name("PutPublicAccessBlock")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeletePublicAccessBlock).Methods("DELETE").Queries("publicAccessBlock", "").Name("DeletePublicAccessBlock")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetPublicAccessBlock).Methods("GET").Queries("publicAccessBlock", "").Name("GetPublicAccessBlock")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutPublicAccessBlock).Methods("PUT").Queries("publicAccessBlock", "").Name("PutPublicAccessBlock")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeletePublicAccessBlock).Methods("DELETE").Queries("publicAccessBlock", "").Name("DeletePublicAccessBlock")
 
 		// Ownership controls
-		bucketRouter.HandleFunc(path, h.s3Handler.GetOwnershipControls).Methods("GET").Queries("ownershipControls", "").Name("GetBucketOwnershipControls")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutOwnershipControls).Methods("PUT").Queries("ownershipControls", "").Name("PutBucketOwnershipControls")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteOwnershipControls).Methods("DELETE").Queries("ownershipControls", "").Name("DeleteBucketOwnershipControls")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetOwnershipControls).Methods("GET").Queries("ownershipControls", "").Name("GetBucketOwnershipControls")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutOwnershipControls).Methods("PUT").Queries("ownershipControls", "").Name("PutBucketOwnershipControls")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteOwnershipControls).Methods("DELETE").Queries("ownershipControls", "").Name("DeleteBucketOwnershipControls")
 
 		// Inventory configuration (id-specific routes BEFORE list route)
-		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketInventoryConfiguration).Methods("GET").Queries("inventory", "", "id", "{id}").Name("GetBucketInventoryConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketInventoryConfiguration).Methods("PUT").Queries("inventory", "", "id", "{id}").Name("PutBucketInventoryConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketInventoryConfiguration).Methods("DELETE").Queries("inventory", "", "id", "{id}").Name("DeleteBucketInventoryConfiguration")
-		bucketRouter.HandleFunc(path, h.s3Handler.ListBucketInventoryConfigurations).Methods("GET").Queries("inventory", "").Name("ListBucketInventoryConfigurations")
+		bucketSubresources.HandleFunc(path, h.s3Handler.GetBucketInventoryConfiguration).Methods("GET").Queries("inventory", "", "id", "{id}").Name("GetBucketInventoryConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.PutBucketInventoryConfiguration).Methods("PUT").Queries("inventory", "", "id", "{id}").Name("PutBucketInventoryConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.DeleteBucketInventoryConfiguration).Methods("DELETE").Queries("inventory", "", "id", "{id}").Name("DeleteBucketInventoryConfiguration")
+		bucketSubresources.HandleFunc(path, h.s3Handler.ListBucketInventoryConfigurations).Methods("GET").Queries("inventory", "").Name("ListBucketInventoryConfigurations")
 
 		// Multipart uploads list — must be before ListObjects (no query constraint) so
 		// GET /{bucket}?uploads is not captured by the generic ListObjects route.
-		bucketRouter.HandleFunc(path, h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "").Name("ListMultipartUploads")
+		bucketSubresources.HandleFunc(path, h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "").Name("ListMultipartUploads")
 
 		// Generic bucket operations (without query parameters - registered last)
 		bucketRouter.HandleFunc(path, h.s3Handler.HeadBucket).Methods("HEAD").Name("HeadBucket")
@@ -225,75 +297,18 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	bucketRouter.HandleFunc("", h.s3Handler.HandlePresignedPost).Methods("POST").Name("PostObject")
 	bucketRouter.HandleFunc("/", h.s3Handler.HandlePresignedPost).Methods("POST").Name("PostObject")
 
-	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
-	objectRouter.Use(h.s3Handler.RequireUTF8Key)
-
-	// Gorilla Mux matches in registration order.
-	objectRouter.HandleFunc("", h.s3Handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "").Name("CreateMultipartUpload")
-	objectRouter.HandleFunc("", h.s3Handler.ListMultipartUploads).Methods("GET").Queries("uploads", "").Name("ListMultipartUploads")
-	objectRouter.HandleFunc("", h.s3Handler.UploadPart).Methods("PUT").Queries("partNumber", "{partNumber}", "uploadId", "{uploadId}").Name("UploadPart")
-	objectRouter.HandleFunc("", h.s3Handler.ListParts).Methods("GET").Queries("uploadId", "{uploadId}").Name("ListParts")
-	objectRouter.HandleFunc("", h.s3Handler.CompleteMultipartUpload).Methods("POST").Queries("uploadId", "{uploadId}").Name("CompleteMultipartUpload")
-	objectRouter.HandleFunc("", h.s3Handler.AbortMultipartUpload).Methods("DELETE").Queries("uploadId", "{uploadId}").Name("AbortMultipartUpload")
-
-	// Before the version delete: mux matches in order, and `?tagging&versionId=`
-	// names a subresource of that version, not the version.
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectTagging).Methods("DELETE").Queries("tagging", "").Name("DeleteObjectTagging")
-
-	// Object versioning (with query parameters)
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObjectVersion).Methods("DELETE").Queries("versionId", "{versionId}").Name("DeleteObjectVersion")
-
-	// Restore object
-	objectRouter.HandleFunc("", h.s3Handler.RestoreObject).Methods("POST").Queries("restore", "").Name("RestoreObject")
-
-	// S3 Select
-	objectRouter.HandleFunc("", h.s3Handler.SelectObjectContent).Methods("POST").Queries("select", "").Name("SelectObjectContent")
-
-	// GetObjectTorrent — BitTorrent manifests. Not implemented; returns NotImplemented.
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectTorrent).Methods("GET").Queries("torrent", "").Name("GetObjectTorrent")
-
-	// Object Lock operations (with query parameters)
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectRetention).Methods("GET").Queries("retention", "").Name("GetObjectRetention")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectRetention).Methods("PUT").Queries("retention", "").Name("PutObjectRetention")
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectLegalHold).Methods("GET").Queries("legal-hold", "").Name("GetObjectLegalHold")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectLegalHold).Methods("PUT").Queries("legal-hold", "").Name("PutObjectLegalHold")
-
-	// Object attributes (must be before generic GET)
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectAttributes).Methods("GET").Queries("attributes", "").Name("GetObjectAttributes")
-
-	// Object metadata operations (with query parameters)
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectACL).Methods("GET").Queries("acl", "").Name("GetObjectAcl")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectACL).Methods("PUT").Queries("acl", "").Name("PutObjectAcl")
-	objectRouter.HandleFunc("", h.s3Handler.GetObjectTagging).Methods("GET").Queries("tagging", "").Name("GetObjectTagging")
-	objectRouter.HandleFunc("", h.s3Handler.PutObjectTagging).Methods("PUT").Queries("tagging", "").Name("PutObjectTagging")
-
-	// Copy operations (with header filter - must be before PutObject)
-	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "{source}").Name("CopyObject")
-
-	// Presigned URL operations (must be before basic object operations)
-	// V4 presigned URLs contain X-Amz-Algorithm query parameter
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET").Queries("X-Amz-Algorithm", "{algorithm}").Name("GetObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("PUT").Queries("X-Amz-Algorithm", "{algorithm}").Name("PutObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("DELETE").Queries("X-Amz-Algorithm", "{algorithm}").Name("DeleteObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("HEAD").Queries("X-Amz-Algorithm", "{algorithm}").Name("HeadObject")
-	// V2 presigned URLs contain AWSAccessKeyId query parameter
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("GET").Queries("AWSAccessKeyId", "{keyid}").Name("GetObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("PUT").Queries("AWSAccessKeyId", "{keyid}").Name("PutObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("DELETE").Queries("AWSAccessKeyId", "{keyid}").Name("DeleteObject")
-	objectRouter.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("HEAD").Queries("AWSAccessKeyId", "{keyid}").Name("HeadObject")
-
-	// Basic object operations (without query parameters - registered LAST)
-	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD").Name("HeadObject")
-	objectRouter.HandleFunc("", h.s3Handler.GetObject).Methods("GET").Name("GetObject")
-	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT").Name("PutObject")
-	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE").Name("DeleteObject")
-
 	// OPTIONS for CORS preflight — BucketCORSMiddleware answers the one a rule
 	// allows; what reaches these routes is refused, as AWS refuses it.
 	for _, path := range []string{"", "/"} {
 		bucketRouter.HandleFunc(path, refusePreflight).Methods("OPTIONS").Name("PreflightRequest")
 	}
 	objectRouter.HandleFunc("", refusePreflight).Methods("OPTIONS").Name("PreflightRequest")
+}
+
+// hasQuery reports whether a request has a query: every route grouped behind
+// it needs a query parameter.
+func hasQuery(r *http.Request, _ *mux.RouteMatch) bool {
+	return r.URL.RawQuery != ""
 }
 
 // refusePreflight answers a preflight no CORS rule of the bucket allows, with

@@ -251,12 +251,27 @@ func (am *authManager) resolvePolicySet(ctx context.Context, userID string, role
 	return am.buildPolicySet(userID, roles)
 }
 
-// ResolvePolicySet resolves a user's complete permissions.
+// ResolvePolicySet resolves a user's complete permissions: a set of the
+// caller's own, from the cache while the auth tables are as they were read.
 func (am *authManager) ResolvePolicySet(ctx context.Context, user *User) (*PolicySet, error) {
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
-	return am.buildPolicySetFor(user.ID, user.Roles, user.TenantID)
+	generation, cached := am.authGeneration(ctx)
+	key := policySetKey(user)
+	if cached {
+		if set, ok := am.cache.set(generation, key); ok {
+			return set.copy(), nil
+		}
+	}
+	set, err := am.buildPolicySetFor(user.ID, user.Roles, user.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if cached {
+		am.cache.keepSet(generation, key, set.copy())
+	}
+	return set, nil
 }
 
 // buildPolicySet resolves both views for a caller holding only an identifier,

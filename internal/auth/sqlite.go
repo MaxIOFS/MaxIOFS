@@ -682,6 +682,18 @@ func (s *SQLiteStore) CreateAccessKey(key *AccessKey) error {
 	return tx.Commit()
 }
 
+// AuthGeneration is the count of changes to the auth tables, which triggers
+// keep in auth_generation.
+func (s *SQLiteStore) AuthGeneration() (int64, error) {
+	stmt, err := s.prepared(`SELECT n FROM auth_generation WHERE id = 1`)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = stmt.QueryRow().Scan(&n)
+	return n, err
+}
+
 // GetAccessKey retrieves an access key by ID
 func (s *SQLiteStore) GetAccessKey(accessKeyID string) (*AccessKey, error) {
 	var key AccessKey

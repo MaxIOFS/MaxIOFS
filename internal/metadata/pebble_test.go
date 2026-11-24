@@ -181,3 +181,36 @@ func TestPebbleStoreDeleteBucketIfEmptyRejectsLateObjectWrite(t *testing.T) {
 		ContentType: "text/plain",
 	}))
 }
+
+// A bucket is found by its name in whatever tenant it is, after it moved to
+// another; a name that ends another's is not taken for it.
+func TestABucketIsFoundByNameWhereverItIs(t *testing.T) {
+	store, cleanup := setupPebbleTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	create := func(tenantID, name string) {
+		t.Helper()
+		require.NoError(t, store.CreateBucket(ctx, &BucketMetadata{Name: name, TenantID: tenantID, OwnerID: "u", OwnerType: "user"}))
+	}
+	create("tenant-a", "ab")
+	create("tenant-a", "b")
+
+	for range 2 {
+		got, err := store.GetBucketByName(ctx, "b")
+		require.NoError(t, err)
+		assert.Equal(t, "b", got.Name)
+		assert.Equal(t, "tenant-a", got.TenantID)
+	}
+
+	require.NoError(t, store.DeleteBucket(ctx, "tenant-a", "b"))
+	_, err := store.GetBucketByName(ctx, "b")
+	assert.ErrorIs(t, err, ErrBucketNotFound)
+
+	create("tenant-b", "b")
+	got, err := store.GetBucketByName(ctx, "b")
+	require.NoError(t, err)
+	assert.Equal(t, "tenant-b", got.TenantID)
+	got, err = store.GetBucketByName(ctx, "ab")
+	require.NoError(t, err)
+	assert.Equal(t, "tenant-a", got.TenantID)
+}

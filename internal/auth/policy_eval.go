@@ -4,7 +4,46 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
+
+// parsedDocuments keeps each policy document parsed once, by its text: every
+// request evaluates the same few. What it gives is shared and never changed.
+// Full, it is emptied.
+var parsedDocuments = struct {
+	sync.RWMutex
+	docs map[string]*parsedDocument
+}{docs: make(map[string]*parsedDocument)}
+
+const maxParsedDocuments = 4096
+
+type parsedDocument struct {
+	policy *Policy // the document read as JSON; nil when it is not JSON
+	valid  error   // what ParseIAMPolicy says of it, at the managed policy budget
+}
+
+// parsed is raw parsed, from parsedDocuments when it was parsed before.
+func parsed(raw string) *parsedDocument {
+	parsedDocuments.RLock()
+	d, ok := parsedDocuments.docs[raw]
+	parsedDocuments.RUnlock()
+	if ok {
+		return d
+	}
+	d = &parsedDocument{}
+	var policy Policy
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &policy) == nil {
+		d.policy = &policy
+	}
+	_, d.valid = ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
+	parsedDocuments.Lock()
+	if len(parsedDocuments.docs) >= maxParsedDocuments {
+		clear(parsedDocuments.docs)
+	}
+	parsedDocuments.docs[raw] = d
+	parsedDocuments.Unlock()
+	return d
+}
 
 // ParseIAMPolicy validates a policy document and returns its parsed form.
 func ParseIAMPolicy(raw string, maxBytes int) (*Policy, error) {
@@ -61,11 +100,11 @@ func EvaluateIAMDocuments(documents []string, action, resource string) bool {
 func namesOnEveryResource(documents []string, action string) bool {
 	named := false
 	for _, raw := range documents {
-		policy, err := ParseIAMPolicy(raw, IAMMaxManagedPolicyBytes)
-		if err != nil {
+		d := parsed(raw)
+		if d.valid != nil {
 			return false // A document that cannot be read denies.
 		}
-		for _, st := range policy.Statement {
+		for _, st := range d.policy.Statement {
 			if !stsResourceMatches(st.Resource, "*") {
 				continue
 			}
@@ -93,11 +132,11 @@ func evaluateIAMDocuments(documents []string, action, resource string) (allowed,
 		return false, true
 	}
 	for _, raw := range documents {
-		var policy Policy
-		if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &policy); err != nil {
+		d := parsed(raw)
+		if d.policy == nil {
 			return false, true
 		}
-		for _, st := range policy.Statement {
+		for _, st := range d.policy.Statement {
 			if !stsActionMatches(st.Action, action) || !stsResourceMatches(st.Resource, resource) {
 				continue
 			}

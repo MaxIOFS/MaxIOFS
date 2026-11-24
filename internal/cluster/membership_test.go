@@ -322,3 +322,20 @@ func TestTheDegradedReasonSaysWhatHappensToWrites(t *testing.T) {
 		}
 	}
 }
+
+// The S3 gate reads whether this node is out of service at most once a second,
+// and the end of its own drain shows at once.
+func TestTheEndOfTheLocalDrainShowsAtOnce(t *testing.T) {
+	db := setupDeadNodeReconcilerDB(t)
+	enableCluster(t, db)
+	insertNode(t, db, "local-node", "local", HealthStatusHealthy, nil)
+	_, err := db.Exec(`UPDATE cluster_nodes SET drained = 1 WHERE id = 'local-node'`)
+	require.NoError(t, err)
+	mgr := newTestManager(t, db)
+	ctx := context.Background()
+
+	require.False(t, mgr.OutOfService(ctx), "drained, not yet empty")
+	require.NoError(t, mgr.setLocalDrainDone(ctx))
+	assert.True(t, mgr.OutOfService(ctx))
+	assert.True(t, mgr.LocalDrainDone(ctx))
+}

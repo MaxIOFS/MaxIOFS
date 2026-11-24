@@ -70,7 +70,7 @@ func TestMigrationManager_GetTargetVersion(t *testing.T) {
 
 	targetVersion := manager.GetTargetVersion()
 	assert.Greater(t, targetVersion, 0)
-	assert.Equal(t, 23, targetVersion)
+	assert.Equal(t, 24, targetVersion)
 }
 
 func TestMigrationManager_Migrate_EmptyDB(t *testing.T) {

@@ -66,6 +66,33 @@ func TestInsertDefaultsRefreshesDescriptionKeepsValue(t *testing.T) {
 	assert.Equal(t, int64(12345), updatedAt)
 }
 
+// Get keeps what it read; a write through the manager shows at once, and one
+// made to the database directly shows after Forget.
+func TestAKeptValueGivesWayToAWrite(t *testing.T) {
+	db, _ := setupTestDB(t)
+	defer db.Close()
+	manager, err := NewManager(db, logrus.New())
+	require.NoError(t, err)
+	const key = "security.ratelimit_api_per_second"
+	read := func() string {
+		t.Helper()
+		value, err := manager.Get(key)
+		require.NoError(t, err)
+		return value
+	}
+	require.Equal(t, "1000", read())
+
+	require.NoError(t, manager.Set(key, "50"))
+	assert.Equal(t, "50", read())
+	require.NoError(t, manager.BulkUpdate(map[string]string{key: "60"}))
+	assert.Equal(t, "60", read())
+
+	_, err = db.Exec(`UPDATE system_settings SET value = '70' WHERE key = ?`, key)
+	require.NoError(t, err)
+	manager.Forget()
+	assert.Equal(t, "70", read())
+}
+
 func TestGet(t *testing.T) {
 	db, _ := setupTestDB(t)
 	defer db.Close()
