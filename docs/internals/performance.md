@@ -2,7 +2,24 @@
 
 ## Performance Summary
 
-MaxIOFS demonstrates excellent performance on Linux production environments with sub-10ms latencies for all S3 operations under heavy concurrent load.
+One node on a virtual machine: 16 vCPU (Xeon E5-2699 v4), 62 GB RAM, SSD by Fibre Channel, encryption at rest on. No errors.
+
+| Load | Clients | Rate | p50 | p99 |
+|------|---------|------|-----|-----|
+| GET 4 KiB | 128 | 5,255 req/s | 20 ms | 84 ms |
+| HEAD | 128 | 6,247 req/s | 17 ms | 73 ms |
+| GET 1 MiB | 64 | 1,115 MiB/s | 54 ms | 145 ms |
+| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 456 ms |
+| PUT 64 KB, Object Lock | 64 | 667 req/s | 54 ms | 365 ms |
+| PUT 4 MB, Object Lock | 64 | 594 MB/s | 362 ms | 724 ms |
+
+Reads are bound by CPU, not the disk: a physical server or faster cores raise them. Reads: [November 24, 2026](#reads-november-24-2026). Writes: [November 6, 2026](#veeam-shaped-validation-november-6-2026).
+
+---
+
+## Earlier K6 Run
+
+An earlier version on a physical server: Debian, 80 CPU cores, 125 GB RAM, SSD/NVMe. K6, 100 virtual users, 100,000+ operations, no error.
 
 | Operation | p50 | p95 | p99 | Throughput |
 |-----------|-----|-----|-----|------------|
@@ -10,21 +27,6 @@ MaxIOFS demonstrates excellent performance on Linux production environments with
 | **Download** | 3 ms | 7–13 ms | 10–23 ms | 172 MB/s |
 | **List** | 13 ms | 28 ms | 34 ms | — |
 | **Delete** | 4 ms | 7 ms | 9 ms | — |
-
-> Baseline: Debian Linux, 80 CPU cores, 125GB RAM, SSD/NVMe. Tested with K6 load testing (100,000+ operations, 100 concurrent VUs, 100% success rate).
-
----
-
-## Test Environments
-
-### Linux (Production Reference)
-
-```
-Platform:  Debian 6.1 (kernel 6.1.0-41-amd64)
-CPU:       80 cores
-Memory:    125 GB
-Disk:      SSD/NVMe
-```
 
 ### Windows (Development Only)
 
@@ -82,7 +84,7 @@ sum(increase(maxiofs_http_requests_total{status!~"5.."}[30d]))
 
 | Target | Measurement | Baseline |
 |--------|-------------|----------|
-| **> 1,000 req/s** sustained | Rolling 5-minute window | 1,500–2,000 req/s achieved |
+| **> 1,000 req/s** sustained | Rolling 5-minute window | 5,255 GET/s on one node ([Reads](#reads-november-24-2026)) |
 
 ### 5. Error Rate
 
@@ -242,7 +244,7 @@ For 10 such buckets:
 
 ## Veeam-Shaped Validation, November 6, 2026
 
-One standalone node: Debian 13, 16 vCPU Xeon E5-2699 v4, 62 GB RAM, ext4 on LVM over a Unity SSD pool by FC. One Object Lock bucket, COMPLIANCE retention on every object, encryption at rest, 64 connections, one access key at the default limit of 1,000 requests/s. The disk alone: 890 MB/s write, 1,576 MB/s read, 559 fsync/s.
+One standalone node, a virtual machine: Debian 13, 16 vCPU Xeon E5-2699 v4, 62 GB RAM, ext4 on LVM over a Unity SSD pool by FC. One Object Lock bucket, COMPLIANCE retention on every object, encryption at rest, 64 connections, one access key at the default limit of 1,000 requests/s. The disk alone: 890 MB/s write, 1,576 MB/s read, 559 fsync/s.
 
 | Load | Objects | Rate | PUT p50 | PUT p99 | Errors |
 |------|---------|------|---------|---------|--------|
@@ -273,6 +275,28 @@ A real Veeam Backup & Replication 13 over HTTPS, immutability on, to a new Objec
 | Immutability | every data block under COMPLIANCE, the date Veeam asked |
 | Bucket counters | bytes and objects equal to the listing and the disk |
 | Integrity scan, whole bucket | 1,047,851 versions read back, none corrupted, 2 h 34 min |
+
+---
+
+## Reads, November 24, 2026
+
+The same virtual machine, a fresh instance: encryption at rest on, no API rate limit, HTTP on loopback. `warp` ran on the same machine, using 2 to 3 cores. Each run reads the objects it uploaded first, from the page cache. 30 seconds a run, no errors.
+
+| Load | Clients | Rate | p50 | p90 | p99 | Server CPU |
+|------|---------|------|-----|-----|-----|------------|
+| GET 4 KiB | 32 | 5,038 req/s | 6.1 ms | 11.5 ms | 29 ms | 11 cores |
+| GET 4 KiB | 64 | 5,192 req/s | 12.1 ms | 26.8 ms | 47 ms | 11 cores |
+| GET 4 KiB | 128 | 5,255 req/s | 20.3 ms | 50.4 ms | 84 ms | 11 cores |
+| GET 4 KiB | 256 | 5,345 req/s | 41.6 ms | 129.5 ms | 221 ms | 11 cores |
+| HEAD | 128 | 6,247 req/s | 17.0 ms | 43.2 ms | 73 ms | 10.6 cores |
+| GET 64 KiB | 128 | 4,592 req/s, 287 MiB/s | 23.1 ms | 59.2 ms | 107 ms | 11 cores |
+| GET 1 MiB | 64 | 1,115 MiB/s | 53.8 ms | 97.2 ms | 145 ms | 9 cores |
+| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 404 ms | 456 ms | 8.5 cores |
+
+- The ceiling is the CPU, about 2 ms of it a request: more clients only queue.
+- HEAD is 19% faster than a GET of 4 KiB: the cost is the request (signature, permissions, metadata), not the data.
+- At the default limit of 1,000 requests/s per access key, one key gets `SlowDown` above it. The limit is per key, not per server.
+- Objects not in the page cache are read from the disk: small ones then depend on its IOPS.
 
 ---
 

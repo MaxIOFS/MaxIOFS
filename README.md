@@ -375,13 +375,18 @@ The full help, with screenshots of every console page, is at
 
 ## Performance
 
-Measured with `warp`, the S3 benchmarking tool, on a single node (commodity hardware):
+One node on a virtual machine: 16 vCPU (Xeon E5-2699 v4), 62 GB RAM, SSD by Fibre Channel, encryption at rest on. Reads measured with `warp`, writes with Object Lock as Veeam writes them. No errors.
 
-| Operation | p95 latency | Concurrency |
-|-----------|-------------|-------------|
-| PUT | < 10 ms | 50 clients |
-| GET | < 13 ms | 100 clients |
-| Success rate | > 99.99% | mixed load |
+| Load | Clients | Rate | p50 | p99 |
+|------|---------|------|-----|-----|
+| GET 4 KiB | 128 | 5,255 req/s | 20 ms | 84 ms |
+| HEAD | 128 | 6,247 req/s | 17 ms | 73 ms |
+| GET 1 MiB | 64 | 1,115 MiB/s | 54 ms | 145 ms |
+| GET 16 MiB | 32 | 1,468 MiB/s | 344 ms | 456 ms |
+| PUT 64 KB, Object Lock | 64 | 667 req/s | 54 ms | 365 ms |
+| PUT 4 MB, Object Lock | 64 | 594 MB/s | 362 ms | 724 ms |
+
+Reads are bound by CPU, not the disk: a physical server or faster cores raise them. Details in [Performance](https://docs.maxiofs.com/internals/performance/).
 
 ---
 
