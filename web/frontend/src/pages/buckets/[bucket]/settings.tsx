@@ -718,6 +718,23 @@ export default function BucketSettingsPage() {
   const quotaFormObjects = quotaEnabled && quotaMaxObjects ? Math.max(0, parseInt(quotaMaxObjects, 10) || 0) : 0;
   const quotaDirty = quotaFormSize !== quotaBaselineSize || quotaFormObjects !== quotaBaselineObjects;
 
+  // Object Ownership: BucketOwnerEnforced turns the bucket's ACLs off, as in AWS.
+  const { data: objectOwnership } = useQuery({
+    queryKey: ['bucketOwnership', bucketName, tenantId],
+    queryFn: () => APIClient.getBucketOwnership(bucketName, tenantId),
+  });
+  const aclsDisabled = objectOwnership === 'BucketOwnerEnforced';
+  const saveOwnershipMutation = useMutation({
+    mutationFn: (ownership: string) => APIClient.putBucketOwnership(bucketName, ownership, tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bucketOwnership', bucketName, tenantId] });
+      ModalManager.toast('success', t('acl.ownershipSaved'));
+    },
+    onError: (error: Error) => {
+      ModalManager.apiError(error);
+    },
+  });
+
   // ACL mutations
   const saveACLMutation = useMutation({
     mutationFn: (cannedACL: string) => APIClient.putBucketACL(bucketName, '', cannedACL, tenantId),
@@ -1654,6 +1671,25 @@ export default function BucketSettingsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
+                  <p className="font-medium">{t('acl.ownershipTitle')}</p>
+                  <p className="text-sm text-gray-500">
+                    {aclsDisabled ? t('acl.ownershipDisabledDesc') : t('acl.ownershipEnabledDesc')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => saveOwnershipMutation.mutate(aclsDisabled ? 'ObjectWriter' : 'BucketOwnerEnforced')}
+                    disabled={isGlobalAdminInTenantBucket || saveOwnershipMutation.isPending}
+                    title={isGlobalAdminInTenantBucket ? t('globalAdminReadOnly') : undefined}
+                  >
+                    {aclsDisabled ? t('acl.enableAcls') : t('acl.disableAcls')}
+                  </Button>
+                </div>
+              </div>
+              {!aclsDisabled && (
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
                   <p className="font-medium">{t('acl.sectionTitle')}</p>
                   <p className="text-sm text-gray-500">
                     {t('acl.description')}
@@ -1691,6 +1727,7 @@ export default function BucketSettingsPage() {
                   </Button>
                 </div>
               </div>
+              )}
             </div>
           </div>
         </div>

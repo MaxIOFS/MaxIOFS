@@ -247,6 +247,7 @@ type RetentionMetadata struct {
 type PolicyMetadata struct {
 	Version   string            `json:"version"`
 	Statement []PolicyStatement `json:"statement"`
+	Text      string            `json:"text,omitempty"`
 }
 
 // PolicyStatement represents a single policy statement

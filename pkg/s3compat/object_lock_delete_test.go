@@ -138,6 +138,12 @@ func TestRetentionNeedsObjectLockOnTheBucket(t *testing.T) {
 		env.router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code, path)
 		assert.True(t, strings.Contains(w.Body.String(), "Object Lock"), w.Body.String())
+
+		// Reading one is refused the same way, as AWS refuses it.
+		req, w = env.makeS3Request("GET", path, nil)
+		env.router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "GET "+path)
+		assert.Contains(t, w.Body.String(), "<Code>InvalidRequest</Code>", "GET "+path)
 	}
 }
 

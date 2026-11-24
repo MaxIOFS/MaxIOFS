@@ -56,7 +56,7 @@ type MultipartUpload struct {
 
 type Initiator struct {
 	ID          string `xml:"ID"`
-	DisplayName string `xml:"DisplayName"`
+	DisplayName string `xml:"DisplayName,omitempty"`
 }
 
 type ListPartsResult struct {
@@ -213,6 +213,10 @@ func (h *Handler) ListMultipartUploads(w http.ResponseWriter, r *http.Request) {
 
 	filteredUploads, commonPrefixes, isTruncated, nextKeyMarker, nextUploadIdMarker :=
 		paginateMultipartUploads(uploads, prefix, delimiter, keyMarker, uploadIdMarker, maxUploads)
+	owner := h.bucketOwner(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
+	for i := range filteredUploads {
+		filteredUploads[i].Initiator, filteredUploads[i].Owner = Initiator{ID: owner.ID}, owner
+	}
 
 	result := ListMultipartUploadsResult{
 		Bucket:             bucketName,
@@ -412,19 +416,14 @@ func (h *Handler) ListParts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filteredParts, isTruncated, nextPartNumberMarker := paginateMultipartParts(parts, partNumberMarker, maxParts)
+	owner := h.bucketOwner(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
 
 	result := ListPartsResult{
-		Bucket:   bucketName,
-		Key:      objectKey,
-		UploadId: uploadID,
-		Initiator: Initiator{
-			ID:          "maxiofs",
-			DisplayName: "MaxIOFS",
-		},
-		Owner: Owner{
-			ID:          "maxiofs",
-			DisplayName: "MaxIOFS",
-		},
+		Bucket:               bucketName,
+		Key:                  objectKey,
+		UploadId:             uploadID,
+		Initiator:            Initiator{ID: owner.ID},
+		Owner:                owner,
 		StorageClass:         uploadStorageClass,
 		PartNumberMarker:     partNumberMarker,
 		NextPartNumberMarker: nextPartNumberMarker,
@@ -472,16 +471,8 @@ func paginateMultipartUploads(uploads []object.MultipartUpload, prefix, delimite
 			commonPrefixes = append(commonPrefixes, CommonPrefix{Prefix: item.commonPrefix})
 		} else if item.upload != nil {
 			filteredUploads = append(filteredUploads, MultipartUpload{
-				Key:      item.upload.Key,
-				UploadId: item.upload.UploadID,
-				Initiator: Initiator{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
-				Owner: Owner{
-					ID:          "maxiofs",
-					DisplayName: "MaxIOFS",
-				},
+				Key:          item.upload.Key,
+				UploadId:     item.upload.UploadID,
 				StorageClass: storageClassOrStandard(item.upload.StorageClass),
 				Initiated:    item.upload.Initiated,
 			})
@@ -1031,6 +1022,10 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	if copySourceRange != "" {
 		// Format: "bytes=start-end"
 		rangeStart, rangeEnd, err := parseCopySourceRange(copySourceRange, sourceObj.Size)
+		if errors.Is(err, errCopyRangeNotSatisfiable) {
+			h.writeError(w, "InvalidRange", "The requested range is not satisfiable", uploadID, r)
+			return
+		}
 		if err != nil {
 			h.writeError(w, "InvalidArgument", fmt.Sprintf("Invalid copy source range: %v", err), uploadID, r)
 			return
@@ -1102,6 +1097,9 @@ func (h *Handler) UploadPartCopy(w http.ResponseWriter, r *http.Request, uploadI
 	h.writeXMLResponse(w, http.StatusOK, result)
 }
 
+// errCopyRangeNotSatisfiable is a copy range past the end of its source.
+var errCopyRangeNotSatisfiable = errors.New("copy range not satisfiable")
+
 // parseCopySourceRange parses S3 copy-source-range header
 // Format: "bytes=start-end"
 func parseCopySourceRange(rangeHeader string, objectSize int64) (int64, int64, error) {
@@ -1127,8 +1125,11 @@ func parseCopySourceRange(rangeHeader string, objectSize int64) (int64, int64, e
 		return 0, 0, fmt.Errorf("invalid range end: %w", err)
 	}
 
-	if start < 0 || end < start || end >= objectSize {
+	if start < 0 || end < start {
 		return 0, 0, fmt.Errorf("range out of bounds (start=%d, end=%d, size=%d)", start, end, objectSize)
+	}
+	if end >= objectSize {
+		return 0, 0, errCopyRangeNotSatisfiable
 	}
 
 	return start, end, nil

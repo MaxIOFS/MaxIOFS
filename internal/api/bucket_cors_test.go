@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/sirupsen/logrus"
@@ -33,7 +34,7 @@ func TestBucketCORSAnswersABrowserForATenantsBucket(t *testing.T) {
 	h := NewHandler(mockBucket, new(MockObjectManager), new(MockAuthManager), mockMetrics, store, nil,
 		"http://localhost:8080", "http://localhost:8081", ":8081", dir, nil)
 	mockBucket.On("GetCORS", mock.Anything, "t1", "web").Return(&bucket.CORSConfig{CORSRules: []bucket.CORSRule{
-		{AllowedOrigins: []string{"https://app.example"}, AllowedMethods: []string{"GET", "PUT"}},
+		{AllowedOrigins: []string{"https://app.example"}, AllowedMethods: []string{"GET", "PUT"}, AllowedHeaders: []string{"x-amz-*", "Content-Type"}},
 		{AllowedOrigins: []string{"https://*.example.org"}, AllowedMethods: []string{"GET"}},
 		{AllowedOrigins: []string{"start*end"}, AllowedMethods: []string{"GET"}},
 	}}, nil)
@@ -59,4 +60,44 @@ func TestBucketCORSAnswersABrowserForATenantsBucket(t *testing.T) {
 	assert.Equal(t, "startXend", allowed(http.MethodGet, "startXend", ""))
 	assert.Empty(t, allowed(http.MethodGet, "https://evil.example", ""))
 	assert.Empty(t, allowed(http.MethodOptions, "https://a.example.org", "PUT"), "a method its rule does not allow")
+
+	// A preflight's headers are allowed by the rule, without case, and named back.
+	preflight := func(headers string) http.Header {
+		r := httptest.NewRequest(http.MethodOptions, "/web/page.html", nil)
+		r.Header.Set("Origin", "https://app.example")
+		r.Header.Set("Access-Control-Request-Method", "PUT")
+		r.Header.Set("Access-Control-Request-Headers", headers)
+		w := httptest.NewRecorder()
+		mw.ServeHTTP(w, r)
+		return w.Header()
+	}
+	got := preflight("X-Amz-Date, content-type")
+	assert.Equal(t, "https://app.example", got.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "x-amz-date, content-type", got.Get("Access-Control-Allow-Headers"))
+	assert.Empty(t, preflight("authorization").Get("Access-Control-Allow-Origin"), "a header no rule allows")
+}
+
+// A preflight no rule allows is refused as AWS refuses it: 403, and 400 when it
+// names no origin or no method.
+func TestAPreflightNoRuleAllowsIsRefused(t *testing.T) {
+	h, _, _, _ := setupTestHandler()
+	router := mux.NewRouter()
+	h.RegisterRoutes(router)
+	send := func(origin, method string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodOptions, "/web/page.html", nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if method != "" {
+			r.Header.Set("Access-Control-Request-Method", method)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	w := send("https://app.example", "PUT")
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "<Code>AccessForbidden</Code>")
+	assert.Equal(t, http.StatusBadRequest, send("", "PUT").Code)
+	assert.Equal(t, http.StatusBadRequest, send("https://app.example", "").Code)
 }

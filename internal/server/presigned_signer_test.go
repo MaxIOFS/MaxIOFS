@@ -66,7 +66,8 @@ func TestAPublicWriteGrantDoesNotRemoveAVersion(t *testing.T) {
 	c := sdkClient(t, s)
 	ctx := context.Background()
 	bucket := aws.String("open")
-	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: bucket})
+	// Created with its ACLs on, as AWS takes a public grant.
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: bucket, ObjectOwnership: types.ObjectOwnershipObjectWriter})
 	require.NoError(t, err)
 	_, err = c.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{Bucket: bucket,
 		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled}})

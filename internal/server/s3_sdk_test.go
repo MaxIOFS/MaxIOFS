@@ -48,6 +48,221 @@ func sdkClient(t *testing.T, s *Server) *s3.Client {
 	})
 }
 
+// A browser's preflight reaches the bucket's CORS rules through every
+// middleware of the S3 API: the origin they allow is named back, another is
+// refused and named nothing.
+func TestABrowsersPreflightIsAnsweredByTheBucketsCORS(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("web")})
+	require.NoError(t, err)
+	_, err = c.PutBucketCors(ctx, &s3.PutBucketCorsInput{Bucket: aws.String("web"), CORSConfiguration: &types.CORSConfiguration{
+		CORSRules: []types.CORSRule{{AllowedOrigins: []string{"https://app.example"}, AllowedMethods: []string{"PUT", "GET"}, AllowedHeaders: []string{"*"}}},
+	}})
+	require.NoError(t, err)
+	api := httptest.NewServer(s.httpServer.Handler)
+	defer api.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	preflight := func(origin string) *http.Response {
+		req, _ := http.NewRequest(http.MethodOptions, api.URL+"/web/upload.bin", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "PUT")
+		req.Header.Set("Access-Control-Request-Headers", "authorization, x-amz-date")
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		return resp
+	}
+
+	ok := preflight("https://app.example")
+	assert.Equal(t, http.StatusOK, ok.StatusCode)
+	assert.Equal(t, "https://app.example", ok.Header.Get("Access-Control-Allow-Origin"))
+	assert.Contains(t, ok.Header.Get("Access-Control-Allow-Methods"), "PUT")
+	assert.Equal(t, "authorization, x-amz-date", ok.Header.Get("Access-Control-Allow-Headers"))
+
+	other := preflight("https://evil.example")
+	assert.Equal(t, http.StatusForbidden, other.StatusCode)
+	assert.Empty(t, other.Header.Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, other.Header.Get("Access-Control-Allow-Methods"), "nothing is named to another origin")
+}
+
+// Object Ownership as AWS has it: a new bucket has its ACLs off, which refuses
+// any ACL but the owner's and lets no ACL decide access; a bucket created with
+// them on takes ACLs; a bucket without a setting keeps them.
+func TestObjectOwnershipTurnsACLsOffAsAWSDoes(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	codeOf := func(err error) string {
+		t.Helper()
+		var apiErr interface{ ErrorCode() string }
+		require.ErrorAs(t, err, &apiErr)
+		return apiErr.ErrorCode()
+	}
+
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("enforced")})
+	require.NoError(t, err)
+	got, err := c.GetBucketOwnershipControls(ctx, &s3.GetBucketOwnershipControlsInput{Bucket: aws.String("enforced")})
+	require.NoError(t, err)
+	assert.Equal(t, types.ObjectOwnershipBucketOwnerEnforced, got.OwnershipControls.Rules[0].ObjectOwnership, "a new bucket")
+	_, err = c.PutBucketAcl(ctx, &s3.PutBucketAclInput{Bucket: aws.String("enforced"), ACL: types.BucketCannedACLPublicRead})
+	assert.Equal(t, "AccessControlListNotSupported", codeOf(err))
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("enforced"), Key: aws.String("k"), Body: strings.NewReader("x"), ACL: types.ObjectCannedACLPublicRead})
+	assert.Equal(t, "AccessControlListNotSupported", codeOf(err))
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("enforced"), Key: aws.String("k"), Body: strings.NewReader("x"), ACL: types.ObjectCannedACLBucketOwnerFullControl})
+	require.NoError(t, err, "the owner's ACL is taken")
+	_, err = c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("enforced-public"), ACL: types.BucketCannedACLPublicRead})
+	assert.Equal(t, "InvalidBucketAclWithObjectOwnership", codeOf(err))
+
+	// Created with ACLs on, its objects can be public, until the ACLs are off.
+	_, err = c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("writer"), ObjectOwnership: types.ObjectOwnershipObjectWriter})
+	require.NoError(t, err)
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("writer"), Key: aws.String("k"), Body: strings.NewReader("x"), ACL: types.ObjectCannedACLPublicRead})
+	require.NoError(t, err)
+	api := httptest.NewServer(s.httpServer.Handler)
+	defer api.Close()
+	anonymous := func() int {
+		resp, err := http.Get(api.URL + "/writer/k")
+		require.NoError(t, err)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	assert.Equal(t, http.StatusOK, anonymous(), "a public object, ACLs on")
+	_, err = c.PutBucketOwnershipControls(ctx, &s3.PutBucketOwnershipControlsInput{Bucket: aws.String("writer"),
+		OwnershipControls: &types.OwnershipControls{Rules: []types.OwnershipControlsRule{{ObjectOwnership: types.ObjectOwnershipBucketOwnerEnforced}}}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, anonymous(), "ACLs off decide nothing")
+	acl, err := c.GetObjectAcl(ctx, &s3.GetObjectAclInput{Bucket: aws.String("writer"), Key: aws.String("k")})
+	require.NoError(t, err)
+	require.Len(t, acl.Grants, 1, "ACLs off: the owner holds everything")
+	assert.Equal(t, types.PermissionFullControl, acl.Grants[0].Permission)
+
+	// A bucket ACL granting others keeps the ACLs on; no setting answers 404.
+	_, err = c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("open"), ObjectOwnership: types.ObjectOwnershipObjectWriter, ACL: types.BucketCannedACLPublicRead})
+	require.NoError(t, err)
+	_, err = c.PutBucketOwnershipControls(ctx, &s3.PutBucketOwnershipControlsInput{Bucket: aws.String("open"),
+		OwnershipControls: &types.OwnershipControls{Rules: []types.OwnershipControlsRule{{ObjectOwnership: types.ObjectOwnershipBucketOwnerEnforced}}}})
+	assert.Equal(t, "InvalidBucketAclWithObjectOwnership", codeOf(err))
+	_, err = c.DeleteBucketOwnershipControls(ctx, &s3.DeleteBucketOwnershipControlsInput{Bucket: aws.String("open")})
+	require.NoError(t, err)
+	_, err = c.GetBucketOwnershipControls(ctx, &s3.GetBucketOwnershipControlsInput{Bucket: aws.String("open")})
+	assert.Equal(t, "OwnershipControlsNotFoundError", codeOf(err))
+}
+
+// A request without credentials about a bucket that exists in no tenant is
+// told so (404 NoSuchBucket), as AWS tells it; one about a bucket that exists
+// is still refused, and creating a bucket too.
+func TestAnAnonymousRequestToABucketThatDoesNotExist(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("closed")})
+	require.NoError(t, err)
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("closed"), Key: aws.String("k"), Body: strings.NewReader("x")})
+	require.NoError(t, err)
+	api := httptest.NewServer(s.httpServer.Handler)
+	defer api.Close()
+	send := func(method, path string) (int, string) {
+		req, _ := http.NewRequest(method, api.URL+path, nil)
+		req.Header.Set("User-Agent", "aws-cli/2.0")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		status, body := send(method, "/no-such-bucket/k")
+		assert.Equal(t, http.StatusNotFound, status, method)
+		assert.Contains(t, body, "<Code>NoSuchBucket</Code>", method)
+	}
+	status, _ := send(http.MethodGet, "/closed/k")
+	assert.Equal(t, http.StatusForbidden, status, "a bucket that exists, private")
+	status, _ = send(http.MethodPut, "/no-such-bucket")
+	assert.Equal(t, http.StatusForbidden, status, "creating a bucket without credentials")
+}
+
+// x-amz-expected-bucket-owner refuses a request on a bucket of another owner
+// (403), as AWS does; the bucket's owner passes.
+func TestARequestExpectingAnotherBucketOwnerIsRefused(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("owned")})
+	require.NoError(t, err)
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("owned"), Key: aws.String("k"), Body: strings.NewReader("x")})
+	require.NoError(t, err)
+
+	_, err = c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("owned"), ExpectedBucketOwner: aws.String("sdk-admin")})
+	require.NoError(t, err, "the bucket's owner")
+	got, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("owned"), Key: aws.String("k"), ExpectedBucketOwner: aws.String("sdk-admin")})
+	assert.Equal(t, "x", readAll(t, got, err))
+
+	for what, call := range map[string]func() error{
+		"list": func() error {
+			_, err := c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("owned"), ExpectedBucketOwner: aws.String("someone-else")})
+			return err
+		},
+		"get": func() error {
+			_, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("owned"), Key: aws.String("k"), ExpectedBucketOwner: aws.String("someone-else")})
+			return err
+		},
+	} {
+		var apiErr interface{ ErrorCode() string }
+		require.ErrorAs(t, call(), &apiErr, what)
+		assert.Equal(t, "AccessDenied", apiErr.ErrorCode(), what)
+	}
+}
+
+// The policy status says whether the bucket's policy makes it public, as AWS
+// defines it; a bucket without a policy has none.
+func TestThePolicyStatusSaysWhetherTheBucketIsPublic(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("status")})
+	require.NoError(t, err)
+	_, err = c.GetBucketPolicyStatus(ctx, &s3.GetBucketPolicyStatusInput{Bucket: aws.String("status")})
+	var apiErr interface{ ErrorCode() string }
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "NoSuchBucketPolicy", apiErr.ErrorCode())
+
+	isPublic := func(policy string) bool {
+		t.Helper()
+		_, err := c.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{Bucket: aws.String("status"), Policy: aws.String(policy)})
+		require.NoError(t, err)
+		out, err := c.GetBucketPolicyStatus(ctx, &s3.GetBucketPolicyStatusInput{Bucket: aws.String("status")})
+		require.NoError(t, err)
+		return aws.ToBool(out.PolicyStatus.IsPublic)
+	}
+	assert.True(t, isPublic(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::status/*"}]}`))
+	assert.False(t, isPublic(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam:::user/sdk-admin"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::status/*"}]}`))
+}
+
+// A key that is not UTF-8 is no key, as in AWS: writing or reading it is
+// refused with InvalidURI.
+func TestAKeyThatIsNotUTF8IsRefused(t *testing.T) {
+	s := newClusterTestNode(t)
+	c := sdkClient(t, s)
+	ctx := context.Background()
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("utf8")})
+	require.NoError(t, err)
+	refused := func(err error, what string) {
+		t.Helper()
+		var apiErr interface{ ErrorCode() string }
+		require.Error(t, err, what)
+		require.ErrorAs(t, err, &apiErr, what)
+		assert.Equal(t, "InvalidURI", apiErr.ErrorCode(), what)
+	}
+	key := aws.String("bad-\xff\xfe-key")
+	_, err = c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("utf8"), Key: key, Body: strings.NewReader("x")})
+	refused(err, "PUT")
+	_, err = c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("utf8"), Key: key})
+	refused(err, "GET")
+}
+
 // readAll is the body of a read whose headers are checked too.
 func readAll(t *testing.T, out *s3.GetObjectOutput, err error) string {
 	t.Helper()
@@ -77,7 +292,11 @@ func TestAnSDKReadsARangeOfAnObjectWrittenWithAChecksum(t *testing.T) {
 	assert.Equal(t, "2345", readAll(t, got, nil))
 	got, err = c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("ranges"), Key: aws.String("k")})
 	assert.Equal(t, "0123456789abcdef", readAll(t, got, err))
-	assert.NotEmpty(t, aws.ToString(got.ChecksumCRC32), "a whole read is sent the checksum and checks it")
+	assert.Empty(t, aws.ToString(got.ChecksumCRC32), "a read that does not ask for the checksum")
+	got, err = c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String("ranges"), Key: aws.String("k"),
+		ChecksumMode: types.ChecksumModeEnabled})
+	assert.Equal(t, "0123456789abcdef", readAll(t, got, err))
+	assert.NotEmpty(t, aws.ToString(got.ChecksumCRC32), "a whole read asking for it is sent the checksum and checks it")
 }
 
 // A key is the bytes it is, as in S3: a key with an empty, a "." or a ".."

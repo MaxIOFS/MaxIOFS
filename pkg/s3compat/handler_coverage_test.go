@@ -1423,8 +1423,7 @@ func TestParseCopySourceRange_InvalidEnd(t *testing.T) {
 func TestParseCopySourceRange_OutOfBounds(t *testing.T) {
 	// End exceeds object size
 	_, _, err := parseCopySourceRange("bytes=0-1500", 1000)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "range out of bounds")
+	assert.ErrorIs(t, err, errCopyRangeNotSatisfiable)
 
 	// Start negative
 	_, _, err = parseCopySourceRange("bytes=-5-499", 1000)

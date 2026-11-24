@@ -189,6 +189,7 @@ func toMetadataPolicy(p *Policy) *metadata.PolicyMetadata {
 	return &metadata.PolicyMetadata{
 		Version:   p.Version,
 		Statement: statements,
+		Text:      p.Text,
 	}
 }
 
@@ -212,6 +213,7 @@ func fromMetadataPolicy(p *metadata.PolicyMetadata) *Policy {
 	return &Policy{
 		Version:   p.Version,
 		Statement: statements,
+		Text:      p.Text,
 	}
 }
 

@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "Zugriffssteuerungsliste (ACL)",
+    "ownershipTitle": "Objekteigentümerschaft",
+    "ownershipDisabledDesc": "ACLs sind deaktiviert: Keine wird gesetzt, keine gewährt etwas. Über den Zugriff entscheiden Berechtigungen und die Bucket-Richtlinie.",
+    "ownershipEnabledDesc": "ACLs sind aktiviert: Bucket und Objekte akzeptieren ACLs.",
+    "enableAcls": "ACLs aktivieren",
+    "disableAcls": "ACLs deaktivieren",
+    "ownershipSaved": "Objekteigentümerschaft gespeichert",
     "sectionTitle": "Bucket-Berechtigungen",
     "description": "Legt fest, was Anfragen ohne Anmeldedaten dürfen. Über Benutzer mit Anmeldedaten entscheiden ihre Berechtigungen und die Bucket-Richtlinie.",
     "currentAcl": "Aktuelle ACL: ",

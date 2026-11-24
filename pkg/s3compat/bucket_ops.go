@@ -16,6 +16,36 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// GetBucketPolicyStatus says whether the bucket's policy makes it public, as AWS
+// defines it; a bucket without a policy has no status to give.
+func (h *Handler) GetBucketPolicyStatus(w http.ResponseWriter, r *http.Request) {
+	bucketName := mux.Vars(r)["bucket"]
+	if !h.requireBucketS3Action(w, r, bucketName, auth.ActionGetBucketPolicyStatus) {
+		return
+	}
+	policy, err := h.bucketManager.GetBucketPolicy(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
+	switch {
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+		return
+	case errors.Is(err, bucket.ErrPolicyNotFound) || (err == nil && policy == nil):
+		h.writeError(w, "NoSuchBucketPolicy", "The bucket policy does not exist", bucketName, r)
+		return
+	case err != nil:
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+	type policyStatus struct {
+		XMLName  xml.Name `xml:"PolicyStatus"`
+		Xmlns    string   `xml:"xmlns,attr"`
+		IsPublic bool     `xml:"IsPublic"`
+	}
+	h.writeXMLResponse(w, http.StatusOK, policyStatus{
+		Xmlns:    "http://s3.amazonaws.com/doc/2006-03-01/",
+		IsPublic: bucket.IsPublicPolicy(policy),
+	})
+}
+
 func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -45,11 +75,13 @@ func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert policy to JSON
-	policyJSON, err := json.Marshal(policy)
-	if err != nil {
-		h.writeError(w, "InternalError", "Failed to marshal policy", bucketName, r)
-		return
+	// The policy as it was put; one put by an earlier release is written anew.
+	policyJSON := []byte(policy.Text)
+	if policy.Text == "" {
+		if policyJSON, err = json.Marshal(policy); err != nil {
+			h.writeError(w, "InternalError", "Failed to marshal policy", bucketName, r)
+			return
+		}
 	}
 
 	// Return the policy as JSON
@@ -564,6 +596,13 @@ func (h *Handler) GetBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	aclData = presentedACL(aclData, h.bucketOwner(r.Context(), tenantID, bucketName))
+	// ACLs off: what is kept grants nothing, and the owner holds everything,
+	// as AWS shows it.
+	if bucket.ACLsDisabled(r.Context(), h.bucketManager, tenantID, bucketName) {
+		aclData.Grants = []acl.Grant{ownerFullControl(aclData.Owner.ID)}
+	}
+
 	// Convert to S3 XML format
 	s3ACL := aclData.ToS3Format()
 
@@ -634,7 +673,8 @@ func (h *Handler) PutBucketACL(w http.ResponseWriter, r *http.Request) {
 		aclData = acl.FromS3Format(&s3ACL)
 	}
 
-	if !h.requirePublicACLAllowed(w, r, bucketName, bucketName, aclData.IsPublic()) {
+	if !h.requireACLAllowed(w, r, bucketName, bucketName, aclData.OwnerOnly()) ||
+		!h.requirePublicACLAllowed(w, r, bucketName, bucketName, aclData.IsPublic()) {
 		return
 	}
 
@@ -1491,8 +1531,9 @@ type ownershipControlsRuleXML struct {
 	ObjectOwnership string `xml:"ObjectOwnership"`
 }
 
-// GetOwnershipControls returns the ownership controls for the bucket.
-// If none are configured, returns BucketOwnerEnforced as the default (matches AWS behaviour for new buckets).
+// GetOwnershipControls returns the ownership controls for the bucket; a bucket
+// without them answers OwnershipControlsNotFoundError, as in AWS, and keeps its
+// ACLs.
 func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	io.Copy(io.Discard, r.Body) //nolint:errcheck
 	vars := mux.Vars(r)
@@ -1509,12 +1550,11 @@ func (h *Handler) GetOwnershipControls(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == bucket.ErrOwnershipControlsNotFound {
-			// AWS returns BucketOwnerEnforced as the default when nothing is configured
-			cfg = &bucket.OwnershipControlsConfig{ObjectOwnership: "BucketOwnerEnforced"}
-		} else {
-			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			h.writeError(w, "OwnershipControlsNotFoundError", "The bucket ownership controls were not found", bucketName, r)
 			return
 		}
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
 	}
 
 	resp := ownershipControlsXML{
@@ -1545,13 +1585,17 @@ func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ownership := xmlCfg.Rules[0].ObjectOwnership
-	switch ownership {
-	case "BucketOwnerEnforced", "BucketOwnerPreferred", "ObjectWriter":
-		// valid
-	default:
+	if !bucket.ValidObjectOwnership(ownership) {
 		h.writeError(w, "InvalidArgument",
 			"Invalid ObjectOwnership: must be BucketOwnerEnforced, BucketOwnerPreferred, or ObjectWriter",
 			bucketName, r)
+		return
+	}
+	// ACLs are turned off only on a bucket whose ACL grants nothing to others,
+	// as AWS requires.
+	if ownership == bucket.ObjectOwnershipBucketOwnerEnforced && !h.bucketACLOwnerOnly(r, tenantID, bucketName) {
+		h.writeError(w, "InvalidBucketAclWithObjectOwnership",
+			"Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting", bucketName, r)
 		return
 	}
 
@@ -1566,6 +1610,17 @@ func (h *Handler) PutOwnershipControls(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// bucketACLOwnerOnly reports whether the bucket's ACL grants nothing to anyone
+// but its owner.
+func (h *Handler) bucketACLOwnerOnly(r *http.Request, tenantID, bucketName string) bool {
+	stored, err := h.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
+	if err != nil {
+		return true
+	}
+	aclData, ok := stored.(*acl.ACL)
+	return !ok || aclData.OwnerOnly()
 }
 
 // DeleteOwnershipControls removes the ownership controls configuration from the bucket.

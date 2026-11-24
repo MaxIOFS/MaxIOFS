@@ -629,6 +629,8 @@ S3-compatible Access Control Lists for bucket and object-level permissions.
 
 Custom ACLs with grant-based permissions (READ, WRITE, READ_ACP, WRITE_ACP, FULL_CONTROL) are also supported.
 
+**Object Ownership** decides whether a bucket takes ACLs, as in AWS. A bucket created through S3 or the console has them off (`BucketOwnerEnforced`): an ACL other than `private` or `bucket-owner-full-control` is refused with `400 AccessControlListNotSupported`, ACLs kept from before decide nothing, and reading an ACL shows the owner with `FULL_CONTROL`. `ObjectWriter` or `BucketOwnerPreferred`, chosen with `x-amz-object-ownership` on `CreateBucket`, with `PutBucketOwnershipControls` or in the console, turns them on; ACLs are turned off only on a bucket whose ACL grants nothing to others. A bucket without a setting, as one created by an earlier release, takes ACLs.
+
 An object ACL belongs to the version it was set on. The next object written at the key, by overwrite, as a new version or after a delete, starts `private`.
 
 A request without credentials is decided as in AWS: the bucket policy first (a Deny refuses it, an Allow to `"*"` grants it), then the ACLs, unless the PublicAccessBlock ignores public ACLs. READ on the bucket (`public-read`) lists it; WRITE on the bucket (`public-read-write`) writes and deletes its objects. Reading an object (GET, HEAD) takes READ on that object, of the version read: its own ACL, or a bucket policy allowing `s3:GetObject` to `"*"` (the console's rule *Everyone can download*). A key that does not exist answers `404` where the bucket can be listed, `403` elsewhere. Share links and presigned URLs need neither. A signed request is decided by its IAM policies and the bucket policy; the ACL plays no part.

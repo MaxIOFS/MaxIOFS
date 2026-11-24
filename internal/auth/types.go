@@ -309,3 +309,6 @@ const (
 	ActionListMultipartUploadParts = "s3:ListMultipartUploadParts"
 	ActionAbortMultipartUpload     = "s3:AbortMultipartUpload"
 )
+
+// ActionGetBucketPolicyStatus reads whether a bucket's policy makes it public.
+const ActionGetBucketPolicyStatus = "s3:GetBucketPolicyStatus"

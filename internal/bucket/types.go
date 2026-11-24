@@ -55,6 +55,8 @@ type WebsiteRoutingRedirect struct {
 type Policy struct {
 	Version   string      `json:"Version"`
 	Statement []Statement `json:"Statement"`
+	// Text is the document as it was put, given back as it was put.
+	Text string `json:"-"`
 }
 
 // Statement represents a policy statement
@@ -232,6 +234,21 @@ type PublicAccessBlock struct {
 // Valid values: BucketOwnerEnforced (ACLs disabled), BucketOwnerPreferred, ObjectWriter.
 type OwnershipControlsConfig struct {
 	ObjectOwnership string `json:"objectOwnership"` // BucketOwnerEnforced | BucketOwnerPreferred | ObjectWriter
+}
+
+// The Object Ownership settings, as AWS names them. BucketOwnerEnforced turns a
+// bucket's ACLs off: none is set on it or its objects, and none decides access.
+// A bucket created through S3 or the console starts with it, as in AWS; one
+// without a setting keeps its ACLs.
+const (
+	ObjectOwnershipBucketOwnerEnforced  = "BucketOwnerEnforced"
+	ObjectOwnershipBucketOwnerPreferred = "BucketOwnerPreferred"
+	ObjectOwnershipObjectWriter         = "ObjectWriter"
+)
+
+// ValidObjectOwnership reports whether s is an Object Ownership setting.
+func ValidObjectOwnership(s string) bool {
+	return s == ObjectOwnershipBucketOwnerEnforced || s == ObjectOwnershipBucketOwnerPreferred || s == ObjectOwnershipObjectWriter
 }
 
 // LoggingConfig represents S3 server access logging configuration for a bucket.

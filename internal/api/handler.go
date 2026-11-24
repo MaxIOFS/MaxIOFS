@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"net"
 	"net/http"
@@ -116,6 +117,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 	// Bucket operations (support both with and without trailing slash)
 	bucketRouter := router.PathPrefix("/{bucket}").Subrouter()
+	bucketRouter.Use(h.s3Handler.RequireExpectedBucketOwner, h.s3Handler.AnswerMissingBucket)
 
 	for _, path := range []string{"", "/"} {
 		// Bucket configuration endpoints (with query parameters - must be registered first)
@@ -123,6 +125,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketVersioning).Methods("GET").Queries("versioning", "").Name("GetBucketVersioning")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketVersioning).Methods("PUT").Queries("versioning", "").Name("PutBucketVersioning")
 		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketPolicy).Methods("GET").Queries("policy", "").Name("GetBucketPolicy")
+		bucketRouter.HandleFunc(path, h.s3Handler.GetBucketPolicyStatus).Methods("GET").Queries("policyStatus", "").Name("GetBucketPolicyStatus")
 		bucketRouter.HandleFunc(path, h.s3Handler.PutBucketPolicy).Methods("PUT").Queries("policy", "").Name("PutBucketPolicy")
 		bucketRouter.HandleFunc(path, h.s3Handler.DeleteBucketPolicy).Methods("DELETE").Queries("policy", "").Name("DeleteBucketPolicy")
 
@@ -223,6 +226,7 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	bucketRouter.HandleFunc("/", h.s3Handler.HandlePresignedPost).Methods("POST").Name("PostObject")
 
 	objectRouter := bucketRouter.PathPrefix("/{object:.+}").Subrouter()
+	objectRouter.Use(h.s3Handler.RequireUTF8Key)
 
 	// Gorilla Mux matches in registration order.
 	objectRouter.HandleFunc("", h.s3Handler.CreateMultipartUpload).Methods("POST").Queries("uploads", "").Name("CreateMultipartUpload")
@@ -284,13 +288,25 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	objectRouter.HandleFunc("", h.s3Handler.PutObject).Methods("PUT").Name("PutObject")
 	objectRouter.HandleFunc("", h.s3Handler.DeleteObject).Methods("DELETE").Name("DeleteObject")
 
-	// OPTIONS for CORS preflight — BucketCORSMiddleware handles the response;
-	// these routes exist so gorilla/mux does not return 405 before middleware runs.
-	noop := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
+	// OPTIONS for CORS preflight — BucketCORSMiddleware answers the one a rule
+	// allows; what reaches these routes is refused, as AWS refuses it.
 	for _, path := range []string{"", "/"} {
-		bucketRouter.HandleFunc(path, noop).Methods("OPTIONS").Name("PreflightRequest")
+		bucketRouter.HandleFunc(path, refusePreflight).Methods("OPTIONS").Name("PreflightRequest")
 	}
-	objectRouter.HandleFunc("", noop).Methods("OPTIONS").Name("PreflightRequest")
+	objectRouter.HandleFunc("", refusePreflight).Methods("OPTIONS").Name("PreflightRequest")
+}
+
+// refusePreflight answers a preflight no CORS rule of the bucket allows, with
+// AWS's codes: 400 when it names no origin or method, 403 otherwise.
+func refusePreflight(w http.ResponseWriter, r *http.Request) {
+	status, code, message := http.StatusForbidden, "AccessForbidden",
+		"CORSResponse: This CORS request is not allowed. This is usually because the evalution of Origin, request method / Access-Control-Request-Method or Access-Control-Request-Headers are not whitelisted by the resource's CORS spec."
+	if r.Header.Get("Origin") == "" || r.Header.Get("Access-Control-Request-Method") == "" {
+		status, code, message = http.StatusBadRequest, "BadRequest", "Insufficient information. Origin request header needed."
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, "%s<Error><Code>%s</Code><Message>%s</Message></Error>", xml.Header, code, message)
 }
 
 // BucketRoutingMiddleware sends a request about a multipart upload to the node
@@ -459,17 +475,21 @@ func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// The method to check for rule matching.  For OPTIONS preflight use
-		// Access-Control-Request-Method; otherwise use the actual method.
-		requestMethod := r.Header.Get("Access-Control-Request-Method")
-		if requestMethod == "" {
-			requestMethod = r.Method
+		// A preflight names the method and the headers of the request it asks
+		// about, and a rule must allow all of them, as in AWS.
+		preflight := r.Method == http.MethodOptions
+		requestMethod := r.Method
+		var requestedHeaders []string
+		if preflight {
+			requestMethod = r.Header.Get("Access-Control-Request-Method")
+			requestedHeaders = corsRequestedHeaders(r.Header.Get("Access-Control-Request-Headers"))
 		}
 
 		var matched *bucket.CORSRule
 		for i := range corsConfig.CORSRules {
 			rule := &corsConfig.CORSRules[i]
-			if corsOriginMatches(origin, rule.AllowedOrigins) && corsMethodAllowed(requestMethod, rule.AllowedMethods) {
+			if corsOriginMatches(origin, rule.AllowedOrigins) && corsMethodAllowed(requestMethod, rule.AllowedMethods) &&
+				corsHeadersAllowed(requestedHeaders, rule.AllowedHeaders) {
 				matched = rule
 				break
 			}
@@ -484,8 +504,8 @@ func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Add("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Methods", strings.Join(matched.AllowedMethods, ", "))
-		if len(matched.AllowedHeaders) > 0 {
-			w.Header().Set("Access-Control-Allow-Headers", strings.Join(matched.AllowedHeaders, ", "))
+		if len(requestedHeaders) > 0 {
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(requestedHeaders, ", "))
 		}
 		if len(matched.ExposeHeaders) > 0 {
 			w.Header().Set("Access-Control-Expose-Headers", strings.Join(matched.ExposeHeaders, ", "))
@@ -508,17 +528,52 @@ func (h *Handler) BucketCORSMiddleware(next http.Handler) http.Handler {
 // An entry holds at most one "*", anywhere, as in AWS: "*", "https://*.example.com".
 func corsOriginMatches(origin string, allowed []string) bool {
 	for _, a := range allowed {
-		if a == origin {
-			return true
-		}
-		before, after, wildcard := strings.Cut(a, "*")
-		if wildcard && !strings.Contains(after, "*") &&
-			len(origin) >= len(before)+len(after) &&
-			strings.HasPrefix(origin, before) && strings.HasSuffix(origin, after) {
+		if wildcardMatch(a, origin) {
 			return true
 		}
 	}
 	return false
+}
+
+// wildcardMatch reports whether s is pattern, or matches it with the one "*"
+// pattern may hold anywhere.
+func wildcardMatch(pattern, s string) bool {
+	if pattern == s {
+		return true
+	}
+	before, after, wildcard := strings.Cut(pattern, "*")
+	return wildcard && !strings.Contains(after, "*") &&
+		len(s) >= len(before)+len(after) &&
+		strings.HasPrefix(s, before) && strings.HasSuffix(s, after)
+}
+
+// corsRequestedHeaders is the list of Access-Control-Request-Headers, lower case.
+func corsRequestedHeaders(value string) []string {
+	var headers []string
+	for _, h := range strings.Split(value, ",") {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			headers = append(headers, h)
+		}
+	}
+	return headers
+}
+
+// corsHeadersAllowed reports whether every requested header is allowed by an
+// entry of allowed, compared without case.
+func corsHeadersAllowed(requested, allowed []string) bool {
+	for _, h := range requested {
+		ok := false
+		for _, a := range allowed {
+			if wildcardMatch(strings.ToLower(a), h) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // corsMethodAllowed reports whether method is in the allowed list.

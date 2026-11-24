@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "アクセス制御リスト (ACL)",
+    "ownershipTitle": "オブジェクト所有権",
+    "ownershipDisabledDesc": "ACL は無効です。設定されず、何も許可しません。アクセスは権限とバケットポリシーで決まります。",
+    "ownershipEnabledDesc": "ACL は有効です。バケットとオブジェクトに ACL を設定できます。",
+    "enableAcls": "ACL を有効化",
+    "disableAcls": "ACL を無効化",
+    "ownershipSaved": "オブジェクト所有権を保存しました",
     "sectionTitle": "バケット権限",
     "description": "認証情報のないリクエストに何を許可するかを決めます。認証情報のあるユーザーは、そのユーザーの権限とバケットポリシーで決まります。",
     "currentAcl": "現在のACL: ",

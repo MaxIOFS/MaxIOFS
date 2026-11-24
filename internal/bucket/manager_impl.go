@@ -348,8 +348,13 @@ func (bm *badgerBucketManager) updateBucket(ctx context.Context, tenantID, name 
 		return fmt.Errorf("tenant ID mismatch")
 	}
 
-	// Update bucket metadata in the active metadata store.
+	// Update bucket metadata in the active metadata store. What a Bucket does
+	// not hold, its Object Ownership and its notifications, is kept.
 	metaBucket := toMetadataBucket(bucket)
+	if current, err := bm.metadataStore.GetBucket(ctx, tenantID, name); err == nil {
+		metaBucket.OwnershipControls = current.OwnershipControls
+		metaBucket.Notification = current.Notification
+	}
 	if err := bm.metadataStore.UpdateBucket(ctx, metaBucket); err != nil {
 		if err == metadata.ErrBucketNotFound {
 			return ErrBucketNotFound

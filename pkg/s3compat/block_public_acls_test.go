@@ -94,27 +94,39 @@ func TestBlockPublicAcls_PutBucketACL(t *testing.T) {
 }
 
 // The canned ACL a bucket is created with is its ACL, as in AWS, and asks
-// s3:PutBucketAcl; a bucket refused its ACL is not created.
+// s3:PutBucketAcl; only a bucket created with its ACLs on takes a public one. A
+// bucket refused its ACL is not created.
 func TestCreateBucketKeepsItsCannedACL(t *testing.T) {
 	env := setupCompleteS3Environment(t)
 	defer env.cleanup()
-	create := func(name, canned string, actions ...string) *httptest.ResponseRecorder {
+	create := func(name, canned, ownership string, actions ...string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("PUT", "/"+name, nil)
 		req.Header.Set("x-amz-acl", canned)
+		if ownership != "" {
+			req.Header.Set("x-amz-object-ownership", ownership)
+		}
 		w := httptest.NewRecorder()
 		env.handler.CreateBucket(w, env.asUserWith(req, name, "", actions...))
 		return w
 	}
+	all := []string{"s3:CreateBucket", "s3:PutBucketAcl", "s3:PutBucketOwnershipControls"}
 
-	w := create("canned-public", "public-read", "s3:CreateBucket", "s3:PutBucketAcl")
+	w := create("canned-public", "public-read", "ObjectWriter", all...)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.True(t, env.bucketACLIsPublic(t, "canned-public"), "public-read on creation")
+	assert.True(t, env.bucketACLIsPublic(t, "canned-public"), "public-read on creation, ACLs on")
 
-	assert.Equal(t, http.StatusForbidden, create("canned-denied", "public-read", "s3:CreateBucket").Code,
+	w = create("canned-enforced", "public-read", "", all...)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "ACLs off by default")
+	assert.Contains(t, w.Body.String(), "InvalidBucketAclWithObjectOwnership")
+	assert.Equal(t, http.StatusOK, create("canned-private", "private", "", all...).Code, "the owner's ACL, ACLs off")
+
+	assert.Equal(t, http.StatusForbidden, create("canned-denied", "public-read", "ObjectWriter", "s3:CreateBucket", "s3:PutBucketOwnershipControls").Code,
 		"an ACL without s3:PutBucketAcl")
-	assert.Equal(t, http.StatusBadRequest, create("canned-invalid", "everyone", "s3:CreateBucket", "s3:PutBucketAcl").Code,
+	assert.Equal(t, http.StatusForbidden, create("ownership-denied", "", "ObjectWriter", "s3:CreateBucket").Code,
+		"an Object Ownership without s3:PutBucketOwnershipControls")
+	assert.Equal(t, http.StatusBadRequest, create("canned-invalid", "everyone", "", all...).Code,
 		"a value that is no canned ACL")
-	for _, name := range []string{"canned-denied", "canned-invalid"} {
+	for _, name := range []string{"canned-enforced", "canned-denied", "ownership-denied", "canned-invalid"} {
 		_, err := env.bucketManager.GetBucketInfo(context.Background(), env.tenantID, name)
 		assert.ErrorIs(t, err, bucket.ErrBucketNotFound, name)
 	}

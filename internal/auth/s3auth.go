@@ -200,6 +200,7 @@ var bucketSubresourceActions = []struct{ query, value, get, put, delete string }
 	{"location", "", ActionGetBucketLocation, "", ""},
 	{"versioning", "", ActionGetBucketVersioning, ActionPutBucketVersioning, ""},
 	{"policy", "", ActionGetBucketPolicy, ActionPutBucketPolicy, ActionDeleteBucketPolicy},
+	{"policyStatus", "", ActionGetBucketPolicyStatus, "", ""},
 	{"object-lock", "", ActionGetBucketObjectLockConfiguration, ActionPutBucketObjectLockConfiguration, ""},
 	{"lifecycle", "", ActionGetBucketLifecycle, ActionPutBucketLifecycle, ActionDeleteBucketLifecycle},
 	{"cors", "", ActionGetBucketCORS, ActionPutBucketCORS, ActionDeleteBucketCORS},

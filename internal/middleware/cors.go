@@ -135,12 +135,13 @@ func CORSWithConfig(config *CORSConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			// Check if origin is allowed
-			if origin != "" && config.isOriginAllowed(origin) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-			} else if config.hasWildcardOrigin() {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
+			// A request without an origin allowed here is left untouched to what
+			// follows: on the S3 API, a bucket's own CORS rules, preflights included.
+			if origin == "" || !config.isOriginAllowed(origin) {
+				next.ServeHTTP(w, r)
+				return
 			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
 
 			// Set other CORS headers
 			if len(config.AllowedMethods) > 0 {

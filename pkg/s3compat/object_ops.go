@@ -57,7 +57,8 @@ func (h *Handler) GetObjectRetention(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectRetention")
 
-	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectRetention) {
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectRetention) ||
+		!h.requireObjectLockBucket(w, r, bucketName) {
 		return
 	}
 
@@ -177,7 +178,8 @@ func (h *Handler) GetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 		"object": objectKey,
 	}).Debug("S3 API: GetObjectLegalHold")
 
-	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectLegalHold) {
+	if !h.requireObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectLegalHold) ||
+		!h.requireObjectLockBucket(w, r, bucketName) {
 		return
 	}
 
@@ -603,32 +605,17 @@ func (h *Handler) GetObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert object.ACL to S3 XML format
-	// The object manager already returns object.ACL, we need to convert to S3 format
-	s3ACL := AccessControlPolicy{
-		Owner: Owner{
-			ID:          aclData.Owner.ID,
-			DisplayName: aclData.Owner.DisplayName,
-		},
-		AccessControlList: AccessControlList{
-			Grants: make([]Grant, len(aclData.Grants)),
-		},
+	// Every writer is of the bucket owner's tenant: the object is the bucket
+	// owner's, as an account's in AWS.
+	tenantID := h.resolveBucketTenantID(r, bucketName)
+	shown := presentedACL(h.convertObjectACLToInternal(aclData), h.bucketOwner(r.Context(), tenantID, bucketName))
+	// ACLs off: what is kept grants nothing, and the owner holds everything,
+	// as AWS shows it.
+	if bucket.ACLsDisabled(r.Context(), h.bucketManager, tenantID, bucketName) {
+		shown.Grants = []acl.Grant{ownerFullControl(shown.Owner.ID)}
 	}
 
-	for i, grant := range aclData.Grants {
-		s3ACL.AccessControlList.Grants[i] = Grant{
-			Grantee: Grantee{
-				Type:         grant.Grantee.Type,
-				ID:           grant.Grantee.ID,
-				DisplayName:  grant.Grantee.DisplayName,
-				EmailAddress: grant.Grantee.EmailAddress,
-				URI:          grant.Grantee.URI,
-			},
-			Permission: grant.Permission,
-		}
-	}
-
-	h.writeXMLResponse(w, http.StatusOK, s3ACL)
+	h.writeXMLResponse(w, http.StatusOK, shown.ToS3Format())
 }
 
 // PutObjectACL sets the object ACL
@@ -735,7 +722,12 @@ func (h *Handler) PutObjectACL(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !h.requirePublicACLAllowed(w, r, bucketName, objectKey, aclData.IsPublic()) {
+	ownerOnly := objectACLOwnerOnly(aclData)
+	if cannedACL != "" {
+		ownerOnly = acl.OwnerOnlyCannedACL(cannedACL)
+	}
+	if !h.requireACLAllowed(w, r, bucketName, objectKey, ownerOnly) ||
+		!h.requirePublicACLAllowed(w, r, bucketName, objectKey, aclData.IsPublic()) {
 		return
 	}
 

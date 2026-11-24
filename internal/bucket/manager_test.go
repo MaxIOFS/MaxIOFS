@@ -48,6 +48,32 @@ func setupBucketTest(t *testing.T) (Manager, func()) {
 }
 
 // TestValidateBucketName tests bucket name validation
+// Changing a bucket's settings keeps what a Bucket does not hold: its Object
+// Ownership and its notifications.
+func TestUpdateBucketKeepsOwnershipAndNotifications(t *testing.T) {
+	manager, cleanup := setupBucketTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	require.NoError(t, manager.CreateBucket(ctx, "t1", "kept", "owner"))
+	require.NoError(t, manager.SetOwnershipControls(ctx, "t1", "kept", &OwnershipControlsConfig{ObjectOwnership: ObjectOwnershipBucketOwnerEnforced}))
+	require.NoError(t, manager.SetNotification(ctx, "t1", "kept", &NotificationConfig{
+		QueueConfigurations: []NotificationTarget{{ID: "hook", Endpoint: "https://hooks.example/s3", Events: []string{"s3:ObjectCreated:*"}}},
+	}))
+
+	info, err := manager.GetBucketInfo(ctx, "t1", "kept")
+	require.NoError(t, err)
+	info.PublicAccessBlock = &PublicAccessBlock{BlockPublicAcls: true}
+	require.NoError(t, manager.UpdateBucket(ctx, "t1", "kept", info))
+
+	ownership, err := manager.GetOwnershipControls(ctx, "t1", "kept")
+	require.NoError(t, err, "the Object Ownership is kept")
+	assert.Equal(t, ObjectOwnershipBucketOwnerEnforced, ownership.ObjectOwnership)
+	notification, err := manager.GetNotification(ctx, "t1", "kept")
+	require.NoError(t, err, "the notifications are kept")
+	require.NotNil(t, notification)
+	assert.Len(t, notification.QueueConfigurations, 1)
+}
+
 func TestValidateBucketName(t *testing.T) {
 	tests := []struct {
 		name      string

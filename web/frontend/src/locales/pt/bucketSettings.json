@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "Lista de Controle de Acesso (ACL)",
+    "ownershipTitle": "Propriedade de objetos",
+    "ownershipDisabledDesc": "As ACLs estão desativadas: nenhuma é definida e nenhuma concede nada. As permissões e a política do bucket decidem o acesso.",
+    "ownershipEnabledDesc": "As ACLs estão ativadas: o bucket e seus objetos aceitam ACLs.",
+    "enableAcls": "Ativar ACLs",
+    "disableAcls": "Desativar ACLs",
+    "ownershipSaved": "Propriedade de objetos salva",
     "sectionTitle": "Permissões do Bucket",
     "description": "Decide o que solicitações sem credenciais podem fazer. Usuários com credenciais são decididos por suas permissões e pela política do bucket.",
     "currentAcl": "ACL Atual: ",

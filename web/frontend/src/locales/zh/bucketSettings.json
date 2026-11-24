@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "访问控制列表 (ACL)",
+    "ownershipTitle": "对象所有权",
+    "ownershipDisabledDesc": "ACL 已禁用：不会设置 ACL，也不授予任何权限。访问由权限和存储桶策略决定。",
+    "ownershipEnabledDesc": "ACL 已启用：存储桶及其对象可设置 ACL。",
+    "enableAcls": "启用 ACL",
+    "disableAcls": "禁用 ACL",
+    "ownershipSaved": "对象所有权已保存",
     "sectionTitle": "存储桶权限",
     "description": "决定没有凭证的请求可以做什么。有凭证的用户由其权限和存储桶策略决定。",
     "currentAcl": "当前 ACL：",

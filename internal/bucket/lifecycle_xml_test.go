@@ -249,3 +249,18 @@ func TestTheRulesSentAreSetAmongTheStoredOnes(t *testing.T) {
 	require.True(t, errors.As(err, &refused), "refused: %v", err)
 	assert.Equal(t, "InvalidRequest", refused.Code)
 }
+
+// TestARuleWithoutAnIDGetsOne: a rule put without an ID gets one, as AWS gives
+// it; a rule's own ID is kept.
+func TestARuleWithoutAnIDGetsOne(t *testing.T) {
+	rule := func(id, prefix string) string {
+		return `<Rule>` + id + `<Prefix>` + prefix + `</Prefix><Status>Enabled</Status><Expiration><Days>1</Days></Expiration></Rule>`
+	}
+	config, err := parseLifecycle(t, `<LifecycleConfiguration>`+rule("", "a/")+rule("", "b/")+rule("<ID>own</ID>", "c/")+`</LifecycleConfiguration>`)
+	require.NoError(t, err)
+	require.Len(t, config.Rules, 3)
+	assert.NotEmpty(t, config.Rules[0].ID)
+	assert.NotEmpty(t, config.Rules[1].ID)
+	assert.NotEqual(t, config.Rules[0].ID, config.Rules[1].ID)
+	assert.Equal(t, "own", config.Rules[2].ID)
+}

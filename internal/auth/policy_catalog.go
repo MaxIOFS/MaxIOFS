@@ -85,7 +85,7 @@ var PolicyCatalog = []catalogEntry{
 	{
 		Name:        PolicyBucketManagePolicy,
 		Description: "Read and write bucket policies",
-		Actions:     []string{ActionGetBucketPolicy, ActionPutBucketPolicy, ActionDeleteBucketPolicy},
+		Actions:     []string{ActionGetBucketPolicy, ActionGetBucketPolicyStatus, ActionPutBucketPolicy, ActionDeleteBucketPolicy},
 	},
 	{
 		Name:        PolicyObjectRead,

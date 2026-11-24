@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "Liste de contrôle d'accès (ACL)",
+    "ownershipTitle": "Propriété des objets",
+    "ownershipDisabledDesc": "Les ACL sont désactivées : aucune n'est définie ni n'accorde quoi que ce soit. Les permissions et la politique du bucket décident de l'accès.",
+    "ownershipEnabledDesc": "Les ACL sont activées : le bucket et ses objets acceptent des ACL.",
+    "enableAcls": "Activer les ACL",
+    "disableAcls": "Désactiver les ACL",
+    "ownershipSaved": "Propriété des objets enregistrée",
     "sectionTitle": "Permissions du bucket",
     "description": "Décide de ce que peuvent faire les requêtes sans identifiants. Les utilisateurs avec identifiants dépendent de leurs autorisations et de la politique de bucket.",
     "currentAcl": "ACL actuelle : ",

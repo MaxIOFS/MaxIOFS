@@ -27,6 +27,25 @@ func CheckPublicACL(ctx context.Context, m Manager, tenantID, name string) error
 	return nil
 }
 
+// ErrACLsDisabled is an ACL set on a bucket whose Object Ownership turns ACLs
+// off (BucketOwnerEnforced), other than one leaving everything to its owner.
+var ErrACLsDisabled = errors.New("the bucket does not allow ACLs")
+
+// ACLsDisabled reports whether the bucket's Object Ownership turns its ACLs off.
+func ACLsDisabled(ctx context.Context, m Manager, tenantID, name string) bool {
+	cfg, err := m.GetOwnershipControls(ctx, tenantID, name)
+	return err == nil && cfg != nil && cfg.ObjectOwnership == ObjectOwnershipBucketOwnerEnforced
+}
+
+// CheckACLAllowed returns ErrACLsDisabled for an ACL that grants to anyone but
+// its owner on a bucket whose ACLs are off, as AWS refuses it.
+func CheckACLAllowed(ctx context.Context, m Manager, tenantID, name string, ownerOnly bool) error {
+	if !ownerOnly && ACLsDisabled(ctx, m, tenantID, name) {
+		return ErrACLsDisabled
+	}
+	return nil
+}
+
 // CheckPublicPolicy returns ErrPublicPolicyBlocked when the policy is public
 // and the bucket's Block Public Access blocks public policies. A policy
 // already stored is kept.

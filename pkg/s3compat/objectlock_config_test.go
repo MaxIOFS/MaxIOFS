@@ -82,6 +82,35 @@ func TestObjectLockConfiguration_IsReadWithOrWithoutTheS3Namespace(t *testing.T)
 	assert.Contains(t, w.Body.String(), `<ObjectLockConfiguration`+objectLockNS+`>`)
 }
 
+// Object Lock is turned on for a bucket that exists, as AWS allows: only with
+// its versioning Enabled, with or without a default retention.
+func TestObjectLockConfiguration_TurnsOnForABucketThatExists(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "later", env.userID))
+	tenantAdmin := &auth.User{ID: "tenant-admin", TenantID: env.tenantID, Roles: []string{auth.RoleTenantAdmin}}
+	enable := `<ObjectLockConfiguration` + objectLockNS + `><ObjectLockEnabled>Enabled</ObjectLockEnabled>` +
+		`<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>2</Days></DefaultRetention></Rule></ObjectLockConfiguration>`
+
+	w := putObjectLockConfig(env, tenantAdmin, "later", enable)
+	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "<Code>InvalidBucketState</Code>", "without versioning")
+	assert.Contains(t, w.Body.String(), "Versioning must be", "without versioning")
+
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, "later", &bucket.VersioningConfig{Status: "Enabled"}))
+	assert.Equal(t, http.StatusBadRequest, putObjectLockConfig(env, tenantAdmin, "later",
+		`<ObjectLockConfiguration`+objectLockNS+`></ObjectLockConfiguration>`).Code, "without ObjectLockEnabled")
+
+	w = putObjectLockConfig(env, tenantAdmin, "later", enable)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	config, err := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, "later")
+	require.NoError(t, err)
+	assert.True(t, config.ObjectLockEnabled)
+	require.NotNil(t, config.Rule)
+	assert.Equal(t, "GOVERNANCE", config.Rule.DefaultRetention.Mode)
+}
+
 func TestObjectLockConfiguration_AnonymousIsRefused(t *testing.T) {
 	env := setupCoverageTestEnvironment(t)
 	defer env.cleanup()

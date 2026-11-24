@@ -45,6 +45,7 @@ aws --endpoint-url=http://localhost:8080 s3 ls s3://my-bucket/
 | GetBucketACL | GET | `/{bucket}?acl` |
 | PutBucketACL | PUT | `/{bucket}?acl` |
 | GetBucketPolicy | GET | `/{bucket}?policy` |
+| GetBucketPolicyStatus | GET | `/{bucket}?policyStatus` |
 | PutBucketPolicy | PUT | `/{bucket}?policy` |
 | DeleteBucketPolicy | DELETE | `/{bucket}?policy` |
 | GetBucketTagging | GET | `/{bucket}?tagging` |
@@ -125,6 +126,10 @@ does not exist answer `404 NoSuchBucket` for the whole request.
 | GetObjectLegalHold | GET | `/{bucket}/{key+}?legal-hold` |
 | PutObjectLegalHold | PUT | `/{bucket}/{key+}?legal-hold` |
 
+`PutObjectLockConfiguration` with `ObjectLockEnabled` turns Object Lock on for a
+bucket that exists, as in AWS: its versioning must be `Enabled`
+(`409 InvalidBucketState` otherwise), and it is never turned off.
+
 **Lock headers on PutObject**: `x-amz-object-lock-mode`,
 `x-amz-object-lock-retain-until-date` (RFC 3339) and `x-amz-object-lock-legal-hold`
 are stored in the same metadata write as the object. The PUT is rejected with
@@ -163,12 +168,12 @@ needs `s3:PutObjectRetention` and a legal hold `s3:PutObjectLegalHold`, besides
 - **ETags** — sent between double quotes, as S3 sends them, in headers and in XML (`GetObjectAttributes`, inventory reports and event notifications give them without, as S3 does); conditions and completed parts take them quoted or not
 - **Versioning** — an object written before versioning was enabled, or while it is suspended, is the version `null`: kept when a version replaces it, read, copied and deleted with `versionId=null`, and listed by `ListObjectVersions`. While versioning is suspended a write replaces the null version and keeps the others, and a delete puts a null delete marker
 - **Conditional Writes** — `PutObject` and `CompleteMultipartUpload` with `If-None-Match: *` return 412 `PreconditionFailed` if the object already exists; with `If-Match`, 412 if its ETag is another and 404 `NoSuchKey` if there is no object. Both are decided under the key's lock: of concurrent writes of a new key with `If-None-Match: *`, one is taken. A completion refused leaves its upload to be completed
-- **Integrity** — a write is checked against its `Content-MD5`, an `x-amz-checksum-*` checksum (CRC32, CRC32C, CRC64NVME, SHA1, SHA256) in a header or in the trailer of an aws-chunked body, the `x-amz-content-sha256` it was signed with, and the signature of each chunk and of the trailers of a body sent in signed chunks (`SignatureDoesNotMatch`); one that does not match is refused (`BadDigest`, `InvalidDigest`, `XAmzContentSHA256Mismatch`) and nothing is stored, on PUT and on each part. A checksum is kept and returned. Only the headers say a body is aws-chunked
+- **Integrity** — a write is checked against its `Content-MD5`, an `x-amz-checksum-*` checksum (CRC32, CRC32C, CRC64NVME, SHA1, SHA256) in a header or in the trailer of an aws-chunked body, the `x-amz-content-sha256` it was signed with, and the signature of each chunk and of the trailers of a body sent in signed chunks (`SignatureDoesNotMatch`); one that does not match is refused (`BadDigest`, `InvalidDigest`, `XAmzContentSHA256Mismatch`) and nothing is stored, on PUT and on each part. A checksum is kept; a whole-object GET or HEAD gives it when asked with `x-amz-checksum-mode: ENABLED`. Only the headers say a body is aws-chunked
 - **SSE Response Headers** — `x-amz-server-side-encryption: AES256` returned on GET/PUT/HEAD when the object is encrypted; `GetBucketEncryption` gives `AES256` for a bucket without a configuration of its own, as every object is encrypted
 - **SSE-C** — `x-amz-server-side-encryption-customer-algorithm`, `-key` and `-key-MD5` on PUT, GET, HEAD, CopyObject (`x-amz-copy-source-server-side-encryption-customer-*` for its source), CreateMultipartUpload, UploadPart, UploadPartCopy, GetObjectAttributes and SelectObjectContent; over HTTPS only (`400 InvalidRequest`). A bucket refuses writes with SSE-C (`403 AccessDenied`) unless its encryption configuration has `<BlockedEncryptionTypes><EncryptionType>NONE</EncryptionType></BlockedEncryptionTypes>`, as in AWS since April 2026; `GetBucketEncryption` gives `SSE-C` or `NONE`. Reading such an object needs its key (`400` without, `403` with another); blocking SSE-C again stops writes only. `CompleteMultipartUpload` needs no key. Its ETag is not the MD5 of its content, and no checksum of its content is kept
 - **PublicAccessBlock enforcement** — `IgnorePublicAcls` voids public ACLs and `RestrictPublicBuckets` public bucket policies for requests without credentials; `BlockPublicAcls` and `BlockPublicPolicy` refuse a request carrying a public ACL or a public policy (`403 AccessDenied`); configure via `PUT /{bucket}?publicAccessBlock`
 - **Bucket policies** — evaluated with the caller's IAM policies, AWS-style; principals `"*"`, `arn:aws:iam:::user/<name>` or a user ID; conditions on `aws:SourceIp` and `aws:SecureTransport`; a policy using anything else is refused with `MalformedPolicy` (see SECURITY.md)
-- **OwnershipControls** — default `BucketOwnerEnforced`; prevents AWS SDK v2 `OwnershipControlsNotFoundError`; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
+- **OwnershipControls** — as AWS: a bucket created through S3 or the console has `BucketOwnerEnforced`, its ACLs off, unless `CreateBucket` sends `x-amz-object-ownership`; a bucket without a setting answers `404 OwnershipControlsNotFoundError` and takes ACLs; valid values: `BucketOwnerEnforced`, `BucketOwnerPreferred`, `ObjectWriter`
 - **Lifecycle** — `Expiration` (days, a date, or delete markers alone), `Transition` and `NoncurrentVersionTransition` to a colder storage class, `NoncurrentVersionExpiration` with `NewerNoncurrentVersions`, `AbortIncompleteMultipartUpload`; filters by prefix, tags (`Tag`, `And`) and size (`ObjectSizeGreaterThan`, `ObjectSizeLessThan`). A version is noncurrent from when the next one was written. A rule's prefix reads back in the form it was set, `Filter` or the rule's `Prefix`. A rule S3 would refuse is refused with its error: `MalformedXML`, `InvalidArgument`, `InvalidRequest` or `InvalidStorageClass`. In a cluster a transition moves the object to the nodes of its class (see CLUSTER.md)
 - **Storage classes** — `x-amz-storage-class` on PUT, CreateMultipartUpload and CopyObject (a copy without one is STANDARD); returned on GET and HEAD for every class but STANDARD, as S3 does, and in listings for every class; a class S3 does not have is refused (`InvalidStorageClass`)
 - **RestoreObject** — accepts `<RestoreRequest><Days>N</Days></RestoreRequest>`; returns 409 if restore already in progress; `HeadObject`/`GetObject` return `x-amz-restore: ongoing-request="false", expiry-date="..."` once restored

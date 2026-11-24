@@ -161,6 +161,12 @@
   },
   "acl": {
     "title": "Access Control List (ACL)",
+    "ownershipTitle": "Object Ownership",
+    "ownershipDisabledDesc": "ACLs are disabled: none is set and none grants anything. Permissions and the bucket policy decide access.",
+    "ownershipEnabledDesc": "ACLs are enabled: the bucket and its objects take ACLs.",
+    "enableAcls": "Enable ACLs",
+    "disableAcls": "Disable ACLs",
+    "ownershipSaved": "Object Ownership saved",
     "sectionTitle": "Bucket Permissions",
     "description": "Decides what requests without credentials may do. Users with credentials are decided by their permissions and the bucket policy.",
     "currentAcl": "Current ACL: ",

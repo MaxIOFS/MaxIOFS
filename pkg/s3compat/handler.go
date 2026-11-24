@@ -472,6 +472,65 @@ func (h *Handler) writeHeadersRefused(w http.ResponseWriter, r *http.Request, ke
 	return false
 }
 
+// RequireExpectedBucketOwner refuses a request whose x-amz-expected-bucket-owner
+// names another owner than the bucket's, as AWS does (403). The account AWS
+// names there is the tenant the bucket is in, or the user that owns it.
+func (h *Handler) RequireExpectedBucketOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expected := r.Header.Get("x-amz-expected-bucket-owner")
+		bucketName := mux.Vars(r)["bucket"]
+		if expected == "" || bucketName == "" || h.metadataStore == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		meta, err := h.metadataStore.GetBucketByName(r.Context(), bucketName)
+		switch {
+		case errors.Is(err, metadata.ErrBucketNotFound):
+			// The handler answers NoSuchBucket.
+		case err != nil:
+			h.writeError(w, "InternalError", err.Error(), bucketName, r)
+			return
+		case expected != meta.OwnerID && (meta.TenantID == "" || expected != meta.TenantID):
+			h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// AnswerMissingBucket answers a request without credentials about a bucket that
+// exists in no tenant with NoSuchBucket, as AWS does; it lets nothing through.
+// Creating a bucket, and a preflight, are left to be refused as they are.
+func (h *Handler) AnswerMissingBucket(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		bucketName := vars["bucket"]
+		_, signed := auth.GetUserFromContext(r.Context())
+		creating := r.Method == http.MethodPut && vars["object"] == "" && r.URL.RawQuery == ""
+		if signed || bucketName == "" || h.metadataStore == nil || creating || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, err := h.metadataStore.GetBucketByName(r.Context(), bucketName); errors.Is(err, metadata.ErrBucketNotFound) {
+			h.writeError(w, "NoSuchBucket", "The specified bucket does not exist", bucketName, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireUTF8Key refuses a request whose key is not UTF-8, as AWS refuses it:
+// no object can have it.
+func (h *Handler) RequireUTF8Key(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if key := mux.Vars(r)["object"]; !utf8.ValidString(key) {
+			h.writeError(w, "InvalidURI", "Couldn't parse the specified URI.", key, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // writeObjectNameError answers a request for a key no object can have.
 func (h *Handler) writeObjectNameError(w http.ResponseWriter, r *http.Request, key string, err error) bool {
 	switch {
@@ -586,7 +645,7 @@ type ListAllMyBucketsResult struct {
 
 type Owner struct {
 	ID          string `xml:"ID"`
-	DisplayName string `xml:"DisplayName"`
+	DisplayName string `xml:"DisplayName,omitempty"`
 }
 
 type Buckets struct {
@@ -681,9 +740,11 @@ type Error struct {
 	// Auth error context — populated by AWS for credential/signature errors
 	AWSAccessKeyId string `xml:"AWSAccessKeyId,omitempty"` // InvalidAccessKeyId, SignatureDoesNotMatch
 
-	// Request-expiry context — populated by AWS for RequestExpired
-	ExpiresDate string `xml:"ExpiresDate,omitempty"` // ISO-8601 expiration time
-	ServerTime  string `xml:"ServerTime,omitempty"`  // ISO-8601 server time at rejection
+	// An expired presigned URL: AWS names its X-Amz-Expires, when it expired
+	// and the server's time.
+	XAmzExpires string `xml:"X-Amz-Expires,omitempty"`
+	ExpiresDate string `xml:"Expires,omitempty"`    // ISO-8601 expiration time
+	ServerTime  string `xml:"ServerTime,omitempty"` // ISO-8601 server time at rejection
 
 	RequestId string `xml:"RequestId"`
 	HostId    string `xml:"HostId"`
@@ -740,10 +801,7 @@ func (h *Handler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := ListAllMyBucketsResult{
-		Owner: Owner{
-			ID:          user.ID,
-			DisplayName: user.DisplayName,
-		},
+		Owner: Owner{ID: user.ID},
 		Buckets: Buckets{
 			Bucket: make([]BucketInfo, len(filteredBuckets)),
 		},
@@ -833,11 +891,29 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Object Ownership: BucketOwnerEnforced, its ACLs off, unless asked
+	// otherwise, as AWS creates a bucket. Asking asks its permission.
+	ownership := r.Header.Get("x-amz-object-ownership")
+	switch {
+	case ownership == "":
+		ownership = bucket.ObjectOwnershipBucketOwnerEnforced
+	case !bucket.ValidObjectOwnership(ownership):
+		h.writeError(w, "InvalidArgument", "Invalid x-amz-object-ownership header: "+ownership, bucketName, r)
+		return
+	case !h.userCanPerformS3ActionInTenant(r.Context(), user, user.TenantID, auth.ActionPutBucketOwnership, bucketARN(bucketName)):
+		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+		return
+	}
 	// An ACL to create the bucket with asks, as in AWS, s3:PutBucketAcl.
 	var createACL *acl.ACL
 	if cannedACL := r.Header.Get("x-amz-acl"); cannedACL != "" {
 		if createACL = cannedBucketACL(r, cannedACL); createACL == nil {
 			h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, bucketName, r)
+			return
+		}
+		if ownership == bucket.ObjectOwnershipBucketOwnerEnforced && !acl.OwnerOnlyCannedACL(cannedACL) {
+			h.writeError(w, "InvalidBucketAclWithObjectOwnership",
+				"Bucket cannot have ACLs set with ObjectOwnership's BucketOwnerEnforced setting", bucketName, r)
 			return
 		}
 		if !h.userCanPerformS3ActionInTenant(r.Context(), user, user.TenantID, auth.ActionPutBucketAcl, bucketARN(bucketName)) {
@@ -886,8 +962,8 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 			if existingBucket, infoErr := h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName); infoErr == nil {
 				// The bucket manager stores user.ID as OwnerID regardless of tenantID.
 				if existingBucket.OwnerID == user.ID {
-					errorCode = "BucketAlreadyOwnedByYou"
-					errorMsg = "Your previous request to create the named bucket succeeded and you already own it"
+					h.recreateOwnBucket(w, r, tenantID, bucketName, createACL)
+					return
 				}
 			}
 			h.writeError(w, errorCode, errorMsg, bucketName, r)
@@ -922,6 +998,13 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}).Info("CreateBucket: Object Lock enabled via x-amz-bucket-object-lock-enabled header")
 	}
 
+	if err := h.bucketManager.SetOwnershipControls(r.Context(), tenantID, bucketName,
+		&bucket.OwnershipControlsConfig{ObjectOwnership: ownership}); err != nil {
+		_ = h.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName)
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
+
 	// The bucket is not left without the ACL it was asked with.
 	if createACL != nil {
 		if !h.requirePublicACLAllowed(w, r, bucketName, bucketName, createACL.IsPublic()) {
@@ -937,6 +1020,25 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	// AWS S3 requires a Location header on successful bucket creation.
 	// Value is always "/{bucketName}" regardless of addressing style.
+	w.Header().Set("Location", "/"+bucketName)
+	w.WriteHeader(http.StatusOK)
+}
+
+// recreateOwnBucket answers the creation of a bucket its requester already
+// owns as AWS answers it in us-east-1, the region MaxIOFS answers as: 200 OK,
+// the bucket's ACL reset to the one asked for, private if none.
+func (h *Handler) recreateOwnBucket(w http.ResponseWriter, r *http.Request, tenantID, bucketName string, asked *acl.ACL) {
+	if asked == nil {
+		asked = cannedBucketACL(r, acl.CannedACLPrivate)
+	}
+	if !h.requireACLAllowed(w, r, bucketName, bucketName, asked.OwnerOnly()) ||
+		!h.requirePublicACLAllowed(w, r, bucketName, bucketName, asked.IsPublic()) {
+		return
+	}
+	if err := h.bucketManager.SetBucketACL(r.Context(), tenantID, bucketName, asked); err != nil {
+		h.writeError(w, "InternalError", err.Error(), bucketName, r)
+		return
+	}
 	w.Header().Set("Location", "/"+bucketName)
 	w.WriteHeader(http.StatusOK)
 }
@@ -1156,6 +1258,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		Contents:       make([]ObjectInfo, len(listResult.Objects)),
 	}
 
+	owner := h.bucketOwner(r.Context(), tenantID, bucketName)
 	for i, obj := range listResult.Objects {
 		result.Contents[i] = ObjectInfo{
 			Key:          encodeStr(obj.Key),
@@ -1163,10 +1266,7 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 			ETag:         QuoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
-			Owner: &Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			},
+			Owner:        &owner,
 		}
 	}
 
@@ -1319,6 +1419,12 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 		result.NextContinuationToken = base64.StdEncoding.EncodeToString([]byte(listResult.NextMarker))
 	}
 
+	// Owner is only included when explicitly requested via fetch-owner=true
+	var owner *Owner
+	if fetchOwner {
+		bucketOwner := h.bucketOwner(r.Context(), tenantID, bucketName)
+		owner = &bucketOwner
+	}
 	for i, obj := range listResult.Objects {
 		info := ObjectInfo{
 			Key:          encodeStrV2(obj.Key),
@@ -1326,13 +1432,7 @@ func (h *Handler) ListObjectsV2(w http.ResponseWriter, r *http.Request) {
 			ETag:         QuoteETag(obj.ETag),
 			Size:         obj.Size,
 			StorageClass: storageClassOrStandard(obj.StorageClass),
-		}
-		// Owner is only included when explicitly requested via fetch-owner=true
-		if fetchOwner {
-			info.Owner = &Owner{
-				ID:          "maxiofs",
-				DisplayName: "MaxIOFS",
-			}
+			Owner:        owner,
 		}
 		result.Contents[i] = info
 	}
@@ -2117,16 +2217,33 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
-		logrus.Warn("PutObjectLockConfiguration - Object Lock not enabled on bucket")
-		h.writeError(w, "InvalidBucketState",
-			"Object Lock must be enabled on the bucket at creation time. Create a new bucket with Object Lock enabled.", bucketName, r)
-		return
-	}
-
 	newConfig, ok := h.parseObjectLockConfigXML(w, r, bucketName)
 	if !ok {
 		return
+	}
+
+	// Object Lock is turned on for a bucket that exists, as AWS allows: its
+	// versioning must be Enabled, and it is never turned off again.
+	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
+		if newConfig.ObjectLockEnabled != "Enabled" {
+			h.writeError(w, "MalformedXML",
+				"The XML you provided was not well-formed or did not validate against our published schema", bucketName, r)
+			return
+		}
+		if bucketInfo.Versioning == nil || bucketInfo.Versioning.Status != "Enabled" {
+			h.writeError(w, "InvalidBucketState",
+				"Versioning must be 'Enabled' on the bucket to apply a Object Lock configuration", bucketName, r)
+			return
+		}
+		if err := h.bucketManager.SetObjectLockConfig(r.Context(), tenantID, bucketName, &bucket.ObjectLockConfig{ObjectLockEnabled: true}); err != nil {
+			h.writeError(w, "InternalError", "Failed to enable Object Lock", bucketName, r)
+			return
+		}
+		logrus.WithField("bucket", bucketName).Info("PutObjectLockConfiguration - Object Lock enabled on an existing bucket")
+		if bucketInfo, err = h.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName); err != nil {
+			h.writeError(w, "InternalError", "Failed to retrieve bucket info", bucketName, r)
+			return
+		}
 	}
 
 	if newConfig.Rule != nil && newConfig.Rule.DefaultRetention == nil {
@@ -2242,7 +2359,8 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		"MalformedPOSTRequest", "InvalidPolicyDocument", "InvalidTag", "InvalidPart", "InvalidPartOrder",
 		"IllegalVersioningConfigurationException", "BadDigest", "EntityTooSmall", "EntityTooLarge",
 		"InvalidDigest", "InvalidStorageClass", "XAmzContentSHA256Mismatch", "KeyTooLongError", "MetadataTooLarge",
-		"InvalidEncryptionAlgorithmError", "InvalidTargetBucketForLogging", "InvalidCompressionFormat", "OverMaxRecordSize":
+		"InvalidEncryptionAlgorithmError", "InvalidTargetBucketForLogging", "InvalidCompressionFormat", "OverMaxRecordSize",
+		"AuthorizationQueryParametersError", "InvalidURI", "AccessControlListNotSupported", "InvalidBucketAclWithObjectOwnership":
 		statusCode = http.StatusBadRequest
 	// 401 Unauthorized
 	case "Unauthorized":
@@ -2256,7 +2374,7 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 		"NoSuchBucketPolicy", "NoSuchObjectLockConfiguration", "NoSuchLifecycleConfiguration",
 		"NoSuchCORSConfiguration", "NoSuchWebsiteConfiguration",
 		"ServerSideEncryptionConfigurationNotFoundError", "NoSuchPublicAccessBlockConfiguration",
-		"NoSuchConfiguration", "ReplicationConfigurationNotFoundError", "NoSuchVersion":
+		"NoSuchConfiguration", "ReplicationConfigurationNotFoundError", "NoSuchVersion", "OwnershipControlsNotFoundError":
 		statusCode = http.StatusNotFound
 	// 405 Method Not Allowed
 	case "MethodNotAllowed":
@@ -2342,11 +2460,15 @@ func (h *Handler) writeError(w http.ResponseWriter, code, message, resource stri
 			}
 		}
 
-	// RequestExpired: AWS includes ExpiresDate and ServerTime so clients can
-	// diagnose clock-skew issues without guessing.
+	// An expired presigned URL is AccessDenied with when it expired, as AWS
+	// answers it, so a client can tell a clock skew.
 	case "RequestExpired":
+		errorResponse.Code, errorResponse.Message = "AccessDenied", "Request has expired"
 		now := time.Now().UTC().Format(time.RFC3339)
 		errorResponse.ServerTime = now
+		if r != nil {
+			errorResponse.XAmzExpires = r.URL.Query().Get("X-Amz-Expires")
+		}
 		if r != nil {
 			// V2 presigned: Expires is a Unix timestamp
 			if exp := r.URL.Query().Get("Expires"); exp != "" {
@@ -2589,6 +2711,10 @@ func (h *Handler) checkPublicBucketAccess(ctx context.Context, tenantID, bucketN
 			return false
 		}
 	}
+	// ACLs off decide nothing, as in AWS.
+	if bucket.ACLsDisabled(ctx, h.bucketManager, tenantID, bucketName) {
+		return false
+	}
 
 	// Get bucket ACL
 	bucketACL, err := h.bucketManager.GetBucketACL(ctx, tenantID, bucketName)
@@ -2620,6 +2746,9 @@ func (h *Handler) publicObjectRead(ctx context.Context, tenantID, bucketName, ob
 	if pab, err := h.bucketManager.GetPublicAccessBlock(ctx, tenantID, bucketName); err == nil && pab != nil && pab.IgnorePublicAcls {
 		return false
 	}
+	if bucket.ACLsDisabled(ctx, h.bucketManager, tenantID, bucketName) {
+		return false
+	}
 	bucketPath := bucketName
 	if tenantID != "" {
 		bucketPath = tenantID + "/" + bucketName
@@ -2646,6 +2775,14 @@ func (h *Handler) publicObjectRead(ctx context.Context, tenantID, bucketName, ob
 // checkPublicObjectAccess checks if an object allows public access via ACL
 func (h *Handler) checkPublicObjectAccess(ctx context.Context, bucketPath, objectKey string, permission acl.Permission) bool {
 	if h.objectManager == nil {
+		return false
+	}
+	// ACLs off decide nothing, as in AWS.
+	tenantID, name, inTenant := strings.Cut(bucketPath, "/")
+	if !inTenant {
+		tenantID, name = "", bucketPath
+	}
+	if h.bucketManager != nil && bucket.ACLsDisabled(ctx, h.bucketManager, tenantID, name) {
 		return false
 	}
 
@@ -3316,7 +3453,9 @@ func (h *Handler) setObjectHeaders(w http.ResponseWriter, r *http.Request, obj *
 		hdr.Set("x-amz-object-lock-legal-hold", "ON")
 	}
 
-	if !isRange && obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" {
+	// The checksum is sent to a read that asks for it, as AWS sends it.
+	if !isRange && obj.ChecksumAlgorithm != "" && obj.ChecksumValue != "" &&
+		strings.EqualFold(r.Header.Get("x-amz-checksum-mode"), "ENABLED") {
 		hdr.Set("x-amz-checksum-algorithm", obj.ChecksumAlgorithm)
 		hdr.Set("x-amz-checksum-"+strings.ToLower(obj.ChecksumAlgorithm), obj.ChecksumValue)
 	}
@@ -3877,10 +4016,33 @@ func (h *Handler) requirePublicACLAllowed(w http.ResponseWriter, r *http.Request
 	return false
 }
 
-// requireACLHeaderAllowed is requirePublicACLAllowed for the x-amz-acl of a
-// write.
+// requireACLHeaderAllowed is requireACLAllowed and requirePublicACLAllowed for
+// the x-amz-acl of a write.
 func (h *Handler) requireACLHeaderAllowed(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) bool {
-	return h.requirePublicACLAllowed(w, r, bucketName, objectKey, acl.IsPublicCannedACL(r.Header.Get("x-amz-acl")))
+	canned := r.Header.Get("x-amz-acl")
+	return h.requireACLAllowed(w, r, bucketName, objectKey, acl.OwnerOnlyCannedACL(canned)) &&
+		h.requirePublicACLAllowed(w, r, bucketName, objectKey, acl.IsPublicCannedACL(canned))
+}
+
+// requireACLAllowed answers 400 AccessControlListNotSupported for an ACL that
+// grants to anyone but its owner, on a bucket whose ACLs are off, as AWS does.
+func (h *Handler) requireACLAllowed(w http.ResponseWriter, r *http.Request, bucketName, resource string, ownerOnly bool) bool {
+	if errors.Is(bucket.CheckACLAllowed(r.Context(), h.bucketManager, h.resolveBucketTenantID(r, bucketName), bucketName, ownerOnly), bucket.ErrACLsDisabled) {
+		h.writeError(w, "AccessControlListNotSupported", "The bucket does not allow ACLs", resource, r)
+		return false
+	}
+	return true
+}
+
+// objectACLOwnerOnly reports whether an object ACL grants nothing to anyone but
+// its owner.
+func objectACLOwnerOnly(a *object.ACL) bool {
+	for _, g := range a.Grants {
+		if g.Grantee.Type != string(acl.GranteeTypeCanonicalUser) || g.Grantee.ID != a.Owner.ID {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) requireObjectS3Action(w http.ResponseWriter, r *http.Request, bucketName, objectKey, action string) bool {

@@ -376,7 +376,9 @@ func TestCustomerKeyMultipart(t *testing.T) {
 
 	first := bytes.Repeat([]byte("first-part-"), 5*1024*1024/11+1)
 	second := []byte("second part")
-	partPath := func(n int) string { return "/ssec/big?partNumber=" + string(rune('0'+n)) + "&uploadId=" + upload.UploadId }
+	partPath := func(n int) string {
+		return "/ssec/big?partNumber=" + string(rune('0'+n)) + "&uploadId=" + upload.UploadId
+	}
 
 	assert.Equal(t, http.StatusBadRequest, env.sendSSEC("PUT", partPath(1), first, nil, true).Code, "a part without the key")
 	assert.Equal(t, http.StatusForbidden, env.sendSSEC("PUT", partPath(1), first, customerKeyHeaders("", keyB), true).Code, "a part with another key")

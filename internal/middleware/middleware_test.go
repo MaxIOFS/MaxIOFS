@@ -374,6 +374,31 @@ func TestCORSWithConfig(t *testing.T) {
 		assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"))
 	})
 
+	// What is not for an origin allowed here goes on untouched: on the S3 API a
+	// bucket's CORS rules answer it, its preflight too.
+	t.Run("Other origins and requests without one are left to what follows", func(t *testing.T) {
+		config := DefaultCORSConfig()
+		reached := 0
+		handler := CORSWithConfig(config)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached++
+			w.WriteHeader(http.StatusNoContent)
+		}))
+
+		preflight := httptest.NewRequest("OPTIONS", "/bucket/key", nil)
+		preflight.Header.Set("Origin", "https://app.example")
+		preflight.Header.Set("Access-Control-Request-Method", "PUT")
+		plain := httptest.NewRequest("GET", "/bucket/key", nil)
+		for _, req := range []*http.Request{preflight, plain} {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusNoContent, rec.Code, req.Method)
+			for name := range rec.Header() {
+				assert.NotContains(t, name, "Access-Control-", "%s %s", req.Method, name)
+			}
+		}
+		assert.Equal(t, 2, reached)
+	})
+
 	t.Run("Preflight request", func(t *testing.T) {
 		config := &CORSConfig{
 			AllowedOrigins: []string{"http://example.com"},

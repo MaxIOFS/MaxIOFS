@@ -618,6 +618,8 @@ func (s *Server) setupConsoleAPIRoutes(router *mux.Router) {
 	router.HandleFunc("/buckets/{bucket}/encryption", s.handleDeleteBucketEncryption).Methods("DELETE", "OPTIONS")
 
 	// Bucket public-access-block endpoints
+	router.HandleFunc("/buckets/{bucket}/ownership-controls", s.handleGetBucketOwnership).Methods("GET", "OPTIONS")
+	router.HandleFunc("/buckets/{bucket}/ownership-controls", s.handlePutBucketOwnership).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handleGetPublicAccessBlock).Methods("GET", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handlePutPublicAccessBlock).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/buckets/{bucket}/public-access-block", s.handleDeletePublicAccessBlock).Methods("DELETE", "OPTIONS")
@@ -1314,6 +1316,7 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
 		Lifecycle         *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
 		Tags              map[string]string         `json:"tags,omitempty"`
+		ObjectOwnership   string                    `json:"objectOwnership,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1343,6 +1346,19 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		if !s.requireConsoleBucketS3Action(w, r, req.Name, need.action, "You do not have permission to "+need.what) {
 			return
 		}
+	}
+	// Object Ownership: ACLs off unless asked otherwise, as AWS creates a bucket.
+	objectOwnership := req.ObjectOwnership
+	if objectOwnership == "" {
+		objectOwnership = bucket.ObjectOwnershipBucketOwnerEnforced
+	}
+	if !bucket.ValidObjectOwnership(objectOwnership) {
+		s.writeError(w, "objectOwnership must be BucketOwnerEnforced, BucketOwnerPreferred or ObjectWriter", http.StatusBadRequest)
+		return
+	}
+	if objectOwnership != bucket.ObjectOwnershipBucketOwnerEnforced &&
+		!s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionPutBucketOwnership, "You do not have permission to enable ACLs") {
+		return
 	}
 
 	// The bucket is created in its owner's namespace: a tenant a global
@@ -1428,6 +1444,12 @@ func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.writeError(w, err.Error(), http.StatusBadRequest)
 		}
+		return
+	}
+	if err := s.bucketManager.SetOwnershipControls(r.Context(), tenantID, req.Name,
+		&bucket.OwnershipControlsConfig{ObjectOwnership: objectOwnership}); err != nil {
+		_ = s.bucketManager.DeleteBucket(r.Context(), tenantID, req.Name)
+		s.writeError(w, "Failed to set the bucket's Object Ownership: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -3428,8 +3450,8 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
 		"version":   version,
 		"commit":    s.commit,
 		"buildDate": s.buildDate,
-		"server":  server,
-		"storage": storage,
+		"server":    server,
+		"storage":   storage,
 		"auth": map[string]interface{}{
 			"enableAuth": s.config.Auth.EnableAuth,
 			// DO NOT expose: jwt_secret, encryption_key, access_key, secret_key
@@ -6126,7 +6148,8 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.requirePublicACLAllowed(w, r, tenantID, bucketName, aclData.IsPublic()) {
+	if !s.requireACLAllowed(w, r, tenantID, bucketName, acl.OwnerOnlyCannedACL(cannedACL)) ||
+		!s.requirePublicACLAllowed(w, r, tenantID, bucketName, aclData.IsPublic()) {
 		return
 	}
 
@@ -6141,6 +6164,16 @@ func (s *Server) handlePutBucketACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// requireACLAllowed answers 400 for an ACL that grants to anyone but its owner
+// on a bucket whose ACLs are off (Object Ownership: bucket owner enforced).
+func (s *Server) requireACLAllowed(w http.ResponseWriter, r *http.Request, tenantID, bucketName string, ownerOnly bool) bool {
+	if errors.Is(bucket.CheckACLAllowed(r.Context(), s.bucketManager, tenantID, bucketName, ownerOnly), bucket.ErrACLsDisabled) {
+		s.writeError(w, "ACLs are disabled for this bucket: enable them in its Object Ownership to set one", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 // requirePublicACLAllowed answers 403 for a public ACL when the bucket's Block
@@ -6253,7 +6286,8 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.requirePublicACLAllowed(w, r, tenantID, bucketName, internalACL.IsPublic()) {
+	if !s.requireACLAllowed(w, r, tenantID, bucketName, acl.OwnerOnlyCannedACL(cannedACL)) ||
+		!s.requirePublicACLAllowed(w, r, tenantID, bucketName, internalACL.IsPublic()) {
 		return
 	}
 
@@ -7984,8 +8018,8 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 	})
 
 	s.writeJSON(w, map[string]interface{}{
-		"success": true,
-		"message": "Encryption configuration updated successfully",
+		"success":    true,
+		"message":    "Encryption configuration updated successfully",
 		"encryption": bucketInfo.Encryption,
 	})
 }

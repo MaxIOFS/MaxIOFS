@@ -48,6 +48,7 @@ interface BucketCreationConfig {
   encryptionType: 'AES256';
 
   // Access Control
+  aclsEnabled: boolean;
   publicAccessBlock: PublicAccessBlockConfig;
 
   // Lifecycle
@@ -77,6 +78,7 @@ export default function CreateBucketPage() {
     // Server-side encryption is always on (envelope, AES-256-GCM)
     encryptionEnabled: true,
     encryptionType: 'AES256',
+    aclsEnabled: false,
     publicAccessBlock: {
       blockPublicAcls: true,
       ignorePublicAcls: true,
@@ -112,6 +114,7 @@ export default function CreateBucketPage() {
           years: config.retentionYears > 0 ? config.retentionYears : undefined,
         } : undefined,
         publicAccessBlock: config.publicAccessBlock,
+        objectOwnership: config.aclsEnabled ? 'ObjectWriter' : 'BucketOwnerEnforced',
         lifecycle: config.lifecycleEnabled && config.expirationDays > 0 ? {
           rules: [{
             id: 'expiration',
@@ -624,6 +627,33 @@ export default function CreateBucketPage() {
                 <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-800 dark:text-blue-300">
                   <Info className="h-4 w-4 inline mr-2" />
                   {t('accessControlInfo')}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    {t('objectOwnershipTitle')}
+                  </label>
+                  <div className="space-y-3">
+                    {([false, true] as const).map((enabled) => (
+                      <label key={String(enabled)} className="flex items-start space-x-3 p-3 border border-border rounded-md cursor-pointer hover:bg-secondary">
+                        <input
+                          type="radio"
+                          name="objectOwnership"
+                          checked={config.aclsEnabled === enabled}
+                          onChange={() => updateConfig('aclsEnabled', enabled)}
+                          className="mt-1"
+                        />
+                        <div>
+                          <div className="font-medium text-sm text-foreground">
+                            {t(enabled ? 'aclsEnabled' : 'aclsDisabled')}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {t(enabled ? 'aclsEnabledDesc' : 'aclsDisabledDesc')}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <PublicAccessBlockFields

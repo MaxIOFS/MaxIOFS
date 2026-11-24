@@ -76,7 +76,7 @@ func ValidatePolicy(raw []byte, bucketName string) (*Policy, error) {
 			return nil, fmt.Errorf("%w: statement %d: %s", ErrMalformedPolicy, i+1, err)
 		}
 	}
-	return &Policy{Version: doc.Version, Statement: parsed}, nil
+	return &Policy{Version: doc.Version, Statement: parsed, Text: string(raw)}, nil
 }
 
 func validateStatement(st Statement, bucketName string) error {

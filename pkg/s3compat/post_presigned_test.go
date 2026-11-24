@@ -184,6 +184,7 @@ func TestPresignedPost_StatusCode_201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code, "success_action_status=201 should return 201")
 	// 201 should return XML body with Location, Bucket, Key, ETag
 	body := w.Body.String()
+	assert.Contains(t, body, "<PostResponse>", "the root AWS names")
 	assert.Contains(t, body, "<Bucket>"+bucketName+"</Bucket>", "201 response should contain bucket in XML")
 	assert.Contains(t, body, "<Key>"+objectKey+"</Key>", "201 response should contain key in XML")
 }
@@ -339,6 +340,25 @@ func TestPresignedPost_StartsWithCondition_Valid(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code, "starts-with condition satisfied should return 204")
 }
 
+// ${filename} in the key is the name of the file sent, as in AWS; the policy is
+// held to the key it makes.
+func TestPresignedPost_KeyFromTheFileName(t *testing.T) {
+	env := setupPresignedPostEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "post-filename", env.userID))
+
+	req := buildPostPresignedRequest(t, "post-filename", "uploads/photo.jpg", []byte("jpeg"), "", env.accessKey, env.secretKey,
+		nil, map[string]string{"key": "uploads/${filename}"})
+	w := httptest.NewRecorder()
+	env.router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+
+	obj, err := env.objectManager.GetObjectMetadata(ctx, env.tenantID+"/post-filename", "uploads/photo.jpg")
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), obj.Size)
+}
+
 // TestPresignedPost_Redirect tests success_action_redirect redirects with correct params.
 func TestPresignedPost_Redirect(t *testing.T) {
 	env := setupPresignedPostEnv(t)
@@ -481,4 +501,73 @@ func TestPresignedPost_FieldsAfterTheFileAreNotRead(t *testing.T) {
 	assert.Equal(t, int64(len("from a form")), obj.Size)
 	assert.NotContains(t, obj.Metadata, "x-amz-meta-owner", "a field after the file is not taken")
 	assert.NotContains(t, obj.Metadata, "owner", "a field after the file is not taken")
+}
+
+// anonymousForm is a form upload of file without a policy or credentials.
+func anonymousForm(t *testing.T, bucketName string, fields map[string]string, file string) *http.Request {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for name, value := range fields {
+		require.NoError(t, mw.WriteField(name, value))
+	}
+	fw, err := mw.CreateFormFile("file", "upload.txt")
+	require.NoError(t, err)
+	_, err = fw.Write([]byte(file))
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+	req := httptest.NewRequest("POST", "/"+bucketName, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+// TestAnAnonymousFormUploadIsDecidedAsAnAnonymousPut: a form without a policy
+// or credentials is taken where a PUT without credentials is, as in AWS: by
+// the bucket policy or an ACL granting WRITE to everyone, Block Public Access
+// holding.
+func TestAnAnonymousFormUploadIsDecidedAsAnAnonymousPut(t *testing.T) {
+	env := setupPresignedPostEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	post := func(bucketName string, fields map[string]string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		env.router.ServeHTTP(w, anonymousForm(t, bucketName, fields, "anonymous data"))
+		return w
+	}
+	stored := func(bucketName, key string) bool {
+		_, err := env.objectManager.GetObjectMetadata(ctx, env.tenantID+"/"+bucketName, key)
+		return err == nil
+	}
+
+	require.Equal(t, http.StatusOK, env.sendSigned("PUT", "/closed", nil, nil).Code)
+	w := post("closed", map[string]string{"key": "a.txt"})
+	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.False(t, stored("closed", "a.txt"), "a private bucket")
+
+	require.Equal(t, http.StatusOK, env.sendSigned("PUT", "/open-acl", nil, map[string]string{
+		"x-amz-object-ownership": "ObjectWriter", "x-amz-acl": "public-read-write"}).Code)
+	w = post("open-acl", map[string]string{"key": "a.txt", "acl": "public-read", "Content-Type": "text/plain"})
+	require.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.True(t, stored("open-acl", "a.txt"), "WRITE to everyone in the bucket ACL")
+	assert.True(t, env.objectACLIsPublic(t, "open-acl", "a.txt"), "the form's acl")
+
+	require.Equal(t, http.StatusOK, env.sendSigned("PUT", "/open-policy", nil, nil).Code)
+	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*",` +
+		`"Action":"s3:PutObject","Resource":"arn:aws:s3:::open-policy/uploads/*"}]}`
+	require.Equal(t, http.StatusNoContent, env.sendSigned("PUT", "/open-policy?policy", []byte(policy), nil).Code)
+	w = post("open-policy", map[string]string{"key": "uploads/a.txt"})
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusForbidden, post("open-policy", map[string]string{"key": "elsewhere.txt"}).Code,
+		"a key the policy does not allow")
+	w = post("open-policy", map[string]string{"key": "uploads/b.txt", "acl": "public-read"})
+	assert.Equal(t, http.StatusBadRequest, w.Code, "ACLs off")
+	assert.Contains(t, w.Body.String(), "AccessControlListNotSupported")
+
+	require.NoError(t, env.bucketManager.SetPublicAccessBlock(ctx, env.tenantID, "open-acl", &bucket.PublicAccessBlock{IgnorePublicAcls: true}))
+	assert.Equal(t, http.StatusForbidden, post("open-acl", map[string]string{"key": "b.txt"}).Code, "IgnorePublicAcls")
+	require.NoError(t, env.bucketManager.SetPublicAccessBlock(ctx, env.tenantID, "open-policy", &bucket.PublicAccessBlock{RestrictPublicBuckets: true}))
+	assert.Equal(t, http.StatusForbidden, post("open-policy", map[string]string{"key": "uploads/c.txt"}).Code, "RestrictPublicBuckets")
+
+	w = post("closed", map[string]string{"key": "c.txt", "policy": "e30="})
+	assert.Equal(t, http.StatusBadRequest, w.Code, "a policy without a signature is not anonymous")
+	assert.False(t, stored("closed", "c.txt"))
 }

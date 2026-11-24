@@ -135,6 +135,7 @@ var permissionCatalog = []CatalogPermission{
 	{Action: "s3:PutBucketOwnershipControls", Group: "bucket-policy", Label: "Change ownership controls", ResourceScoped: true},
 
 	{Action: "s3:GetBucketPolicy", Group: "bucket-policy", Label: "Read bucket policy", ResourceScoped: true},
+	{Action: "s3:GetBucketPolicyStatus", Group: "bucket-policy", Label: "Read whether the policy makes the bucket public", ResourceScoped: true},
 	{Action: "s3:PutBucketPolicy", Group: "bucket-policy", Label: "Change bucket policy", ResourceScoped: true},
 	{Action: "s3:DeleteBucketPolicy", Group: "bucket-policy", Label: "Delete bucket policy", ResourceScoped: true},
 }

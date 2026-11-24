@@ -102,7 +102,7 @@ func (h *Handler) ListBucketVersions(w http.ResponseWriter, r *http.Request) {
 	var allDeleteMarkers []DeleteMarker
 	var commonPrefixes []CommonPrefix
 
-	owner := Owner{ID: "maxiofs", DisplayName: "MaxIOFS"}
+	owner := h.bucketOwner(r.Context(), h.resolveBucketTenantID(r, bucketName), bucketName)
 	for _, ver := range page.Versions {
 		versionID := ver.VersionID
 		if versionID == "" {

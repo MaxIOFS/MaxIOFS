@@ -76,6 +76,12 @@ MaxIOFS checks the policy's expiration and every condition, and refuses a
 file outside the size range. As in S3, the file is the last field read: the
 fields after it, such as a submit button, are ignored.
 
+A form without a policy or signature is anonymous, as in S3. It is taken
+where an upload without credentials is: a bucket policy that allows
+`s3:PutObject` to everyone, or a bucket ACL that grants WRITE to everyone,
+with ACLs enabled. Block Public Access holds, and the form's `acl` field is
+held to the bucket's Object Ownership.
+
 ## Things to know
 
 - **The link lives as long as the key.** Deleting the access key that signed

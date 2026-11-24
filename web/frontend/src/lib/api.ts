@@ -1299,6 +1299,19 @@ export class APIClient {
     await apiClient.put(url, config);
   }
 
+  // Object Ownership: '' for a bucket without it, whose ACLs are on;
+  // 'BucketOwnerEnforced' turns them off.
+  static async getBucketOwnership(bucketName: string, tenantId?: string): Promise<string> {
+    const url = tenantId ? `/buckets/${bucketName}/ownership-controls?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/ownership-controls`;
+    const response = await apiClient.get(url);
+    return response.data?.data?.objectOwnership ?? '';
+  }
+
+  static async putBucketOwnership(bucketName: string, objectOwnership: string, tenantId?: string): Promise<void> {
+    const url = tenantId ? `/buckets/${bucketName}/ownership-controls?tenantId=${encodeURIComponent(tenantId)}` : `/buckets/${bucketName}/ownership-controls`;
+    await apiClient.put(url, { objectOwnership });
+  }
+
   // Object Legal Hold
   static async getObjectLegalHold(bucketName: string, objectKey: string, tenantId?: string): Promise<{ status: string }> {
     const params = new URLSearchParams();

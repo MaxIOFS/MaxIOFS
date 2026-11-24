@@ -303,6 +303,7 @@ func ReadOnlyAuditAction(action string) bool {
 		ActionGetBucketLocation,
 		ActionGetBucketVersioning,
 		ActionGetBucketPolicy,
+		ActionGetBucketPolicyStatus,
 		ActionGetBucketLifecycle,
 		ActionGetBucketCORS,
 		ActionGetBucketTagging,

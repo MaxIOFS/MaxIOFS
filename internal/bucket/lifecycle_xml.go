@@ -1,10 +1,12 @@
 package bucket
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/maxiofs/maxiofs/internal/storageclass"
 )
 
@@ -121,6 +123,12 @@ func LifecycleFromXML(doc *LifecycleConfigurationXML) (*LifecycleConfig, error) 
 			ids[rule.ID] = true
 		}
 		config.Rules = append(config.Rules, rule)
+	}
+	// A rule put without an ID gets one, as AWS gives it.
+	for i := range config.Rules {
+		if config.Rules[i].ID == "" {
+			config.Rules[i].ID = base64.StdEncoding.EncodeToString([]byte(uuid.NewString()))
+		}
 	}
 	return config, nil
 }

@@ -52,21 +52,18 @@ func TestChecksumCRC32_PutAndGet(t *testing.T) {
 	assert.Equal(t, "CRC32", w.Header().Get("x-amz-checksum-algorithm"), "PUT response should echo algorithm")
 	assert.Equal(t, expectedChecksum, w.Header().Get("x-amz-checksum-crc32"), "PUT response should return computed CRC32")
 
-	// GET and verify checksum headers
-	req2, w2 := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
-	env.router.ServeHTTP(w2, req2)
+	// A read gives the checksum when it asks for it, as AWS gives it.
+	for _, method := range []string{"GET", "HEAD"} {
+		w := env.sendSigned(method, "/"+bucketName+"/"+objectKey, nil, nil)
+		require.Equal(t, http.StatusOK, w.Code, method)
+		assert.Empty(t, w.Header().Get("x-amz-checksum-algorithm"), "%s without x-amz-checksum-mode", method)
+		assert.Empty(t, w.Header().Get("x-amz-checksum-crc32"), "%s without x-amz-checksum-mode", method)
 
-	require.Equal(t, http.StatusOK, w2.Code, "GET should succeed")
-	assert.Equal(t, "CRC32", w2.Header().Get("x-amz-checksum-algorithm"), "GET response should return algorithm")
-	assert.Equal(t, expectedChecksum, w2.Header().Get("x-amz-checksum-crc32"), "GET response should return stored CRC32")
-
-	// HEAD and verify checksum headers
-	req3, w3 := env.makeS3Request("HEAD", "/"+bucketName+"/"+objectKey, nil)
-	env.router.ServeHTTP(w3, req3)
-
-	require.Equal(t, http.StatusOK, w3.Code, "HEAD should succeed")
-	assert.Equal(t, "CRC32", w3.Header().Get("x-amz-checksum-algorithm"), "HEAD response should return algorithm")
-	assert.Equal(t, expectedChecksum, w3.Header().Get("x-amz-checksum-crc32"), "HEAD response should return stored CRC32")
+		w = env.sendSigned(method, "/"+bucketName+"/"+objectKey, nil, map[string]string{"x-amz-checksum-mode": "ENABLED"})
+		require.Equal(t, http.StatusOK, w.Code, method)
+		assert.Equal(t, "CRC32", w.Header().Get("x-amz-checksum-algorithm"), method)
+		assert.Equal(t, expectedChecksum, w.Header().Get("x-amz-checksum-crc32"), method)
+	}
 }
 
 // TestChecksumSHA256_PutAndGet uploads with SHA256 and verifies round-trip.
@@ -95,9 +92,7 @@ func TestChecksumSHA256_PutAndGet(t *testing.T) {
 	assert.Equal(t, expectedChecksum, w.Header().Get("x-amz-checksum-sha256"))
 
 	// GET should return the same checksum
-	req2, w2 := env.makeS3Request("GET", "/"+bucketName+"/"+objectKey, nil)
-	env.router.ServeHTTP(w2, req2)
-
+	w2 := env.sendSigned("GET", "/"+bucketName+"/"+objectKey, nil, map[string]string{"x-amz-checksum-mode": "ENABLED"})
 	require.Equal(t, http.StatusOK, w2.Code)
 	assert.Equal(t, expectedChecksum, w2.Header().Get("x-amz-checksum-sha256"), "GET should return stored SHA256")
 }

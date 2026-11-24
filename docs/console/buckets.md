@@ -42,8 +42,9 @@ delete or overwrite them until the date passes. It is what backup software
 such as Veeam uses for immutable backups.
 
 !!! danger "Permanent"
-    Object Lock can only be turned on when the bucket is created, and never
-    turned off. It also turns on versioning for good.
+    Object Lock is never turned off once on. It also turns on versioning for
+    good. A bucket that exists takes it through the S3 API
+    (`PutObjectLockConfiguration`) when its versioning is enabled, as in AWS.
 
 | Mode | Before the retention date |
 |------|---------------------------|
@@ -92,7 +93,7 @@ Versioning, Object Lock status, the default retention, and tags.
 | **Customer-provided keys (SSE-C)** | Whether clients may send their own encryption key with each request. Blocked by default, as in AWS. Only taken over HTTPS. |
 | **Block Public Access** | Overrides anything public in the ACL and the policy. It grants nothing itself. Share links, presigned URLs and websites are not affected. |
 | **Bucket Policy** | Grants or denies actions on the bucket to users of its tenant or to everyone. A `Deny` here wins over any other permission. Edited as rules, not JSON. |
-| **ACL** | What requests *without credentials* may do with the bucket, as in AWS: public read lists it, public read-write also writes and deletes objects. Downloading an object takes its own ACL or a policy rule such as *Everyone can download*. |
+| **ACL** | **Object Ownership** first: with ACLs disabled, the default for a new bucket as in AWS, no ACL is set and none decides access; **Enable ACLs** turns them on. With them on, the ACL says what requests *without credentials* may do with the bucket: public read lists it, public read-write also writes and deletes objects. Downloading an object takes its own ACL or a policy rule such as *Everyone can download*. |
 | **CORS** | Which web origins may call the bucket from a browser. |
 
 To publish a folder to the internet, for example:

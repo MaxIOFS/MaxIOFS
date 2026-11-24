@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"testing"
@@ -670,7 +671,45 @@ func TestValidatePresignedURLV4_RejectsExpirationBeyondSevenDays(t *testing.T) {
 	require.Error(t, err)
 	var pe *presignedValidationError
 	require.ErrorAs(t, err, &pe)
-	assert.Equal(t, "InvalidArgument", pe.code)
+	assert.Equal(t, "AuthorizationQueryParametersError", pe.code)
+}
+
+// X-Amz-Expires as AWS takes it: negative or over a week is a malformed URL
+// (400), 0 one that has expired (403); an expired URL is AccessDenied with
+// when it expired.
+func TestPresignedURLExpiryIsAnsweredAsAWS(t *testing.T) {
+	handler := &Handler{publicAPIURL: "http://localhost:8080", authManager: &mockAuthManager{}}
+	request := func(expires string, at time.Time) *http.Request {
+		q := url.Values{}
+		q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+		q.Set("X-Amz-Credential", "AKIAIOSFODNN7EXAMPLE/"+at.Format("20060102")+"/us-east-1/s3/aws4_request")
+		q.Set("X-Amz-Date", at.Format("20060102T150405Z"))
+		q.Set("X-Amz-Expires", expires)
+		q.Set("X-Amz-SignedHeaders", "host")
+		q.Set("X-Amz-Signature", "00")
+		req, err := http.NewRequest("GET", "http://localhost:8080/b/k?"+q.Encode(), nil)
+		require.NoError(t, err)
+		return req
+	}
+	codeOf := func(req *http.Request) string {
+		var pe *presignedValidationError
+		require.ErrorAs(t, handler.ValidatePresignedURL(nil, req), &pe)
+		return pe.code
+	}
+	now := time.Now().UTC()
+	assert.Equal(t, "AuthorizationQueryParametersError", codeOf(request("-1000", now)))
+	assert.Equal(t, "RequestExpired", codeOf(request("0", now.Add(-time.Second))))
+
+	expired := request("3600", now.Add(-2*time.Hour))
+	w := httptest.NewRecorder()
+	handler.writeError(w, "RequestExpired", "Request has expired.", "k", expired)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "<Code>AccessDenied</Code>")
+	assert.Contains(t, body, "<Message>Request has expired</Message>")
+	assert.Contains(t, body, "<X-Amz-Expires>3600</X-Amz-Expires>")
+	assert.Contains(t, body, "<Expires>")
+	assert.Contains(t, body, "<ServerTime>")
 }
 
 // TestValidatePresignedURLV4_MissingParameters tests missing parameter detection

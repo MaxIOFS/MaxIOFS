@@ -113,7 +113,8 @@ delete marker; the earlier versions stay.
 
 ## Object Lock
 
-Object Lock is chosen when the bucket is created and cannot be turned off.
+Object Lock is chosen when the bucket is created, or turned on later for a
+bucket whose versioning is enabled; it cannot be turned off.
 
 ```bash
 aws s3api create-bucket --bucket backups --object-lock-enabled-for-bucket

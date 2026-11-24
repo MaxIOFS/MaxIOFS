@@ -3300,34 +3300,29 @@ func TestS3ListObjectsV2(t *testing.T) {
 	})
 }
 
-// TestS3CreateBucketConflict verifies the distinction between BucketAlreadyOwnedByYou
-// (same owner) and BucketAlreadyExists (different owner) per the AWS S3 spec (M3).
+// TestS3CreateBucketConflict: creating again a bucket one owns is answered as
+// AWS answers it in us-east-1, 200 OK with the bucket's ACL reset; the objects
+// stay.
 func TestS3CreateBucketConflict(t *testing.T) {
 	env := setupCompleteS3Environment(t)
 	defer env.cleanup()
 
 	bucketName := "conflict-test-bucket"
+	w := env.sendSigned("PUT", "/"+bucketName, nil, map[string]string{
+		"x-amz-object-ownership": "ObjectWriter", "x-amz-acl": "public-read"})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.True(t, env.bucketACLIsPublic(t, bucketName))
+	require.Equal(t, http.StatusOK, env.sendSigned("PUT", "/"+bucketName+"/kept", []byte("data"), nil).Code)
 
-	// First creation must succeed.
-	req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
-	env.router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code, "First PUT should succeed")
+	w = env.sendSigned("PUT", "/"+bucketName, nil, nil)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "/"+bucketName, w.Header().Get("Location"))
+	assert.False(t, env.bucketACLIsPublic(t, bucketName), "the ACL is reset to private")
+	assert.Equal(t, http.StatusOK, env.sendSigned("GET", "/"+bucketName+"/kept", nil, nil).Code, "the objects stay")
 
-	t.Run("Same owner gets BucketAlreadyOwnedByYou", func(t *testing.T) {
-		// Same credentials → same effective owner.
-		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
-		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusConflict, w.Code)
-		assert.Contains(t, w.Body.String(), "BucketAlreadyOwnedByYou",
-			"Same-owner re-creation must return BucketAlreadyOwnedByYou")
-	})
-
-	t.Run("BucketAlreadyOwnedByYou is still 409", func(t *testing.T) {
-		// HTTP status must be 409 Conflict for both error codes.
-		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
-		env.router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusConflict, w.Code)
-	})
+	w = env.sendSigned("PUT", "/"+bucketName, nil, map[string]string{"x-amz-acl": "public-read"})
+	assert.Equal(t, http.StatusBadRequest, w.Code, "ACLs off by default, as on creation")
+	assert.Contains(t, w.Body.String(), "InvalidBucketAclWithObjectOwnership")
 }
 
 // TestS3CreateBucketLocationHeader verifies that a successful CreateBucket response
@@ -3361,9 +3356,9 @@ func TestS3CreateBucketLocationHeader(t *testing.T) {
 
 	t.Run("Duplicate bucket returns error without Location header", func(t *testing.T) {
 		bucketName := "duplicate-bucket"
-		// Create the bucket first directly via manager
+		// Another user's bucket: one's own is created again with 200.
 		ctx := context.Background()
-		require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, env.userID))
+		require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, bucketName, "another-user"))
 
 		req, w := env.makeS3Request("PUT", "/"+bucketName, nil)
 		env.router.ServeHTTP(w, req)

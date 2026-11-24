@@ -8,18 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Before upgrading
+- A bucket created after upgrading has its ACLs off (Object Ownership `BucketOwnerEnforced`), as AWS creates one: an ACL other than `private` or `bucket-owner-full-control` set on it or its objects is refused with `400 AccessControlListNotSupported`, and no ACL decides access to it. Where clients set ACLs, create the bucket with `x-amz-object-ownership: ObjectWriter`, or choose *ACLs enabled* in the console. Buckets that exist keep their ACLs.
 - A bucket whose ACL grants READ to everyone (`public-read`) no longer opens its objects to requests without credentials, as in AWS: it lists them. Where objects are downloaded without credentials, add the bucket policy rule *Everyone can download* (`s3:GetObject` to `"*"`), or give the objects a `public-read` ACL, before upgrading. Share links, presigned URLs and static websites are not affected.
+
+### Added
+- Object Ownership as AWS has it: `BucketOwnerEnforced` turns a bucket's ACLs off, `ObjectWriter` and `BucketOwnerPreferred` keep them. `CreateBucket` takes `x-amz-object-ownership`; the console chooses it when a bucket is created and changes it in the bucket's settings.
+- Object Lock is turned on for a bucket that exists with `PutObjectLockConfiguration`, as AWS allows, when its versioning is enabled.
+- `GetBucketPolicyStatus` (`?policyStatus`): whether the bucket's policy makes it public, as AWS defines it.
+- `x-amz-expected-bucket-owner`: a request expecting another owner than the bucket's tenant or owning user is refused with `403`, as in AWS.
+- A form upload takes `${filename}` in its key, replaced by the name of the file sent, as in AWS.
+- A form upload without a policy or signature is taken where an upload without credentials is, as in AWS: a bucket policy allowing `s3:PutObject` to everyone, or a bucket ACL granting WRITE to everyone.
 
 ### Changed
 - A read without credentials (GET, HEAD) is decided by the object's own ACL, of the version read, or the bucket policy, as in AWS; READ on the bucket lists it. A key that does not exist answers `404` where the bucket can be listed, `403` elsewhere.
+- `CreateBucket` of a bucket the requester already owns answers `200` and resets its ACL to the one asked for, `private` if none, as AWS does in `us-east-1`; it answered `409 BucketAlreadyOwnedByYou`.
+- GET and HEAD give the object's checksum when asked with `x-amz-checksum-mode: ENABLED`, as AWS does.
+- Owners are shown by ID alone, as AWS shows them since November 2025: no `DisplayName`.
+- Errors as AWS gives them: an expired presigned URL is `403 AccessDenied` "Request has expired" with its `X-Amz-Expires`, `Expires` and `ServerTime`; an `X-Amz-Expires` negative or over a week `400 AuthorizationQueryParametersError`, and 0 expired; a request without credentials about a bucket that does not exist, but creating it, `404 NoSuchBucket`; reading the retention or legal hold of an object in a bucket without Object Lock `400 InvalidRequest`.
 
 ### Fixed
+- `GetBucketOwnershipControls` said `BucketOwnerEnforced` for a bucket without them, whose ACLs worked: it answers `404 OwnershipControlsNotFoundError`, as AWS does.
+- ACLs, object listings, versions and multipart uploads named a fixed owner `maxiofs`: they name the bucket's owner.
+- `GetBucketPolicy` gave the policy written anew: it gives it as it was put.
+- A lifecycle rule put without an ID was kept without one: it gets one, as AWS gives it.
+- `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
+- Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.
+- A form upload ignored its `acl` field: it is set on the object, as in AWS.
+- A key that is not UTF-8 was taken, and an object could be written under it: it is refused with `400 InvalidURI`, as AWS does.
+- A browser's preflight to a bucket was answered before its CORS rules were read, without `Access-Control-Allow-Origin`: only simple GETs reached a bucket from a browser. The bucket's rules answer it and the headers it asks for are checked; a preflight no rule allows gets `403`, one without origin or method `400`, as in AWS. A response carries CORS headers only when a rule allows its origin.
 - Deleting the current version of an object whose versions were written within one second made the oldest the current one, not the one before it. The versions of a key followed by a colon (`a:b` for `a`) could become the current object of the other key.
 - The CORS rules of a bucket in a tenant were never applied, and a script's request to a bucket without credentials was redirected to the console: a browser got no `Access-Control-Allow-Origin`. A request carrying `Origin` reaches S3. An allowed origin takes one `*` anywhere, as in AWS (`https://*.example.com`, `*suffix`).
 - `CreateBucket` ignored `x-amz-acl`: the bucket was created private. The ACL is applied and asks `s3:PutBucketAcl`, as in AWS.
 - Signature V2 refused every request to a bucket signed as botocore and AWS sign it (`/bucket/`), and requests on `?versions`, `?cors`, `?tagging` and other subresources.
 - A `304 Not Modified` carried no `ETag` or `Last-Modified`.
 - The redirect after a form upload (`success_action_redirect`) gives the ETag between quotes, as AWS does.
+- The answer to a form upload with `success_action_status` 201 was named `postResponse`: it is `PostResponse`, as in AWS.
 - Listing a folder `dir/` that holds a folder object `dir/`, with the delimiter `/`, lost every key after a page that ended on that object, and a `start-after`, `marker` or `key-marker` equal to the prefix, or shorter and ending in the delimiter, listed nothing. They list what follows it.
 - `CompleteMultipartUpload` without parts answers `MalformedXML`, as AWS does, not `InvalidRequest`.
 - A syslog logging target whose server stopped reading held every log line in memory, and could take the node down; one that failed to reconnect once was never connected again, and one down when MaxIOFS started was not created. A write waits 5 seconds at most, at most 1,000 lines wait per target, and the server is connected again every 30 seconds.

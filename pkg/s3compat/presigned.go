@@ -8,18 +8,21 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/acl"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bandwidth"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -245,8 +248,12 @@ func (h *Handler) validatePresignedURLV4(r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("invalid expires parameter: %v", err)
 	}
-	if expiresIn <= 0 || expiresIn > int64((7*24*time.Hour).Seconds()) {
-		return &presignedValidationError{"InvalidArgument", "X-Amz-Expires must be between 1 and 604800 seconds."}
+	// As AWS: out of range is a malformed URL; 0 is one that has expired.
+	if expiresIn < 0 {
+		return &presignedValidationError{"AuthorizationQueryParametersError", "X-Amz-Expires must be non-negative"}
+	}
+	if expiresIn > int64((7 * 24 * time.Hour).Seconds()) {
+		return &presignedValidationError{"AuthorizationQueryParametersError", "X-Amz-Expires must be less than a week (in seconds) that is; 604800"}
 	}
 
 	// Parse date
@@ -704,101 +711,23 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		}
 		return ""
 	}
-
-	// Determine signature version and extract fields.
-	isV4 := field("x-amz-algorithm") == "AWS4-HMAC-SHA256"
-	isV2 := !isV4 && field("AWSAccessKeyId") != ""
-	if !isV4 && !isV2 {
-		h.writeError(w, "InvalidRequest", "Missing signature fields (x-amz-algorithm or AWSAccessKeyId)", bucketName, r)
-		return
+	// ${filename} in the key is the name of the file sent, as in AWS; the
+	// policy is held to the key it makes.
+	if keys := form.Value["key"]; len(keys) > 0 && form.fileName != "" {
+		keys[0] = strings.ReplaceAll(keys[0], "${filename}", form.fileName)
 	}
 
-	policyB64 := field("policy")
-	if policyB64 == "" {
-		h.writeError(w, "InvalidPolicyDocument", "Missing policy field", bucketName, r)
-		return
-	}
-
-	// Decode and parse policy.
-	policyJSON, err := base64.StdEncoding.DecodeString(policyB64)
-	if err != nil {
-		h.writeError(w, "InvalidPolicyDocument", "policy is not valid base64", bucketName, r)
-		return
-	}
-	var policy postPolicy
-	if err := json.Unmarshal(policyJSON, &policy); err != nil {
-		h.writeError(w, "InvalidPolicyDocument", "policy is not valid JSON: "+err.Error(), bucketName, r)
-		return
-	}
-
-	// Check policy expiration.
-	expiry, err := time.Parse(time.RFC3339, policy.Expiration)
-	if err != nil {
-		expiry, err = time.Parse("2006-01-02T15:04:05.000Z", policy.Expiration)
-	}
-	if err != nil || time.Now().UTC().After(expiry) {
-		h.writeError(w, "AccessDenied", "Policy has expired", bucketName, r)
-		return
-	}
-
-	// Verify signature.
-	var accessKey, secretKey string
-	if isV4 {
-		credential := field("x-amz-credential")
-		if credential == "" {
-			h.writeError(w, "InvalidRequest", "Missing x-amz-credential", bucketName, r)
-			return
-		}
-		parts := strings.Split(credential, "/")
-		if len(parts) < 5 {
-			h.writeError(w, "InvalidRequest", "Malformed x-amz-credential", bucketName, r)
-			return
-		}
-		accessKey = parts[0]
-		dateStamp := parts[1]
-		region := parts[2]
-		service := parts[3]
-
-		secretKey, err = h.getSecretKeyForCredential(r.Context(), accessKey, field("x-amz-security-token"))
-		if err != nil {
-			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
-			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
-			return
-		}
-
-		expectedSig := h.calculateSignatureV4(policyB64, secretKey, dateStamp, region, service)
-		if !hmac.Equal([]byte(expectedSig), []byte(field("x-amz-signature"))) {
-			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
-			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
-			return
-		}
-	} else {
-		// V2: HMAC-SHA256(secret, base64(policy))
-		accessKey = field("AWSAccessKeyId")
-		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
-		if err != nil {
-			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
-			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
-			return
-		}
-		expectedSig := h.calculateSignatureV2(policyB64, secretKey)
-		if !hmac.Equal([]byte(expectedSig), []byte(field("signature"))) {
-			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
-			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
+	// A form without a policy or credentials is anonymous, as in AWS: the
+	// bucket's policy and ACL decide it as they decide a PUT without
+	// credentials.
+	anonymous := anonymousPostForm(form.Value)
+	var conditions []json.RawMessage
+	if !anonymous {
+		var ok bool
+		if r, conditions, ok = h.signedPostForm(w, r, bucketName, field); !ok {
 			return
 		}
 	}
-
-	// Resolve the user from the access key and inject into context for permission checks.
-	// Failing to resolve must deny instead of falling through as anonymous.
-	signer, err := h.presignedSigner(r, accessKey, field("x-amz-security-token"))
-	if err != nil {
-		h.recordAuth("s3_post_policy", "AccessDenied")
-		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-		return
-	}
-	h.recordAuth("s3_post_policy", "")
-	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
 
 	// Validate policy conditions against the form fields.
 	objectKey := field("key")
@@ -809,10 +738,12 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 			fields[strings.ToLower(name)] = values[0]
 		}
 	}
-	minLen, maxLen, err := checkPostPolicy(policy.Conditions, bucketName, fields)
-	if err != nil {
-		h.writeError(w, "AccessDenied", "Invalid according to Policy: "+err.Error(), bucketName, r)
-		return
+	minLen, maxLen := int64(0), int64(1<<63-1)
+	if !anonymous {
+		if minLen, maxLen, err = checkPostPolicy(conditions, bucketName, fields); err != nil {
+			h.writeError(w, "AccessDenied", "Invalid according to Policy: "+err.Error(), bucketName, r)
+			return
+		}
 	}
 
 	if form.file == nil {
@@ -842,18 +773,28 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists || user == nil {
-		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
-		return
-	}
-	if !h.userCanPerformS3ActionInTenant(r.Context(), user,
-		h.resolveBucketTenantID(r, bucketName), auth.ActionPutObject,
-		objectARN(bucketName, objectKey)) {
+	userExists = userExists && user != nil
+	if (!anonymous && !userExists) ||
+		!h.validateBucketWritePermission(r, user, userExists, h.resolveBucketTenantID(r, bucketName), bucketName, objectKey) {
 		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
 		return
 	}
 
 	if h.writeHeadersRefused(w, r, objectKey, syntheticHeaders, true) {
+		return
+	}
+	// The form's acl is the x-amz-acl of a PUT: held to the bucket's Object
+	// Ownership and Block Public Access, and set on the object.
+	cannedACL := field("acl")
+	if cannedACL != "" && !acl.IsValidCannedACL(cannedACL) {
+		h.writeError(w, "InvalidArgument", "Invalid canned ACL: "+cannedACL, objectKey, r)
+		return
+	}
+	r.Header.Del("x-amz-acl")
+	if cannedACL != "" {
+		r.Header.Set("x-amz-acl", cannedACL)
+	}
+	if !h.requireACLHeaderAllowed(w, r, bucketName, objectKey) {
 		return
 	}
 
@@ -879,6 +820,9 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 		logrus.WithError(err).WithFields(logrus.Fields{"bucket": bucketName, "key": objectKey}).Error("POST presigned: PutObject failed")
 		h.writeObjectWriteError(w, r, err, bucketName, objectKey)
 		return
+	}
+	if cannedACL != "" {
+		h.applyObjectCannedACLHeader(r.Context(), bucketPath, objectKey, cannedACL)
 	}
 
 	// Check for success_action_redirect.
@@ -910,10 +854,11 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	if statusCode == http.StatusCreated {
 		// Return XML body per S3 spec for 201.
 		type postResponse struct {
-			Location string `xml:"Location"`
-			Bucket   string `xml:"Bucket"`
-			Key      string `xml:"Key"`
-			ETag     string `xml:"ETag"`
+			XMLName  xml.Name `xml:"PostResponse"`
+			Location string   `xml:"Location"`
+			Bucket   string   `xml:"Bucket"`
+			Key      string   `xml:"Key"`
+			ETag     string   `xml:"ETag"`
 		}
 		w.Header().Set("ETag", QuoteETag(result.ETag))
 		h.writeXMLResponse(w, http.StatusCreated, postResponse{
@@ -929,12 +874,127 @@ func (h *Handler) HandlePresignedPost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(statusCode)
 }
 
+// postCredentialFields are the fields that make a form signed: a form with
+// none of them is anonymous.
+var postCredentialFields = []string{"policy", "signature", "awsaccesskeyid", "x-amz-signature", "x-amz-algorithm", "x-amz-credential"}
+
+// anonymousPostForm reports a form without a policy or credentials.
+func anonymousPostForm(fields map[string][]string) bool {
+	for name := range fields {
+		if slices.Contains(postCredentialFields, strings.ToLower(name)) {
+			return false
+		}
+	}
+	return true
+}
+
+// signedPostForm checks the policy of a signed form and its signature, as S3
+// does. It gives r as of the signer and the policy's conditions; false when
+// it answered the request.
+func (h *Handler) signedPostForm(w http.ResponseWriter, r *http.Request, bucketName string, field func(string) string) (*http.Request, []json.RawMessage, bool) {
+	isV4 := field("x-amz-algorithm") == "AWS4-HMAC-SHA256"
+	isV2 := !isV4 && field("AWSAccessKeyId") != ""
+	if !isV4 && !isV2 {
+		h.writeError(w, "InvalidRequest", "Missing signature fields (x-amz-algorithm or AWSAccessKeyId)", bucketName, r)
+		return r, nil, false
+	}
+
+	policyB64 := field("policy")
+	if policyB64 == "" {
+		h.writeError(w, "InvalidPolicyDocument", "Missing policy field", bucketName, r)
+		return r, nil, false
+	}
+
+	// Decode and parse policy.
+	policyJSON, err := base64.StdEncoding.DecodeString(policyB64)
+	if err != nil {
+		h.writeError(w, "InvalidPolicyDocument", "policy is not valid base64", bucketName, r)
+		return r, nil, false
+	}
+	var policy postPolicy
+	if err := json.Unmarshal(policyJSON, &policy); err != nil {
+		h.writeError(w, "InvalidPolicyDocument", "policy is not valid JSON: "+err.Error(), bucketName, r)
+		return r, nil, false
+	}
+
+	// Check policy expiration.
+	expiry, err := time.Parse(time.RFC3339, policy.Expiration)
+	if err != nil {
+		expiry, err = time.Parse("2006-01-02T15:04:05.000Z", policy.Expiration)
+	}
+	if err != nil || time.Now().UTC().After(expiry) {
+		h.writeError(w, "AccessDenied", "Policy has expired", bucketName, r)
+		return r, nil, false
+	}
+
+	// Verify signature.
+	var accessKey, secretKey string
+	if isV4 {
+		credential := field("x-amz-credential")
+		if credential == "" {
+			h.writeError(w, "InvalidRequest", "Missing x-amz-credential", bucketName, r)
+			return r, nil, false
+		}
+		parts := strings.Split(credential, "/")
+		if len(parts) < 5 {
+			h.writeError(w, "InvalidRequest", "Malformed x-amz-credential", bucketName, r)
+			return r, nil, false
+		}
+		accessKey = parts[0]
+		dateStamp := parts[1]
+		region := parts[2]
+		service := parts[3]
+
+		secretKey, err = h.getSecretKeyForCredential(r.Context(), accessKey, field("x-amz-security-token"))
+		if err != nil {
+			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
+			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
+			return r, nil, false
+		}
+
+		expectedSig := h.calculateSignatureV4(policyB64, secretKey, dateStamp, region, service)
+		if !hmac.Equal([]byte(expectedSig), []byte(field("x-amz-signature"))) {
+			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
+			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
+			return r, nil, false
+		}
+	} else {
+		// V2: HMAC-SHA256(secret, base64(policy))
+		accessKey = field("AWSAccessKeyId")
+		secretKey, err = h.getSecretKeyForAccessKey(r.Context(), accessKey)
+		if err != nil {
+			h.recordAuth("s3_post_policy", "InvalidAccessKeyId")
+			h.writeError(w, "InvalidAccessKeyId", "The access key does not exist", bucketName, r)
+			return r, nil, false
+		}
+		expectedSig := h.calculateSignatureV2(policyB64, secretKey)
+		if !hmac.Equal([]byte(expectedSig), []byte(field("signature"))) {
+			h.recordAuth("s3_post_policy", "SignatureDoesNotMatch")
+			h.writeError(w, "SignatureDoesNotMatch", "The request signature does not match", bucketName, r)
+			return r, nil, false
+		}
+	}
+
+	// Resolve the user from the access key and inject into context for permission checks.
+	// Failing to resolve must deny instead of falling through as anonymous.
+	signer, err := h.presignedSigner(r, accessKey, field("x-amz-security-token"))
+	if err != nil {
+		h.recordAuth("s3_post_policy", "AccessDenied")
+		h.writeError(w, "AccessDenied", "Access Denied", bucketName, r)
+		return r, nil, false
+	}
+	h.recordAuth("s3_post_policy", "")
+	r = r.WithContext(context.WithValue(r.Context(), "user", signer))
+	return r, policy.Conditions, true
+}
+
 // postForm is a POST form as S3 reads it, in its order: the fields before the
 // file, and the file. What follows the file is not read, as a submit button.
 type postForm struct {
-	Value map[string][]string
-	file  *os.File
-	size  int64
+	Value    map[string][]string
+	file     *os.File
+	fileName string // the name the file was sent with
+	size     int64
 }
 
 // maxPostFields is the most the fields of a form other than its file take, as
@@ -969,6 +1029,7 @@ func (h *Handler) readPostForm(r *http.Request) (*postForm, error) {
 		case "":
 			continue
 		case "file", "content":
+			form.fileName = part.FileName()
 			if form.file, err = os.CreateTemp(h.dataDir, "maxiofs-upload-post-*"); err != nil {
 				return form, err
 			}
