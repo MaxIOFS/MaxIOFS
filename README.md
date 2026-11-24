@@ -26,9 +26,39 @@
 
 MaxIOFS is a high-performance, S3-compatible object storage server written in Go. It ships as a **single binary** with an embedded React web console, a Pebble LSM-tree metadata engine, and native multi-tenancy — no external databases, no separate console process, no cloud account required.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/dashboard-dark.png">
+    <img src="docs/assets/screenshots/dashboard-light.png" alt="MaxIOFS web console: the dashboard, with buckets, objects, storage used and system health" width="900">
+  </picture>
+</p>
+
 ## Why MaxIOFS?
 
 Most S3-compatible servers give you object storage. MaxIOFS gives you object storage **plus** everything a real deployment needs out of the box: user management, multi-tenancy, SSO, audit logs, background integrity verification, and a full web console — all in one 20 MB binary.
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/bucket-objects-dark.png">
+        <img src="docs/assets/screenshots/bucket-objects-light.png" alt="MaxIOFS web console: the objects of a bucket">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/metrics-dark.png">
+        <img src="docs/assets/screenshots/metrics-light.png" alt="MaxIOFS web console: the metrics dashboard">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Object browser: folders, uploads, versions and sharing</sub></td>
+    <td align="center"><sub>Metrics: system, storage and requests, live and historical</sub></td>
+  </tr>
+</table>
+
+More screens in the [console guide](https://docs.maxiofs.com/console/).
 
 ---
 
