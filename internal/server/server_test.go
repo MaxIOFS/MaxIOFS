@@ -3247,6 +3247,16 @@ func TestHandleAddClusterNode(t *testing.T) {
 func TestHandleGetClusterNode(t *testing.T) {
 	server := getSharedServer()
 
+	t.Run("is refused to a tenant's user", func(t *testing.T) {
+		for _, handle := range []http.HandlerFunc{server.handleListClusterNodes, server.handleGetClusterNode, server.handleCheckNodeHealth} {
+			req := createAuthenticatedRequest("GET", "/api/v1/cluster/nodes/node-1", nil, "tenant-1", "user-1", false)
+			req = mux.SetURLVars(req, map[string]string{"nodeId": "node-1"})
+			rr := httptest.NewRecorder()
+			handle(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		}
+	})
+
 	t.Run("should return not found for non-existent node", func(t *testing.T) {
 		req := createAuthenticatedRequest("GET", "/api/v1/cluster/nodes/non-existent", nil, "", "admin-1", true)
 		req = mux.SetURLVars(req, map[string]string{"nodeId": "non-existent"})
@@ -4900,11 +4910,15 @@ func TestHandleNotificationStream(t *testing.T) {
 func TestHandleGetPerformanceLatencies(t *testing.T) {
 	server := getSharedServer()
 
-	t.Run("should return latencies without auth", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/performance/latencies", nil)
-		rr := httptest.NewRecorder()
-		server.HandleGetPerformanceLatencies(rr, req)
-		assert.Equal(t, http.StatusOK, rr.Code)
+	t.Run("is refused without a global administrator", func(t *testing.T) {
+		for _, req := range []*http.Request{
+			httptest.NewRequest("GET", "/api/v1/performance/latencies", nil),
+			createAuthenticatedRequest("GET", "/api/v1/performance/latencies", nil, "tenant-1", "user-1", false),
+		} {
+			rr := httptest.NewRecorder()
+			server.HandleGetPerformanceLatencies(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		}
 	})
 
 	t.Run("should get latencies for admin", func(t *testing.T) {
@@ -4918,11 +4932,15 @@ func TestHandleGetPerformanceLatencies(t *testing.T) {
 func TestHandleGetPerformanceThroughput(t *testing.T) {
 	server := getSharedServer()
 
-	t.Run("should return throughput without auth", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/performance/throughput", nil)
-		rr := httptest.NewRecorder()
-		server.HandleGetPerformanceThroughput(rr, req)
-		assert.Equal(t, http.StatusOK, rr.Code)
+	t.Run("is refused without a global administrator", func(t *testing.T) {
+		for _, req := range []*http.Request{
+			httptest.NewRequest("GET", "/api/v1/performance/throughput", nil),
+			createAuthenticatedRequest("GET", "/api/v1/performance/throughput", nil, "tenant-1", "user-1", false),
+		} {
+			rr := httptest.NewRecorder()
+			server.HandleGetPerformanceThroughput(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		}
 	})
 
 	t.Run("should get throughput for admin", func(t *testing.T) {
@@ -4936,11 +4954,15 @@ func TestHandleGetPerformanceThroughput(t *testing.T) {
 func TestHandleGetPerformanceHistory(t *testing.T) {
 	server := getSharedServer()
 
-	t.Run("should return history without auth", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/performance/history", nil)
-		rr := httptest.NewRecorder()
-		server.HandleGetPerformanceHistory(rr, req)
-		assert.Contains(t, []int{http.StatusOK, http.StatusBadRequest}, rr.Code)
+	t.Run("is refused without a global administrator", func(t *testing.T) {
+		for _, req := range []*http.Request{
+			httptest.NewRequest("GET", "/api/v1/performance/history", nil),
+			createAuthenticatedRequest("GET", "/api/v1/performance/history", nil, "tenant-1", "user-1", false),
+		} {
+			rr := httptest.NewRecorder()
+			server.HandleGetPerformanceHistory(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		}
 	})
 
 	t.Run("should get history for admin", func(t *testing.T) {
@@ -5706,8 +5728,7 @@ func TestHandleListClusterNodesEdgeCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/cluster/nodes", nil)
 		rr := httptest.NewRecorder()
 		server.handleListClusterNodes(rr, req)
-		// May return 200 if no auth middleware on handler level
-		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized, http.StatusServiceUnavailable}, rr.Code)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
 	})
 }
 
@@ -6465,7 +6486,7 @@ func TestHandleGetClusterNodeEdgeCases(t *testing.T) {
 		req = mux.SetURLVars(req, map[string]string{"nodeId": "some-node"})
 		rr := httptest.NewRecorder()
 		server.handleGetClusterNode(rr, req)
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusOK}, rr.Code)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
 	})
 }
 

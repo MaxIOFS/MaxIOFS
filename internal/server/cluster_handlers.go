@@ -367,6 +367,10 @@ type clusterNodeResponse struct {
 // The local node is enriched with live OS disk stats and flagged with is_local=true,
 // since the local entry in the DB starts at zero and is not updated by health checks.
 func (s *Server) handleListClusterNodes(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	nodes, err := s.clusterManager.ListNodes(r.Context())
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list cluster nodes")
@@ -653,6 +657,10 @@ func (s *Server) handleAddClusterNode(w http.ResponseWriter, r *http.Request) {
 
 // handleGetClusterNode gets details of a specific node
 func (s *Server) handleGetClusterNode(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	vars := mux.Vars(r)
 	nodeID := vars["nodeId"]
 
@@ -730,6 +738,10 @@ func (s *Server) handleRemoveClusterNode(w http.ResponseWriter, r *http.Request)
 
 // handleCheckNodeHealth performs a health check on a specific node
 func (s *Server) handleCheckNodeHealth(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	vars := mux.Vars(r)
 	nodeID := vars["nodeId"]
 

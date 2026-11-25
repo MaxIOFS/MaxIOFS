@@ -6,61 +6,63 @@ import { AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import i18n from '../i18n';
 
-// HTML sanitizer — strips dangerous tags, event handlers, and non-allowlisted URL schemes.
-// Uses the browser's own HTML parser so HTML-entity variants (&#106;avascript:) and
-// whitespace tricks are normalised automatically before any scheme check.
-// Exported so every dangerouslySetInnerHTML in the app can route through it —
-// i18n is configured with escapeValue:false, so interpolated values reach the
-// DOM unescaped and MUST be sanitized whenever rendered as raw HTML.
-export function sanitizeHtml(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
+// HTML sanitizer: keeps the formatting the translations use and drops the rest.
+// i18n is configured with escapeValue:false, so an interpolated value — an
+// object's name — reaches the HTML as written: only the allowed tags stay, with
+// a class, and a link with a safe scheme; any other tag gives up its text, and
+// those that load, run or take input go whole. The string is parsed in an inert
+// document, so nothing in it loads or runs while it is cleaned.
+const KEPT_TAGS = new Set(['strong', 'b', 'em', 'i', 'u', 'br', 'code', 'mono', 'span', 'p', 'ul', 'ol', 'li', 'a', 'small']);
+const DROPPED_TAGS = new Set([
+  'script', 'style', 'iframe', 'frame', 'object', 'embed', 'form', 'link', 'meta', 'base', 'template',
+  'noscript', 'svg', 'math', 'img', 'image', 'video', 'audio', 'source', 'picture', 'input', 'textarea',
+  'select', 'button', 'option',
+]);
+const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 
-  // Remove all inherently dangerous elements, including meta/base which can
-  // redirect the page or set a malicious base URL.
-  const dangerousTags = div.querySelectorAll(
-    'script, iframe, object, embed, form, link, style, meta, base'
+function safeHref(value: string): boolean {
+  /* eslint-disable no-control-regex */
+  const normalised = value.replace(/[\s\u0000-\u001f\u007f]+/g, '').toLowerCase();
+  /* eslint-enable no-control-regex */
+  return (
+    normalised.startsWith('#') ||
+    normalised.startsWith('/') ||
+    normalised.startsWith('http://') ||
+    normalised.startsWith('https://') ||
+    normalised.startsWith('mailto:')
   );
-  dangerousTags.forEach((el) => el.remove());
+}
 
-  // Attributes that carry URLs and must be limited to safe schemes only.
-  const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'xlink:href']);
-
-  const allElements = div.querySelectorAll('*');
-  allElements.forEach((el) => {
-    for (const attr of Array.from(el.attributes)) {
-      const attrName = attr.name.toLowerCase();
-
-      // Strip all event-handler attributes (onclick, onerror, onload …).
-      if (attrName.startsWith('on')) {
-        el.removeAttribute(attr.name);
-        continue;
-      }
-
-      // For URL attributes enforce an allowlist of safe schemes.
-      // getAttribute() already decodes HTML entities, so &#106;avascript: → javascript:
-      if (URL_ATTRS.has(attrName)) {
-        // Collapse all ASCII whitespace / control chars before comparing schemes
-        /* eslint-disable no-control-regex */
-        const normalised = (el.getAttribute(attr.name) ?? '')
-          .replace(/[\s\u0000-\u001f\u007f]+/g, '')
-          .toLowerCase();
-        /* eslint-enable no-control-regex */
-        const isSafe =
-          normalised === '' ||
-          normalised.startsWith('#') ||
-          normalised.startsWith('/') ||
-          normalised.startsWith('http://') ||
-          normalised.startsWith('https://') ||
-          normalised.startsWith('mailto:');
-        if (!isSafe) {
-          el.removeAttribute(attr.name);
-        }
-      }
+function cleanNode(node: Node): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) continue;
+    if (child.nodeType !== Node.ELEMENT_NODE) {
+      child.remove();
+      continue;
     }
-  });
+    const el = child as Element;
+    const tag = el.localName;
+    if (el.namespaceURI !== HTML_NAMESPACE || DROPPED_TAGS.has(tag)) {
+      el.remove();
+      continue;
+    }
+    cleanNode(el);
+    if (!KEPT_TAGS.has(tag)) {
+      el.replaceWith(...Array.from(el.childNodes));
+      continue;
+    }
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const kept = name === 'class' || (tag === 'a' && name === 'href' && safeHref(attr.value));
+      if (!kept) el.removeAttribute(attr.name);
+    }
+  }
+}
 
-  return div.innerHTML;
+export function sanitizeHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}</body>`, 'text/html');
+  cleanNode(doc.body);
+  return doc.body.innerHTML;
 }
 
 // Modal state types

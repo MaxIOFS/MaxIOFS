@@ -41,12 +41,16 @@ func TestACopyIsNamedCopyObject(t *testing.T) {
 		if copySource {
 			r.Header.Set("x-amz-copy-source", "/src/k")
 		}
+		if target == "/b/empty" {
+			r.Header.Set("x-amz-copy-source", "")
+		}
 		var match mux.RouteMatch
 		require.True(t, router.Match(r, &match), target)
 		return match.Route.GetName()
 	}
 	assert.Equal(t, "CopyObject", named("/b/k", true))
 	assert.Equal(t, "PutObject", named("/b/k", false))
+	assert.Equal(t, "PutObject", named("/b/empty", false), "an empty source is a PUT")
 	assert.Equal(t, "UploadPart", named("/b/k?partNumber=1&uploadId=u", true))
 	r := httptest.NewRequest(http.MethodPut, "/b/k?X-Amz-Algorithm=AWS4-HMAC-SHA256", nil)
 	r.Header.Set("x-amz-copy-source", "/src/k")

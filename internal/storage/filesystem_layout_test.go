@@ -65,3 +65,25 @@ func TestListUploadsOnAFreshRootIsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, ids)
 }
+
+// An upload ID that is not one directory name reaches nothing outside the
+// parts' directory.
+func TestAPartOfAnUploadIDThatClimbsIsRefused(t *testing.T) {
+	root := t.TempDir()
+	fs, err := NewFilesystemBackend(Config{Root: filepath.Join(root, "store")})
+	require.NoError(t, err)
+	ctx := context.Background()
+	for _, id := range []string{"", ".", "..", "../../outside", `..\outside`, "a/b"} {
+		require.ErrorIs(t, fs.PutPart(ctx, id, 1, strings.NewReader("x"), nil), ErrInvalidPath, id)
+		_, _, err := fs.GetPart(ctx, id, 1)
+		require.ErrorIs(t, err, ErrInvalidPath, id)
+		_, err = fs.PartMetadata(ctx, id, 1)
+		require.ErrorIs(t, err, ErrInvalidPath, id)
+		_, err = fs.PartExists(ctx, id, 1)
+		require.ErrorIs(t, err, ErrInvalidPath, id)
+		require.ErrorIs(t, fs.DeletePart(ctx, id, 1), ErrInvalidPath, id)
+		require.ErrorIs(t, fs.DeleteUpload(ctx, id), ErrInvalidPath, id)
+	}
+	_, err = os.Stat(filepath.Join(root, "outside"))
+	require.True(t, os.IsNotExist(err), "nothing written outside the store")
+}

@@ -578,7 +578,7 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 	}
 
 	// Get user by username (AccessKey in claims is username for console users)
-	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	user, err := am.userOfToken(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -587,6 +587,20 @@ func (am *authManager) ValidateJWT(ctx context.Context, token string) (*User, er
 		return nil, ErrUserInactive
 	}
 
+	return user, nil
+}
+
+// userOfToken is the user a token was issued to: the user of its username,
+// while it is the same user. A username given to a new user after a deletion
+// does not hand it the tokens of the one before.
+func (am *authManager) userOfToken(claims *JWTClaims) (*User, error) {
+	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	if err != nil {
+		return nil, err
+	}
+	if user.ID != claims.UserID {
+		return nil, ErrInvalidToken
+	}
 	return user, nil
 }
 
@@ -689,7 +703,7 @@ func (am *authManager) ValidateDownloadToken(ctx context.Context, token, resourc
 		return nil, ErrInvalidToken
 	}
 
-	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	user, err := am.userOfToken(claims)
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
@@ -760,7 +774,7 @@ func (am *authManager) ValidateRefreshToken(ctx context.Context, token string) (
 		return nil, ErrInvalidToken
 	}
 
-	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	user, err := am.userOfToken(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -794,7 +808,7 @@ func (am *authManager) ValidateTwoFactorToken(ctx context.Context, token string)
 		return nil, ErrInvalidToken
 	}
 
-	user, err := am.store.GetUserByUsername(claims.AccessKey)
+	user, err := am.userOfToken(claims)
 	if err != nil {
 		return nil, ErrInvalidToken
 	}

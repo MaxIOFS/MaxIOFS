@@ -146,3 +146,16 @@ func TestARequestIsAuthorizedAsTheTablesWereWhenItStarted(t *testing.T) {
 	assert.False(t, allowed(request), "the same request")
 	assert.True(t, allowed(withRequestGeneration(context.Background())), "the next request")
 }
+
+// A tenant whose status cannot be read denies that request only: the failure
+// is not kept as an inactive tenant.
+func TestATenantThatCouldNotBeReadIsNotKeptInactive(t *testing.T) {
+	manager, key, _ := cacheTestSigner(t)
+	db := manager.store.db
+	_, err := db.Exec(`ALTER TABLE tenants RENAME TO tenants_away`)
+	require.NoError(t, err)
+	assert.ErrorIs(t, validateSigned(manager, t, key), ErrAccessDenied, "the tenant cannot be read")
+	_, err = db.Exec(`ALTER TABLE tenants_away RENAME TO tenants`)
+	require.NoError(t, err)
+	assert.NoError(t, validateSigned(manager, t, key))
+}

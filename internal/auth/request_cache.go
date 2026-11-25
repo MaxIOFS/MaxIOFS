@@ -133,8 +133,14 @@ func (am *authManager) signerOf(ctx context.Context, accessKeyID string) (*Acces
 	if err != nil {
 		return key, nil, false, ErrUserNotFound
 	}
-	tenantActive := am.TenantActive(ctx, user.TenantID)
-	if cached {
+	// A tenant that could not be read is not active for this request, and is
+	// not kept: only a status read from the database is.
+	tenantActive, tenantRead := true, true
+	if user.TenantID != "" {
+		active, err := am.store.TenantActive(user.TenantID)
+		tenantActive, tenantRead = err == nil && active, err == nil
+	}
+	if cached && tenantRead {
 		am.cache.keepSigner(generation, accessKeyID, cachedSigner{key: *key, user: user.clone(), tenantActive: tenantActive})
 	}
 	return key, user, tenantActive, nil

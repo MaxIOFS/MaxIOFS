@@ -170,6 +170,15 @@ func (fs *FilesystemBackend) SetMetadata(ctx context.Context, ref ObjectRef, met
 	return fs.setMetadataAt(ctx, RefPath(ref), withIdentity(metadata, ref))
 }
 
+// validateUploadID refuses an upload ID that is not one directory name: the
+// parts of an upload live in a directory named after it.
+func validateUploadID(uploadID string) error {
+	if uploadID == "" || uploadID == "." || uploadID == ".." || strings.ContainsAny(uploadID, `\/`) {
+		return ErrInvalidPath
+	}
+	return nil
+}
+
 func validateRef(ref ObjectRef) error {
 	if ref.Key == "" {
 		return ErrInvalidPath
@@ -206,26 +215,41 @@ func withIdentity(metadata map[string]string, ref ObjectRef) map[string]string {
 
 func (fs *FilesystemBackend) PutPart(ctx context.Context, uploadID string, partNumber int, data io.Reader, metadata map[string]string) (err error) {
 	defer fs.observe("PutPart", time.Now(), &err)
+	if err := validateUploadID(uploadID); err != nil {
+		return err
+	}
 	return fs.putAt(ctx, partPath(uploadID, partNumber), data, metadata)
 }
 
 func (fs *FilesystemBackend) GetPart(ctx context.Context, uploadID string, partNumber int) (_ io.ReadCloser, _ map[string]string, err error) {
 	defer fs.observe("GetPart", time.Now(), &err)
+	if err := validateUploadID(uploadID); err != nil {
+		return nil, nil, err
+	}
 	return fs.getAt(ctx, partPath(uploadID, partNumber))
 }
 
 func (fs *FilesystemBackend) PartMetadata(ctx context.Context, uploadID string, partNumber int) (_ map[string]string, err error) {
 	defer fs.observe("PartMetadata", time.Now(), &err)
+	if err := validateUploadID(uploadID); err != nil {
+		return nil, err
+	}
 	return fs.metadataAt(ctx, partPath(uploadID, partNumber))
 }
 
 func (fs *FilesystemBackend) PartExists(ctx context.Context, uploadID string, partNumber int) (_ bool, err error) {
 	defer fs.observe("PartExists", time.Now(), &err)
+	if err := validateUploadID(uploadID); err != nil {
+		return false, err
+	}
 	return fs.existsAt(ctx, partPath(uploadID, partNumber))
 }
 
 func (fs *FilesystemBackend) DeletePart(ctx context.Context, uploadID string, partNumber int) (err error) {
 	defer fs.observe("DeletePart", time.Now(), &err)
+	if err := validateUploadID(uploadID); err != nil {
+		return err
+	}
 	return fs.deleteAt(ctx, partPath(uploadID, partNumber))
 }
 
@@ -256,8 +280,8 @@ func (fs *FilesystemBackend) ListUploads(ctx context.Context) (_ []string, err e
 
 func (fs *FilesystemBackend) DeleteUpload(ctx context.Context, uploadID string) (err error) {
 	defer fs.observe("DeleteUpload", time.Now(), &err)
-	if uploadID == "" || uploadID == "." || uploadID == ".." || strings.ContainsAny(uploadID, `\/`) {
-		return ErrInvalidPath
+	if err := validateUploadID(uploadID); err != nil {
+		return err
 	}
 	if err := os.RemoveAll(fs.uploadDir(uploadID)); err != nil {
 		return NewErrorWithCause("DeleteUpload", "Failed to remove the upload directory", err)

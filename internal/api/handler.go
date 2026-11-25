@@ -180,8 +180,8 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 	presigned.HandleFunc("", h.s3Handler.HandlePresignedRequest).Methods("HEAD").Queries("AWSAccessKeyId", "{keyid}").Name("HeadObject")
 
 	// A copy, before PutObject and after the presigned PUT, which PutObject
-	// copies too. An empty value matches any: "{source}" matched only itself.
-	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").Headers("x-amz-copy-source", "").Name("CopyObject")
+	// copies too: a source that is not empty, as PutObject tells one.
+	objectRouter.HandleFunc("", h.s3Handler.CopyObject).Methods("PUT").MatcherFunc(hasCopySource).Name("CopyObject")
 
 	// Basic object operations (without query parameters - registered LAST)
 	objectRouter.HandleFunc("", h.s3Handler.HeadObject).Methods("HEAD").Name("HeadObject")
@@ -309,6 +309,10 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 // it needs a query parameter.
 func hasQuery(r *http.Request, _ *mux.RouteMatch) bool {
 	return r.URL.RawQuery != ""
+}
+
+func hasCopySource(r *http.Request, _ *mux.RouteMatch) bool {
+	return r.Header.Get("x-amz-copy-source") != ""
 }
 
 // refusePreflight answers a preflight no CORS rule of the bucket allows, with

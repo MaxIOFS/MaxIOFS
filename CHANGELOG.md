@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A lifecycle rule put without an ID was kept without one: it gets one, as AWS gives it.
 - Finding a bucket by its name read every bucket, several times per request: a request took longer the more buckets the installation had.
 - A copy (`x-amz-copy-source`) was counted as `PutObject` in the metrics: it is counted as `CopyObject`.
+- Any console user, a tenant's too, could list the cluster's nodes, read one, start its health check and read the server's performance metrics: they need a global administrator.
+- A console token kept working for a new user given the username of a deleted one: a token is only the user's it was issued to.
+- A console dialog kept the images, form fields and styles an object's name brought into it: it keeps only the formatting the console writes.
 - `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
 - Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.
 - A form upload ignored its `acl` field: it is set on the object, as in AWS.

@@ -133,6 +133,10 @@ func (s *Server) HandleGetProfilingStats(w http.ResponseWriter, r *http.Request)
 // HandleGetPerformanceLatencies returns latency statistics for all operations
 // GET /api/console/metrics/performance/latencies
 func (s *Server) HandleGetPerformanceLatencies(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	collector := metrics.GetGlobalPerformanceCollector()
 	if collector == nil {
 		http.Error(w, "Performance collector not initialized", http.StatusServiceUnavailable)
@@ -164,6 +168,10 @@ func (s *Server) HandleGetPerformanceLatencies(w http.ResponseWriter, r *http.Re
 // HandleGetPerformanceThroughput returns current throughput statistics
 // GET /api/console/metrics/performance/throughput
 func (s *Server) HandleGetPerformanceThroughput(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	collector := metrics.GetGlobalPerformanceCollector()
 	if collector == nil {
 		http.Error(w, "Performance collector not initialized", http.StatusServiceUnavailable)
@@ -188,6 +196,10 @@ func (s *Server) HandleGetPerformanceThroughput(w http.ResponseWriter, r *http.R
 // HandleGetPerformanceHistory returns historical latency data for a specific operation
 // GET /api/console/metrics/performance/history?operation=PutObject&limit=100
 func (s *Server) HandleGetPerformanceHistory(w http.ResponseWriter, r *http.Request) {
+	if currentUser := s.getAuthUser(r); currentUser == nil || !s.isGlobalAdmin(currentUser) {
+		s.writeError(w, "Access denied: global admin required", http.StatusForbidden)
+		return
+	}
 	collector := metrics.GetGlobalPerformanceCollector()
 	if collector == nil {
 		http.Error(w, "Performance collector not initialized", http.StatusServiceUnavailable)
