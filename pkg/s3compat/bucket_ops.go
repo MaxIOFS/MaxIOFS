@@ -87,7 +87,7 @@ func (h *Handler) GetBucketPolicy(w http.ResponseWriter, r *http.Request) {
 	// Return the policy as JSON
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(policyJSON)
+	w.Write(policyJSON) //nolint:gosec // G705: JSON validated when it was put, sent as application/json with nosniff
 }
 
 // PutBucketPolicy sets the bucket policy
