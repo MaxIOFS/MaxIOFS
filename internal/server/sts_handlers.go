@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -182,41 +183,15 @@ func (s *Server) handleIssueSTSSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		DurationSeconds int             `json:"durationSeconds"`
-		SessionPolicy   json.RawMessage `json:"sessionPolicy,omitempty"`
-	}
-	// An empty body is valid and means "use the default duration".
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
-	}
-
-	// The policy travels either as a JSON object or as a JSON string holding
-	// the document — SDK users tend to send the second.
-	sessionPolicy := ""
-	if len(req.SessionPolicy) > 0 {
-		var asString string
-		if err := json.Unmarshal(req.SessionPolicy, &asString); err == nil {
-			sessionPolicy = asString
-		} else {
-			sessionPolicy = string(req.SessionPolicy)
-		}
-	}
-
-	session, err := s.authManager.IssueSTSSession(r.Context(), currentUser.ID, req.DurationSeconds, sessionPolicy)
+	duration, sessionPolicy, err := stsSessionRequest(r)
 	if err != nil {
-		switch {
-		case errors.Is(err, auth.ErrSTSInvalidPolicy):
-			s.writeError(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, auth.ErrSTSInvalidDuration):
-			s.writeError(w, "Session duration must be between 15 minutes and the configured maximum", http.StatusBadRequest)
-		case errors.Is(err, auth.ErrSTSTooManySessions):
-			s.writeError(w, "Too many active sessions. Revoke unused sessions before issuing new ones.", http.StatusTooManyRequests)
-		case errors.Is(err, auth.ErrUserInactive):
-			s.writeError(w, "Access denied", http.StatusForbidden)
-		default:
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	session, err := s.authManager.IssueSTSSession(r.Context(), currentUser.ID, duration, sessionPolicy)
+	if err != nil {
+		message, status := stsIssueRefusal(err)
+		s.writeError(w, message, status)
 		return
 	}
 
@@ -232,6 +207,47 @@ func (s *Server) handleIssueSTSSession(w http.ResponseWriter, r *http.Request) {
 		SessionToken:    session.SessionToken,
 		ExpiresAt:       session.ExpiresAt,
 	})
+}
+
+// stsSessionRequest reads what a request for temporary credentials asks. An
+// empty body asks the default duration; one that is not JSON is refused, not
+// issued without the policy it meant to set. The policy travels either as a
+// JSON object or as a JSON string holding the document — SDK users tend to
+// send the second.
+func stsSessionRequest(r *http.Request) (int, string, error) {
+	var req struct {
+		DurationSeconds int             `json:"durationSeconds"`
+		SessionPolicy   json.RawMessage `json:"sessionPolicy,omitempty"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			return 0, "", err
+		}
+	}
+	if len(req.SessionPolicy) == 0 {
+		return req.DurationSeconds, "", nil
+	}
+	var asString string
+	if json.Unmarshal(req.SessionPolicy, &asString) == nil {
+		return req.DurationSeconds, asString, nil
+	}
+	return req.DurationSeconds, string(req.SessionPolicy), nil
+}
+
+// stsIssueRefusal is what a refused issuance answers, and with which status.
+func stsIssueRefusal(err error) (string, int) {
+	switch {
+	case errors.Is(err, auth.ErrSTSInvalidPolicy):
+		return err.Error(), http.StatusBadRequest
+	case errors.Is(err, auth.ErrSTSInvalidDuration):
+		return "Session duration must be between 15 minutes and the configured maximum", http.StatusBadRequest
+	case errors.Is(err, auth.ErrSTSTooManySessions):
+		return "Too many active sessions. Revoke unused sessions before issuing new ones.", http.StatusTooManyRequests
+	case errors.Is(err, auth.ErrUserInactive):
+		return "Access denied", http.StatusForbidden
+	default:
+		return err.Error(), http.StatusInternalServerError
+	}
 }
 
 // handleListSTSSessions lists the caller's sessions; global admins may pass

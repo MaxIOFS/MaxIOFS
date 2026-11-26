@@ -5483,6 +5483,7 @@ func TestHandleUpdateUserPreferencesEdgeCases(t *testing.T) {
 	t.Run("should update preferences with valid body", func(t *testing.T) {
 		body := `{"theme": "dark", "language": "en"}`
 		req := createAuthenticatedRequest("PUT", "/api/v1/me/preferences", strings.NewReader(body), "", "admin-1", true)
+		req = mux.SetURLVars(req, map[string]string{"user": "admin-1"})
 		rr := httptest.NewRecorder()
 		server.handleUpdateUserPreferences(rr, req)
 		assert.Contains(t, []int{http.StatusOK, http.StatusNoContent, http.StatusUnauthorized, http.StatusBadRequest}, rr.Code)

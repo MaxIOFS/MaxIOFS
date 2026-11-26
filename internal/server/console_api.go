@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -3084,7 +3083,7 @@ func (s *Server) handleUnlockAccount(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "insufficient permissions to unlock account", http.StatusForbidden)
 		return
 	}
-	if !s.canAdministerUser(w, r, targetUserID) {
+	if _, ok := s.administeredUser(w, r, targetUserID); !ok {
 		return
 	}
 
@@ -3604,8 +3603,17 @@ func (s *Server) validatePasswordPolicy(password string) string {
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, data interface{}) {
+	writeAPIResponse(w, http.StatusOK, data)
+}
+
+// writeCreated answers what a request created, as writeJSON answers.
+func (s *Server) writeCreated(w http.ResponseWriter, data interface{}) {
+	writeAPIResponse(w, http.StatusCreated, data)
+}
+
+func writeAPIResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: data})
 }
 
@@ -4097,7 +4105,7 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 			s.writeError(w, "Insufficient permissions", http.StatusForbidden)
 			return
 		}
-		if !s.canAdministerUser(w, r, userID) {
+		if _, ok := s.administeredUser(w, r, userID); !ok {
 			return
 		}
 	}
@@ -7150,91 +7158,22 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is admin (global or tenant)
-	isGlobalAdmin := s.isGlobalAdmin(currentUser)
-	isTenantAdmin := !isGlobalAdmin && s.isAdmin(currentUser)
-
-	if !isGlobalAdmin && !isTenantAdmin {
+	if !s.isAdmin(currentUser) {
 		s.writeError(w, "Forbidden: only administrators can view audit logs", http.StatusForbidden)
 		return
 	}
 
-	filters := &audit.AuditLogFilters{
-		Page:     1,
-		PageSize: 50,
+	filters := auditLogFilters(r.URL.Query())
+	// The administrator of a tenant sees its tenant's logs and no other.
+	if !s.isGlobalAdmin(currentUser) {
+		filters.TenantID = currentUser.TenantID
 	}
 
-	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
-		if page, err := strconv.Atoi(pageStr); err == nil && page > 0 {
-			filters.Page = page
-		}
-	}
-
-	if pageSizeStr := r.URL.Query().Get("page_size"); pageSizeStr != "" {
-		if pageSize, err := strconv.Atoi(pageSizeStr); err == nil && pageSize > 0 {
-			filters.PageSize = pageSize
-			if filters.PageSize > 100 {
-				filters.PageSize = 100 // Max page size
-			}
-		}
-	}
-
-	if tenantID := r.URL.Query().Get("tenant_id"); tenantID != "" {
-		filters.TenantID = tenantID
-	}
-
-	if userID := r.URL.Query().Get("user_id"); userID != "" {
-		filters.UserID = userID
-	}
-
-	if eventType := r.URL.Query().Get("event_type"); eventType != "" {
-		filters.EventType = eventType
-	}
-
-	if resourceType := r.URL.Query().Get("resource_type"); resourceType != "" {
-		filters.ResourceType = resourceType
-	}
-
-	if action := r.URL.Query().Get("action"); action != "" {
-		filters.Action = action
-	}
-
-	if status := r.URL.Query().Get("status"); status != "" {
-		filters.Status = status
-	}
-
-	if startDateStr := r.URL.Query().Get("start_date"); startDateStr != "" {
-		if startDate, err := strconv.ParseInt(startDateStr, 10, 64); err == nil {
-			filters.StartDate = startDate
-		}
-	}
-
-	if endDateStr := r.URL.Query().Get("end_date"); endDateStr != "" {
-		if endDate, err := strconv.ParseInt(endDateStr, 10, 64); err == nil {
-			filters.EndDate = endDate
-		}
-	}
-
-	// Get logs based on user role
-	var logs []*audit.AuditLog
-	var total int
-	var err error
-
-	if isGlobalAdmin {
-		logs, total, err = s.auditManager.GetLogs(r.Context(), filters)
-	} else {
-		logs, total, err = s.auditManager.GetLogsByTenant(r.Context(), currentUser.TenantID, filters)
-	}
-
+	logs, total, err := s.auditLogs(r.Context(), filters)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to retrieve audit logs")
 		s.writeError(w, "Failed to retrieve audit logs", http.StatusInternalServerError)
 		return
-	}
-
-	// For global admins in a cluster, federate the query across all peer nodes and merge.
-	if isGlobalAdmin && s.clusterManager != nil && s.clusterManager.IsClusterEnabled() {
-		logs, total = s.federateAuditLogs(r.Context(), r.URL.Query(), filters, logs)
 	}
 
 	response := map[string]interface{}{
@@ -7245,123 +7184,6 @@ func (s *Server) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, response)
-}
-
-// federateAuditLogs queries audit logs from all healthy peer nodes, merges with local
-// results, sorts by timestamp descending, and returns the requested page.
-func (s *Server) federateAuditLogs(ctx context.Context, queryParams url.Values, filters *audit.AuditLogFilters, localLogs []*audit.AuditLog) ([]*audit.AuditLog, int) {
-	clusterCfg, err := s.clusterManager.GetConfig(ctx)
-	if err != nil {
-		return localLogs, len(localLogs)
-	}
-
-	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
-	if err != nil {
-		return localLogs, len(localLogs)
-	}
-
-	nodes, err := s.clusterManager.GetHealthyNodes(ctx)
-	if err != nil || len(nodes) == 0 {
-		return localLogs, len(localLogs)
-	}
-
-	// Build filter query string (reuse params already parsed by caller).
-	remoteQuery := url.Values{}
-	for _, key := range []string{"tenant_id", "user_id", "event_type", "resource_type", "action", "status", "start_date", "end_date"} {
-		if v := queryParams.Get(key); v != "" {
-			remoteQuery.Set(key, v)
-		}
-	}
-
-	type nodeResult struct {
-		logs []*audit.AuditLog
-	}
-	resultsCh := make(chan nodeResult, len(nodes))
-
-	proxyClient := cluster.NewDynamicProxyClient(s.clusterManager.GetTLSConfig)
-
-	for _, node := range nodes {
-		if node.ID == localNodeID {
-			continue
-		}
-		go func(n *cluster.Node) {
-			endpoint := fmt.Sprintf("%s/api/internal/cluster/audit-logs", n.Endpoint)
-			if len(remoteQuery) > 0 {
-				endpoint += "?" + remoteQuery.Encode()
-			}
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-
-			req, err := proxyClient.CreateAuthenticatedRequest(reqCtx, "GET", endpoint, nil, clusterCfg.NodeID, clusterCfg.ClusterToken)
-			if err != nil {
-				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: failed to create request")
-				resultsCh <- nodeResult{}
-				return
-			}
-
-			resp, err := proxyClient.DoAuthenticatedRequest(req)
-			if err != nil {
-				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: request failed")
-				resultsCh <- nodeResult{}
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				logrus.WithField("node_id", n.ID).WithField("status", resp.StatusCode).Warn("audit federation: unexpected status")
-				resultsCh <- nodeResult{}
-				return
-			}
-
-			var remoteLogs []*audit.AuditLog
-			if err := json.NewDecoder(resp.Body).Decode(&remoteLogs); err != nil {
-				logrus.WithError(err).WithField("node_id", n.ID).Warn("audit federation: failed to decode response")
-				resultsCh <- nodeResult{}
-				return
-			}
-			resultsCh <- nodeResult{logs: remoteLogs}
-		}(node)
-	}
-
-	// Count peers we sent requests to.
-	peerCount := 0
-	for _, node := range nodes {
-		if node.ID != localNodeID {
-			peerCount++
-		}
-	}
-
-	// Collect all results.
-	merged := make([]*audit.AuditLog, 0, len(localLogs))
-	merged = append(merged, localLogs...)
-	for i := 0; i < peerCount; i++ {
-		res := <-resultsCh
-		merged = append(merged, res.logs...)
-	}
-
-	// Sort by timestamp descending (newest first).
-	for i := 0; i < len(merged); i++ {
-		for j := i + 1; j < len(merged); j++ {
-			if merged[j].Timestamp > merged[i].Timestamp {
-				merged[i], merged[j] = merged[j], merged[i]
-			}
-		}
-	}
-
-	total := len(merged)
-
-	// Apply page/page_size on merged result.
-	page := filters.Page
-	pageSize := filters.PageSize
-	start := (page - 1) * pageSize
-	if start >= total {
-		return []*audit.AuditLog{}, total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
-	return merged[start:end], total
 }
 
 func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {

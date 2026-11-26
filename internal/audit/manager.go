@@ -160,6 +160,14 @@ func (m *Manager) GetLogs(ctx context.Context, filters *AuditLogFilters) ([]*Aud
 	return logs, total, nil
 }
 
+// NewestLogs returns the n newest logs that match filters, and how many match.
+// It takes any n: a cluster's log is paged once the newest of each node are
+// merged.
+func (m *Manager) NewestLogs(ctx context.Context, filters AuditLogFilters, n int) ([]*AuditLog, int, error) {
+	filters.Page, filters.PageSize = 1, n
+	return m.store.GetLogs(ctx, &filters)
+}
+
 // GetLogsByTenant retrieves logs for a specific tenant (for tenant admin)
 func (m *Manager) GetLogsByTenant(ctx context.Context, tenantID string, filters *AuditLogFilters) ([]*AuditLog, int, error) {
 	if tenantID == "" {

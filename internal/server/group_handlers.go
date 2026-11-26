@@ -111,8 +111,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	if s.groupSyncMgr != nil {
 		s.groupSyncMgr.TriggerSync(r.Context())
 	}
-	w.WriteHeader(http.StatusCreated)
-	s.writeJSON(w, group)
+	s.writeCreated(w, group)
 }
 
 // handleGetGroup returns a single group by ID.
@@ -371,10 +370,11 @@ func (s *Server) handleListUserGroups(w http.ResponseWriter, r *http.Request) {
 
 	targetUserID := mux.Vars(r)["user"]
 
-	// Users can see their own groups; admins can see any user's groups
-	if targetUserID != currentUser.ID && !s.isAdmin(currentUser) {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
+	// A user sees its own groups; another user's, who administers it.
+	if targetUserID != currentUser.ID {
+		if _, ok := s.administeredUser(w, r, targetUserID); !ok {
+			return
+		}
 	}
 
 	groups, err := s.authManager.ListUserGroups(r.Context(), targetUserID)

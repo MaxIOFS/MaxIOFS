@@ -334,7 +334,8 @@ func decodeIAMDocument(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// recordBucketOwnerPolicy writes the policy that gives a bucket's creator
+// recordBucketOwnerPolicy removes the policies naming a bucket and, for a
+// bucket just created, writes the one that gives it to its creator.
 func (s *Server) recordBucketOwnerPolicy(bucketName, tenantID, ownerID string, created bool) {
 	store, ok := s.authManager.(interface {
 		GrantBucketOwnerPolicy(bucketName, ownerType, ownerID string) error
@@ -405,12 +406,12 @@ func (s *Server) handleGetUserPermissions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	targetID := mux.Vars(r)["id"]
-	if !s.canAdministerUser(w, r, targetID) {
+	target, ok := s.administeredUser(w, r, mux.Vars(r)["id"])
+	if !ok {
 		return
 	}
 
-	permissions, err := store.GetUserPermissions(targetID)
+	permissions, err := store.GetUserPermissions(target.ID)
 	if err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
@@ -439,23 +440,21 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userID := mux.Vars(r)["id"]
-	if !s.canAdministerUser(w, r, userID) {
+	target, ok := s.administeredUser(w, r, mux.Vars(r)["id"])
+	if !ok {
 		return
 	}
 	// Each administration permission is of one kind of user: a tenant is
 	// administered by one of its users, the deployment by a user of no tenant.
-	if target, err := s.authManager.GetUser(r.Context(), userID); err == nil {
-		if target.TenantID == "" && selects(&permissions, auth.ActionTenantAdmin) {
-			s.writeError(w, "The tenant administrator permission is for a user that belongs to a tenant", http.StatusBadRequest)
-			return
-		}
-		if target.TenantID != "" && selects(&permissions, auth.ActionSuperAdmin) {
-			s.writeError(w, "The super administrator permission is for a user that belongs to no tenant", http.StatusBadRequest)
-			return
-		}
+	if target.TenantID == "" && selects(&permissions, auth.ActionTenantAdmin) {
+		s.writeError(w, "The tenant administrator permission is for a user that belongs to a tenant", http.StatusBadRequest)
+		return
 	}
-	current, err := store.GetUserPermissions(userID)
+	if target.TenantID != "" && selects(&permissions, auth.ActionSuperAdmin) {
+		s.writeError(w, "The super administrator permission is for a user that belongs to no tenant", http.StatusBadRequest)
+		return
+	}
+	current, err := store.GetUserPermissions(target.ID)
 	if err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
@@ -463,7 +462,7 @@ func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request
 	if s.refuseBeyondCaller(w, r, auth.SelectionDocuments(addedPermissions(&permissions, current))) {
 		return
 	}
-	if err := store.SetUserPermissions(userID, &permissions); err != nil {
+	if err := store.SetUserPermissions(target.ID, &permissions); err != nil {
 		s.writeIAMConsoleError(w, err)
 		return
 	}
@@ -508,33 +507,32 @@ func selects(permissions *auth.UserPermissions, action string) bool {
 	return false
 }
 
-// permissionStore resolves the store and checks the caller may hand out
-func (s *Server) canAdministerUser(w http.ResponseWriter, r *http.Request, targetUserID string) bool {
+// administeredUser is the user id names, when the caller administers it: a
+// global administrator every user, the administrator of a tenant the users
+// of its tenant. It answers the refusal itself.
+func (s *Server) administeredUser(w http.ResponseWriter, r *http.Request, id string) (*auth.User, bool) {
 	caller := s.getAuthUser(r)
-	if caller == nil {
+	if caller == nil || !s.isAdmin(caller) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
-		return false
+		return nil, false
 	}
-	if s.isGlobalAdmin(caller) {
-		return true
+	target, err := s.authManager.GetUser(r.Context(), id)
+	if errors.Is(err, auth.ErrUserNotFound) {
+		s.writeError(w, "User not found", http.StatusNotFound)
+		return nil, false
 	}
-
-	target, err := s.authManager.GetUser(r.Context(), targetUserID)
 	if err != nil {
-		if err == auth.ErrUserNotFound {
-			s.writeError(w, "User not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return false
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return nil, false
 	}
-	if target.TenantID != caller.TenantID {
+	if !s.isGlobalAdmin(caller) && target.TenantID != caller.TenantID {
 		s.writeError(w, "Access denied", http.StatusForbidden)
-		return false
+		return nil, false
 	}
-	return true
+	return target, true
 }
 
+// permissionStore resolves the store, for a caller that administers users.
 func (s *Server) permissionStore(w http.ResponseWriter, r *http.Request) (interface {
 	GetUserPermissions(userID string) (*auth.UserPermissions, error)
 	SetUserPermissions(userID string, permissions *auth.UserPermissions) error

@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Two overwrites of an object interrupted within the same tick of the filesystem clock could be undone at the next start onto the wrong copy: each copy records when it was retained, and the oldest is put back.
 - A bucket policy matched an action only in the case it was written, a wildcard only at the end of an action or a resource, and, of a statement naming both, only its `AWS` principals and not its `CanonicalUser` ones: a Deny written otherwise was not applied. They match as in AWS: actions in any case, `*` and `?` anywhere, `?` one character.
 - A bucket policy whose `IpAddress` or `NotIpAddress` names something that is not an address is refused with `MalformedPolicy`, as in AWS: a Deny naming it was never applied.
+- A console request for temporary credentials whose body was not JSON was issued them, without the session policy it meant to bound them with: it is refused with `400`.
+- In a cluster, the audit log's pages after the first left out the newest logs of the node answering, and its total counted at most 100 logs of each other node: it is paged and counted as one log. A tenant's administrator sees its tenant's logs from every node, not only from the one answering.
+- A tenant's administrator could list the groups of a user of another tenant: it sees those of its tenant's users.
+- Reading or setting the permissions of a user that does not exist, or listing its groups, answered `200`: it answers `404`.
+- Creating a group or a replication rule answered without `Content-Type: application/json`.
+- A bucket the integrity scrubber could not verify was kept as a scan without errors: its result shows the error.
+- A node renewed its cluster certificate only after a month without a restart: one updated more often kept it until it expired, a year after it was made. It is renewed within 30 days of its end, checked when the node starts and every day.
 - `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
 - Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.
 - A form upload ignored its `acl` field: it is set on the object, as in AWS.

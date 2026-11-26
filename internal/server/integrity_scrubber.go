@@ -82,6 +82,8 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 					"tenant": tenantID,
 					"bucket": bkt.Name,
 				}).Error("Integrity scrubber: verification failed")
+				// Kept as an error of the scan, not as a clean result.
+				bucketErrors++
 				break
 			}
 

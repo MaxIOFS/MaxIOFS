@@ -26,6 +26,7 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
+	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/storage"
@@ -72,12 +73,19 @@ type haCluster struct {
 
 func newHACluster(t *testing.T, n, factor int) *haCluster {
 	t.Helper()
+	return newHAClusterWith(t, n, factor, nil)
+}
+
+// newHAClusterWith is newHACluster with each node's configuration changed by
+// tweak before the node is built.
+func newHAClusterWith(t *testing.T, n, factor int, tweak func(*config.Config)) *haCluster {
+	t.Helper()
 	ctx := context.Background()
 	c := &haCluster{}
 	clusterURLs := make([]string, n)
 	apiURLs := make([]string, n)
 	for i := 0; i < n; i++ {
-		node := &haNode{Server: newClusterTestNode(t)}
+		node := &haNode{Server: newClusterTestNodeWith(t, tweak)}
 		routes := node.clusterServer.Handler
 		cs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/ha/shards/") {

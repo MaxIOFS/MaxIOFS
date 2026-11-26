@@ -175,8 +175,7 @@ func (s *Server) handleCreateReplicationRule(w http.ResponseWriter, r *http.Requ
 		UpdatedAt:            rule.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	s.writeJSON(w, response)
+	s.writeCreated(w, response)
 }
 
 func (s *Server) handleListReplicationRules(w http.ResponseWriter, r *http.Request) {

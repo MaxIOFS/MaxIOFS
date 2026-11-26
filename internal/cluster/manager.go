@@ -850,10 +850,12 @@ func (m *Manager) loadTLSConfig() error {
 	return nil
 }
 
-// StartCertRenewal starts a background goroutine that checks monthly for cert renewal.
+// StartCertRenewal renews the node's certificate within 30 days of its end:
+// when the node starts, and every day after.
 func (m *Manager) StartCertRenewal(ctx context.Context) {
 	m.Spawn(func() {
-		ticker := time.NewTicker(30 * 24 * time.Hour) // Monthly
+		m.checkAndRenewCert()
+		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 
 		for {
@@ -905,18 +907,17 @@ func (m *Manager) checkAndRenewCert() {
 		return
 	}
 
-	// Store in DB
+	// Parsed before it is stored: the database never holds a certificate the
+	// node does not serve.
+	newCert, err := ParseCertKeyPEM(newCertPEM, newKeyPEM)
+	if err != nil {
+		m.log.WithError(err).Error("Failed to parse renewed certificate")
+		return
+	}
 	_, err = m.db.Exec("UPDATE cluster_config SET node_cert = ?, node_key = ?",
 		string(newCertPEM), string(newKeyPEM))
 	if err != nil {
 		m.log.WithError(err).Error("Failed to store renewed certificate in database")
-		return
-	}
-
-	// Hot-swap the cert via atomic pointer
-	newCert, err := ParseCertKeyPEM(newCertPEM, newKeyPEM)
-	if err != nil {
-		m.log.WithError(err).Error("Failed to parse renewed certificate")
 		return
 	}
 	m.currentCert.Store(newCert)

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/cluster"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -1365,62 +1364,4 @@ func (s *Server) handleHAChecksumBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cluster.ChecksumResponse{Entries: entries, Versions: req.Versions}) //nolint:errcheck
-}
-
-// handleGetLocalAuditLogs returns this node's audit logs as a flat JSON array.
-// GET /api/internal/cluster/audit-logs
-// Used by peer nodes to federate audit log queries.
-func (s *Server) handleGetLocalAuditLogs(w http.ResponseWriter, r *http.Request) {
-	if s.auditManager == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]*audit.AuditLog{}) //nolint:errcheck
-		return
-	}
-
-	q := r.URL.Query()
-	filters := &audit.AuditLogFilters{
-		Page:     1,
-		PageSize: 1000, // fetch a large batch; caller will paginate after merge
-	}
-
-	if v := q.Get("tenant_id"); v != "" {
-		filters.TenantID = v
-	}
-	if v := q.Get("user_id"); v != "" {
-		filters.UserID = v
-	}
-	if v := q.Get("event_type"); v != "" {
-		filters.EventType = v
-	}
-	if v := q.Get("resource_type"); v != "" {
-		filters.ResourceType = v
-	}
-	if v := q.Get("action"); v != "" {
-		filters.Action = v
-	}
-	if v := q.Get("status"); v != "" {
-		filters.Status = v
-	}
-	if v := q.Get("start_date"); v != "" {
-		if ts, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filters.StartDate = ts
-		}
-	}
-	if v := q.Get("end_date"); v != "" {
-		if ts, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filters.EndDate = ts
-		}
-	}
-
-	logs, _, err := s.auditManager.GetLogs(r.Context(), filters)
-	if err != nil {
-		http.Error(w, "failed to retrieve audit logs", http.StatusInternalServerError)
-		return
-	}
-	if logs == nil {
-		logs = []*audit.AuditLog{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs) //nolint:errcheck
 }

@@ -273,7 +273,7 @@ func (s *SQLiteStore) GetLogs(ctx context.Context, filters *AuditLogFilters) ([]
 		       resource_type, resource_id, resource_name, action, status,
 		       ip_address, user_agent, details, created_at
 		FROM audit_logs %s
-		ORDER BY timestamp DESC
+		ORDER BY timestamp DESC, id DESC
 		LIMIT ? OFFSET ?
 	`, whereClause)
 
