@@ -9,12 +9,15 @@
 package rollback
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/maxiofs/maxiofs/internal/storage"
 )
@@ -43,6 +46,7 @@ type ObjectManifest struct {
 	Ref       storage.ObjectRef `json:"ref"`
 	Metadata  map[string]string `json:"metadata"`
 	Committed *Committed        `json:"committed,omitempty"`
+	Retained  int64             `json:"retained,omitempty"`
 }
 
 // PartManifest describes where a retained part copy belongs.
@@ -51,18 +55,34 @@ type PartManifest struct {
 	PartNumber int               `json:"part_number"`
 	Metadata   map[string]string `json:"metadata"`
 	Committed  *Committed        `json:"committed,omitempty"`
+	Retained   int64             `json:"retained,omitempty"`
+}
+
+// lastRetained is the last moment a copy was retained, in Unix nanoseconds.
+var lastRetained atomic.Int64
+
+// retainedNow is when a copy is retained: the clock, and later than every
+// copy this process retained before, so two copies never share it.
+func retainedNow() int64 {
+	for {
+		last := lastRetained.Load()
+		now := max(time.Now().UnixNano(), last+1)
+		if lastRetained.CompareAndSwap(last, now) {
+			return now
+		}
+	}
 }
 
 // WriteObjectManifest records the destination of a retained object copy and the
 // index entry it was taken from (nil when the object had no entry).
 func WriteObjectManifest(path string, ref storage.ObjectRef, metadata map[string]string, committed *Committed) error {
-	return writeManifest(path, ObjectManifest{Ref: ref, Metadata: metadata, Committed: committed})
+	return writeManifest(path, ObjectManifest{Ref: ref, Metadata: metadata, Committed: committed, Retained: retainedNow()})
 }
 
 // WritePartManifest records the destination of a retained part copy and the
 // part row it was taken from.
 func WritePartManifest(path, uploadID string, partNumber int, metadata map[string]string, committed *Committed) error {
-	return writeManifest(path, PartManifest{UploadID: uploadID, PartNumber: partNumber, Metadata: metadata, Committed: committed})
+	return writeManifest(path, PartManifest{UploadID: uploadID, PartNumber: partNumber, Metadata: metadata, Committed: committed, Retained: retainedNow()})
 }
 
 // ReadObjectManifest loads an object manifest written by WriteObjectManifest.
@@ -101,7 +121,7 @@ func Manifests(root, prefix string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sortByModTime(matches)
+	sortByRetention(matches)
 	return matches, nil
 }
 
@@ -134,20 +154,25 @@ func readManifest(path string, into any) error {
 	return nil
 }
 
-func sortByModTime(paths []string) {
+// sortByRetention orders manifests by when their copies were retained. One
+// written before manifests said so is older than every one that does, and
+// those are ordered by modification time, which a tick of the filesystem
+// clock can make equal; then by name, which carries a random suffix.
+func sortByRetention(paths []string) {
+	retained := make(map[string]int64, len(paths))
 	modTime := make(map[string]int64, len(paths))
 	for _, path := range paths {
+		var manifest struct {
+			Retained int64 `json:"retained"`
+		}
+		if readManifest(path, &manifest) == nil {
+			retained[path] = manifest.Retained
+		}
 		if info, err := os.Stat(path); err == nil {
 			modTime[path] = info.ModTime().UnixNano()
 		}
 	}
-	// Ties (same nanosecond, or an unreadable stat) fall back to the name,
-	// which carries the random suffix — any stable order will do there.
-	sort.Slice(paths, func(i, j int) bool {
-		a, b := paths[i], paths[j]
-		if modTime[a] != modTime[b] {
-			return modTime[a] < modTime[b]
-		}
-		return a < b
+	slices.SortFunc(paths, func(a, b string) int {
+		return cmp.Or(cmp.Compare(retained[a], retained[b]), cmp.Compare(modTime[a], modTime[b]), strings.Compare(a, b))
 	})
 }

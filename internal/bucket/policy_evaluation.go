@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 )
 
 // PolicyEvaluationRequest contains the context for policy evaluation
 type PolicyEvaluationRequest struct {
-	Principal       string            // User ARN or canonical user ID
-	Action          string            // S3 action (e.g., "s3:GetObject", "s3:PutObject")
-	Resource        string            // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
-	Bucket          string            // Bucket name
-	SourceIP        string            // Client IP address (for aws:SourceIp conditions)
-	SecureTransport bool              // Whether the request uses TLS (for aws:SecureTransport conditions)
-	RequestContext  map[string]string // Additional condition context keys (e.g., "s3:prefix")
+	Principal       string // User ARN or canonical user ID
+	Action          string // S3 action (e.g., "s3:GetObject", "s3:PutObject")
+	Resource        string // Resource ARN (e.g., "arn:aws:s3:::bucket/*")
+	Bucket          string // Bucket name
+	SourceIP        string // Client IP address (for aws:SourceIp conditions)
+	SecureTransport bool   // Whether the request uses TLS (for aws:SecureTransport conditions)
 }
 
 // PolicyDecision represents the result of policy evaluation
@@ -97,195 +97,51 @@ func statementMatches(statement Statement, request PolicyEvaluationRequest) bool
 // principalMatches checks if the principal matches.
 // A nil principal means the statement is malformed and does NOT match anyone,
 // consistent with AWS S3 behavior (Principal is required in bucket policies).
+// {"AWS": ...} and {"CanonicalUser": ...}, a name or a list: any principal of
+// either names the caller.
 func principalMatches(principal interface{}, requestPrincipal string) bool {
-	if principal == nil {
-		// Malformed statement — do not grant access
-		return false
-	}
-
 	switch p := principal.(type) {
 	case string:
-		// Wildcard matches all
-		if p == "*" {
-			return true
-		}
-		// Exact match
-		return p == requestPrincipal
-
+		return matchesPrincipalValue(p, requestPrincipal)
 	case map[string]interface{}:
-		// AWS format: {"AWS": "arn:aws:iam::123456789012:user/username"}
-		// Or: {"AWS": ["arn1", "arn2"]}
-		if awsPrincipal, ok := p["AWS"]; ok {
-			return matchesPrincipalValue(awsPrincipal, requestPrincipal)
-		}
-		// CanonicalUser format
-		if canonicalUser, ok := p["CanonicalUser"]; ok {
-			return matchesPrincipalValue(canonicalUser, requestPrincipal)
-		}
-		return false
-
+		return matchesPrincipalValue(p["AWS"], requestPrincipal) ||
+			matchesPrincipalValue(p["CanonicalUser"], requestPrincipal)
 	default:
 		return false
 	}
 }
 
-// matchesPrincipalValue matches principal value (can be string or array)
+// matchesPrincipalValue matches a principal value, a name or a list.
 func matchesPrincipalValue(principalValue interface{}, requestPrincipal string) bool {
-	switch v := principalValue.(type) {
-	case string:
-		if v == "*" {
-			return true
-		}
-		return v == requestPrincipal
-
-	case []interface{}:
-		for _, item := range v {
-			if str, ok := item.(string); ok {
-				if str == "*" || str == requestPrincipal {
-					return true
-				}
-			}
-		}
-		return false
-
-	case []string:
-		for _, str := range v {
-			if str == "*" || str == requestPrincipal {
-				return true
-			}
-		}
-		return false
-
-	default:
-		return false
-	}
+	return slices.ContainsFunc(toStringSlice(principalValue), func(name string) bool {
+		return name == "*" || name == requestPrincipal
+	})
 }
 
-// actionMatches checks if the action matches
+// actionMatches checks if the action, a name or a list, matches.
 func actionMatches(action interface{}, requestAction string) bool {
-	if action == nil {
-		return false
-	}
-
-	switch a := action.(type) {
-	case string:
-		return matchAction(a, requestAction)
-
-	case []interface{}:
-		for _, item := range a {
-			if str, ok := item.(string); ok {
-				if matchAction(str, requestAction) {
-					return true
-				}
-			}
-		}
-		return false
-
-	case []string:
-		for _, str := range a {
-			if matchAction(str, requestAction) {
-				return true
-			}
-		}
-		return false
-
-	default:
-		return false
-	}
+	return slices.ContainsFunc(toStringSlice(action), func(policyAction string) bool {
+		return matchAction(policyAction, requestAction)
+	})
 }
 
-// matchAction matches a single action with wildcard support
+// matchAction matches an action as AWS does: whatever its case, with '*' and
+// '?' anywhere in it.
 func matchAction(policyAction, requestAction string) bool {
-	// Exact match
-	if policyAction == requestAction {
-		return true
-	}
-
-	// Wildcard match: "s3:*" matches all S3 actions
-	if policyAction == "*" || policyAction == "s3:*" {
-		return true
-	}
-
-	// Prefix wildcard: "s3:Get*" matches "s3:GetObject", "s3:GetBucket", etc.
-	if strings.HasSuffix(policyAction, "*") {
-		prefix := strings.TrimSuffix(policyAction, "*")
-		return strings.HasPrefix(requestAction, prefix)
-	}
-
-	return false
+	return wildcardMatch(strings.ToLower(policyAction), strings.ToLower(requestAction))
 }
 
-// resourceMatches checks if the resource matches
+// resourceMatches checks if the resource, a name or a list, matches.
 func resourceMatches(resource interface{}, requestResource string, bucketName string) bool {
-	if resource == nil {
-		return false
-	}
-
-	switch r := resource.(type) {
-	case string:
-		return matchResource(r, requestResource, bucketName)
-
-	case []interface{}:
-		for _, item := range r {
-			if str, ok := item.(string); ok {
-				if matchResource(str, requestResource, bucketName) {
-					return true
-				}
-			}
-		}
-		return false
-
-	case []string:
-		for _, str := range r {
-			if matchResource(str, requestResource, bucketName) {
-				return true
-			}
-		}
-		return false
-
-	default:
-		return false
-	}
+	return slices.ContainsFunc(toStringSlice(resource), func(policyResource string) bool {
+		return matchResource(policyResource, requestResource, bucketName)
+	})
 }
 
-// matchResource matches a single resource with wildcard support
+// matchResource matches a resource as written, with '*' and '?' anywhere in
+// it: a key keeps its case.
 func matchResource(policyResource, requestResource, bucketName string) bool {
-	// Exact match
-	if policyResource == requestResource {
-		return true
-	}
-
-	// Wildcard match: "*" matches all resources
-	if policyResource == "*" {
-		return true
-	}
-
-	normalizedPolicy := normalizeResourceARN(policyResource, bucketName)
-	normalizedRequest := normalizeResourceARN(requestResource, bucketName)
-
-	// Exact match after normalization
-	if normalizedPolicy == normalizedRequest {
-		return true
-	}
-
-	// Wildcard match: "arn:aws:s3:::bucket/*" matches "arn:aws:s3:::bucket/any/path"
-	if strings.HasSuffix(normalizedPolicy, "/*") {
-		prefix := strings.TrimSuffix(normalizedPolicy, "/*")
-		// Match bucket/* against bucket/object or bucket/folder/object
-		if strings.HasPrefix(normalizedRequest, prefix+"/") {
-			return true
-		}
-	}
-
-	// Wildcard match: "arn:aws:s3:::bucket*" matches "arn:aws:s3:::bucket" and "arn:aws:s3:::bucket/anything"
-	if strings.HasSuffix(normalizedPolicy, "*") && !strings.HasSuffix(normalizedPolicy, "/*") {
-		prefix := strings.TrimSuffix(normalizedPolicy, "*")
-		if strings.HasPrefix(normalizedRequest, prefix) {
-			return true
-		}
-	}
-
-	return false
+	return wildcardMatch(normalizeResourceARN(policyResource, bucketName), normalizeResourceARN(requestResource, bucketName))
 }
 
 // normalizeResourceARN converts various resource formats to consistent ARN format
@@ -340,7 +196,8 @@ func conditionMatches(condition map[string]interface{}, req PolicyEvaluationRequ
 	return true
 }
 
-// resolveConditionKey maps an AWS condition key to its value from the request context.
+// resolveConditionKey maps an AWS condition key to its value from the request:
+// the keys a policy may name (see ValidatePolicy); any other has none.
 func resolveConditionKey(key string, req PolicyEvaluationRequest) string {
 	switch strings.ToLower(key) {
 	case "aws:sourceip":
@@ -351,173 +208,75 @@ func resolveConditionKey(key string, req PolicyEvaluationRequest) string {
 		}
 		return "false"
 	default:
-		// Look up in request context map
-		if req.RequestContext != nil {
-			if v, ok := req.RequestContext[key]; ok {
-				return v
-			}
-			// Case-insensitive fallback
-			lk := strings.ToLower(key)
-			for k, v := range req.RequestContext {
-				if strings.ToLower(k) == lk {
-					return v
-				}
-			}
-		}
 		return ""
 	}
 }
 
-// evaluateOperator dispatches to the appropriate condition operator.
-// requestValue is the actual value from the request; expected is the policy value
-// (can be a single string or a list — the condition is satisfied if ANY value matches).
+// conditionOperator is how a condition operator compares the request's value
+// with each value a policy names: the condition holds when one of them
+// matches or, negated, when none does. An address operator holds for no
+// request whose address cannot be read, negated or not.
+type conditionOperator struct {
+	matches func(requestValue, policyValue string) bool
+	negated bool
+	address bool
+}
+
+// conditionOperators are the condition operators a policy may use, by their
+// name in lower case.
+var conditionOperators = map[string]conditionOperator{
+	"stringequals":              {matches: equalValue},
+	"stringnotequals":           {matches: equalValue, negated: true},
+	"stringequalsignorecase":    {matches: strings.EqualFold},
+	"stringnotequalsignorecase": {matches: strings.EqualFold, negated: true},
+	"stringlike":                {matches: likeValue},
+	"stringnotlike":             {matches: likeValue, negated: true},
+	"bool":                      {matches: strings.EqualFold},
+	"ipaddress":                 {matches: inAddressRange, address: true},
+	"notipaddress":              {matches: inAddressRange, negated: true, address: true},
+	"arnequals":                 {matches: likeValue},
+	"arnlike":                   {matches: likeValue},
+	"arnnotequals":              {matches: likeValue, negated: true},
+	"arnnotlike":                {matches: likeValue, negated: true},
+	"numericequals":             {matches: equalValue},
+	"numericnotequals":          {matches: equalValue, negated: true},
+}
+
+func equalValue(requestValue, policyValue string) bool { return requestValue == policyValue }
+
+func likeValue(requestValue, pattern string) bool { return wildcardMatch(pattern, requestValue) }
+
+func inAddressRange(requestValue, cidr string) bool {
+	ip := net.ParseIP(requestValue)
+	return ip != nil && ipMatchesCIDR(ip, cidr)
+}
+
+// evaluateOperator decides one condition: an unknown operator, or one that
+// names no value, does not hold.
 func evaluateOperator(operator, requestValue string, expected interface{}) bool {
-	// Normalise expected to a []string so all operators work uniformly
+	op, known := conditionOperators[strings.ToLower(operator)]
 	expectedValues := toStringSlice(expected)
-	if len(expectedValues) == 0 {
+	if !known || len(expectedValues) == 0 || (op.address && net.ParseIP(requestValue) == nil) {
 		return false
 	}
-
-	op := strings.ToLower(operator)
-	switch op {
-	// ── String operators ──────────────────────────────────────────────────────
-	case "stringequals":
-		for _, v := range expectedValues {
-			if requestValue == v {
-				return true
-			}
-		}
-		return false
-
-	case "stringnotequals":
-		for _, v := range expectedValues {
-			if requestValue == v {
-				return false
-			}
-		}
-		return true
-
-	case "stringequalsignorecase":
-		for _, v := range expectedValues {
-			if strings.EqualFold(requestValue, v) {
-				return true
-			}
-		}
-		return false
-
-	case "stringnotequalsignorecase":
-		for _, v := range expectedValues {
-			if strings.EqualFold(requestValue, v) {
-				return false
-			}
-		}
-		return true
-
-	case "stringlike":
-		for _, v := range expectedValues {
-			if wildcardMatch(v, requestValue) {
-				return true
-			}
-		}
-		return false
-
-	case "stringnotlike":
-		for _, v := range expectedValues {
-			if wildcardMatch(v, requestValue) {
-				return false
-			}
-		}
-		return true
-
-	// ── Bool operator ─────────────────────────────────────────────────────────
-	case "bool":
-		for _, v := range expectedValues {
-			if strings.EqualFold(requestValue, v) {
-				return true
-			}
-		}
-		return false
-
-	// ── IP address operators ──────────────────────────────────────────────────
-	case "ipaddress":
-		ip := net.ParseIP(requestValue)
-		if ip == nil {
-			return false
-		}
-		for _, v := range expectedValues {
-			if ipMatchesCIDR(ip, v) {
-				return true
-			}
-		}
-		return false
-
-	case "notipaddress":
-		ip := net.ParseIP(requestValue)
-		if ip == nil {
-			// Unknown IP — safe to deny for NotIpAddress
-			return false
-		}
-		for _, v := range expectedValues {
-			if ipMatchesCIDR(ip, v) {
-				return false // IP is in a denied range
-			}
-		}
-		return true
-
-	// ── ARN operators ─────────────────────────────────────────────────────────
-	case "arnequals", "arnlike":
-		for _, v := range expectedValues {
-			if wildcardMatch(v, requestValue) {
-				return true
-			}
-		}
-		return false
-
-	case "arnnotequals", "arnnotlike":
-		for _, v := range expectedValues {
-			if wildcardMatch(v, requestValue) {
-				return false
-			}
-		}
-		return true
-
-	// ── Numeric operators (basic string comparison on numeric strings) ─────────
-	case "numericequals":
-		for _, v := range expectedValues {
-			if requestValue == v {
-				return true
-			}
-		}
-		return false
-
-	case "numericnotequals":
-		for _, v := range expectedValues {
-			if requestValue == v {
-				return false
-			}
-		}
-		return true
-
-	default:
-		// Unknown operator — fail safe (deny)
-		return false
-	}
+	return slices.ContainsFunc(expectedValues, func(policyValue string) bool {
+		return op.matches(requestValue, policyValue)
+	}) != op.negated
 }
 
 // wildcardMatch matches pattern against s using AWS wildcard conventions:
-// '*' matches any sequence of characters, '?' matches any single character.
-func wildcardMatch(pattern, s string) bool {
+// '*' matches any sequence of characters, '?' matches any single character —
+// a character, not a byte of one.
+func wildcardMatch(patternText, text string) bool {
 	// Fast paths
-	if pattern == "*" {
-		return true
-	}
-	if pattern == s {
+	if patternText == text {
 		return true
 	}
 
-	// dp-free recursive matching via index walking
+	pattern, s := []rune(patternText), []rune(text)
 	pi, si := 0, 0
-	starIdx, matchIdx := -1, 0
+	starIdx := -1
+	var matchIdx int
 
 	for si < len(s) {
 		if pi < len(pattern) && (pattern[pi] == '?' || pattern[pi] == s[si]) {
@@ -535,10 +294,17 @@ func wildcardMatch(pattern, s string) bool {
 			return false
 		}
 	}
-	for pi < len(pattern) && pattern[pi] == '*' {
-		pi++
+	return onlyStars(pattern[pi:])
+}
+
+// onlyStars reports whether what is left of a pattern matches nothing more.
+func onlyStars(rest []rune) bool {
+	for _, r := range rest {
+		if r != '*' {
+			return false
+		}
 	}
-	return pi == len(pattern)
+	return true
 }
 
 // ipMatchesCIDR checks whether ip is contained in the CIDR range.
