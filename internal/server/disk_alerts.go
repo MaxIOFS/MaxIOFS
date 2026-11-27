@@ -3,33 +3,20 @@ package server
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/audit"
-	emailpkg "github.com/maxiofs/maxiofs/internal/email"
+	"github.com/maxiofs/maxiofs/internal/metrics"
 	"github.com/sirupsen/logrus"
 )
 
-// alertLevel represents the severity of a disk alert
-type alertLevel int
-
-const (
-	alertLevelNone     alertLevel = 0
-	alertLevelWarning  alertLevel = 1
-	alertLevelCritical alertLevel = 2
-)
-
-// diskAlertState tracks the last sent alert to avoid duplicate notifications
-type diskAlertState struct {
-	mu    sync.Mutex
-	level alertLevel
-}
+// diskAlertKey is the one key of the disk's alert level.
+const diskAlertKey = "disk"
 
 // startDiskAlertMonitor starts a background goroutine that monitors disk usage
 // every 5 minutes and sends SSE notifications + emails when thresholds are crossed.
 func (s *Server) startDiskAlertMonitor(ctx context.Context) {
-	state := &diskAlertState{}
+	state := &alertLevels{}
 	s.goWorker("disk alert monitor", func() {
 		// Check immediately on startup
 		s.checkDiskAlerts(state)
@@ -47,37 +34,21 @@ func (s *Server) startDiskAlertMonitor(ctx context.Context) {
 	})
 }
 
-func (s *Server) checkDiskAlerts(state *diskAlertState) {
+func (s *Server) checkDiskAlerts(state *alertLevels) {
 	stats, err := s.systemMetrics.GetDiskUsage()
 	if err != nil {
 		logrus.WithError(err).Debug("Disk alert: failed to get disk usage")
 		return
 	}
+	s.diskAlert(state, stats)
+}
 
-	warnPct := 80
-	critPct := 90
-	if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
-		warnPct = v
-	}
-	if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
-		critPct = v
-	}
-
+// diskAlert alerts on the disk's usage when its level changes.
+func (s *Server) diskAlert(state *alertLevels, stats *metrics.DiskStats) {
+	warnPct, critPct := s.alertThresholds()
 	used := stats.UsedPercent
-	var newLevel alertLevel
-	switch {
-	case used >= float64(critPct):
-		newLevel = alertLevelCritical
-	case used >= float64(warnPct):
-		newLevel = alertLevelWarning
-	default:
-		newLevel = alertLevelNone
-	}
-
-	state.mu.Lock()
-	prev := state.level
-	state.level = newLevel
-	state.mu.Unlock()
+	newLevel := alertLevelOf(used, warnPct, critPct)
+	prev := state.change(diskAlertKey, newLevel)
 
 	// Condition resolved: was alerting, now back to normal
 	if newLevel == alertLevelNone && prev != alertLevelNone {
@@ -108,24 +79,16 @@ func (s *Server) checkDiskAlerts(state *diskAlertState) {
 		})
 		return
 	}
-
 	// Only fire when the level escalates — don't re-alert at the same level
 	if newLevel <= prev {
 		return
 	}
 
-	var notifType, subject, logMsg string
-	if newLevel == alertLevelCritical {
-		notifType = "disk_critical"
-		subject = "[MaxIOFS] CRITICAL: Disk Space Alert"
-		logMsg = fmt.Sprintf("CRITICAL: disk at %.1f%% (%.1f / %.1f GB)",
-			used, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9)
-	} else {
-		notifType = "disk_warning"
-		subject = "[MaxIOFS] Warning: Disk Space Alert"
-		logMsg = fmt.Sprintf("WARNING: disk at %.1f%% (%.1f / %.1f GB)",
-			used, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9)
-	}
+	kind, title, shout := alertWords(newLevel)
+	notifType := "disk_" + kind
+	subject := "[MaxIOFS] " + title + ": Disk Space Alert"
+	logMsg := fmt.Sprintf("%s: disk at %.1f%% (%.1f / %.1f GB)",
+		shout, used, float64(stats.UsedBytes)/1e9, float64(stats.TotalBytes)/1e9)
 
 	logrus.WithFields(logrus.Fields{
 		"used_pct":  used,
@@ -167,32 +130,10 @@ func (s *Server) checkDiskAlerts(state *diskAlertState) {
 		Timestamp: time.Now().Unix(),
 	})
 
-	// Email notification
 	s.sendDiskAlertEmail(subject, logMsg, stats.UsedPercent, stats.UsedBytes, stats.TotalBytes, stats.FreeBytes)
 }
 
 func (s *Server) sendDiskAlertEmail(subject, alertMsg string, usedPct float64, usedBytes, totalBytes, freeBytes uint64) {
-	enabled, _ := s.settingsManager.GetBool("email.enabled")
-	if !enabled {
-		return
-	}
-
-	sender := s.buildEmailSender()
-	if sender == nil || !sender.IsConfigured() {
-		return
-	}
-
-	recipients, err := s.adminEmails(context.Background(), "")
-	if err != nil {
-		logrus.WithError(err).Error("Disk alert: failed to list users for email")
-		return
-	}
-
-	if len(recipients) == 0 {
-		logrus.Debug("Disk alert: no admin emails configured, skipping email")
-		return
-	}
-
 	body := fmt.Sprintf(`MaxIOFS Disk Space Alert
 ========================
 
@@ -215,38 +156,5 @@ To adjust thresholds, go to System Settings > System > Disk Warning/Critical Thr
 		float64(totalBytes)/1e9,
 		float64(freeBytes)/1e9,
 	)
-
-	if err := sender.Send(recipients, subject, body); err != nil {
-		logrus.WithError(err).Error("Failed to send disk alert email")
-		return
-	}
-	logrus.WithField("recipients", len(recipients)).Info("Disk alert email sent")
-}
-
-// buildEmailSender constructs an email.Sender from current settings.
-// Returns nil if email.smtp_host is not configured.
-func (s *Server) buildEmailSender() *emailpkg.Sender {
-	host, _ := s.settingsManager.Get("email.smtp_host")
-	if host == "" {
-		return nil
-	}
-	port, err := s.settingsManager.GetInt("email.smtp_port")
-	if err != nil || port == 0 {
-		port = 587
-	}
-	user, _ := s.settingsManager.Get("email.smtp_user")
-	password, _ := s.settingsManager.Get("email.smtp_password")
-	from, _ := s.settingsManager.Get("email.from_address")
-	tlsMode, _ := s.settingsManager.Get("email.tls_mode")
-	skipVerify, _ := s.settingsManager.GetBool("email.skip_tls_verify")
-
-	return emailpkg.NewSender(emailpkg.Config{
-		Host:               host,
-		Port:               port,
-		User:               user,
-		Password:           password,
-		From:               from,
-		TLSMode:            tlsMode,
-		InsecureSkipVerify: skipVerify,
-	})
+	s.emailAdmins("", subject, body, "Disk alert", nil)
 }

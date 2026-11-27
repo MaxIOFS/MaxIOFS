@@ -201,14 +201,7 @@ func (s *Server) syncAlertStateToClient(w http.ResponseWriter, flusher http.Flus
 	if s.systemMetrics != nil {
 		stats, err := s.systemMetrics.GetDiskUsage()
 		if err == nil {
-			warnPct := 80
-			if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
-				warnPct = v
-			}
-			critPct := 90
-			if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
-				critPct = v
-			}
+			warnPct, critPct := s.alertThresholds()
 			if notif := currentDiskAlertNotification(stats, warnPct, critPct, globalAdmin); notif != nil {
 				send(notif)
 			}

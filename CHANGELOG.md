@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The console refused to overwrite an object with one as large when its tenant was near its storage limit.
 - Invalid Object Lock headers on an upload from the console answered `500`: they are refused with `400`.
 - A website routing rule on `HttpErrorCodeReturnedEquals` redirected every page, and `ReplaceKeyPrefixWith` without a key prefix looped: both work as in AWS.
+- An alert or test email the SMTP server refused was taken as sent, and a server that did not answer held the send for good: a refusal is a failure, and a send waits 30 seconds at most.
 - A user made again from the console with the username of a deleted one took the deleted one's ID, and with it the console sessions the deleted one still had open: a user made gets an ID no user had.
 - Deleting an access key that does not exist answered `500`: it answers `404`.
 - The audit log named the owner of an access key an administrator made as who made it: it names the administrator.

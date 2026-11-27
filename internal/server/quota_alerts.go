@@ -3,66 +3,27 @@ package server
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
-// quotaAlertTracker holds per-tenant alert deduplication state
-type quotaAlertTracker struct {
-	levels sync.Map // tenantID -> alertLevel
-}
-
-func newQuotaAlertTracker() *quotaAlertTracker {
-	return &quotaAlertTracker{}
-}
-
-// checkQuotaAlert is called after every successful storage increment for a tenant.
-// It fires SSE + email only when the alert level escalates (none→warning, warning→critical).
+// checkQuotaAlert alerts on a tenant's storage when its level changes.
 func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) {
 	if maxBytes == 0 {
 		return // unlimited quota
 	}
-
-	warnPct := 80
-	critPct := 90
-	if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
-		warnPct = v
-	}
-	if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
-		critPct = v
-	}
-
+	warnPct, critPct := s.alertThresholds()
 	usedPct := float64(currentBytes) / float64(maxBytes) * 100.0
-
-	var newLevel alertLevel
-	switch {
-	case usedPct >= float64(critPct):
-		newLevel = alertLevelCritical
-	case usedPct >= float64(warnPct):
-		newLevel = alertLevelWarning
-	default:
-		newLevel = alertLevelNone
+	newLevel := alertLevelOf(usedPct, warnPct, critPct)
+	prev := s.quotaAlerts.change(tenantID, newLevel)
+	resolved := newLevel == alertLevelNone && prev != alertLevelNone
+	if !resolved && newLevel <= prev {
+		return
 	}
+	tenantName := s.tenantDisplayName(tenantID)
 
-	// Get tenant display name for messages
-	tenantName := tenantID
-	if tenant, err := s.authManager.GetTenant(context.Background(), tenantID); err == nil && tenant != nil {
-		if tenant.DisplayName != "" {
-			tenantName = tenant.DisplayName
-		} else {
-			tenantName = tenant.Name
-		}
-	}
-
-	// Load previous level for this tenant and always update it
-	prevRaw, _ := s.quotaAlerts.levels.Load(tenantID)
-	prev, _ := prevRaw.(alertLevel)
-	s.quotaAlerts.levels.Store(tenantID, newLevel)
-
-	// Condition resolved: was alerting, now back to normal
-	if newLevel == alertLevelNone && prev != alertLevelNone {
+	if resolved {
 		s.notificationHub.SendNotification(&Notification{
 			Type:    "quota_resolved",
 			Message: fmt.Sprintf("Tenant %q storage quota is back to normal (%.1f%% used)", tenantName, usedPct),
@@ -79,23 +40,10 @@ func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) 
 		return
 	}
 
-	// Only act on escalation
-	if newLevel <= prev {
-		return
-	}
-
-	var notifType, subject, logMsg string
-	if newLevel == alertLevelCritical {
-		notifType = "quota_critical"
-		subject = fmt.Sprintf("[MaxIOFS] CRITICAL: Storage Quota Alert — %s", tenantName)
-		logMsg = fmt.Sprintf("CRITICAL: tenant %q quota at %.1f%% (%.2f / %.2f GB)",
-			tenantName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
-	} else {
-		notifType = "quota_warning"
-		subject = fmt.Sprintf("[MaxIOFS] Warning: Storage Quota Alert — %s", tenantName)
-		logMsg = fmt.Sprintf("WARNING: tenant %q quota at %.1f%% (%.2f / %.2f GB)",
-			tenantName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
-	}
+	kind, title, shout := alertWords(newLevel)
+	subject := fmt.Sprintf("[MaxIOFS] %s: Storage Quota Alert — %s", title, tenantName)
+	logMsg := fmt.Sprintf("%s: tenant %q quota at %.1f%% (%.2f / %.2f GB)",
+		shout, tenantName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
 
 	logrus.WithFields(logrus.Fields{
 		"tenant_id":     tenantID,
@@ -107,7 +55,7 @@ func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) 
 
 	// SSE notification — TenantID set so tenant admins also receive it
 	s.notificationHub.SendNotification(&Notification{
-		Type:    notifType,
+		Type:    "quota_" + kind,
 		Message: logMsg,
 		Data: map[string]interface{}{
 			"tenantId":     tenantID,
@@ -122,36 +70,23 @@ func (s *Server) checkQuotaAlert(tenantID string, currentBytes, maxBytes int64) 
 		TenantID:  tenantID,
 	})
 
-	// Email notification
 	s.sendQuotaAlertEmail(subject, logMsg, tenantID, tenantName, usedPct, currentBytes, maxBytes)
 }
 
+// tenantDisplayName is the name a tenant is shown by: its display name, else
+// its name, else its ID.
+func (s *Server) tenantDisplayName(tenantID string) string {
+	tenant, err := s.authManager.GetTenant(context.Background(), tenantID)
+	switch {
+	case err != nil || tenant == nil:
+		return tenantID
+	case tenant.DisplayName != "":
+		return tenant.DisplayName
+	}
+	return tenant.Name
+}
+
 func (s *Server) sendQuotaAlertEmail(subject, alertMsg, tenantID, tenantName string, usedPct float64, currentBytes, maxBytes int64) {
-	enabled, _ := s.settingsManager.GetBool("email.enabled")
-	if !enabled {
-		return
-	}
-
-	sender := s.buildEmailSender()
-	if sender == nil || !sender.IsConfigured() {
-		return
-	}
-
-	recipients, err := s.adminEmails(context.Background(), tenantID)
-	if err != nil {
-		logrus.WithError(err).Error("Quota alert: failed to list users for email")
-		return
-	}
-
-	if len(recipients) == 0 {
-		return
-	}
-
-	freeBytes := maxBytes - currentBytes
-	if freeBytes < 0 {
-		freeBytes = 0
-	}
-
 	body := fmt.Sprintf(`MaxIOFS Storage Quota Alert
 ============================
 
@@ -175,16 +110,8 @@ To adjust thresholds, go to System Settings > System > Disk Warning/Critical Thr
 		float64(currentBytes)/1e9,
 		usedPct,
 		float64(maxBytes)/1e9,
-		float64(freeBytes)/1e9,
+		float64(max(maxBytes-currentBytes, 0))/1e9,
 		tenantName,
 	)
-
-	if err := sender.Send(recipients, subject, body); err != nil {
-		logrus.WithError(err).Error("Failed to send quota alert email")
-		return
-	}
-	logrus.WithFields(logrus.Fields{
-		"tenant_id":  tenantID,
-		"recipients": len(recipients),
-	}).Info("Quota alert email sent")
+	s.emailAdmins(tenantID, subject, body, "Quota alert", logrus.Fields{"tenant_id": tenantID})
 }

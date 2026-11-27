@@ -113,8 +113,8 @@ type Server struct {
 	deadNodeReconciler      *cluster.DeadNodeReconciler
 	reg                     *registry
 	notificationHub         *NotificationHub
-	quotaAlerts             *quotaAlertTracker
-	bucketQuotaAlerts       *bucketQuotaAlertTracker
+	quotaAlerts             *alertLevels
+	bucketQuotaAlerts       *alertLevels
 	systemMetrics           *metrics.SystemMetricsTracker
 	lifecycleWorker         *lifecycle.Worker
 	inventoryManager        *inventory.Manager
@@ -450,8 +450,8 @@ func New(cfg *config.Config) (*Server, error) {
 	notificationHub.SetEventObserver(metricsManager.RecordSystemEvent)
 
 	// Initialize quota alert trackers
-	quotaAlerts := newQuotaAlertTracker()
-	bucketQuotaAlerts := newBucketQuotaAlertTracker()
+	quotaAlerts := &alertLevels{}
+	bucketQuotaAlerts := &alertLevels{}
 
 	// Initialize lifecycle worker
 	lifecycleWorker := supervise(reg, "lifecycle", lifecycle.NewWorker(bucketManager, objectManager, metadataStore))

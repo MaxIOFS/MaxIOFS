@@ -1,59 +1,26 @@
 package server
 
 import (
-	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
-// bucketQuotaAlertTracker holds per-bucket alert deduplication state so that an
-// SSE/email alert fires only when the alert level escalates, not on every write.
-type bucketQuotaAlertTracker struct {
-	levels sync.Map // "tenantID/bucketName" -> alertLevel
-}
-
-func newBucketQuotaAlertTracker() *bucketQuotaAlertTracker {
-	return &bucketQuotaAlertTracker{}
-}
-
 func bucketAlertKey(tenantID, bucketName string) string {
 	return tenantID + "/" + bucketName
 }
 
-// checkBucketQuotaAlert is invoked after a bucket's cached size grows.
+// checkBucketQuotaAlert is invoked after a bucket's cached size grows: it
+// alerts on the bucket's quota when its level changes.
 func (s *Server) checkBucketQuotaAlert(tenantID, bucketName string, currentBytes, maxBytes int64) {
 	if maxBytes == 0 {
 		return // unlimited
 	}
-
-	warnPct := 80
-	critPct := 90
-	if v, err := s.settingsManager.GetInt("system.disk_warning_threshold"); err == nil && v > 0 {
-		warnPct = v
-	}
-	if v, err := s.settingsManager.GetInt("system.disk_critical_threshold"); err == nil && v > 0 {
-		critPct = v
-	}
-
+	warnPct, critPct := s.alertThresholds()
 	usedPct := float64(currentBytes) / float64(maxBytes) * 100.0
-
-	var newLevel alertLevel
-	switch {
-	case usedPct >= float64(critPct):
-		newLevel = alertLevelCritical
-	case usedPct >= float64(warnPct):
-		newLevel = alertLevelWarning
-	default:
-		newLevel = alertLevelNone
-	}
-
-	key := bucketAlertKey(tenantID, bucketName)
-	prevRaw, _ := s.bucketQuotaAlerts.levels.Load(key)
-	prev, _ := prevRaw.(alertLevel)
-	s.bucketQuotaAlerts.levels.Store(key, newLevel)
+	newLevel := alertLevelOf(usedPct, warnPct, critPct)
+	prev := s.bucketQuotaAlerts.change(bucketAlertKey(tenantID, bucketName), newLevel)
 
 	// Condition resolved: was alerting, now back to normal.
 	if newLevel == alertLevelNone && prev != alertLevelNone {
@@ -72,24 +39,14 @@ func (s *Server) checkBucketQuotaAlert(tenantID, bucketName string, currentBytes
 		})
 		return
 	}
-
-	// Only act on escalation.
 	if newLevel <= prev {
 		return
 	}
 
-	var notifType, subject, logMsg string
-	if newLevel == alertLevelCritical {
-		notifType = "bucket_quota_critical"
-		subject = fmt.Sprintf("[MaxIOFS] CRITICAL: Bucket Quota Alert — %s", bucketName)
-		logMsg = fmt.Sprintf("CRITICAL: bucket %q quota at %.1f%% (%.2f / %.2f GB)",
-			bucketName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
-	} else {
-		notifType = "bucket_quota_warning"
-		subject = fmt.Sprintf("[MaxIOFS] Warning: Bucket Quota Alert — %s", bucketName)
-		logMsg = fmt.Sprintf("WARNING: bucket %q quota at %.1f%% (%.2f / %.2f GB)",
-			bucketName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
-	}
+	kind, title, shout := alertWords(newLevel)
+	subject := fmt.Sprintf("[MaxIOFS] %s: Bucket Quota Alert — %s", title, bucketName)
+	logMsg := fmt.Sprintf("%s: bucket %q quota at %.1f%% (%.2f / %.2f GB)",
+		shout, bucketName, usedPct, float64(currentBytes)/1e9, float64(maxBytes)/1e9)
 
 	logrus.WithFields(logrus.Fields{
 		"bucket":        bucketName,
@@ -100,7 +57,7 @@ func (s *Server) checkBucketQuotaAlert(tenantID, bucketName string, currentBytes
 	}).Warn("Bucket quota alert triggered")
 
 	s.notificationHub.SendNotification(&Notification{
-		Type:    notifType,
+		Type:    "bucket_quota_" + kind,
 		Message: logMsg,
 		Data: map[string]interface{}{
 			"bucket":       bucketName,
@@ -121,31 +78,6 @@ func (s *Server) checkBucketQuotaAlert(tenantID, bucketName string, currentBytes
 // sendBucketQuotaAlertEmail notifies global admins (and the bucket's tenant admins
 // when the bucket belongs to a tenant) that a bucket is approaching its quota.
 func (s *Server) sendBucketQuotaAlertEmail(subject, alertMsg, tenantID, bucketName string, usedPct float64, currentBytes, maxBytes int64) {
-	enabled, _ := s.settingsManager.GetBool("email.enabled")
-	if !enabled {
-		return
-	}
-
-	sender := s.buildEmailSender()
-	if sender == nil || !sender.IsConfigured() {
-		return
-	}
-
-	recipients, err := s.adminEmails(context.Background(), tenantID)
-	if err != nil {
-		logrus.WithError(err).Error("Bucket quota alert: failed to list users for email")
-		return
-	}
-
-	if len(recipients) == 0 {
-		return
-	}
-
-	freeBytes := maxBytes - currentBytes
-	if freeBytes < 0 {
-		freeBytes = 0
-	}
-
 	body := fmt.Sprintf(`MaxIOFS Bucket Quota Alert
 ===========================
 
@@ -169,17 +101,8 @@ To adjust thresholds, go to System Settings > System > Disk Warning/Critical Thr
 		float64(currentBytes)/1e9,
 		usedPct,
 		float64(maxBytes)/1e9,
-		float64(freeBytes)/1e9,
+		float64(max(maxBytes-currentBytes, 0))/1e9,
 		bucketName,
 	)
-
-	if err := sender.Send(recipients, subject, body); err != nil {
-		logrus.WithError(err).Error("Failed to send bucket quota alert email")
-		return
-	}
-	logrus.WithFields(logrus.Fields{
-		"bucket":     bucketName,
-		"tenant_id":  tenantID,
-		"recipients": len(recipients),
-	}).Info("Bucket quota alert email sent")
+	s.emailAdmins(tenantID, subject, body, "Bucket quota alert", logrus.Fields{"bucket": bucketName, "tenant_id": tenantID})
 }

@@ -3,7 +3,9 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,8 +24,9 @@ type Config struct {
 	User               string
 	Password           string
 	From               string
-	TLSMode            string // "none", "starttls", or "ssl"
-	InsecureSkipVerify bool   // skip TLS certificate verification (self-signed certs)
+	TLSMode            string        // "none", "starttls", or "ssl"
+	InsecureSkipVerify bool          // skip TLS certificate verification (self-signed certs)
+	Timeout            time.Duration // of a whole conversation; 0 is 30 seconds
 }
 
 // Sender sends emails via SMTP
@@ -41,7 +44,12 @@ func (s *Sender) IsConfigured() bool {
 	return s.cfg.Host != "" && s.cfg.Port > 0 && s.cfg.From != ""
 }
 
-// Send sends an email to the given recipients
+// defaultTimeout bounds a conversation with the SMTP server when the
+// configuration sets none.
+const defaultTimeout = 30 * time.Second
+
+// Send sends an email to the given recipients. The whole conversation has the
+// configured timeout: a server that does not answer fails the send.
 func (s *Sender) Send(to []string, subject, body string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("SMTP not configured")
@@ -49,80 +57,45 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	if len(to) == 0 {
 		return fmt.Errorf("no recipients specified")
 	}
-
-	msg := buildMessage(s.cfg.From, to, subject, body)
-	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
-
-	switch s.cfg.TLSMode {
-	case TLSModeSSL:
-		return s.sendImplicitTLS(addr, to, msg)
-	case TLSModeSTARTTLS:
-		return s.sendSTARTTLS(addr, to, msg)
-	default: // TLSModeNone or empty — plain SMTP, no TLS
-		return s.sendPlain(addr, to, msg)
+	timeout := s.cfg.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
 	}
-}
-
-// sendPlain connects over plain TCP without any TLS negotiation.
-func (s *Sender) sendPlain(addr string, to []string, msg []byte) error {
-	client, err := smtp.Dial(addr)
+	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.Port))
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return fmt.Errorf("SMTP dial: %w", err)
 	}
-	defer client.Close()
-
-	return s.deliver(client, to, msg)
-}
-
-// sendImplicitTLS connects with TLS from the start (port 465).
-func (s *Sender) sendImplicitTLS(addr string, to []string, msg []byte) error {
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return fmt.Errorf("SMTP deadline: %w", err)
+	}
 	tlsCfg := &tls.Config{
 		ServerName:         s.cfg.Host,
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: s.cfg.InsecureSkipVerify, //nolint:gosec
+		InsecureSkipVerify: s.cfg.InsecureSkipVerify, //nolint:gosec // the administrator's choice, for self-signed certificates
 	}
-	conn, err := tls.Dial("tcp", addr, tlsCfg)
-	if err != nil {
-		return fmt.Errorf("TLS dial: %w", err)
+	if s.cfg.TLSMode == TLSModeSSL {
+		conn = tls.Client(conn, tlsCfg)
 	}
-	defer conn.Close()
-
 	client, err := smtp.NewClient(conn, s.cfg.Host)
 	if err != nil {
 		return fmt.Errorf("SMTP client: %w", err)
 	}
 	defer client.Close()
-
-	return s.deliver(client, to, msg)
+	if s.cfg.TLSMode == TLSModeSTARTTLS {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("STARTTLS: server does not advertise STARTTLS support")
+		}
+		if err := client.StartTLS(tlsCfg); err != nil {
+			return fmt.Errorf("STARTTLS: %w", err)
+		}
+	}
+	return s.deliver(client, to, buildMessage(s.cfg.From, to, subject, body))
 }
 
-// sendSTARTTLS connects plaintext then upgrades with STARTTLS.
-// Returns an error if the server does not advertise STARTTLS support.
-func (s *Sender) sendSTARTTLS(addr string, to []string, msg []byte) error {
-	client, err := smtp.Dial(addr)
-	if err != nil {
-		return fmt.Errorf("SMTP dial: %w", err)
-	}
-	defer client.Close()
-
-	ok, _ := client.Extension("STARTTLS")
-	if !ok {
-		return fmt.Errorf("STARTTLS: server does not advertise STARTTLS support")
-	}
-
-	tlsCfg := &tls.Config{
-		ServerName:         s.cfg.Host,
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: s.cfg.InsecureSkipVerify, //nolint:gosec
-	}
-	if err := client.StartTLS(tlsCfg); err != nil {
-		return fmt.Errorf("STARTTLS: %w", err)
-	}
-
-	return s.deliver(client, to, msg)
-}
-
-// deliver authenticates (if credentials provided) and sends the message
+// deliver authenticates (if credentials provided) and sends the message. The
+// server accepts or refuses it once its data ends.
 func (s *Sender) deliver(client *smtp.Client, to []string, msg []byte) error {
 	if s.cfg.User != "" && s.cfg.Password != "" {
 		auth := smtp.PlainAuth("", s.cfg.User, s.cfg.Password, s.cfg.Host)
@@ -130,26 +103,26 @@ func (s *Sender) deliver(client *smtp.Client, to []string, msg []byte) error {
 			return fmt.Errorf("SMTP auth: %w", err)
 		}
 	}
-
 	if err := client.Mail(s.cfg.From); err != nil {
 		return fmt.Errorf("MAIL FROM: %w", err)
 	}
-
 	for _, r := range to {
 		if err := client.Rcpt(r); err != nil {
 			return fmt.Errorf("RCPT TO %s: %w", r, err)
 		}
 	}
-
 	w, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("DATA: %w", err)
 	}
-	defer w.Close()
-
 	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("write message: %w", err)
 	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("message refused: %w", err)
+	}
+	// The message is taken: a failed goodbye does not unsend it.
+	_ = client.Quit()
 	return nil
 }
 

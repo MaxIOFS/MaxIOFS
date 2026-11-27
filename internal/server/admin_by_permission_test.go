@@ -152,10 +152,10 @@ func TestAlertsGoToTheAdministratorsOfWhatTheyConcern(t *testing.T) {
 func TestTheNotificationStreamSendsATenantOnlyItsOwnState(t *testing.T) {
 	s := administrators(t)
 	if s.quotaAlerts == nil {
-		s.quotaAlerts = newQuotaAlertTracker()
+		s.quotaAlerts = &alertLevels{}
 	}
 	if s.bucketQuotaAlerts == nil {
-		s.bucketQuotaAlerts = newBucketQuotaAlertTracker()
+		s.bucketQuotaAlerts = &alertLevels{}
 	}
 	s.quotaAlerts.levels.Store("acme", alertLevelNone)
 	s.quotaAlerts.levels.Store("other", alertLevelNone)

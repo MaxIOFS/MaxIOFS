@@ -197,27 +197,6 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 // sendCorruptionAlertEmail sends an email to all active global admins
 // notifying them of a corrupted or missing object.
 func (s *Server) sendCorruptionAlertEmail(bucket string, issue *object.IntegrityResult) {
-	enabled, _ := s.settingsManager.GetBool("email.enabled")
-	if !enabled {
-		return
-	}
-
-	sender := s.buildEmailSender()
-	if sender == nil || !sender.IsConfigured() {
-		return
-	}
-
-	recipients, err := s.adminEmails(context.Background(), "")
-	if err != nil {
-		logrus.WithError(err).Error("Corruption alert: failed to list users for email")
-		return
-	}
-
-	if len(recipients) == 0 {
-		logrus.Debug("Corruption alert: no admin emails configured, skipping email")
-		return
-	}
-
 	subject := "[MaxIOFS] ALERT: Data Corruption Detected"
 
 	detail := fmt.Sprintf("  Status:      %s\n  Bucket:      %s\n  Key:         %s\n  Stored ETag: %s", issue.Status, bucket, issue.Key, issue.StoredETag)
@@ -244,13 +223,5 @@ Recommended actions:
 This alert is sent automatically by MaxIOFS when data corruption is detected during periodic integrity scans.
 `, detail)
 
-	if err := sender.Send(recipients, subject, body); err != nil {
-		logrus.WithError(err).Error("Failed to send corruption alert email")
-		return
-	}
-	logrus.WithFields(logrus.Fields{
-		"bucket":     bucket,
-		"key":        issue.Key,
-		"recipients": len(recipients),
-	}).Info("Corruption alert email sent")
+	s.emailAdmins("", subject, body, "Corruption alert", logrus.Fields{"bucket": bucket, "key": issue.Key})
 }
