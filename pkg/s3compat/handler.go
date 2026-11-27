@@ -3257,33 +3257,10 @@ func parseS3TaggingHeader(raw string) (*object.TagSet, error) {
 			tags.Tags = append(tags.Tags, object.Tag{Key: key})
 		}
 	}
-	if err := checkObjectTags(tags.Tags); err != nil {
+	if err := object.ValidateTags(tags.Tags); err != nil {
 		return nil, err
 	}
 	return tags, nil
-}
-
-// checkObjectTags refuses tags S3 refuses on an object: more than 10, a key
-// empty, of more than 128 characters or given twice, a value of more than 256.
-func checkObjectTags(tags []object.Tag) error {
-	if len(tags) > 10 {
-		return fmt.Errorf("object tags cannot be greater than 10")
-	}
-	seen := make(map[string]bool, len(tags))
-	for _, tag := range tags {
-		switch {
-		case tag.Key == "":
-			return fmt.Errorf("tag key cannot be empty")
-		case utf8.RuneCountInString(tag.Key) > 128:
-			return fmt.Errorf("tag key %q is longer than 128 characters", tag.Key)
-		case utf8.RuneCountInString(tag.Value) > 256:
-			return fmt.Errorf("the value of tag %q is longer than 256 characters", tag.Key)
-		case seen[tag.Key]:
-			return fmt.Errorf("tag key %q is given more than once", tag.Key)
-		}
-		seen[tag.Key] = true
-	}
-	return nil
 }
 
 // resolveBucketPath determines the correct bucket path based on share tenant or standard path

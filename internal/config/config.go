@@ -256,6 +256,8 @@ func validate(cfg *Config) error {
 		}
 	}
 
+	// Links are built on it: a trailing slash would give them a second one.
+	cfg.PublicAPIURL = strings.TrimRight(cfg.PublicAPIURL, "/")
 	if cfg.PublicAPIURL != "" && cfg.PublicConsoleURL != "" {
 		if normalizeURLForCompare(cfg.PublicAPIURL) == normalizeURLForCompare(cfg.PublicConsoleURL) {
 			return fmt.Errorf("public_api_url and public_console_url must not be identical (%q): the S3 API and the web console need distinct public URLs — give each a different hostname, port, or path prefix", cfg.PublicAPIURL)

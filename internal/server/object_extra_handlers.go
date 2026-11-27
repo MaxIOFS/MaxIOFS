@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,108 +25,116 @@ import (
 // handleRenameObject implements POST /buckets/{bucket}/objects/{object:.*}/rename
 func (s *Server) handleRenameObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	objectKey := vars["object"]
-
+	bucketName, objectKey := vars["bucket"], vars["object"]
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	var req struct {
-		NewKey string `json:"newKey"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.NewKey) == "" {
-		s.writeError(w, "Invalid request: newKey is required", http.StatusBadRequest)
-		return
-	}
-	req.NewKey = strings.TrimSpace(req.NewKey)
-	if req.NewKey == objectKey {
-		s.writeError(w, "New key is the same as the current key", http.StatusBadRequest)
-		return
-	}
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject, "You do not have permission to read objects") {
-		return
-	}
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, req.NewKey, auth.ActionPutObject, "You do not have permission to upload objects") {
-		return
-	}
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObject, "You do not have permission to delete objects") {
-		return
-	}
-
-	tenantID := user.TenantID
-	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
-		tenantID = q
-	}
-	bucketPath := bucketName
-	if tenantID != "" {
-		bucketPath = tenantID + "/" + bucketName
-	}
-
-	// 1. Fetch source metadata + open data stream
-	srcObj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey)
+	newKey, err := renameTarget(r, objectKey)
 	if err != nil {
-		switch {
-		case err == object.ErrObjectNotFound:
-			s.writeError(w, "Object not found", http.StatusNotFound)
-		case errors.Is(err, object.ErrCustomerKeyRequired):
-			s.writeError(w, errCustomerKeyConsole, http.StatusConflict)
-		default:
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeRefusal(w, err)
 		return
 	}
-	defer reader.Close()
-
-	// 2. Block rename if the object is protected
-	if srcObj.LegalHold != nil && srcObj.LegalHold.Status == "ON" {
-		s.writeError(w, "Cannot rename: object has an active Legal Hold", http.StatusForbidden)
+	if !s.mayRename(w, r, bucketName, objectKey, newKey) {
 		return
 	}
-	if srcObj.Retention != nil && srcObj.Retention.Mode == "COMPLIANCE" && srcObj.Retention.RetainUntilDate.After(time.Now()) {
-		s.writeError(w, "Cannot rename: object is under COMPLIANCE retention that has not expired", http.StatusForbidden)
+	tenantID := consoleBucketTenant(r, user)
+	if err := s.renameObject(r.Context(), buildBucketPath(tenantID, bucketName), objectKey, newKey); err != nil {
+		s.writeRefusal(w, err)
 		return
 	}
-
-	// 3. Write to the new key
-	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, req.NewKey, reader, rewriteHeaders(srcObj)); err != nil {
-		s.writeError(w, fmt.Sprintf("Failed to write object at new key: %v", err), writeErrorStatus(err))
-		return
-	}
-
-	// 4. Copy tags (best-effort; failure does not abort the rename)
-	if tags, tagErr := s.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey); tagErr == nil && tags != nil && len(tags.Tags) > 0 {
-		_ = s.objectManager.SetObjectTagging(r.Context(), bucketPath, req.NewKey, tags)
-	}
-
-	// 5. Delete the source key
-	if _, err = s.objectManager.DeleteObject(r.Context(), bucketPath, objectKey, false); err != nil {
-		// Data is already at the new key; log but do not return an error to the client
-		logrus.WithError(err).WithField("key", objectKey).Warn("rename: failed to delete source object after successful copy")
-	}
-
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     tenantID,
 		UserID:       user.ID,
 		Username:     user.Username,
 		EventType:    audit.EventTypeObjectUploaded,
 		ResourceType: audit.ResourceTypeObject,
-		ResourceID:   req.NewKey,
-		ResourceName: req.NewKey,
+		ResourceID:   newKey,
+		ResourceName: newKey,
 		Action:       audit.ActionUpdate,
 		Status:       audit.StatusSuccess,
 		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
-		Details: map[string]interface{}{
-			"bucket":  bucketName,
-			"old_key": objectKey,
-			"new_key": req.NewKey,
-		},
+		Details:      map[string]interface{}{"bucket": bucketName, "old_key": objectKey, "new_key": newKey},
 	})
+	s.writeJSON(w, map[string]string{"newKey": newKey})
+}
 
-	s.writeJSON(w, map[string]string{"newKey": req.NewKey})
+// renameTarget reads the key an object is renamed to: given, and not its own.
+func renameTarget(r *http.Request, objectKey string) (string, error) {
+	var req struct {
+		NewKey string `json:"newKey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.NewKey) == "" {
+		return "", refused(http.StatusBadRequest, "Invalid request: newKey is required")
+	}
+	newKey := strings.TrimSpace(req.NewKey)
+	if newKey == objectKey {
+		return "", refused(http.StatusBadRequest, "New key is the same as the current key")
+	}
+	return newKey, nil
+}
+
+// mayRename checks the caller may read the object, write the new key and
+// delete the old one.
+func (s *Server) mayRename(w http.ResponseWriter, r *http.Request, bucketName, objectKey, newKey string) bool {
+	return s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject, "You do not have permission to read objects") &&
+		s.requireConsoleObjectS3Action(w, r, bucketName, newKey, auth.ActionPutObject, "You do not have permission to upload objects") &&
+		s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObject, "You do not have permission to delete objects")
+}
+
+// renameObject writes an object at a new key of its bucket, with its tags,
+// and deletes it at the old one. One under a legal hold or an unexpired
+// COMPLIANCE retention stays where it is.
+func (s *Server) renameObject(ctx context.Context, bucketPath, objectKey, newKey string) error {
+	source, reader, err := s.openConsoleObject(ctx, bucketPath, objectKey, "Object not found")
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	if err := renameRefusal(source); err != nil {
+		return err
+	}
+	if _, err := s.objectManager.PutObject(ctx, bucketPath, newKey, reader, rewriteHeaders(source)); err != nil {
+		return refused(writeErrorStatus(err), "Failed to write object at new key: "+err.Error())
+	}
+	// Tags are copied when they can be; the rename stands without them.
+	if tags, err := s.objectManager.GetObjectTagging(ctx, bucketPath, objectKey); err == nil && tags != nil && len(tags.Tags) > 0 {
+		_ = s.objectManager.SetObjectTagging(ctx, bucketPath, newKey, tags)
+	}
+	// The data is already at the new key: a failed delete is logged, not answered.
+	if _, err := s.objectManager.DeleteObject(ctx, bucketPath, objectKey, false); err != nil {
+		logrus.WithError(err).WithField("key", objectKey).Warn("rename: failed to delete source object after successful copy")
+	}
+	return nil
+}
+
+// renameRefusal refuses to rename an object under a legal hold or an
+// unexpired COMPLIANCE retention.
+func renameRefusal(source *object.Object) error {
+	if source.LegalHold != nil && source.LegalHold.Status == "ON" {
+		return refused(http.StatusForbidden, "Cannot rename: object has an active Legal Hold")
+	}
+	if source.Retention != nil && source.Retention.Mode == "COMPLIANCE" && source.Retention.RetainUntilDate.After(time.Now()) {
+		return refused(http.StatusForbidden, "Cannot rename: object is under COMPLIANCE retention that has not expired")
+	}
+	return nil
+}
+
+// openConsoleObject opens an object, or a version of it, with the refusal the
+// console answers when it cannot.
+func (s *Server) openConsoleObject(ctx context.Context, bucketPath, key, notFound string, versionID ...string) (*object.Object, io.ReadCloser, error) {
+	opened, reader, err := s.objectManager.GetObject(ctx, bucketPath, key, versionID...)
+	switch {
+	case errors.Is(err, object.ErrObjectNotFound):
+		return nil, nil, refused(http.StatusNotFound, notFound)
+	case errors.Is(err, object.ErrCustomerKeyRequired):
+		return nil, nil, refused(http.StatusConflict, errCustomerKeyConsole)
+	case err != nil:
+		return nil, nil, err
+	}
+	return opened, reader, nil
 }
 
 // ── Object Tags ───────────────────────────────────────────────────────────────
@@ -134,7 +145,7 @@ func (s *Server) handleGetObjectTags(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -142,12 +153,12 @@ func (s *Server) handleGetObjectTags(w http.ResponseWriter, r *http.Request) {
 	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectTagging, "You do not have permission to read object tags") {
 		return
 	}
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
 	tags, err := s.objectManager.GetObjectTagging(r.Context(), bucketPath, objectKey)
 	if err != nil {
-		if err == object.ErrObjectNotFound {
+		if errors.Is(err, object.ErrObjectNotFound) {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -181,15 +192,17 @@ func (s *Server) handleSetObjectTags(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	tenantID := user.TenantID
-	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
-		tenantID = q
+	// The tags S3 takes, as S3 takes them.
+	if err := object.ValidateTags(tags.Tags); err != nil {
+		s.writeError(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	tenantID := consoleBucketTenant(r, user)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
 	if err := s.objectManager.SetObjectTagging(r.Context(), bucketPath, objectKey, &tags); err != nil {
-		if err == object.ErrObjectNotFound {
+		if errors.Is(err, object.ErrObjectNotFound) {
 			s.writeError(w, "Object not found", http.StatusNotFound)
 		} else {
 			s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -227,7 +240,7 @@ func (s *Server) handleFolderSize(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	prefix := r.URL.Query().Get("prefix")
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -236,7 +249,7 @@ func (s *Server) handleFolderSize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
 	var totalSize int64
@@ -276,7 +289,7 @@ func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -285,22 +298,25 @@ func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
 	prefix := r.URL.Query().Get("prefix")
 	maxKeys := 5000
 	if v := r.URL.Query().Get("maxKeys"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			maxKeys = n
+			maxKeys = min(n, math.MaxInt32)
 		}
 	}
 
-	metaVersions, err := s.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys)
+	// One more than asked tells whether more are left.
+	metaVersions, err := s.metadataStore.ListAllObjectVersions(r.Context(), bucketPath, prefix, maxKeys+1)
 	if err != nil {
 		s.writeError(w, fmt.Sprintf("Failed to list versions: %v", err), http.StatusInternalServerError)
 		return
 	}
+	truncated := len(metaVersions) > maxKeys
+	metaVersions = metaVersions[:min(len(metaVersions), maxKeys)]
 
 	type versionItem struct {
 		Key            string `json:"key"`
@@ -329,22 +345,21 @@ func (s *Server) handleListBucketVersions(w http.ResponseWriter, r *http.Request
 
 	s.writeJSON(w, map[string]interface{}{
 		"versions":    items,
-		"isTruncated": len(items) == maxKeys,
+		"isTruncated": truncated,
 	})
 }
 
-// handleRestoreObjectVersion implements POST /buckets/{bucket}/objects/{object:.*}/restore
+// handleRestoreObjectVersion implements POST /buckets/{bucket}/objects/{object:.*}/restore:
+// a version is written again as the object's latest, or a delete marker with
+// a version behind it is removed.
 func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	objectKey := vars["object"]
-
+	bucketName, objectKey := vars["bucket"], vars["object"]
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	var req struct {
 		VersionID      string `json:"versionId"`
 		IsDeleteMarker bool   `json:"isDeleteMarker"`
@@ -353,125 +368,101 @@ func (s *Server) handleRestoreObjectVersion(w http.ResponseWriter, r *http.Reque
 		s.writeError(w, "Invalid request: versionId is required", http.StatusBadRequest)
 		return
 	}
-	if req.IsDeleteMarker {
-		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObjectVersion, "You do not have permission to manage object versions") {
-			return
-		}
-	} else {
-		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectVersion, "You do not have permission to read object versions") {
-			return
-		}
-		if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to restore object versions") {
-			return
-		}
+	if !s.mayRestoreVersion(w, r, bucketName, objectKey, req.IsDeleteMarker) {
+		return
 	}
-
-	tenantID := user.TenantID
-	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
-		tenantID = q
-	}
+	tenantID := consoleBucketTenant(r, user)
 	bucketPath := buildBucketPath(tenantID, bucketName)
 
+	eventType, action, status, detail := audit.EventTypeObjectUploaded, audit.ActionUpdate, "restored", "restored_version"
+	var err error
 	if req.IsDeleteMarker {
-		// Removing the marker is only a restore if a real version is behind it.
-		// With none, the object would simply stop existing.
-		versions, vErr := s.objectManager.GetObjectVersions(r.Context(), bucketPath, objectKey)
-		if vErr != nil {
-			s.writeError(w, fmt.Sprintf("Failed to read object versions: %v", vErr), http.StatusInternalServerError)
-			return
-		}
-		restorable := false
-		for _, v := range versions {
-			if v.VersionID != req.VersionID && !v.IsDeleteMarker {
-				restorable = true
-				break
-			}
-		}
-		if !restorable {
-			s.writeError(w, "Nothing to restore: no earlier version exists behind this delete marker. Removing it would leave no object at all.", http.StatusConflict)
-			return
-		}
-
-		if err := s.objectManager.DeleteObjectVersion(r.Context(), bucketPath, objectKey, req.VersionID); err != nil {
-			s.writeError(w, fmt.Sprintf("Failed to remove delete marker: %v", err), http.StatusInternalServerError)
-			return
-		}
-		s.logAuditEvent(r.Context(), &audit.AuditEvent{
-			TenantID:     tenantID,
-			UserID:       user.ID,
-			Username:     user.Username,
-			EventType:    audit.EventTypeObjectDeleted,
-			ResourceType: audit.ResourceTypeObject,
-			ResourceID:   objectKey,
-			ResourceName: objectKey,
-			Action:       audit.ActionDelete,
-			Status:       audit.StatusSuccess,
-			IPAddress:    getClientIP(r, s.proxyTrust()),
-			UserAgent:    r.Header.Get("User-Agent"),
-			Details: map[string]interface{}{
-				"bucket":         bucketName,
-				"key":            objectKey,
-				"removed_marker": req.VersionID,
-			},
-		})
-		s.writeJSON(w, map[string]string{"status": "delete marker removed"})
-		return
+		eventType, action, status, detail = audit.EventTypeObjectDeleted, audit.ActionDelete, "delete marker removed", "removed_marker"
+		err = s.removeDeleteMarker(r.Context(), bucketPath, objectKey, req.VersionID)
+	} else {
+		err = s.restoreVersion(r.Context(), bucketPath, objectKey, req.VersionID)
 	}
-
-	// Copy the specified version to a new PUT → it becomes the new latest version
-	srcObj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, objectKey, req.VersionID)
 	if err != nil {
-		switch {
-		case err == object.ErrObjectNotFound:
-			s.writeError(w, "Version not found", http.StatusNotFound)
-		case errors.Is(err, object.ErrCustomerKeyRequired):
-			s.writeError(w, errCustomerKeyConsole, http.StatusConflict)
-		default:
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeRefusal(w, err)
 		return
 	}
-	defer reader.Close()
-
-	if _, err = s.objectManager.PutObject(r.Context(), bucketPath, objectKey, reader, rewriteHeaders(srcObj)); err != nil {
-		s.writeError(w, fmt.Sprintf("Failed to restore version: %v", err), writeErrorStatus(err))
-		return
-	}
-
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     tenantID,
 		UserID:       user.ID,
 		Username:     user.Username,
-		EventType:    audit.EventTypeObjectUploaded,
+		EventType:    eventType,
 		ResourceType: audit.ResourceTypeObject,
 		ResourceID:   objectKey,
 		ResourceName: objectKey,
-		Action:       audit.ActionUpdate,
+		Action:       action,
 		Status:       audit.StatusSuccess,
 		IPAddress:    getClientIP(r, s.proxyTrust()),
 		UserAgent:    r.Header.Get("User-Agent"),
-		Details: map[string]interface{}{
-			"bucket":           bucketName,
-			"key":              objectKey,
-			"restored_version": req.VersionID,
-		},
+		Details:      map[string]interface{}{"bucket": bucketName, "key": objectKey, detail: req.VersionID},
 	})
+	s.writeJSON(w, map[string]string{"status": status})
+}
 
-	s.writeJSON(w, map[string]string{"status": "restored"})
+// mayRestoreVersion checks the caller may remove a delete marker, or read a
+// version and write it again.
+func (s *Server) mayRestoreVersion(w http.ResponseWriter, r *http.Request, bucketName, objectKey string, deleteMarker bool) bool {
+	if deleteMarker {
+		return s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionDeleteObjectVersion,
+			"You do not have permission to manage object versions")
+	}
+	return s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObjectVersion,
+		"You do not have permission to read object versions") &&
+		s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject,
+			"You do not have permission to restore object versions")
+}
+
+// removeDeleteMarker removes a delete marker of an object with a version
+// behind it. What the store holds decides whether the version is a marker: a
+// version with data is never removed as one, and a marker with nothing behind
+// it stays, or the object would simply stop existing.
+func (s *Server) removeDeleteMarker(ctx context.Context, bucketPath, objectKey, versionID string) error {
+	versions, err := s.objectManager.GetObjectVersions(ctx, bucketPath, objectKey)
+	if err != nil {
+		return fmt.Errorf("Failed to read object versions: %w", err)
+	}
+	var found, marker, behind bool
+	for _, v := range versions {
+		switch {
+		case v.VersionID == versionID:
+			found, marker = true, v.IsDeleteMarker
+		case !v.IsDeleteMarker:
+			behind = true
+		}
+	}
+	switch {
+	case !found:
+		return refused(http.StatusNotFound, "Version not found")
+	case !marker:
+		return refused(http.StatusBadRequest, "The version is not a delete marker: restore it instead")
+	case !behind:
+		return refused(http.StatusConflict,
+			"Nothing to restore: no earlier version exists behind this delete marker. Removing it would leave no object at all.")
+	}
+	if err := s.objectManager.DeleteObjectVersion(ctx, bucketPath, objectKey, versionID); err != nil {
+		return fmt.Errorf("Failed to remove delete marker: %w", err)
+	}
+	return nil
+}
+
+// restoreVersion writes a version of an object again, as its latest.
+func (s *Server) restoreVersion(ctx context.Context, bucketPath, objectKey, versionID string) error {
+	source, reader, err := s.openConsoleObject(ctx, bucketPath, objectKey, "Version not found", versionID)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	if _, err := s.objectManager.PutObject(ctx, bucketPath, objectKey, reader, rewriteHeaders(source)); err != nil {
+		return refused(writeErrorStatus(err), "Failed to restore version: "+err.Error())
+	}
+	return nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-// resolveTenantID returns the effective tenant ID for the request.
-// Global admins may override it via the tenantId query parameter.
-func (s *Server) resolveTenantID(r *http.Request) string {
-	user, _ := auth.GetUserFromContext(r.Context())
-	tenantID := user.TenantID
-	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
-		tenantID = q
-	}
-	return tenantID
-}
 
 // buildBucketPath constructs the internal bucket path from tenantID and bucket name.
 func buildBucketPath(tenantID, bucketName string) string {
@@ -509,6 +500,9 @@ func writeErrorStatus(err error) int {
 	switch {
 	case isQuotaExceeded(err):
 		return http.StatusForbidden
+	case errors.Is(err, object.ErrNoRetentionConfiguration), errors.Is(err, object.ErrInvalidRetentionMode),
+		errors.Is(err, object.ErrRetentionDateInPast), errors.Is(err, object.ErrInvalidLegalHoldStatus):
+		return http.StatusBadRequest
 	case object.IsDiskFull(err):
 		return http.StatusInsufficientStorage
 	case errors.Is(err, object.ErrBucketNotFound):

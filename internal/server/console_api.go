@@ -23,7 +23,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
-	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
 	"github.com/maxiofs/maxiofs/internal/object"
@@ -1256,224 +1255,6 @@ func (s *Server) deleteConsoleBucket(ctx context.Context, tenantID, name, userna
 }
 
 // Object handlers
-func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-
-	user, exists := auth.GetUserFromContext(r.Context())
-	if !exists {
-		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
-		return
-	}
-	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket, "You do not have permission to list objects") {
-		return
-	}
-
-	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-
-	// Global admins can access buckets from any tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
-
-	bucketPath := tenantID + "/" + bucketName
-	if tenantID == "" {
-		bucketPath = bucketName
-	}
-
-	prefix := r.URL.Query().Get("prefix")
-	delimiter := r.URL.Query().Get("delimiter")
-	marker := r.URL.Query().Get("marker")
-	maxKeys := 1000
-
-	if maxKeysStr := r.URL.Query().Get("max_keys"); maxKeysStr != "" {
-		if parsed, err := strconv.Atoi(maxKeysStr); err == nil && parsed > 0 {
-			maxKeys = parsed
-		}
-	}
-
-	result, err := s.objectManager.ListObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys)
-	if err != nil {
-		if err == object.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Convert objects to response format
-	objectsResponse := make([]ObjectResponse, len(result.Objects))
-	for i, obj := range result.Objects {
-		objectsResponse[i] = ObjectResponse{
-			Key:          obj.Key,
-			Size:         obj.Size,
-			LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
-			ETag:         obj.ETag,
-			ContentType:  obj.ContentType,
-			Metadata:     obj.Metadata,
-			Retention:    obj.Retention,
-			LegalHold:    obj.LegalHold,
-			CustomerKey:  obj.CustomerEncrypted(),
-		}
-	}
-
-	// Convert common prefixes to response format
-	commonPrefixesResponse := make([]string, len(result.CommonPrefixes))
-	for i, cp := range result.CommonPrefixes {
-		commonPrefixesResponse[i] = cp.Prefix
-	}
-
-	s.writeJSON(w, map[string]interface{}{
-		"objects":        objectsResponse,
-		"commonPrefixes": commonPrefixesResponse,
-		"isTruncated":    result.IsTruncated,
-		"nextMarker":     result.NextMarker,
-		"prefix":         result.Prefix,
-		"delimiter":      result.Delimiter,
-	})
-}
-
-func (s *Server) handleSearchObjects(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
-		"You do not have permission to read this bucket") {
-		return
-	}
-
-	user, exists := auth.GetUserFromContext(r.Context())
-	if !exists {
-		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
-		return
-	}
-
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
-
-	bucketPath := tenantID + "/" + bucketName
-	if tenantID == "" {
-		bucketPath = bucketName
-	}
-
-	prefix := r.URL.Query().Get("prefix")
-	delimiter := r.URL.Query().Get("delimiter")
-	marker := r.URL.Query().Get("marker")
-	maxKeys := 1000
-
-	if maxKeysStr := r.URL.Query().Get("max_keys"); maxKeysStr != "" {
-		if parsed, err := strconv.Atoi(maxKeysStr); err == nil && parsed > 0 {
-			maxKeys = parsed
-		}
-	}
-
-	// Build ObjectFilter from query params
-	filter := &metadata.ObjectFilter{}
-	hasFilter := false
-
-	// content_type: comma-separated content-type prefixes
-	if ct := r.URL.Query().Get("content_type"); ct != "" {
-		filter.ContentTypes = strings.Split(ct, ",")
-		hasFilter = true
-	}
-
-	// min_size, max_size: byte values
-	if minStr := r.URL.Query().Get("min_size"); minStr != "" {
-		if v, err := strconv.ParseInt(minStr, 10, 64); err == nil {
-			filter.MinSize = &v
-			hasFilter = true
-		}
-	}
-	if maxStr := r.URL.Query().Get("max_size"); maxStr != "" {
-		if v, err := strconv.ParseInt(maxStr, 10, 64); err == nil {
-			filter.MaxSize = &v
-			hasFilter = true
-		}
-	}
-
-	// modified_after, modified_before: RFC3339
-	if after := r.URL.Query().Get("modified_after"); after != "" {
-		if t, err := time.Parse(time.RFC3339, after); err == nil {
-			filter.ModifiedAfter = &t
-			hasFilter = true
-		}
-	}
-	if before := r.URL.Query().Get("modified_before"); before != "" {
-		if t, err := time.Parse(time.RFC3339, before); err == nil {
-			filter.ModifiedBefore = &t
-			hasFilter = true
-		}
-	}
-
-	// tag: repeatable param, format "key:value"
-	if tagParams := r.URL.Query()["tag"]; len(tagParams) > 0 {
-		tags := make(map[string]string)
-		for _, tagParam := range tagParams {
-			parts := strings.SplitN(tagParam, ":", 2)
-			if len(parts) == 2 {
-				tags[parts[0]] = parts[1]
-			}
-		}
-		if len(tags) > 0 {
-			filter.Tags = tags
-			hasFilter = true
-		}
-	}
-
-	if !hasFilter {
-		filter = nil
-	}
-
-	result, err := s.objectManager.SearchObjects(r.Context(), bucketPath, prefix, delimiter, marker, maxKeys, filter)
-	if err != nil {
-		if err == object.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Convert objects to response format
-	objectsResponse := make([]ObjectResponse, len(result.Objects))
-	for i, obj := range result.Objects {
-		objectsResponse[i] = ObjectResponse{
-			Key:          obj.Key,
-			Size:         obj.Size,
-			LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
-			ETag:         obj.ETag,
-			ContentType:  obj.ContentType,
-			Metadata:     obj.Metadata,
-			Retention:    obj.Retention,
-			LegalHold:    obj.LegalHold,
-			CustomerKey:  obj.CustomerEncrypted(),
-		}
-	}
-
-	// Convert common prefixes to response format
-	commonPrefixesResponse := make([]string, len(result.CommonPrefixes))
-	for i, cp := range result.CommonPrefixes {
-		commonPrefixesResponse[i] = cp.Prefix
-	}
-
-	s.writeJSON(w, map[string]interface{}{
-		"objects":        objectsResponse,
-		"commonPrefixes": commonPrefixesResponse,
-		"isTruncated":    result.IsTruncated,
-		"nextMarker":     result.NextMarker,
-		"prefix":         result.Prefix,
-		"delimiter":      result.Delimiter,
-	})
-}
-
 func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1599,107 +1380,26 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleUploadObject writes an object from the console. The write applies the
+// bucket's and the tenant's quotas and the bucket's default retention, as an
+// S3 PutObject does.
 func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	objectKey := vars["object"]
-
-	// Extract user and tenant ID from context
+	bucketName, objectKey := vars["bucket"], vars["object"]
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to upload objects") {
+	if !s.mayUpload(w, r, bucketName, objectKey) {
 		return
 	}
-	if (r.Header.Get("x-amz-object-lock-mode") != "" || r.Header.Get("x-amz-object-lock-retain-until-date") != "") &&
-		!s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention, "You do not have permission to set object retention") {
-		return
-	}
-	if r.Header.Get("x-amz-object-lock-legal-hold") != "" &&
-		!s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "You do not have permission to manage object legal hold") {
-		return
-	}
-
-	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-
-	// Global admins can access buckets from any tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
-
-	// Get bucket to check tenant
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	tenantID := consoleBucketTenant(r, user)
+	obj, err := s.objectManager.PutObject(r.Context(), buildBucketPath(tenantID, bucketName), objectKey, r.Body, r.Header)
 	if err != nil {
-		if err == bucket.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeError(w, err.Error(), writeErrorStatus(err))
 		return
 	}
-
-	if bucketInfo.OwnerType == "tenant" && bucketInfo.OwnerID != "" {
-		tenant, err := s.authManager.GetTenant(r.Context(), bucketInfo.OwnerID)
-		if err != nil {
-			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
-			return
-		}
-
-		// Get Content-Length to check if upload would exceed quota; a
-		// MaxStorageBytes of 0 is unlimited.
-		contentLength := r.ContentLength
-		if contentLength > 0 && tenant.MaxStorageBytes > 0 {
-			if tenant.CurrentStorageBytes+contentLength > tenant.MaxStorageBytes {
-				s.writeError(w, fmt.Sprintf("Tenant storage quota exceeded (%d/%d bytes). Cannot upload object.", tenant.CurrentStorageBytes, tenant.MaxStorageBytes), http.StatusForbidden)
-				return
-			}
-		}
-	}
-
-	bucketPath := tenantID + "/" + bucketName
-	if tenantID == "" {
-		bucketPath = bucketName
-	}
-
-	obj, err := s.objectManager.PutObject(r.Context(), bucketPath, objectKey, r.Body, r.Header)
-	if err != nil {
-		if err == object.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), writeErrorStatus(err))
-		}
-		return
-	}
-
-	// Check if bucket has Object Lock enabled and apply default retention
-	lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), tenantID, bucketName)
-	if err == nil && lockConfig != nil && lockConfig.ObjectLockEnabled {
-		// Apply default retention if configured
-		if lockConfig.Rule != nil && lockConfig.Rule.DefaultRetention != nil {
-			retention := &object.RetentionConfig{
-				Mode: lockConfig.Rule.DefaultRetention.Mode,
-			}
-
-			// Calculate retain until date based on days or years
-			if lockConfig.Rule.DefaultRetention.Days != nil {
-				retention.RetainUntilDate = time.Now().AddDate(0, 0, *lockConfig.Rule.DefaultRetention.Days)
-			} else if lockConfig.Rule.DefaultRetention.Years != nil {
-				retention.RetainUntilDate = time.Now().AddDate(*lockConfig.Rule.DefaultRetention.Years, 0, 0)
-			}
-
-			// Set retention on the newly uploaded object
-			if !retention.RetainUntilDate.IsZero() {
-				_ = s.objectManager.SetObjectRetention(r.Context(), bucketPath, objectKey, retention)
-				// Ignore errors here - object is already uploaded
-			}
-		}
-	}
-
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     tenantID,
 		UserID:       user.ID,
@@ -1719,203 +1419,27 @@ func (s *Server) handleUploadObject(w http.ResponseWriter, r *http.Request) {
 			"etag":         obj.ETag,
 		},
 	})
-
-	response := ObjectResponse{
+	s.writeJSON(w, ObjectResponse{
 		Key:          obj.Key,
 		Size:         obj.Size,
 		LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
 		ETag:         obj.ETag,
 		ContentType:  obj.ContentType,
-	}
-
-	s.writeJSON(w, response)
+	})
 }
 
-func (s *Server) handleShareObject(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	objectKey := vars["object"]
-
-	// Get user from context
-	user, ok := auth.GetUserFromContext(r.Context())
-	if !ok {
-		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
-		return
+// mayUpload checks the caller may write the object, and set the retention and
+// the legal hold its headers ask for.
+func (s *Server) mayUpload(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) bool {
+	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObject, "You do not have permission to upload objects") {
+		return false
 	}
-
-	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionGetObject,
-		"You do not have permission to share this object") {
-		return
+	if (r.Header.Get("x-amz-object-lock-mode") != "" || r.Header.Get("x-amz-object-lock-retain-until-date") != "") &&
+		!s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectRetention, "You do not have permission to set object retention") {
+		return false
 	}
-
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	if queryTenantID != "" && s.isGlobalAdmin(user) {
-		tenantID = queryTenantID
-		logrus.WithFields(logrus.Fields{
-			"queryTenantID": queryTenantID,
-			"userTenantID":  user.TenantID,
-		}).Debug("Using tenantId from query parameter")
-	}
-
-	// Get bucket info to determine tenant ID
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
-	if err != nil {
-		// If not found in user's tenant, try as global admin
-		isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-		if isGlobalAdmin {
-			tenantID = ""
-			bucketInfo, err = s.bucketManager.GetBucketInfo(r.Context(), "", bucketName)
-			if err != nil {
-				s.writeError(w, "Bucket not found", http.StatusNotFound)
-				return
-			}
-		} else {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-			return
-		}
-	}
-
-	// Use the bucket's tenant ID for the share
-	shareTenantID := bucketInfo.TenantID
-
-	// Check if object already has an active share
-	existingShare, err := s.shareManager.GetShareByObject(r.Context(), bucketName, objectKey, shareTenantID)
-	if err == nil && existingShare != nil {
-		// Return existing share
-		logrus.WithFields(logrus.Fields{
-			"bucket":  bucketName,
-			"object":  objectKey,
-			"shareID": existingShare.ID,
-		}).Info("Found existing share for object")
-
-		// Generate clean S3 URL (bucket names are global; no tenant in path)
-		var s3URL string
-		if s.config.PublicAPIURL != "" {
-			s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
-		} else {
-			protocol := "http"
-			if bucket.RequestFactsFrom(r.Context()).SecureTransport {
-				protocol = "https"
-			}
-			host := r.Host
-			if !strings.Contains(host, ":") {
-				host = strings.Split(r.Host, ":")[0] + s.config.Listen
-			}
-			s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"tenantID": shareTenantID,
-			"url":      s3URL,
-			"existing": true,
-		}).Info("Generated share URL for existing share")
-
-		s.writeJSON(w, map[string]interface{}{
-			"id":        existingShare.ID,
-			"url":       s3URL,
-			"expiresAt": existingShare.ExpiresAt,
-			"createdAt": existingShare.CreatedAt.Format(time.RFC3339),
-			"isExpired": false,
-			"existing":  true,
-		})
-		return
-	} else if err != nil {
-		// Log error if it's not "not found"
-		logrus.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"object": objectKey,
-			"error":  err.Error(),
-		}).Debug("No existing share found or error occurred")
-	}
-
-	// Parse request body for expiration time
-	var req struct {
-		ExpiresIn *int64 `json:"expiresIn"` // seconds, null = never expires
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Default to 1 hour if no body provided
-		defaultExpiry := int64(3600)
-		req.ExpiresIn = &defaultExpiry
-	}
-
-	// Get user's first access key
-	accessKeys, err := s.authManager.ListAccessKeys(r.Context(), user.ID)
-	if err != nil || len(accessKeys) == 0 {
-		s.writeError(w, "No access keys found for user. Create an access key first.", http.StatusBadRequest)
-		return
-	}
-
-	accessKey := accessKeys[0]
-
-	// Create persistent share
-	share, err := s.shareManager.CreateShare(
-		r.Context(),
-		bucketName,
-		objectKey,
-		shareTenantID,
-		accessKey.AccessKeyID,
-		accessKey.SecretAccessKey,
-		user.ID,
-		req.ExpiresIn,
-	)
-	if err != nil {
-		s.writeError(w, fmt.Sprintf("Failed to create share: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		TenantID:     shareTenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
-		EventType:    audit.EventTypeObjectShared,
-		ResourceType: audit.ResourceTypeObject,
-		ResourceID:   objectKey,
-		ResourceName: objectKey,
-		Action:       audit.ActionShare,
-		Status:       audit.StatusSuccess,
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.Header.Get("User-Agent"),
-		Details: map[string]interface{}{
-			"bucket":   bucketName,
-			"share_id": share.ID,
-		},
-	})
-
-	// Generate clean S3 URL with proper protocol and host.
-	// Bucket names are globally unique; URL is always /bucket/object (no tenant in path).
-	var s3URL string
-	if s.config.PublicAPIURL != "" {
-		s3URL = fmt.Sprintf("%s/%s/%s", s.config.PublicAPIURL, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
-	} else {
-		protocol := "http"
-		if bucket.RequestFactsFrom(r.Context()).SecureTransport {
-			protocol = "https"
-		}
-		host := r.Host
-		if !strings.Contains(host, ":") {
-			host = strings.Split(r.Host, ":")[0] + s.config.Listen
-		}
-		s3URL = fmt.Sprintf("%s://%s/%s/%s", protocol, host, auth.URIEncode(bucketName), auth.URIEncode(objectKey))
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"tenantID": shareTenantID,
-		"url":      s3URL,
-		"bucket":   bucketName,
-		"object":   objectKey,
-	}).Info("Generated share URL for new share")
-
-	// Return share response
-	s.writeJSON(w, map[string]interface{}{
-		"id":        share.ID,
-		"url":       s3URL,
-		"expiresAt": share.ExpiresAt,
-		"createdAt": share.CreatedAt.Format(time.RFC3339),
-		"isExpired": false,
-		"existing":  false,
-	})
+	return r.Header.Get("x-amz-object-lock-legal-hold") == "" ||
+		s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "You do not have permission to manage object legal hold")
 }
 
 func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -4508,16 +4032,7 @@ func (s *Server) handleGeneratePresignedURL(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Build endpoint URL
-	endpoint := s.config.PublicAPIURL
-	if endpoint == "" {
-		// Build from request if not configured
-		protocol := "http"
-		if r.TLS != nil {
-			protocol = "https"
-		}
-		endpoint = fmt.Sprintf("%s://%s", protocol, r.Host)
-	}
+	endpoint := s.s3Endpoint(r)
 
 	// Generate presigned URL
 	params := presigned.PresignedURLParams{
@@ -5334,7 +4849,7 @@ func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
@@ -5343,7 +4858,7 @@ func (s *Server) handleGetObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 
 	var bucketPath string
 	if tenantID != "" {
@@ -5371,7 +4886,7 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
@@ -5380,7 +4895,7 @@ func (s *Server) handlePutObjectACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 
 	// Construct bucket path
 	var bucketPath string
@@ -5722,7 +5237,7 @@ func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request
 	bucketName := vars["bucket"]
 	objectKey := vars["object"]
 
-	_, exists := auth.GetUserFromContext(r.Context())
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
@@ -5731,7 +5246,7 @@ func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tenantID := s.resolveTenantID(r)
+	tenantID := consoleBucketTenant(r, user)
 
 	// Construct bucket path
 	var bucketPath string
@@ -5762,10 +5277,8 @@ func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request
 // handlePutObjectLegalHold handles PUT /buckets/{bucket}/objects/{object}/legal-hold
 func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-	objectKey := vars["object"]
-
-	_, exists := auth.GetUserFromContext(r.Context())
+	bucketName, objectKey := vars["bucket"], vars["object"]
+	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not found in context", http.StatusUnauthorized)
 		return
@@ -5773,65 +5286,41 @@ func (s *Server) handlePutObjectLegalHold(w http.ResponseWriter, r *http.Request
 	if !s.requireConsoleObjectS3Action(w, r, bucketName, objectKey, auth.ActionPutObjectLegalHold, "You do not have permission to manage object legal hold") {
 		return
 	}
-
-	tenantID := s.resolveTenantID(r)
-
-	// Parse request body
 	var req struct {
-		Status string `json:"status"` // "ON" or "OFF"
+		Status string `json:"status"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
-
-	// Validate status
 	if req.Status != "ON" && req.Status != "OFF" {
 		s.writeError(w, "Invalid legal hold status. Must be 'ON' or 'OFF'", http.StatusBadRequest)
 		return
 	}
-
-	// Construct bucket path
-	var bucketPath string
-	if tenantID != "" {
-		bucketPath = tenantID + "/" + bucketName
-	} else {
-		bucketPath = bucketName
-	}
-
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
-	if err != nil {
-		if err == bucket.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-			return
-		}
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
+	if err := s.setLegalHold(r.Context(), consoleBucketTenant(r, user), bucketName, objectKey, req.Status); err != nil {
+		s.writeRefusal(w, err)
 		return
 	}
-
-	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
-		s.writeError(w, "Legal Hold can only be applied to objects in buckets with Object Lock enabled", http.StatusBadRequest)
-		return
-	}
-
-	// Create legal hold config
-	legalHoldConfig := &object.LegalHoldConfig{
-		Status: req.Status,
-	}
-
-	// Set legal hold
-	if err := s.objectManager.SetObjectLegalHold(r.Context(), bucketPath, objectKey, legalHoldConfig); err != nil {
-		if err == object.ErrObjectNotFound {
-			s.writeError(w, "Object not found", http.StatusNotFound)
-			return
-		}
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	w.WriteHeader(http.StatusOK)
+}
+
+// setLegalHold puts a legal hold ON or OFF on an object of a bucket with
+// Object Lock.
+func (s *Server) setLegalHold(ctx context.Context, tenantID, bucketName, objectKey, status string) error {
+	info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName)
+	switch {
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		return refused(http.StatusNotFound, "Bucket not found")
+	case err != nil:
+		return err
+	case info.ObjectLock == nil || !info.ObjectLock.ObjectLockEnabled:
+		return refused(http.StatusBadRequest, "Legal Hold can only be applied to objects in buckets with Object Lock enabled")
+	}
+	err = s.objectManager.SetObjectLegalHold(ctx, buildBucketPath(tenantID, bucketName), objectKey, &object.LegalHoldConfig{Status: status})
+	if errors.Is(err, object.ErrObjectNotFound) {
+		return refused(http.StatusNotFound, "Object not found")
+	}
+	return err
 }
 
 // handleSetup2FA generates a new TOTP secret and QR code for the user

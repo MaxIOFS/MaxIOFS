@@ -22,12 +22,13 @@ const CONTENT_TYPE_PRESETS = [
 
 type SizeUnit = 'B' | 'KB' | 'MB' | 'GB';
 
+// The search takes whole bytes only.
 function toBytes(value: number, unit: SizeUnit): number {
   switch (unit) {
-    case 'KB': return value * 1024;
-    case 'MB': return value * 1024 * 1024;
-    case 'GB': return value * 1024 * 1024 * 1024;
-    default: return value;
+    case 'KB': return Math.round(value * 1024);
+    case 'MB': return Math.round(value * 1024 * 1024);
+    case 'GB': return Math.round(value * 1024 * 1024 * 1024);
+    default: return Math.round(value);
   }
 }
 

@@ -62,6 +62,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A global administrator could not revoke a permission given to a tenant on a bucket of no tenant: the tenant it was given to was taken for the bucket's, and the bucket was not found.
 - A bucket of a tenant owned by one of its users could be given a size quota larger than the tenant's storage: no bucket of a tenant can.
 - A bucket inventory's time changed before its first report was ignored: the report ran at the time first set. It runs at the time last set, and a time that is not `HH:MM` is refused with `400`.
+- Restoring from the console removed for good a version with data when the request called it a delete marker: only a real delete marker is removed as one.
+- The console took object tags S3 refuses, and answered more than 10 with `500`: they are refused with `400`.
+- The console's list of a bucket's versions said it was cut when it held exactly as many as asked.
+- Share links and presigned URLs from the console broke when `public_api_url` ended in `/`, and pointed at the console's port when it was empty: they point at the S3 API.
+- Searching objects by a size with decimals (1.1 MB) listed every object: the console sends whole bytes, and the server refuses a filter it cannot read with `400`.
+- An object uploaded from the console with a retention of its own got the bucket's default retention instead.
+- The console refused to overwrite an object with one as large when its tenant was near its storage limit.
+- Invalid Object Lock headers on an upload from the console answered `500`: they are refused with `400`.
+- A website routing rule on `HttpErrorCodeReturnedEquals` redirected every page, and `ReplaceKeyPrefixWith` without a key prefix looped: both work as in AWS.
 - A user made again from the console with the username of a deleted one took the deleted one's ID, and with it the console sessions the deleted one still had open: a user made gets an ID no user had.
 - Deleting an access key that does not exist answered `500`: it answers `404`.
 - The audit log named the owner of an access key an administrator made as who made it: it names the administrator.

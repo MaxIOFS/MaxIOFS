@@ -2,6 +2,7 @@ package server
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -59,156 +60,38 @@ func hasDriveLetter(segment string) bool {
 
 // handleDownloadZip streams all objects under a given prefix as a ZIP archive.
 func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
+	bucketName := mux.Vars(r)["bucket"]
 	prefix := r.URL.Query().Get("prefix")
-
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionListBucket,
 		"You do not have permission to list this bucket") {
 		return
 	}
+	tenantID := consoleBucketTenant(r, user)
+	bucketPath := buildBucketPath(tenantID, bucketName)
 
-	tenantID := user.TenantID
-	if q := r.URL.Query().Get("tenantId"); q != "" && auth.IsAdminUser(r.Context()) && user.TenantID == "" {
-		tenantID = q
-	}
-
-	bucketPath := bucketName
-	if tenantID != "" {
-		bucketPath = tenantID + "/" + bucketName
-	}
-
-	// ── Phase 1: enumerate objects and enforce limits ─────────────────────────
-	// This must complete before sending any response headers so that we can
-	// still return a JSON error if the limits are exceeded.
-	var entries []zipEntry
-	var totalSize int64
-	marker := ""
-
-	for {
-		result, err := s.objectManager.ListObjects(r.Context(), bucketPath, prefix, "", marker, 1000)
-		if err != nil {
-			s.writeError(w, fmt.Sprintf("Failed to list objects: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		for _, obj := range result.Objects {
-			// Skip folder markers (virtual directories)
-			if strings.HasSuffix(obj.Key, "/") && obj.Size == 0 {
-				continue
-			}
-			if !s.userCanPerformConsoleS3Action(r, user,
-				s.resolveConsoleBucketTenantID(r, bucketName, user),
-				auth.ActionGetObject, consoleObjectARN(bucketName, obj.Key)) {
-				s.writeError(w, "You do not have permission to download every object in this folder",
-					http.StatusForbidden)
-				return
-			}
-			entries = append(entries, zipEntry{key: obj.Key, size: obj.Size, modified: obj.LastModified})
-			totalSize += obj.Size
-		}
-
-		if len(entries) > zipDownloadMaxObjects {
-			s.writeError(w,
-				fmt.Sprintf("Folder contains more than %d objects — download limit exceeded", zipDownloadMaxObjects),
-				http.StatusBadRequest)
-			return
-		}
-		if totalSize > zipDownloadMaxBytes {
-			s.writeError(w, "Folder total size exceeds the 10 GB download limit", http.StatusBadRequest)
-			return
-		}
-
-		if !result.IsTruncated {
-			break
-		}
-		marker = result.NextMarker
-	}
-
-	if len(entries) == 0 {
-		s.writeError(w, "No objects found under this prefix", http.StatusNotFound)
+	// The whole folder is checked before any header is sent, so a refusal
+	// can still be answered.
+	folder, err := s.zipFolderOf(r, user, bucketName, bucketPath, prefix, zipLimits{zipDownloadMaxObjects, zipDownloadMaxBytes})
+	if err != nil {
+		s.writeRefusal(w, err)
 		return
 	}
-
-	// ── Derive a friendly filename from the last path segment ─────────────────
 	zipName := path.Base(zipEntryName(prefix))
 	if zipName == "." {
 		zipName = bucketName
 	}
-
-	// ── Phase 2: stream the ZIP ───────────────────────────────────────────────
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeFilename(zipName+".zip")))
 	w.WriteHeader(http.StatusOK)
-
-	flusher, canFlush := w.(http.Flusher)
-	zw := zip.NewWriter(w)
-
-	written := 0
-	for _, entry := range entries {
-		select {
-		case <-r.Context().Done():
-			zw.Close()
-			return
-		default:
-		}
-
-		// Path inside the ZIP is relative to the requested prefix
-		entryName := zipEntryName(strings.TrimPrefix(entry.key, prefix))
-		if entryName == "" {
-			continue
-		}
-
-		// Open the object BEFORE creating the ZIP entry so that a missing/unreadable
-		// object does not leave an empty entry in the archive.
-		_, objReader, err := s.objectManager.GetObject(r.Context(), bucketPath, entry.key)
-		if errors.Is(err, object.ErrCustomerKeyRequired) {
-			// Only its client's key reads it: it is left out of the archive.
-			logrus.WithField("key", entry.key).Info("zip: an object encrypted with a customer key is left out")
-			continue
-		}
-		if err != nil {
-			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to open object")
-			zw.Close()
-			return
-		}
-
-		fh := &zip.FileHeader{
-			Name:               entryName,
-			Method:             zip.Store,
-			Modified:           entry.modified,
-			UncompressedSize64: uint64(entry.size),
-			CompressedSize64:   uint64(entry.size),
-		}
-		fw, err := zw.CreateHeader(fh)
-		if err != nil {
-			objReader.Close()
-			logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to create entry header")
-			zw.Close()
-			return
-		}
-
-		_, copyErr := io.Copy(fw, objReader)
-		objReader.Close()
-		if copyErr != nil {
-			logrus.WithError(copyErr).WithField("key", entry.key).Error("zip: failed to write object data")
-			zw.Close()
-			return
-		}
-
-		written++
-		if canFlush {
-			flusher.Flush()
-		}
+	written, complete := s.writeZip(r.Context(), w, bucketPath, prefix, folder.entries)
+	if !complete {
+		return
 	}
-
-	zw.Close()
 
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     tenantID,
@@ -226,8 +109,129 @@ func (s *Server) handleDownloadZip(w http.ResponseWriter, r *http.Request) {
 			"bucket":     bucketName,
 			"prefix":     prefix,
 			"file_count": written,
-			"total_size": totalSize,
+			"total_size": folder.size,
 			"zip_name":   zipName + ".zip",
 		},
 	})
+}
+
+// zipFolder is what a folder downloaded as a ZIP holds.
+type zipFolder struct {
+	entries []zipEntry
+	size    int64
+}
+
+// zipLimits is how many objects, and how many bytes, a ZIP may hold.
+type zipLimits struct {
+	objects int
+	bytes   int64
+}
+
+// zipFolderOf lists the objects under a prefix, without folder markers: all
+// of them readable by the user, within the limits, and at least one.
+func (s *Server) zipFolderOf(r *http.Request, user *auth.User, bucketName, bucketPath, prefix string, limits zipLimits) (zipFolder, error) {
+	bucketTenant := s.resolveConsoleBucketTenantID(r, bucketName, user)
+	var folder zipFolder
+	marker := ""
+	for {
+		result, err := s.objectManager.ListObjects(r.Context(), bucketPath, prefix, "", marker, 1000)
+		if err != nil {
+			return zipFolder{}, fmt.Errorf("Failed to list objects: %w", err)
+		}
+		if err := s.addToZipFolder(r, user, bucketTenant, bucketName, &folder, result.Objects, limits); err != nil {
+			return zipFolder{}, err
+		}
+		if !result.IsTruncated {
+			break
+		}
+		marker = result.NextMarker
+	}
+	if len(folder.entries) == 0 {
+		return zipFolder{}, refused(http.StatusNotFound, "No objects found under this prefix")
+	}
+	return folder, nil
+}
+
+// addToZipFolder adds a page of objects to a folder, refused when the user may
+// not read one or the folder passes its limits.
+func (s *Server) addToZipFolder(r *http.Request, user *auth.User, bucketTenant, bucketName string, folder *zipFolder, objects []object.Object, limits zipLimits) error {
+	for _, obj := range objects {
+		if strings.HasSuffix(obj.Key, "/") && obj.Size == 0 {
+			continue
+		}
+		if !s.userCanPerformConsoleS3Action(r, user, bucketTenant, auth.ActionGetObject, consoleObjectARN(bucketName, obj.Key)) {
+			return refused(http.StatusForbidden, "You do not have permission to download every object in this folder")
+		}
+		folder.entries = append(folder.entries, zipEntry{key: obj.Key, size: obj.Size, modified: obj.LastModified})
+		folder.size += obj.Size
+	}
+	switch {
+	case len(folder.entries) > limits.objects:
+		return refused(http.StatusBadRequest, fmt.Sprintf("Folder contains more than %d objects — download limit exceeded", limits.objects))
+	case folder.size > limits.bytes:
+		return refused(http.StatusBadRequest, "Folder total size exceeds the 10 GB download limit")
+	}
+	return nil
+}
+
+// writeZip streams the entries as a ZIP, each named by its path under the
+// prefix. It reports how many it wrote, and false when it stopped short.
+func (s *Server) writeZip(ctx context.Context, w http.ResponseWriter, bucketPath, prefix string, entries []zipEntry) (int, bool) {
+	flusher, canFlush := w.(http.Flusher)
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	written := 0
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return written, false
+		}
+		name := zipEntryName(strings.TrimPrefix(entry.key, prefix))
+		if name == "" {
+			continue
+		}
+		added, err := s.zipObject(ctx, zw, bucketPath, name, entry)
+		if err != nil {
+			return written, false
+		}
+		if !added {
+			continue
+		}
+		written++
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+	return written, true
+}
+
+// zipObject writes an object into the archive. It is opened before its entry
+// is made, so an unreadable one leaves no empty entry; one only its client's
+// key reads is left out.
+func (s *Server) zipObject(ctx context.Context, zw *zip.Writer, bucketPath, name string, entry zipEntry) (bool, error) {
+	_, reader, err := s.objectManager.GetObject(ctx, bucketPath, entry.key)
+	if errors.Is(err, object.ErrCustomerKeyRequired) {
+		logrus.WithField("key", entry.key).Info("zip: an object encrypted with a customer key is left out")
+		return false, nil
+	}
+	if err != nil {
+		logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to open object")
+		return false, err
+	}
+	defer reader.Close()
+	fw, err := zw.CreateHeader(&zip.FileHeader{
+		Name:               name,
+		Method:             zip.Store,
+		Modified:           entry.modified,
+		UncompressedSize64: uint64(entry.size),
+		CompressedSize64:   uint64(entry.size),
+	})
+	if err != nil {
+		logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to create entry header")
+		return false, err
+	}
+	if _, err := io.Copy(fw, reader); err != nil {
+		logrus.WithError(err).WithField("key", entry.key).Error("zip: failed to write object data")
+		return false, err
+	}
+	return true, nil
 }

@@ -497,7 +497,7 @@ func (h *Handler) PutObjectTagging(w http.ResponseWriter, r *http.Request) {
 			Value: tag.Value,
 		}
 	}
-	if err := checkObjectTags(tags.Tags); err != nil {
+	if err := object.ValidateTags(tags.Tags); err != nil {
 		h.writeError(w, "InvalidTag", err.Error(), objectKey, r)
 		return
 	}

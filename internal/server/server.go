@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"database/sql"
@@ -1898,119 +1899,119 @@ func (s *Server) writeWebsiteAccessDenied(w http.ResponseWriter, r *http.Request
 // handleWebsiteRequest serves a static website request for the given bucket.
 func (s *Server) handleWebsiteRequest(w http.ResponseWriter, r *http.Request, bucketName string) {
 	ctx := r.Context()
-
-	// Resolve bucket metadata (tenant-agnostic lookup).
 	bucketMeta, err := s.metadataStore.GetBucketByName(ctx, bucketName)
-	if err != nil || bucketMeta == nil {
+	if err != nil || bucketMeta == nil || bucketMeta.Website == nil || !s.authManager.TenantActive(ctx, bucketMeta.TenantID) {
 		s.writeWebsiteAccessDenied(w, r)
 		return
 	}
-
-	if bucketMeta.Website == nil || !s.authManager.TenantActive(ctx, bucketMeta.TenantID) {
-		s.writeWebsiteAccessDenied(w, r)
-		return
-	}
-
 	website := bucketMeta.Website
+	bucketPath := buildBucketPath(bucketMeta.TenantID, bucketName)
+	objectKey := websiteKey(r.URL.Path, website.IndexDocument)
 
-	// Build the internal bucket storage path.
-	bucketPath := bucketName
-	if bucketMeta.TenantID != "" {
-		bucketPath = bucketMeta.TenantID + "/" + bucketName
-	}
-
-	// Resolve the requested URL path to an object key.
-	urlPath := path.Clean("/" + r.URL.Path)
-	if urlPath == "/" || strings.HasSuffix(r.URL.Path, "/") {
-		urlPath = path.Join(urlPath, website.IndexDocument)
-	}
-	objectKey := strings.TrimPrefix(urlPath, "/")
-
-	// Apply prefix-based RoutingRules (redirects only — rewrites not supported yet).
-	for _, rule := range website.RoutingRules {
-		if rule.Condition.KeyPrefixEquals != "" &&
-			!strings.HasPrefix(objectKey, rule.Condition.KeyPrefixEquals) {
-			continue
-		}
-		redirect := rule.Redirect
-		if redirect.ReplaceKeyPrefixWith != "" || redirect.ReplaceKeyWith != "" ||
-			redirect.HostName != "" || redirect.Protocol != "" {
-			targetPath := objectKey
-			if redirect.ReplaceKeyWith != "" {
-				targetPath = redirect.ReplaceKeyWith
-			} else if redirect.ReplaceKeyPrefixWith != "" && rule.Condition.KeyPrefixEquals != "" {
-				targetPath = redirect.ReplaceKeyPrefixWith + strings.TrimPrefix(objectKey, rule.Condition.KeyPrefixEquals)
-			}
-			targetScheme := "https"
-			if redirect.Protocol != "" {
-				targetScheme = redirect.Protocol
-			}
-			targetHost := r.Host
-			if redirect.HostName != "" {
-				targetHost = redirect.HostName
-			}
-			code := http.StatusMovedPermanently
-			if redirect.HTTPRedirectCode == "302" {
-				code = http.StatusFound
-			}
-			http.Redirect(w, r, targetScheme+"://"+targetHost+"/"+targetPath, code) //nolint:gosec // G710: the bucket's routing rule
-			return
-		}
-	}
-
-	// serveWebsiteObject tries to get and stream an object; returns false if not found.
-	serveWebsiteObject := func(key string, statusCode int) bool {
-		obj, reader, err := s.objectManager.GetObject(ctx, bucketPath, key)
-		if err != nil {
-			return false
-		}
-		defer reader.Close() //nolint:errcheck
-
-		contentType := obj.ContentType
-		if contentType == "" {
-			if ct := mime.TypeByExtension(path.Ext(key)); ct != "" {
-				contentType = ct
-			} else {
-				contentType = "application/octet-stream"
-			}
-		}
-
-		w.Header().Set("Content-Type", contentType)
-		if obj.ETag != "" {
-			w.Header().Set("ETag", s3compat.QuoteETag(obj.ETag))
-		}
-		w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Header().Set("x-amz-website-redirect-location", "")
-		w.WriteHeader(statusCode)
-		if r.Method != http.MethodHead {
-			io.Copy(w, reader) //nolint:errcheck
-		}
-		return true
-	}
-
-	// Try the resolved object key first.
-	if serveWebsiteObject(objectKey, http.StatusOK) {
+	// Rules on a key prefix redirect before any page is looked up.
+	if s.redirectWebsite(w, r, website.RoutingRules, objectKey, "") {
 		return
 	}
-
-	// Not found: try {key}/index.html (trailing-slash convention without the slash).
-	if serveWebsiteObject(objectKey+"/"+website.IndexDocument, http.StatusOK) {
+	// A folder named without its trailing slash serves its index document.
+	if s.serveWebsiteObject(w, r, bucketPath, objectKey, http.StatusOK) ||
+		s.serveWebsiteObject(w, r, bucketPath, objectKey+"/"+website.IndexDocument, http.StatusOK) {
 		return
 	}
+	s.writeWebsiteNotFound(w, r, website, bucketPath, objectKey)
+}
 
-	// Serve error document (with 404 status, matching AWS behaviour).
-	if website.ErrorDocument != "" && serveWebsiteObject(website.ErrorDocument, http.StatusNotFound) {
+// writeWebsiteNotFound answers a page a website does not have: a rule on the
+// error code redirects it, or else the error document is served with 404, as
+// in AWS, or else a page of its own.
+func (s *Server) writeWebsiteNotFound(w http.ResponseWriter, r *http.Request, website *metadata.WebsiteMetadata, bucketPath, objectKey string) {
+	if s.redirectWebsite(w, r, website.RoutingRules, objectKey, "404") {
 		return
 	}
-
-	// Generic 404.
+	if website.ErrorDocument != "" && s.serveWebsiteObject(w, r, bucketPath, website.ErrorDocument, http.StatusNotFound) {
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
 	if r.Method != http.MethodHead {
 		fmt.Fprintf(w, "<html><body><h1>404 Not Found</h1><p>The requested resource %s was not found.</p></body></html>", html.EscapeString(strconv.Quote(r.URL.Path)))
 	}
+}
+
+// websiteKey is the key a website URL path names: a folder's names its index
+// document.
+func websiteKey(urlPath, indexDocument string) string {
+	clean := path.Clean("/" + urlPath)
+	if clean == "/" || strings.HasSuffix(urlPath, "/") {
+		clean = path.Join(clean, indexDocument)
+	}
+	return strings.TrimPrefix(clean, "/")
+}
+
+// redirectWebsite redirects a request by the first routing rule it meets.
+func (s *Server) redirectWebsite(w http.ResponseWriter, r *http.Request, rules []metadata.WebsiteRoutingRuleMetadata, key, errorCode string) bool {
+	for _, rule := range rules {
+		if !websiteRuleApplies(rule, key, errorCode) {
+			continue
+		}
+		target, code := websiteRedirectTarget(rule, key, r.Host)
+		http.Redirect(w, r, target, code) //nolint:gosec // G710: the bucket's routing rule
+		return true
+	}
+	return false
+}
+
+// websiteRuleApplies reports whether a routing rule redirects a key: under the
+// rule's prefix, with the error code the rule names ("" while it has none),
+// and the rule saying where to.
+func websiteRuleApplies(rule metadata.WebsiteRoutingRuleMetadata, key, errorCode string) bool {
+	redirect := rule.Redirect
+	return rule.Condition.HTTPErrorCodeReturnedEquals == errorCode &&
+		strings.HasPrefix(key, rule.Condition.KeyPrefixEquals) &&
+		(redirect.ReplaceKeyPrefixWith != "" || redirect.ReplaceKeyWith != "" || redirect.HostName != "" || redirect.Protocol != "")
+}
+
+// websiteRedirectTarget is where a routing rule sends a key, and with what
+// status. The prefix replaced is the rule's, "" without one, as in AWS.
+func websiteRedirectTarget(rule metadata.WebsiteRoutingRuleMetadata, key, host string) (string, int) {
+	redirect := rule.Redirect
+	target := key
+	if redirect.ReplaceKeyWith != "" {
+		target = redirect.ReplaceKeyWith
+	} else if redirect.ReplaceKeyPrefixWith != "" {
+		target = redirect.ReplaceKeyPrefixWith + strings.TrimPrefix(key, rule.Condition.KeyPrefixEquals)
+	}
+	code := http.StatusMovedPermanently
+	if redirect.HTTPRedirectCode == "302" {
+		code = http.StatusFound
+	}
+	return cmp.Or(redirect.Protocol, "https") + "://" + cmp.Or(redirect.HostName, host) + "/" + target, code
+}
+
+// serveWebsiteObject streams an object of a website with the status given;
+// false when there is none to serve.
+func (s *Server) serveWebsiteObject(w http.ResponseWriter, r *http.Request, bucketPath, key string, statusCode int) bool {
+	obj, reader, err := s.objectManager.GetObject(r.Context(), bucketPath, key)
+	if err != nil {
+		return false
+	}
+	defer reader.Close() //nolint:errcheck
+	contentType := obj.ContentType
+	if contentType == "" {
+		contentType = cmp.Or(mime.TypeByExtension(path.Ext(key)), "application/octet-stream")
+	}
+	w.Header().Set("Content-Type", contentType)
+	if obj.ETag != "" {
+		w.Header().Set("ETag", s3compat.QuoteETag(obj.ETag))
+	}
+	w.Header().Set("Last-Modified", obj.LastModified.UTC().Format(http.TimeFormat))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", obj.Size))
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("x-amz-website-redirect-location", "")
+	w.WriteHeader(statusCode)
+	if r.Method != http.MethodHead {
+		io.Copy(w, reader) //nolint:errcheck
+	}
+	return true
 }
 
 // objectManagerAdapter adapts object.Manager to replication.ObjectManager interface
