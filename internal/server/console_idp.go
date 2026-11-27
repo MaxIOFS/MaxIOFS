@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
@@ -529,7 +528,7 @@ func (s *Server) handleIDPImportUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		newUser := &auth.User{
-			ID:           "user-" + uuid.New().String()[:8],
+			ID:           newUserID(),
 			Username:     entry.Username,
 			Password:     "",
 			DisplayName:  entry.Username,
@@ -1402,7 +1401,7 @@ func (s *Server) tryAutoProvision(ctx context.Context, r *http.Request, provider
 	}
 
 	newUser := &auth.User{
-		ID:           "user-" + uuid.New().String()[:8],
+		ID:           newUserID(),
 		Username:     externalUser.Email,
 		Password:     "",
 		DisplayName:  externalUser.DisplayName,

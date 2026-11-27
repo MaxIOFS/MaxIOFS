@@ -764,7 +764,7 @@ the factor, plus 20%.
 | GET | `/api/v1/version` | Server version info | None |
 | GET | `/api/v1/config` | Server configuration (includes `maintenanceMode`) | JWT |
 | GET | `/api/v1/version-check` | Latest-release check, proxied to maxiofs.com | JWT |
-| GET | `/api/v1/security/status` | Security status overview | JWT |
+| GET | `/api/v1/security/status` | Security status overview: of the deployment for a global admin, of the tenant otherwise | JWT |
 | GET | `/api/v1/health` | Console API health check | None |
 | GET | `/health` | Health check | None |
 

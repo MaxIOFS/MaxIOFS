@@ -599,10 +599,16 @@ func TestABucketOwnerReachesNoOtherBucket(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, body)
 	status, body = call("POST", "/users", admin, map[string]any{"username": "owner", "password": "Owner-pass-12345!", "roles": []string{"user"}})
 	require.Equal(t, http.StatusOK, status, body)
-	status, body = call("POST", "/buckets", admin, map[string]string{"name": "owners-bucket", "ownerId": "owner", "ownerType": "user"})
+	var made struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &made))
+	status, body = call("POST", "/buckets", admin, map[string]string{"name": "owners-bucket", "ownerId": made.Data.ID, "ownerType": "user"})
 	require.Equal(t, http.StatusOK, status, body)
 	// What the owner reads of its bucket an administrator gave it.
-	status, body = call("PUT", "/users/owner/permissions", admin, map[string]any{"global": []string{},
+	status, body = call("PUT", "/users/"+made.Data.ID+"/permissions", admin, map[string]any{"global": []string{},
 		"buckets": []map[string]any{{"bucket": "owners-bucket", "actions": ownerReads}}})
 	require.Equal(t, http.StatusOK, status, body)
 

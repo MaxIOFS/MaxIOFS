@@ -48,6 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Creating a group or a replication rule answered without `Content-Type: application/json`.
 - A bucket the integrity scrubber could not verify was kept as a scan without errors: its result shows the error.
 - The audit log never kept the data corruption the integrity scrubber found, nor a rejected exchange for temporary credentials of a directory or provider identity: each event lacked a user and was dropped.
+- A bucket's default Object Lock retention was taken with any mode, a negative period, or days and years both, by `PutObjectLockConfiguration` and by the console, and the retention enforced knows only `GOVERNANCE` and `COMPLIANCE`: it is refused with `MalformedXML`, as AWS refuses it, and before Object Lock is turned on.
+- A bucket created from the console whose settings could not be stored was left without them, its Object Lock among them: it is deleted again and the creation fails.
+- A global administrator could create a bucket owned by something other than a user or a tenant: it is refused.
+- A tenant's last administrator could be demoted, deactivated or moved to another tenant, leaving the tenant without one, though deleting it is refused: it is refused alike.
+- A user could be given a status other than active, inactive, suspended or locked: it is refused.
+- A tenant could be given a status other than active or inactive, or a negative quota of buckets, access keys or storage: they are refused.
+- The security overview (`/api/v1/security/status`) gave a user of no tenant who is not a global administrator the numbers of every tenant: it is refused. For a global administrator it counts the buckets with Object Lock or a policy of every tenant.
+- The security overview never counted a failed sign-in, and came wrapped twice in `data`; a user's record never gave its failed sign-ins or the last one. They are counted and given, in one `data`.
+- A user made again from the console with the username of a deleted one took the deleted one's ID, and with it the console sessions the deleted one still had open: a user made gets an ID no user had.
+- Deleting an access key that does not exist answered `500`: it answers `404`.
+- The audit log named the owner of an access key an administrator made as who made it: it names the administrator.
+- An access key whose user could not be read could be deleted by the administrator of any tenant: a tenant's administrator deletes only the keys of its tenant's users.
 - A node renewed its cluster certificate only after a month without a restart: one updated more often kept it until it expired, a year after it was made. It is renewed within 30 days of its end, checked when the node starts and every day.
 - `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
 - Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.

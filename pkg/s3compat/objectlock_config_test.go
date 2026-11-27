@@ -126,3 +126,52 @@ func TestObjectLockConfiguration_AnonymousIsRefused(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+// A default retention is refused unless it is GOVERNANCE or COMPLIANCE for a
+// positive number of days or of years, not both, as AWS refuses it: the
+// retention enforced knows no other mode. The bucket keeps what it had.
+func TestObjectLockConfiguration_RefusesADefaultRetentionAWSRefuses(t *testing.T) {
+	env := setupCoverageTestEnvironment(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "worm-rules", env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, "worm-rules", &bucket.VersioningConfig{Status: "Enabled"}))
+	tenantAdmin := &auth.User{ID: "tenant-admin", TenantID: env.tenantID, Roles: []string{auth.RoleTenantAdmin}}
+	rule := func(retention string) string {
+		return `<ObjectLockConfiguration` + objectLockNS + `><ObjectLockEnabled>Enabled</ObjectLockEnabled>` +
+			`<Rule><DefaultRetention>` + retention + `</DefaultRetention></Rule></ObjectLockConfiguration>`
+	}
+	require.Equal(t, http.StatusOK, putObjectLockConfig(env, tenantAdmin, "worm-rules", rule(`<Mode>COMPLIANCE</Mode><Days>3</Days>`)).Code)
+
+	for _, retention := range []string{
+		`<Mode>FOO</Mode><Days>1</Days>`,
+		`<Days>1</Days>`,
+		`<Mode>GOVERNANCE</Mode>`,
+		`<Mode>GOVERNANCE</Mode><Days>1</Days><Years>1</Years>`,
+		`<Mode>GOVERNANCE</Mode><Days>-1</Days>`,
+		`<Mode>GOVERNANCE</Mode><Days>0</Days>`,
+	} {
+		w := putObjectLockConfig(env, tenantAdmin, "worm-rules", rule(retention))
+		assert.Equal(t, http.StatusBadRequest, w.Code, retention)
+		assert.Contains(t, w.Body.String(), "<Code>MalformedXML</Code>", retention)
+	}
+	config, err := env.bucketManager.GetObjectLockConfig(ctx, env.tenantID, "worm-rules")
+	require.NoError(t, err)
+	require.NotNil(t, config.Rule)
+	assert.Equal(t, "COMPLIANCE", config.Rule.DefaultRetention.Mode)
+	require.NotNil(t, config.Rule.DefaultRetention.Days)
+	assert.Equal(t, 3, *config.Rule.DefaultRetention.Days)
+
+	// A bucket without Object Lock does not get it from a refused one.
+	require.NoError(t, env.bucketManager.CreateBucket(ctx, env.tenantID, "not-yet", env.userID))
+	require.NoError(t, env.bucketManager.SetVersioning(ctx, env.tenantID, "not-yet", &bucket.VersioningConfig{Status: "Enabled"}))
+	for _, retention := range []string{`<Mode>FOO</Mode><Days>1</Days>`, ``} {
+		body := `<ObjectLockConfiguration` + objectLockNS + `><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule>` +
+			map[bool]string{true: `<DefaultRetention>` + retention + `</DefaultRetention>`, false: ``}[retention != ""] +
+			`</Rule></ObjectLockConfiguration>`
+		assert.Equal(t, http.StatusBadRequest, putObjectLockConfig(env, tenantAdmin, "not-yet", body).Code, retention)
+	}
+	info, err := env.bucketManager.GetBucketInfo(ctx, env.tenantID, "not-yet")
+	require.NoError(t, err)
+	assert.True(t, info.ObjectLock == nil || !info.ObjectLock.ObjectLockEnabled, "Object Lock stays off")
+}

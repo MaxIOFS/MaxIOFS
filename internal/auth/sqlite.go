@@ -304,7 +304,8 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 	stmt, err := s.prepared(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
-		       theme_preference, language_preference, auth_provider, external_id, must_change_password
+		       theme_preference, language_preference, auth_provider, external_id, must_change_password,
+		       COALESCE(failed_login_attempts, 0), COALESCE(last_failed_login, 0)
 		FROM users
 		WHERE id = ? AND status != 'deleted'
 	`)
@@ -317,6 +318,7 @@ func (s *SQLiteStore) GetUserByID(userID string) (*User, error) {
 		&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 		&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
 		&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
+		&user.FailedLoginAttempts, &user.LastFailedLogin,
 	)
 
 	if tenantID.Valid {
@@ -571,7 +573,8 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(`
 		SELECT id, username, password_hash, display_name, email, status, tenant_id, roles, policies, metadata, created_at, updated_at,
 		       two_factor_enabled, two_factor_secret, two_factor_setup_at, backup_codes, backup_codes_used, locked_until,
-		       theme_preference, language_preference, auth_provider, external_id, must_change_password
+		       theme_preference, language_preference, auth_provider, external_id, must_change_password,
+		       COALESCE(failed_login_attempts, 0), COALESCE(last_failed_login, 0)
 		FROM users
 		WHERE status != 'deleted'
 		ORDER BY created_at DESC
@@ -601,6 +604,7 @@ func (s *SQLiteStore) ListUsers() ([]*User, error) {
 			&tenantID, &rolesJSON, &policiesJSON, &metadataJSON, &user.CreatedAt, &user.UpdatedAt,
 			&user.TwoFactorEnabled, &twoFactorSecret, &twoFactorSetupAt, &backupCodesJSON, &backupCodesUsedJSON, &lockedUntil,
 			&themePreference, &languagePreference, &authProvider, &externalID, &user.MustChangePassword,
+			&user.FailedLoginAttempts, &user.LastFailedLogin,
 		)
 		if err != nil {
 			return nil, err
@@ -713,7 +717,7 @@ func (s *SQLiteStore) GetAccessKey(accessKeyID string) (*AccessKey, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("access key not found")
+		return nil, ErrAccessKeyNotFound
 	}
 	if err != nil {
 		return nil, err

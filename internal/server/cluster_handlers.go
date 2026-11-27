@@ -921,15 +921,6 @@ func (s *Server) broadcastNewNodeToCluster(ctx context.Context, newNode *cluster
 	}
 }
 
-// writeClusterJSON writes a raw JSON response for inter-node cluster API endpoints.
-// Unlike writeJSON (console API), it does NOT wrap the response in {"success":true,"data":{...}}.
-// The Go cluster manager client code (manager.go) decodes flat structs, so the envelope must be absent.
-func (s *Server) writeClusterJSON(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(data)
-}
-
 // resolveLocalClusterEndpoint returns this node's cluster endpoint.
 func (s *Server) resolveLocalClusterEndpoint(r *http.Request, overrideAddr string) (string, error) {
 	scheme := "https"

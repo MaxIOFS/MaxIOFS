@@ -6,7 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/sirupsen/logrus"
@@ -180,7 +179,7 @@ func (s *Server) provisionMembers(ctx context.Context, provider *idp.IdentityPro
 			continue
 		}
 		newUser := &auth.User{
-			ID:           "user-" + uuid.New().String()[:8],
+			ID:           newUserID(),
 			Username:     username,
 			DisplayName:  member.DisplayName,
 			Email:        member.Email,

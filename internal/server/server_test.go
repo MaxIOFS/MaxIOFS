@@ -921,12 +921,8 @@ func TestHandleGetSecurityStatus(t *testing.T) {
 		err := json.Unmarshal(rr.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		// Response is double-wrapped: writeJSON wraps APIResponse again
-		// {"success": true, "data": {"success": true, "data": {...}}}
 		require.True(t, response["success"].(bool))
-		outerData := response["data"].(map[string]interface{})
-		// The actual security data is in outerData["data"]
-		securityData := outerData["data"].(map[string]interface{})
+		securityData := response["data"].(map[string]interface{})
 
 		// Verify expected security status fields (nested structure)
 		assert.Contains(t, securityData, "encryption")
@@ -948,17 +944,15 @@ func TestHandleGetSecurityStatus(t *testing.T) {
 
 		var response struct {
 			Data struct {
-				Data struct {
-					Audit struct {
-						Enabled      bool `json:"enabled"`
-						LogRetention int  `json:"logRetention"`
-					} `json:"audit"`
-				} `json:"data"`
+				Audit struct {
+					Enabled      bool `json:"enabled"`
+					LogRetention int  `json:"logRetention"`
+				} `json:"audit"`
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
-		assert.Equal(t, 365, response.Data.Data.Audit.LogRetention)
-		assert.False(t, response.Data.Data.Audit.Enabled)
+		assert.Equal(t, 365, response.Data.Audit.LogRetention)
+		assert.False(t, response.Data.Audit.Enabled)
 	})
 
 	t.Run("should require authentication", func(t *testing.T) {

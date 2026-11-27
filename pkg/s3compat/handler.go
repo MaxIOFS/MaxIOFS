@@ -2221,6 +2221,21 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	// Refused before anything changes: Object Lock is not turned on for a
+	// configuration that is not taken.
+	if newConfig.Rule != nil {
+		retention := newConfig.Rule.DefaultRetention
+		if retention == nil {
+			h.writeError(w, "MalformedXML",
+				"Object Lock Rule element must include DefaultRetention", bucketName, r)
+			return
+		}
+		if err := bucket.ValidateDefaultRetention(retention.Mode, retention.Days, retention.Years); err != nil {
+			h.writeError(w, "MalformedXML",
+				"The XML you provided was not well-formed or did not validate against our published schema", bucketName, r)
+			return
+		}
+	}
 
 	// Object Lock is turned on for a bucket that exists, as AWS allows: its
 	// versioning must be Enabled, and it is never turned off again.
@@ -2244,12 +2259,6 @@ func (h *Handler) PutObjectLockConfiguration(w http.ResponseWriter, r *http.Requ
 			h.writeError(w, "InternalError", "Failed to retrieve bucket info", bucketName, r)
 			return
 		}
-	}
-
-	if newConfig.Rule != nil && newConfig.Rule.DefaultRetention == nil {
-		h.writeError(w, "MalformedXML",
-			"Object Lock Rule element must include DefaultRetention", bucketName, r)
-		return
 	}
 
 	if newConfig.Rule == nil {

@@ -8,30 +8,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/bucket"
 )
 
-func (s *Server) requireCapability(w http.ResponseWriter, r *http.Request, capability, message string) bool {
-	if s.authManager == nil {
-		return true
-	}
-	user, ok := auth.GetUserFromContext(r.Context())
-	if !ok || user == nil {
-		s.writeError(w, "Unauthorized", http.StatusUnauthorized)
-		return false
-	}
-	roles := user.Roles
-	if len(roles) == 0 {
-		roles = []string{"user"}
-	}
-	allowed, err := s.authManager.HasCapability(r.Context(), user.ID, roles, capability)
-	if err == nil && allowed {
-		return true
-	}
-	if message == "" {
-		message = "Insufficient permissions"
-	}
-	s.writeError(w, message, http.StatusForbidden)
-	return false
-}
-
 // containsAdminRole reports whether a role selection confers administration.
 func containsAdminRole(roles []string) bool {
 	for _, role := range roles {

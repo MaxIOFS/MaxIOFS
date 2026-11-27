@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +23,6 @@ import (
 	"github.com/maxiofs/maxiofs/internal/auth"
 	"github.com/maxiofs/maxiofs/internal/bucket"
 	"github.com/maxiofs/maxiofs/internal/cluster"
-	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/maxiofs/maxiofs/internal/metadata"
 	"github.com/maxiofs/maxiofs/internal/middleware"
 	"github.com/maxiofs/maxiofs/internal/notifications"
@@ -721,239 +721,6 @@ func (s *Server) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// Auth handlers
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var loginReq struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Get client IP address
-	clientIP := getClientIP(r, s.proxyTrust())
-
-	// Log login attempt
-	logrus.WithFields(logrus.Fields{
-		"username": loginReq.Username,
-		"ip":       clientIP,
-		"method":   r.Method,
-	}).Debug("Login attempt received")
-
-	// Step 1: Check IP-based rate limiting (5 attempts per minute)
-	if !s.authManager.CheckRateLimit(clientIP) {
-		logrus.WithFields(logrus.Fields{
-			"ip":       clientIP,
-			"username": loginReq.Username,
-		}).Warn("Login rate limit exceeded")
-		s.writeError(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
-		return
-	}
-
-	// Step 2: Get user by username first (don't validate password yet)
-	userByName, err := s.authManager.GetUserByUsername(r.Context(), loginReq.Username)
-	if err != nil {
-		// If input looks like an email and OAuth providers exist, hint to use SSO
-		if strings.Contains(loginReq.Username, "@") && s.idpManager != nil {
-			providers, _ := s.idpManager.ListActiveOAuthProviders(r.Context())
-			if len(providers) > 0 {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"error":    "This email may use SSO. Please use the SSO login button below.",
-					"sso_hint": true,
-				})
-				return
-			}
-		}
-		// User doesn't exist - return generic error to avoid username enumeration
-		s.authManager.RecordFailedLogin(r.Context(), "", clientIP)
-		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
-		return
-	}
-
-	// Step 3: Check if account is locked BEFORE validating password
-	isLocked, lockedUntil, err := s.authManager.IsAccountLocked(r.Context(), userByName.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to check account lock status")
-		s.writeError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if isLocked {
-		remainingTime := time.Until(time.Unix(lockedUntil, 0))
-		logrus.WithFields(logrus.Fields{
-			"user_id":        userByName.ID,
-			"username":       userByName.Username,
-			"locked_until":   time.Unix(lockedUntil, 0).Format(time.RFC3339),
-			"remaining_time": remainingTime.String(),
-		}).Warn("Login attempt on locked account")
-
-		writeAccountLocked(w, lockedUntil)
-		return
-	}
-
-	// Step 4: Now validate credentials (routing based on auth_provider)
-	var user *auth.User
-	var external *idp.ExternalUser
-
-	switch {
-	case userByName.AuthProvider == "" || userByName.AuthProvider == "local":
-		// Local authentication — existing bcrypt/SHA256 flow
-		user, err = s.authManager.ValidateConsoleCredentials(r.Context(), loginReq.Username, loginReq.Password)
-		if err != nil {
-			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
-			s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
-			return
-		}
-
-	case strings.HasPrefix(userByName.AuthProvider, "ldap:"):
-		// LDAP authentication
-		if s.idpManager == nil {
-			s.writeError(w, "Identity provider system not available", http.StatusServiceUnavailable)
-			return
-		}
-		providerID := strings.TrimPrefix(userByName.AuthProvider, "ldap:")
-		external, err = s.idpManager.AuthenticateExternal(r.Context(), providerID, userByName.ExternalID, loginReq.Password)
-		if errors.Is(err, idp.ErrUnavailable) {
-			// The directory's failure: neither the account nor the address is held to it.
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"user_id":     userByName.ID,
-				"provider_id": providerID,
-			}).Warn("LDAP sign-in: directory unavailable")
-			s.writeError(w, "The directory that signs this user in is not available. Try again later.", http.StatusServiceUnavailable)
-			return
-		}
-		if err != nil {
-			s.authManager.RecordFailedLogin(r.Context(), userByName.ID, clientIP)
-			logrus.WithFields(logrus.Fields{
-				"user_id":     userByName.ID,
-				"provider_id": providerID,
-				"error":       err.Error(),
-			}).Warn("LDAP authentication failed")
-			s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
-			return
-		}
-		var allowed bool
-		if user, allowed = s.applyProviderGroups(r.Context(), userByName, external); !allowed {
-			s.writeError(w, "Your account is in no group of its directory authorized to sign in", http.StatusForbidden)
-			return
-		}
-
-	case strings.HasPrefix(userByName.AuthProvider, "oauth:"):
-		// OAuth users cannot log in with username/password
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":    "This account uses SSO. Please use the SSO login button below.",
-			"sso_hint": true,
-		})
-		return
-
-	default:
-		s.writeError(w, "Unknown authentication provider", http.StatusInternalServerError)
-		return
-	}
-
-	// Whatever signed the user in, an inactive account or one of an inactive
-	// tenant gets no session.
-	if !s.authManager.AccountActive(r.Context(), user) {
-		s.writeError(w, "Invalid credentials", http.StatusUnauthorized)
-		return
-	}
-
-	// Step 4.5: Check console:access capability before proceeding.
-	if !s.userHasConsoleAccess(r.Context(), user) {
-		s.writeError(w, "Your account does not have access to the console", http.StatusForbidden)
-		return
-	}
-
-	// Step 5: Check if 2FA is enabled for this user
-	twoFactorEnabled, _, err := s.authManager.Get2FAStatus(r.Context(), user.ID)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to check 2FA status")
-		s.writeError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// If require_2fa_admin is enabled and the user is an admin without 2FA → block login.
-	if !twoFactorEnabled {
-		require2FAAdmin, _ := s.settingsManager.GetBool("security.require_2fa_admin")
-		if require2FAAdmin {
-			if s.isAdmin(user) {
-				s.writeError(w, "Admin accounts must have two-factor authentication enabled. Please set up 2FA before logging in.", http.StatusForbidden)
-				return
-			}
-		}
-	}
-
-	// With 2FA the sign-in is not done yet: the token stands for the password
-	// until the code is checked.
-	if twoFactorEnabled {
-		twoFactorToken, err := s.authManager.StartTwoFactorSession(r.Context(), user, s.sessionOrigin(user, external))
-		if err != nil {
-			s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
-			return
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"user_id":  user.ID,
-			"username": user.Username,
-			"ip":       clientIP,
-		}).Info("Login credentials validated, 2FA required")
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":          true,
-			"requires_2fa":     true,
-			"two_factor_token": twoFactorToken,
-			"message":          "Two-factor authentication required",
-		})
-		return
-	}
-
-	// Step 6: Record successful login and reset failed attempts
-	s.authManager.RecordSuccessfulLogin(r.Context(), user.ID)
-	s.auditLoginSuccess(r, user, "password")
-
-	// Step 7: Start the console session: a short-lived access token and a
-	// sliding-window refresh token
-	pair, err := s.authManager.StartSession(r.Context(), user, s.sessionOrigin(user, external))
-	if err != nil {
-		s.writeError(w, "Failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"ip":       clientIP,
-	}).Info("Successful login")
-
-	// Check if user is still using default password (admin/admin)
-	defaultPassword := loginReq.Username == "admin" && loginReq.Password == "admin"
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":          true,
-		"token":            pair.AccessToken, // kept for backward compat
-		"access_token":     pair.AccessToken,
-		"refresh_token":    pair.RefreshToken,
-		"expires_in":       pair.ExpiresIn,
-		"token_type":       pair.TokenType,
-		"default_password": defaultPassword,
-		// The console keeps the session but must send the user straight to the
-		// password form; the API refuses everything else until they do.
-		"must_change_password": user.MustChangePassword,
-		"user":                 s.sessionUser(user),
-	})
-}
-
 // writeAccountLocked answers a sign-in to an account locked after failed
 // attempts.
 func writeAccountLocked(w http.ResponseWriter, lockedUntil int64) {
@@ -1296,282 +1063,6 @@ func (s *Server) handleListBuckets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, response)
-}
-
-func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name       string                   `json:"name"`
-		Region     string                   `json:"region,omitempty"`
-		OwnerID    string                   `json:"ownerId,omitempty"`
-		OwnerType  string                   `json:"ownerType,omitempty"` // "user" or "tenant"
-		Versioning *bucket.VersioningConfig `json:"versioning,omitempty"`
-		ObjectLock *struct {
-			Enabled bool   `json:"enabled"`
-			Mode    string `json:"mode"` // GOVERNANCE, COMPLIANCE
-			Days    int    `json:"days"`
-			Years   int    `json:"years"`
-		} `json:"objectLock,omitempty"`
-		Encryption        *bucket.EncryptionConfig  `json:"encryption,omitempty"`
-		PublicAccessBlock *bucket.PublicAccessBlock `json:"publicAccessBlock,omitempty"`
-		Lifecycle         *bucket.LifecycleConfig   `json:"lifecycle,omitempty"`
-		Tags              map[string]string         `json:"tags,omitempty"`
-		ObjectOwnership   string                    `json:"objectOwnership,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.Name == "" {
-		s.writeError(w, "Bucket name is required", http.StatusBadRequest)
-		return
-	}
-
-	// Get current user for ownership and quota validation
-	user, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
-		return
-	}
-
-	if !s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionCreateBucket, "You do not have permission to create buckets") {
-		return
-	}
-	// The bucket is created with what the request sets: each setting asks the
-	// permission its own S3 call asks, as on the S3 API.
-	for _, need := range creationSettingActions(req.Versioning, req.ObjectLock != nil && req.ObjectLock.Enabled,
-		req.Encryption, req.PublicAccessBlock, req.Lifecycle, req.Tags) {
-		if !s.requireConsoleBucketS3Action(w, r, req.Name, need.action, "You do not have permission to "+need.what) {
-			return
-		}
-	}
-	// Object Ownership: ACLs off unless asked otherwise, as AWS creates a bucket.
-	objectOwnership := req.ObjectOwnership
-	if objectOwnership == "" {
-		objectOwnership = bucket.ObjectOwnershipBucketOwnerEnforced
-	}
-	if !bucket.ValidObjectOwnership(objectOwnership) {
-		s.writeError(w, "objectOwnership must be BucketOwnerEnforced, BucketOwnerPreferred or ObjectWriter", http.StatusBadRequest)
-		return
-	}
-	if objectOwnership != bucket.ObjectOwnershipBucketOwnerEnforced &&
-		!s.requireConsoleBucketS3Action(w, r, req.Name, auth.ActionPutBucketOwnership, "You do not have permission to enable ACLs") {
-		return
-	}
-
-	// The bucket is created in its owner's namespace: a tenant a global
-	// administrator names, or the tenant of the user it names; otherwise the
-	// caller's own.
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	creator := user.ID
-	if isGlobalAdmin {
-		switch req.OwnerType {
-		case "tenant":
-			if req.OwnerID == "" {
-				s.writeError(w, "An owner tenant is required", http.StatusBadRequest)
-				return
-			}
-			if _, err := s.authManager.GetTenant(r.Context(), req.OwnerID); err != nil {
-				s.writeError(w, "The owner tenant does not exist", http.StatusBadRequest)
-				return
-			}
-			tenantID = req.OwnerID
-		case "user":
-			if req.OwnerID != "" {
-				owner, err := s.authManager.GetUser(r.Context(), req.OwnerID)
-				if err != nil {
-					s.writeError(w, "The owner user does not exist", http.StatusBadRequest)
-					return
-				}
-				// A user named as the owner gets the bucket as if it had
-				// created it: the owner policy is written for that user.
-				tenantID, creator = owner.TenantID, owner.ID
-			}
-		}
-	}
-
-	if tenantID != "" {
-		tenant, err := s.authManager.GetTenant(r.Context(), tenantID)
-		if err != nil {
-			s.writeError(w, "Failed to retrieve tenant information", http.StatusInternalServerError)
-			return
-		}
-
-		if tenant.MaxBuckets > 0 {
-			count, err := s.tenantBucketCount(r.Context(), tenantID)
-			if err != nil {
-				s.writeError(w, "Failed to count the tenant's buckets", http.StatusInternalServerError)
-				return
-			}
-			if count >= int64(tenant.MaxBuckets) {
-				s.writeError(w, fmt.Sprintf("Tenant bucket quota exceeded (%d/%d). Cannot create more buckets.", count, tenant.MaxBuckets), http.StatusForbidden)
-				return
-			}
-		}
-	}
-
-	// Apply default versioning from settings if client did not specify it
-	if req.Versioning == nil {
-		if defVersioning, err := s.settingsManager.GetBool("storage.default_bucket_versioning"); err == nil && defVersioning {
-			req.Versioning = &bucket.VersioningConfig{Status: "Enabled"}
-		}
-	}
-
-	// Validar Object Lock - requiere versionado
-	if req.ObjectLock != nil && req.ObjectLock.Enabled {
-		if req.Versioning == nil || req.Versioning.Status != "Enabled" {
-			s.writeError(w, "Object Lock requires versioning to be enabled", http.StatusBadRequest)
-			return
-		}
-
-		if req.ObjectLock.Mode != "" && req.ObjectLock.Days == 0 && req.ObjectLock.Years == 0 {
-			s.writeError(w, "Object Lock retention period (days or years) is required when a mode is specified", http.StatusBadRequest)
-			return
-		}
-		if (req.ObjectLock.Days > 0 || req.ObjectLock.Years > 0) && req.ObjectLock.Mode == "" {
-			s.writeError(w, "Object Lock mode (GOVERNANCE or COMPLIANCE) is required when a retention period is specified", http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Crear el bucket
-	if err := s.bucketManager.CreateBucket(r.Context(), tenantID, req.Name, creator); err != nil {
-		if err == bucket.ErrBucketAlreadyExists {
-			s.writeError(w, "Bucket already exists", http.StatusConflict)
-		} else {
-			s.writeError(w, err.Error(), http.StatusBadRequest)
-		}
-		return
-	}
-	if err := s.bucketManager.SetOwnershipControls(r.Context(), tenantID, req.Name,
-		&bucket.OwnershipControlsConfig{ObjectOwnership: objectOwnership}); err != nil {
-		_ = s.bucketManager.DeleteBucket(r.Context(), tenantID, req.Name)
-		s.writeError(w, "Failed to set the bucket's Object Ownership: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, req.Name)
-	if err != nil {
-		s.writeError(w, "Bucket created but failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Tenant admins get buckets assigned to the tenant; regular tenant users own their own buckets
-	isTenantAdmin := user.TenantID != "" && s.isAdmin(user)
-	if isTenantAdmin {
-		bucketInfo.OwnerID = user.TenantID
-		bucketInfo.OwnerType = "tenant"
-	} else if user.TenantID != "" {
-		// Regular tenant user — owns the bucket individually (TenantID scopes it to the tenant)
-		bucketInfo.OwnerID = user.ID
-		bucketInfo.OwnerType = "user"
-	} else if isGlobalAdmin {
-		// ONLY global admins can specify custom ownership
-		if req.OwnerID != "" {
-			bucketInfo.OwnerID = req.OwnerID
-		}
-		if req.OwnerType != "" {
-			bucketInfo.OwnerType = req.OwnerType
-		}
-	} else {
-		// Global user without tenant — assign as owner so they can see their own bucket.
-		bucketInfo.OwnerID = user.ID
-		bucketInfo.OwnerType = "user"
-	}
-
-	if req.Versioning != nil {
-		bucketInfo.Versioning = req.Versioning
-	}
-
-	if req.ObjectLock != nil && req.ObjectLock.Enabled {
-		objLock := &bucket.ObjectLockConfig{
-			ObjectLockEnabled: true,
-		}
-
-		// Default retention rule is optional. Only set it when mode + period are provided.
-		if req.ObjectLock.Mode != "" {
-			retention := &bucket.DefaultRetention{
-				Mode: req.ObjectLock.Mode,
-			}
-			if req.ObjectLock.Days > 0 {
-				days := req.ObjectLock.Days
-				retention.Days = &days
-			} else if req.ObjectLock.Years > 0 {
-				years := req.ObjectLock.Years
-				retention.Years = &years
-			}
-			objLock.Rule = &bucket.ObjectLockRule{
-				DefaultRetention: retention,
-			}
-		}
-
-		bucketInfo.ObjectLock = objLock
-	}
-
-	if req.Encryption != nil {
-		bucketInfo.Encryption = req.Encryption
-	} else {
-		bucketInfo.Encryption = &bucket.EncryptionConfig{Type: "AES256"}
-	}
-
-	if req.PublicAccessBlock != nil {
-		bucketInfo.PublicAccessBlock = req.PublicAccessBlock
-	}
-
-	if req.Lifecycle != nil {
-		bucketInfo.Lifecycle = req.Lifecycle
-	}
-
-	if req.Tags != nil {
-		bucketInfo.Tags = req.Tags
-	}
-
-	if req.Region != "" {
-		bucketInfo.Region = req.Region
-	}
-
-	// Guardar configuraciones
-	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, req.Name, bucketInfo); err != nil {
-		s.writeError(w, "Bucket created but failed to apply configuration: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.writeJSON(w, map[string]string{"name": req.Name})
-}
-
-// settingAction is the permission one setting of a new bucket asks, and what
-// a refusal says the caller may not do.
-type settingAction struct{ action, what string }
-
-// creationSettingActions are the permissions the settings a bucket is created
-// with ask: those of the S3 calls that set them. What a new bucket has anyway
-// asks nothing: versioning off, the encryption it always has, and public
-// access blocked in full.
-func creationSettingActions(versioning *bucket.VersioningConfig, objectLock bool, encryption *bucket.EncryptionConfig,
-	publicAccess *bucket.PublicAccessBlock, lifecycle *bucket.LifecycleConfig, tags map[string]string) []settingAction {
-	var needs []settingAction
-	if objectLock || (versioning != nil && versioning.Status == "Enabled") {
-		needs = append(needs, settingAction{auth.ActionPutBucketVersioning, "enable versioning"})
-	}
-	if objectLock {
-		needs = append(needs, settingAction{auth.ActionPutBucketObjectLockConfiguration, "enable Object Lock"})
-	}
-	if encryption != nil && encryption.Type != "" && encryption.Type != "AES256" {
-		needs = append(needs, settingAction{auth.ActionPutBucketEncryption, "set the bucket's encryption"})
-	}
-	if publicAccess != nil && !(publicAccess.BlockPublicAcls && publicAccess.IgnorePublicAcls &&
-		publicAccess.BlockPublicPolicy && publicAccess.RestrictPublicBuckets) {
-		needs = append(needs, settingAction{auth.ActionPutBucketPublicAccess, "allow public access"})
-	}
-	if lifecycle != nil {
-		needs = append(needs, settingAction{auth.ActionPutBucketLifecycle, "set a lifecycle"})
-	}
-	if len(tags) > 0 {
-		needs = append(needs, settingAction{auth.ActionPutBucketTagging, "tag buckets"})
-	}
-	return needs
 }
 
 func (s *Server) handleGetBucket(w http.ResponseWriter, r *http.Request) {
@@ -2647,133 +2138,6 @@ func (s *Server) directPolicyCounts(userIDs []string) map[string]int {
 	return counts
 }
 
-func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	var createRequest struct {
-		Username     string   `json:"username"`
-		Email        string   `json:"email,omitempty"`
-		Password     string   `json:"password"`
-		Roles        []string `json:"roles,omitempty"`
-		Status       string   `json:"status,omitempty"`
-		TenantID     string   `json:"tenantId,omitempty"`
-		AuthProvider string   `json:"authProvider,omitempty"`
-		ExternalID   string   `json:"externalId,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&createRequest); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Validate required fields
-	if createRequest.Username == "" {
-		s.writeError(w, "Username is required", http.StatusBadRequest)
-		return
-	}
-	// Password is required for local users, optional for SSO users
-	isExternalUser := createRequest.AuthProvider != "" && createRequest.AuthProvider != "local"
-	if !isExternalUser && createRequest.Password == "" {
-		s.writeError(w, "Password is required for local users", http.StatusBadRequest)
-		return
-	}
-	if !isExternalUser {
-		if msg := s.validatePasswordPolicy(createRequest.Password); msg != "" {
-			s.writeError(w, msg, http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Get current user for tenant validation
-	currentUser, userExists := auth.GetUserFromContext(r.Context())
-	if !userExists {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
-		return
-	}
-
-	// Only admins (global or tenant) can create users
-	if !s.isAdmin(currentUser) {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && currentUser.TenantID == ""
-
-	// Tenant admins can only create users in their own tenant
-	if !isGlobalAdmin && currentUser.TenantID != "" {
-		if createRequest.TenantID != "" && createRequest.TenantID != currentUser.TenantID {
-			s.writeError(w, "Tenant admins can only create users in their own tenant", http.StatusForbidden)
-			return
-		}
-		// Force tenant assignment
-		createRequest.TenantID = currentUser.TenantID
-	}
-
-	// Set defaults
-	if createRequest.Status == "" {
-		createRequest.Status = "active"
-	}
-	if len(createRequest.Roles) == 0 {
-		createRequest.Roles = []string{"read"}
-	}
-
-	if !isGlobalAdmin && containsAdminRole(createRequest.Roles) {
-		s.writeError(w, "Only a global administrator can grant the administrator role",
-			http.StatusForbidden)
-		return
-	}
-	if s.refuseRolesBeyondCaller(w, r, createRequest.Roles, createRequest.TenantID) {
-		return
-	}
-
-	// Create user (password will be hashed by CreateUser)
-	user := &auth.User{
-		ID:           createRequest.Username,
-		Username:     createRequest.Username,
-		Password:     createRequest.Password, // Will be hashed with bcrypt by SQLiteStore
-		DisplayName:  createRequest.Username,
-		Email:        createRequest.Email,
-		Status:       createRequest.Status,
-		Roles:        createRequest.Roles,
-		TenantID:     createRequest.TenantID,
-		AuthProvider: createRequest.AuthProvider,
-		ExternalID:   createRequest.ExternalID,
-		CreatedAt:    time.Now().Unix(),
-	}
-
-	// For SSO users: username is email, so ensure email field is populated
-	if isExternalUser {
-		if user.Email == "" {
-			user.Email = user.Username
-		}
-		if user.ExternalID == "" {
-			user.ExternalID = user.Email
-		}
-	}
-
-	if err := s.authManager.CreateUser(r.Context(), user); err != nil {
-		if strings.Contains(err.Error(), "already exists") || errors.Is(err, auth.ErrEmailInUse) {
-			s.writeError(w, err.Error(), http.StatusConflict)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Convert to response format
-	userResponse := UserResponse{
-		ID:               user.ID,
-		Username:         user.Username,
-		DisplayName:      user.DisplayName,
-		Email:            user.Email,
-		Roles:            user.Roles,
-		Status:           user.Status,
-		TenantID:         user.TenantID,
-		TwoFactorEnabled: user.TwoFactorEnabled,
-		CreatedAt:        user.CreatedAt,
-	}
-
-	s.writeJSON(w, userResponse)
-}
-
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	currentUser := s.getAuthUser(r)
 	vars := mux.Vars(r)
@@ -2801,191 +2165,7 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert to response format
-	userResponse := UserResponse{
-		ID:                  user.ID,
-		Username:            user.Username,
-		DisplayName:         user.DisplayName,
-		Email:               user.Email,
-		Roles:               user.Roles,
-		Status:              user.Status,
-		TenantID:            user.TenantID,
-		TwoFactorEnabled:    user.TwoFactorEnabled,
-		LockedUntil:         user.LockedUntil,
-		FailedLoginAttempts: user.FailedLoginAttempts,
-		LastFailedLogin:     user.LastFailedLogin,
-		ThemePreference:     user.ThemePreference,
-		LanguagePreference:  user.LanguagePreference,
-		MustChangePassword:  user.MustChangePassword,
-		AuthProvider:        user.AuthProvider,
-		ExternalID:          user.ExternalID,
-		ManagedByGroups:     groupManaged(user),
-		CreatedAt:           user.CreatedAt,
-	}
-
-	s.writeJSON(w, userResponse)
-}
-
-func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	currentUser := s.getAuthUser(r)
-	vars := mux.Vars(r)
-	userID := vars["user"]
-
-	isSelf := currentUser != nil && currentUser.ID == userID
-	if currentUser == nil || (!s.isAdmin(currentUser) && !isSelf) {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
-	var updateRequest struct {
-		Email              *string  `json:"email,omitempty"`
-		Roles              []string `json:"roles,omitempty"`
-		Status             string   `json:"status,omitempty"`
-		TenantID           *string  `json:"tenantId,omitempty"`
-		MustChangePassword *bool    `json:"mustChangePassword,omitempty"`
-		ManagedByGroups    *bool    `json:"managedByGroups,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
-		s.writeError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Non-admins can only update their own email — block privileged fields
-	if !s.isAdmin(currentUser) && isSelf {
-		if updateRequest.Roles != nil || updateRequest.Status != "" || updateRequest.TenantID != nil ||
-			updateRequest.MustChangePassword != nil || updateRequest.ManagedByGroups != nil {
-			s.writeError(w, "Insufficient permissions to change roles, status, or tenant", http.StatusForbidden)
-			return
-		}
-	}
-
-	// Get existing user
-	user, err := s.authManager.GetUser(r.Context(), userID)
-	if err != nil {
-		if err == auth.ErrUserNotFound {
-			s.writeError(w, "User not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Tenant admins can only update users in their own tenant
-	if s.isAdmin(currentUser) && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
-	// Only global admins can change tenant assignment
-	if updateRequest.TenantID != nil && !s.isGlobalAdmin(currentUser) {
-		s.writeError(w, "Only global admins can change tenant assignment", http.StatusForbidden)
-		return
-	}
-
-	// The deployment keeps an active global administrator by the admin role:
-	// deactivating the last one locks the deployment as removing it does.
-	if isGlobalAdminByRole(user) && user.Status == auth.UserStatusActive {
-		rolesChangingAwayFromAdmin := updateRequest.Roles != nil && !func() bool {
-			for _, r := range updateRequest.Roles {
-				if r == "admin" {
-					return true
-				}
-			}
-			return false
-		}()
-		tenantChanging := updateRequest.TenantID != nil && *updateRequest.TenantID != ""
-		deactivating := updateRequest.Status != "" && updateRequest.Status != auth.UserStatusActive
-		if rolesChangingAwayFromAdmin || tenantChanging || deactivating {
-			another, err := s.anotherGlobalAdminByRole(r.Context(), user.ID)
-			if err != nil {
-				s.writeError(w, "Failed to verify admin count", http.StatusInternalServerError)
-				return
-			}
-			if !another {
-				s.writeError(w, "Cannot remove the last global admin with the admin role. Give the role to another user first.", http.StatusConflict)
-				return
-			}
-		}
-	}
-
-	// Update fields if provided
-	if updateRequest.Email != nil {
-		user.Email = *updateRequest.Email
-	}
-	if updateRequest.Roles != nil {
-		if !s.isGlobalAdmin(currentUser) && containsAdminRole(updateRequest.Roles) &&
-			!containsAdminRole(user.Roles) {
-			s.writeError(w, "Only a global administrator can grant the administrator role",
-				http.StatusForbidden)
-			return
-		}
-		if s.refuseRolesBeyondCaller(w, r, newRoles(updateRequest.Roles, user.Roles), user.TenantID) {
-			return
-		}
-		user.Roles = updateRequest.Roles
-	}
-	if updateRequest.Status != "" {
-		user.Status = updateRequest.Status
-	}
-	if updateRequest.TenantID != nil {
-		user.TenantID = *updateRequest.TenantID
-	}
-	if updateRequest.MustChangePassword != nil {
-		// An administrator can impose the obligation on an account, but lifting
-		// it is not theirs to do by hand: only setting a password clears it.
-		if !*updateRequest.MustChangePassword && user.MustChangePassword {
-			s.writeError(w, "The obligation to change the password is lifted by setting a new password, not by clearing the flag",
-				http.StatusBadRequest)
-			return
-		}
-		user.MustChangePassword = *updateRequest.MustChangePassword
-	}
-	if updateRequest.ManagedByGroups != nil {
-		if method, _ := signInMethod(user); method == auth.SessionMethodPassword {
-			s.writeError(w, "Only a user of an identity provider follows its groups", http.StatusBadRequest)
-			return
-		}
-		if *updateRequest.ManagedByGroups {
-			markGroupManaged(user)
-		} else {
-			delete(user.Metadata, provisionedByKey)
-		}
-	}
-
-	// Update user
-	if err := s.authManager.UpdateUser(r.Context(), user); err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, auth.ErrEmailInUse) {
-			status = http.StatusConflict
-		}
-		s.writeError(w, err.Error(), status)
-		return
-	}
-
-	// Convert to response format
-	userResponse := UserResponse{
-		ID:                  user.ID,
-		Username:            user.Username,
-		DisplayName:         user.DisplayName,
-		Email:               user.Email,
-		Roles:               user.Roles,
-		Status:              user.Status,
-		TenantID:            user.TenantID,
-		TwoFactorEnabled:    user.TwoFactorEnabled,
-		LockedUntil:         user.LockedUntil,
-		FailedLoginAttempts: user.FailedLoginAttempts,
-		LastFailedLogin:     user.LastFailedLogin,
-		ThemePreference:     user.ThemePreference,
-		LanguagePreference:  user.LanguagePreference,
-		MustChangePassword:  user.MustChangePassword,
-		AuthProvider:        user.AuthProvider,
-		ExternalID:          user.ExternalID,
-		ManagedByGroups:     groupManaged(user),
-		CreatedAt:           user.CreatedAt,
-	}
-
-	s.writeJSON(w, userResponse)
+	s.writeJSON(w, userResponseOf(user))
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -3838,11 +3018,11 @@ func (s *Server) handleCreateAccessKey(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: accessKey.CreatedAt,
 	}
 
-	// Log audit event for access key created
+	// The audit log names who made the key; the details name its owner.
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
 		TenantID:     user.TenantID,
-		UserID:       user.ID,
-		Username:     user.Username,
+		UserID:       currentUser.ID,
+		Username:     currentUser.Username,
 		EventType:    audit.EventTypeAccessKeyCreated,
 		ResourceType: audit.ResourceTypeAccessKey,
 		ResourceID:   accessKey.AccessKeyID,
@@ -3869,27 +3049,21 @@ func (s *Server) handleDeleteAccessKey(w http.ResponseWriter, r *http.Request) {
 
 	// Get access key info before deleting for audit log
 	accessKey, err := s.authManager.GetAccessKey(r.Context(), accessKeyID)
+	if errors.Is(err, auth.ErrAccessKeyNotFound) {
+		s.writeError(w, "Access key not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
-		if err == auth.ErrUserNotFound {
-			s.writeError(w, "Access key not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Get user info for audit log and tenant check
-	user, _ := s.authManager.GetUser(r.Context(), accessKey.UserID)
-
-	// Non-admins can only delete their own access keys
+	// A user deletes its own keys; the administrator of a tenant, those of
+	// the users it can tell are of its tenant.
+	user, userErr := s.authManager.GetUser(r.Context(), accessKey.UserID)
 	isOwnKey := accessKey.UserID == currentUser.ID
-	if !s.isAdmin(currentUser) && !isOwnKey {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
-	// Tenant admins can only delete access keys for users in their own tenant
-	if s.isAdmin(currentUser) && user != nil && !s.isGlobalAdmin(currentUser) && user.TenantID != currentUser.TenantID {
+	if !isOwnKey && !s.isGlobalAdmin(currentUser) &&
+		(!s.isAdmin(currentUser) || userErr != nil || user.TenantID != currentUser.TenantID) {
 		s.writeError(w, "Access denied", http.StatusForbidden)
 		return
 	}
@@ -4163,162 +3337,133 @@ func (s *Server) handleUpdateUserPreferences(w http.ResponseWriter, r *http.Requ
 
 // Security handlers
 func (s *Server) handleGetSecurityStatus(w http.ResponseWriter, r *http.Request) {
-	// Extract user and tenant ID from context
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
+	// A user sees its tenant's; only a global administrator, the deployment's.
 	tenantID := user.TenantID
-
-	// Get encryption status (always on: envelope encryption, KEK in DB)
-	encryptionEnabled := true
-	algorithm := "AES-256-GCM"
-
-	// Get object lock statistics
+	if tenantID == "" && !s.isGlobalAdmin(user) {
+		s.writeError(w, "Access denied", http.StatusForbidden)
+		return
+	}
 	buckets, err := s.bucketManager.ListBuckets(r.Context(), tenantID)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	bucketsWithLock := 0
-	totalLockedObjects := int64(0)
-	complianceMode := int64(0)
-	governanceMode := int64(0)
-
-	for _, b := range buckets {
-		lockConfig, err := s.bucketManager.GetObjectLockConfig(r.Context(), tenantID, b.Name)
-		if err == nil && lockConfig != nil {
-			bucketsWithLock++
-
-			// Count locked objects (simplified - just count buckets with lock enabled)
-			// Full implementation would require iterating all objects
-		}
-	}
-
-	// Get authentication stats
-	allUsers, err := s.authManager.ListUsers(r.Context())
+	users, err := s.authManager.ListUsers(r.Context())
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	activeUsers := 0
-	mfaEnabled := false
-	nowUnix := time.Now().Unix()
-	failedLogins24h := 0
-	for _, listedUser := range allUsers {
-		if tenantID != "" && listedUser.TenantID != tenantID {
-			continue
-		}
-		if listedUser.Status == "active" {
-			activeUsers++
-		}
-		if listedUser.TwoFactorEnabled {
-			mfaEnabled = true
-		}
-		if listedUser.LastFailedLogin >= nowUnix-(24*60*60) {
-			failedLogins24h += listedUser.FailedLoginAttempts
-		}
+	if tenantID != "" {
+		users = slices.DeleteFunc(users, func(u auth.User) bool { return u.TenantID != tenantID })
 	}
-
-	// Get bucket policies count
-	totalPolicies := 0
-	bucketPolicies := 0
-	for _, b := range buckets {
-		policy, err := s.bucketManager.GetBucketPolicy(r.Context(), tenantID, b.Name)
-		if err == nil && policy != nil {
-			bucketPolicies++
-			totalPolicies++
-		}
-	}
-
-	// What the audit log does: the settings of the console over the config file.
-	auditEnabled := s.config.Audit.Enable && s.auditManager != nil
-	auditRetention := s.config.Audit.RetentionDays
-	if s.settingsManager != nil {
-		if on, err := s.settingsManager.GetBool("audit.enabled"); err == nil && !on {
-			auditEnabled = false
-		}
-		if days, err := s.settingsManager.GetInt("audit.retention_days"); err == nil && days > 0 {
-			auditRetention = days
-		}
-	}
-	totalAuditEvents := 0
-	auditEventsToday := 0
-	if auditEnabled {
-		baseFilters := &audit.AuditLogFilters{Page: 1, PageSize: 1}
-		todayStart := time.Now().UTC().Truncate(24 * time.Hour).Unix()
-		todayFilters := &audit.AuditLogFilters{Page: 1, PageSize: 1, StartDate: todayStart}
-
-		if tenantID == "" {
-			_, totalAuditEvents, err = s.auditManager.GetLogs(r.Context(), baseFilters)
-			if err == nil {
-				_, auditEventsToday, _ = s.auditManager.GetLogs(r.Context(), todayFilters)
-			}
-		} else {
-			_, totalAuditEvents, err = s.auditManager.GetLogsByTenant(r.Context(), tenantID, baseFilters)
-			if err == nil {
-				_, auditEventsToday, _ = s.auditManager.GetLogsByTenant(r.Context(), tenantID, todayFilters)
-			}
-		}
-		if err != nil {
-			logrus.WithError(err).WithField("tenant_id", tenantID).Warn("Failed to query audit statistics for security status")
-			totalAuditEvents = 0
-			auditEventsToday = 0
-		}
-	}
-
-	securityStatus := map[string]interface{}{
+	s.writeJSON(w, map[string]interface{}{
+		// Always on: envelope encryption, its key in the database.
 		"encryption": map[string]interface{}{
-			"enabled":      encryptionEnabled,
-			"algorithm":    algorithm,
+			"enabled":      true,
+			"algorithm":    "AES-256-GCM",
 			"keyRotation":  false,
 			"lastRotation": nil,
 			"tracked":      false,
 		},
-		"objectLock": map[string]interface{}{
-			"enabled":            bucketsWithLock > 0,
-			"bucketsWithLock":    bucketsWithLock,
-			"totalLockedObjects": totalLockedObjects,
-			"complianceMode":     complianceMode,
-			"governanceMode":     governanceMode,
-		},
-		"authentication": map[string]interface{}{
-			"requireAuth":     true,
-			"mfaEnabled":      mfaEnabled,
-			"activeUsers":     activeUsers,
-			"activeSessions":  nil,
-			"failedLogins24h": failedLogins24h,
-			"tracked": map[string]bool{
-				"activeSessions":  false,
-				"failedLogins24h": true,
-			},
-		},
-		"policies": map[string]interface{}{
-			"totalPolicies":  totalPolicies,
-			"bucketPolicies": bucketPolicies,
-			"userPolicies":   nil,
-			"lastUpdate":     time.Now().Format(time.RFC3339),
-			"tracked": map[string]bool{
-				"userPolicies": false,
-			},
-		},
-		"audit": map[string]interface{}{
-			"enabled":      auditEnabled,
-			"logRetention": auditRetention,
-			"totalEvents":  totalAuditEvents,
-			"eventsToday":  auditEventsToday,
-		},
-	}
+		"objectLock":     objectLockOverview(buckets),
+		"authentication": authenticationOverview(users, time.Now()),
+		"policies":       policyOverview(buckets),
+		"audit":          s.auditOverview(r.Context(), tenantID),
+	})
+}
 
-	response := APIResponse{
-		Success: true,
-		Data:    securityStatus,
+// objectLockOverview counts the buckets, of every tenant, Object Lock is on in.
+func objectLockOverview(buckets []bucket.Bucket) map[string]interface{} {
+	locked := 0
+	for _, b := range buckets {
+		if b.ObjectLock != nil && b.ObjectLock.ObjectLockEnabled {
+			locked++
+		}
 	}
+	return map[string]interface{}{
+		"enabled":            locked > 0,
+		"bucketsWithLock":    locked,
+		"totalLockedObjects": 0,
+		"complianceMode":     0,
+		"governanceMode":     0,
+	}
+}
 
-	s.writeJSON(w, response)
+// authenticationOverview counts the active users, and the failed sign-ins of
+// those that failed in the last day.
+func authenticationOverview(users []auth.User, now time.Time) map[string]interface{} {
+	active, failed, twoFactor := 0, 0, false
+	since := now.Add(-24 * time.Hour).Unix()
+	for i := range users {
+		u := &users[i]
+		if u.Status == auth.UserStatusActive {
+			active++
+		}
+		twoFactor = twoFactor || u.TwoFactorEnabled
+		if u.LastFailedLogin >= since {
+			failed += u.FailedLoginAttempts
+		}
+	}
+	return map[string]interface{}{
+		"requireAuth":     true,
+		"mfaEnabled":      twoFactor,
+		"activeUsers":     active,
+		"activeSessions":  nil,
+		"failedLogins24h": failed,
+		"tracked":         map[string]bool{"activeSessions": false, "failedLogins24h": true},
+	}
+}
+
+// policyOverview counts the buckets, of every tenant, with a policy.
+func policyOverview(buckets []bucket.Bucket) map[string]interface{} {
+	withPolicy := 0
+	for _, b := range buckets {
+		if b.Policy != nil {
+			withPolicy++
+		}
+	}
+	return map[string]interface{}{
+		"totalPolicies":  withPolicy,
+		"bucketPolicies": withPolicy,
+		"userPolicies":   nil,
+		"lastUpdate":     time.Now().Format(time.RFC3339),
+		"tracked":        map[string]bool{"userPolicies": false},
+	}
+}
+
+// auditOverview is what the audit log does, the console's settings over the
+// configuration file, and how many events of tenantID it holds, today's among
+// them; of every tenant for none.
+func (s *Server) auditOverview(ctx context.Context, tenantID string) map[string]interface{} {
+	enabled := s.config.Audit.Enable && s.auditManager != nil
+	retention := s.config.Audit.RetentionDays
+	if s.settingsManager != nil {
+		if on, err := s.settingsManager.GetBool("audit.enabled"); err == nil && !on {
+			enabled = false
+		}
+		if days, err := s.settingsManager.GetInt("audit.retention_days"); err == nil && days > 0 {
+			retention = days
+		}
+	}
+	total, today := 0, 0
+	if enabled {
+		var err error
+		_, total, err = s.auditManager.GetLogs(ctx, &audit.AuditLogFilters{Page: 1, PageSize: 1, TenantID: tenantID})
+		if err == nil {
+			_, today, err = s.auditManager.GetLogs(ctx, &audit.AuditLogFilters{Page: 1, PageSize: 1, TenantID: tenantID,
+				StartDate: time.Now().UTC().Truncate(24 * time.Hour).Unix()})
+		}
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to query audit statistics for security status")
+			total, today = 0, 0
+		}
+	}
+	return map[string]interface{}{"enabled": enabled, "logRetention": retention, "totalEvents": total, "eventsToday": today}
 }
 
 // Tenant handlers
@@ -4524,19 +3669,7 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	tenantID := vars["tenant"]
 
-	var req struct {
-		DisplayName             *string           `json:"displayName,omitempty"`
-		Description             *string           `json:"description,omitempty"`
-		Status                  *string           `json:"status,omitempty"`
-		MaxAccessKeys           *int64            `json:"maxAccessKeys,omitempty"`
-		MaxStorageBytes         *int64            `json:"maxStorageBytes,omitempty"`
-		MaxBandwidthBytesPerSec *int64            `json:"maxBandwidthBytesPerSec,omitempty"`
-		MaxBuckets              *int64            `json:"maxBuckets,omitempty"`
-		CurrentStorageBytes     *int64            `json:"currentStorageBytes,omitempty"`
-		CurrentBuckets          *int64            `json:"currentBuckets,omitempty"`
-		Metadata                map[string]string `json:"metadata,omitempty"`
-	}
-
+	var req tenantUpdate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -4551,41 +3684,9 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	// Update fields if provided
-	if req.DisplayName != nil {
-		tenant.DisplayName = *req.DisplayName
-	}
-	if req.Description != nil {
-		tenant.Description = *req.Description
-	}
-	if req.Status != nil {
-		tenant.Status = *req.Status
-	}
-	if req.MaxAccessKeys != nil {
-		tenant.MaxAccessKeys = *req.MaxAccessKeys
-	}
-	if req.MaxStorageBytes != nil {
-		tenant.MaxStorageBytes = *req.MaxStorageBytes
-	}
-	if req.MaxBandwidthBytesPerSec != nil {
-		if *req.MaxBandwidthBytesPerSec < 0 {
-			s.writeError(w, "maxBandwidthBytesPerSec cannot be negative", http.StatusBadRequest)
-			return
-		}
-		tenant.MaxBandwidthBytesPerSec = *req.MaxBandwidthBytesPerSec
-	}
-	if req.MaxBuckets != nil {
-		tenant.MaxBuckets = *req.MaxBuckets
-	}
-	if req.CurrentStorageBytes != nil {
-		tenant.CurrentStorageBytes = *req.CurrentStorageBytes
-	}
-	if req.CurrentBuckets != nil {
-		tenant.CurrentBuckets = *req.CurrentBuckets
-	}
-	if req.Metadata != nil {
-		tenant.Metadata = req.Metadata
+	if err := applyTenantUpdate(tenant, &req); err != nil {
+		s.writeRefusal(w, err)
+		return
 	}
 
 	tenant.UpdatedAt = time.Now().Unix()
@@ -4617,6 +3718,56 @@ func (s *Server) handleUpdateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, tenant)
+}
+
+// tenantUpdate is what the console changes of a tenant.
+type tenantUpdate struct {
+	DisplayName             *string           `json:"displayName,omitempty"`
+	Description             *string           `json:"description,omitempty"`
+	Status                  *string           `json:"status,omitempty"`
+	MaxAccessKeys           *int64            `json:"maxAccessKeys,omitempty"`
+	MaxStorageBytes         *int64            `json:"maxStorageBytes,omitempty"`
+	MaxBandwidthBytesPerSec *int64            `json:"maxBandwidthBytesPerSec,omitempty"`
+	MaxBuckets              *int64            `json:"maxBuckets,omitempty"`
+	CurrentStorageBytes     *int64            `json:"currentStorageBytes,omitempty"`
+	CurrentBuckets          *int64            `json:"currentBuckets,omitempty"`
+	Metadata                map[string]string `json:"metadata,omitempty"`
+}
+
+// applyTenantUpdate changes of tenant what update names. A status tenants are
+// not put in, and a negative quota, are refused before anything changes.
+func applyTenantUpdate(tenant *auth.Tenant, update *tenantUpdate) error {
+	if update.Status != nil && *update.Status != auth.TenantStatusActive && *update.Status != auth.TenantStatusInactive {
+		return refused(http.StatusBadRequest, "status must be active or inactive")
+	}
+	for name, quota := range map[string]*int64{
+		"maxAccessKeys": update.MaxAccessKeys, "maxStorageBytes": update.MaxStorageBytes,
+		"maxBandwidthBytesPerSec": update.MaxBandwidthBytesPerSec, "maxBuckets": update.MaxBuckets,
+	} {
+		if quota != nil && *quota < 0 {
+			return refused(http.StatusBadRequest, name+" cannot be negative")
+		}
+	}
+	setIf(&tenant.DisplayName, update.DisplayName)
+	setIf(&tenant.Description, update.Description)
+	setIf(&tenant.Status, update.Status)
+	setIf(&tenant.MaxAccessKeys, update.MaxAccessKeys)
+	setIf(&tenant.MaxStorageBytes, update.MaxStorageBytes)
+	setIf(&tenant.MaxBandwidthBytesPerSec, update.MaxBandwidthBytesPerSec)
+	setIf(&tenant.MaxBuckets, update.MaxBuckets)
+	setIf(&tenant.CurrentStorageBytes, update.CurrentStorageBytes)
+	setIf(&tenant.CurrentBuckets, update.CurrentBuckets)
+	if update.Metadata != nil {
+		tenant.Metadata = update.Metadata
+	}
+	return nil
+}
+
+// setIf sets field to what value points to, when it points to something.
+func setIf[T any](field *T, value *T) {
+	if value != nil {
+		*field = *value
+	}
 }
 
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
