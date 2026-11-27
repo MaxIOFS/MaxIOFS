@@ -25,8 +25,8 @@ const forwardedHeader = "X-MaxIOFS-Coordinator-Forward"
 const maxForwardedBody = 8 << 20
 
 // forwardToCoordinator sends a configuration write to the coordinator and
-// copies its answer back. It reports whether the request was handled.
-func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bool {
+// copies its answer back.
+func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	leaderID := s.leaderMgr.LeaderID(ctx)
@@ -37,7 +37,7 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		s.writeError(w,
 			"The cluster is choosing a coordinator for configuration changes. Try again in a few seconds.",
 			http.StatusServiceUnavailable)
-		return true
+		return
 	}
 
 	node, err := s.clusterManager.GetNode(ctx, leaderID)
@@ -45,29 +45,29 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		s.writeError(w,
 			"The cluster coordinator is not reachable from this node. Try again in a few seconds.",
 			http.StatusServiceUnavailable)
-		return true
+		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxForwardedBody+1))
 	if err != nil {
 		s.writeError(w, "Could not read the request", http.StatusBadRequest)
-		return true
+		return
 	}
 	if len(body) > maxForwardedBody {
 		s.writeError(w, "Request too large to forward", http.StatusRequestEntityTooLarge)
-		return true
+		return
 	}
 	_ = r.Body.Close()
 
 	localNodeID, err := s.clusterManager.GetLocalNodeID(ctx)
 	if err != nil {
 		s.writeError(w, "Could not identify this node", http.StatusInternalServerError)
-		return true
+		return
 	}
 	nodeToken, err := s.clusterManager.GetLocalNodeToken(ctx)
 	if err != nil {
 		s.writeError(w, "Could not authenticate to the coordinator", http.StatusInternalServerError)
-		return true
+		return
 	}
 
 	url := fmt.Sprintf("%s/api/internal/cluster/console-write%s", node.Endpoint, r.URL.RequestURI())
@@ -80,7 +80,7 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		localNodeID, nodeToken)
 	if err != nil {
 		s.writeError(w, "Could not build the forwarded request", http.StatusInternalServerError)
-		return true
+		return
 	}
 
 	carryUser(req, r)
@@ -93,7 +93,7 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 		s.writeError(w,
 			"The cluster coordinator did not answer. Your change was not applied; try again in a few seconds.",
 			http.StatusServiceUnavailable)
-		return true
+		return
 	}
 	defer resp.Body.Close()
 
@@ -104,7 +104,6 @@ func (s *Server) forwardToCoordinator(w http.ResponseWriter, r *http.Request) bo
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
-	return true
 }
 
 // handleCoordinatorWrite executes a configuration write forwarded by another

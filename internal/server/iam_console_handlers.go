@@ -401,7 +401,7 @@ func (s *Server) handleListPermissionCatalog(w http.ResponseWriter, r *http.Requ
 // handleGetUserPermissions returns which permissions a user holds, globally and
 // per bucket, so the console shows what is already ticked.
 func (s *Server) handleGetUserPermissions(w http.ResponseWriter, r *http.Request) {
-	store, ok := s.permissionStore(w, r)
+	store, ok := s.permissionStore(w)
 	if !ok {
 		return
 	}
@@ -423,7 +423,7 @@ func (s *Server) handleGetUserPermissions(w http.ResponseWriter, r *http.Request
 
 // handleSetUserPermissions replaces a user's selection.
 func (s *Server) handleSetUserPermissions(w http.ResponseWriter, r *http.Request) {
-	store, ok := s.permissionStore(w, r)
+	store, ok := s.permissionStore(w)
 	if !ok {
 		return
 	}
@@ -532,17 +532,12 @@ func (s *Server) administeredUser(w http.ResponseWriter, r *http.Request, id str
 	return target, true
 }
 
-// permissionStore resolves the store, for a caller that administers users.
-func (s *Server) permissionStore(w http.ResponseWriter, r *http.Request) (interface {
+// permissionStore resolves the store of users' permissions; who may use it
+// on a user is administeredUser's to decide.
+func (s *Server) permissionStore(w http.ResponseWriter) (interface {
 	GetUserPermissions(userID string) (*auth.UserPermissions, error)
 	SetUserPermissions(userID string, permissions *auth.UserPermissions) error
 }, bool) {
-	user := s.getAuthUser(r)
-	if user == nil || !s.isAdmin(user) {
-		s.writeError(w, "Access denied", http.StatusForbidden)
-		return nil, false
-	}
-
 	store, ok := s.authManager.(interface {
 		GetUserPermissions(userID string) (*auth.UserPermissions, error)
 		SetUserPermissions(userID string, permissions *auth.UserPermissions) error

@@ -337,7 +337,9 @@ func (s *Server) authorizeSTSSubject(ctx context.Context, user *auth.User) error
 // denySTSFederation audits a rejected exchange and answers with a single opaque
 func (s *Server) denySTSFederation(w http.ResponseWriter, r *http.Request, method, providerID, subject, reason string) {
 	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.proxyTrust()))
+	// Nobody signed in: an event without a user is not kept.
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		UserID:       "anonymous",
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,
 		ResourceType: audit.ResourceTypeSTSSession,

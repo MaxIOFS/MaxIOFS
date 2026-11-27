@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reading or setting the permissions of a user that does not exist, or listing its groups, answered `200`: it answers `404`.
 - Creating a group or a replication rule answered without `Content-Type: application/json`.
 - A bucket the integrity scrubber could not verify was kept as a scan without errors: its result shows the error.
+- The audit log never kept the data corruption the integrity scrubber found, nor a rejected exchange for temporary credentials of a directory or provider identity: each event lacked a user and was dropped.
 - A node renewed its cluster certificate only after a month without a restart: one updated more often kept it until it expired, a year after it was made. It is renewed within 30 days of its end, checked when the node starts and every day.
 - `UploadPartCopy` of a range past the end of its source answered `400 InvalidArgument`: it answers `416 InvalidRange`, as AWS does.
 - Changing a bucket's settings (Block Public Access, Object Lock's default retention and others) dropped its event notifications: they are kept.

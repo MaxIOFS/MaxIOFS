@@ -65,7 +65,7 @@ func TestARoleIsSavedByAGlobalAdministrator(t *testing.T) {
 	_, err = im.GetIAMRole(ctx, "backup")
 	require.ErrorIs(t, err, auth.ErrIAMNoSuchEntity, "refused requests create nothing")
 
-	require.Equal(t, http.StatusOK, saveRole(s, admin, body))
+	answer[struct{}](t, consoleAs(admin, s.handleCreateIAMRole, http.MethodPost, nil, body))
 	role, err := im.GetIAMRole(ctx, "backup")
 	require.NoError(t, err)
 	assert.JSONEq(t, roleTrust, role.AssumeRolePolicy)
@@ -102,6 +102,7 @@ func TestARoleThatCannotBeSavedIsRefused(t *testing.T) {
 		`not json`:                                  http.StatusBadRequest,
 		`{"name":"bad name!"}`:                      http.StatusBadRequest,
 		`{"name":"r1","permissions":{}}`:            http.StatusBadRequest,
+		`{"name":"r3","permissions":1}`:             http.StatusBadRequest,
 		`{"name":"r2","policies":["NoSuchPolicy"]}`: http.StatusNotFound,
 	} {
 		assert.Equal(t, status, saveRole(s, admin, body), body)
@@ -277,6 +278,7 @@ func TestAUsersPermissionsAreSetByWhoAdministersIt(t *testing.T) {
 		{tenantAdmin, "acme-user", `not json`, http.StatusBadRequest},
 		{tenantAdmin, "acme-user", `{"global":["` + auth.ActionTenantAdmin + `"]}`, http.StatusForbidden},
 		{tenantAdmin, "acme-user", `{"buckets":[{"bucket":"b","actions":["` + auth.ActionSuperAdmin + `"]}]}`, http.StatusForbidden},
+		{tenantAdmin, "acme-user", `{"buckets":[{"bucket":"b","actions":["` + auth.ActionTenantAdmin + `"]}]}`, http.StatusForbidden},
 		{admin, "loner", `{"global":["` + auth.ActionTenantAdmin + `"]}`, http.StatusBadRequest},
 		{admin, "acme-user", `{"buckets":[{"bucket":"b","actions":["` + auth.ActionSuperAdmin + `"]}]}`, http.StatusBadRequest},
 	} {

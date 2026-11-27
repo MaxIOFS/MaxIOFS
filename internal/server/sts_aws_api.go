@@ -424,7 +424,9 @@ func (s *Server) afterSTSXMLIssue(r *http.Request, user *auth.User, session *aut
 // only ever sees an opaque error; the reason stays in the audit log.
 func (s *Server) auditSTSXMLDenial(r *http.Request, action, subject, reason string) {
 	s.authManager.RecordFailedLogin(r.Context(), "", getClientIP(r, s.proxyTrust()))
+	// Nobody signed in: an event without a user is not kept.
 	s.logAuditEvent(r.Context(), &audit.AuditEvent{
+		UserID:       "anonymous",
 		Username:     subject,
 		EventType:    audit.EventTypeSTSFederationDenied,
 		ResourceType: audit.ResourceTypeSTSSession,

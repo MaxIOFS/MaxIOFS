@@ -13,7 +13,9 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/maxiofs/maxiofs/internal/audit"
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/config"
 	"github.com/maxiofs/maxiofs/internal/object"
 	"github.com/maxiofs/maxiofs/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -75,8 +77,10 @@ func TestABucketIsVerifiedByAGlobalAdministrator(t *testing.T) {
 		return integrityCall(user, s.handleVerifyBucketIntegrity, http.MethodPost, query, bucket, "")
 	}
 
+	tenantsAdmin := consoleUserOf(t, s, "acme-by-admin-role", "acme", auth.RoleAdmin)
 	assert.Equal(t, http.StatusUnauthorized, verify(nil, "plain", "").Code)
 	assert.Equal(t, http.StatusForbidden, verify(tenantAdmin, "pics", "").Code)
+	assert.Equal(t, http.StatusForbidden, verify(tenantsAdmin, "pics", "").Code, "the admin role of a tenant")
 
 	report := consoleData[object.BucketIntegrityReport](t, verify(admin, "plain", ""), http.StatusOK)
 	assert.Equal(t, 2, report.Checked)
@@ -105,10 +109,11 @@ func TestABucketIsVerifiedByAGlobalAdministrator(t *testing.T) {
 	}
 	assert.Equal(t, http.StatusUnauthorized, save(nil, `{}`).Code)
 	assert.Equal(t, http.StatusForbidden, save(tenantAdmin, `{}`).Code)
+	assert.Equal(t, http.StatusForbidden, save(tenantsAdmin, `{}`).Code)
 	assert.Equal(t, http.StatusBadRequest, save(admin, `not json`).Code)
 	body, err := json.Marshal(report)
 	require.NoError(t, err)
-	consoleData[map[string]bool](t, save(admin, string(body)), http.StatusOK)
+	assert.True(t, consoleData[map[string]bool](t, save(admin, string(body)), http.StatusOK)["saved"])
 	history := integrityHistory(t, s, "plain")
 	require.Len(t, history, 1)
 	assert.Equal(t, "manual", history[0].Source)
@@ -117,6 +122,12 @@ func TestABucketIsVerifiedByAGlobalAdministrator(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, verify(admin, "plain", "").Code, "a scan within the hour")
 	assert.Equal(t, http.StatusOK, verify(admin, "plain", "marker="+first.NextMarker).Code, "a scan's next page")
 	assert.Equal(t, http.StatusOK, verify(admin, "pics", "tenantId=acme").Code, "another bucket")
+
+	tenantBody, err := json.Marshal(tenants)
+	require.NoError(t, err)
+	consoleData[map[string]bool](t, integrityCall(admin, s.handleSaveIntegrityStatus, http.MethodPost, "tenantId=acme", "pics", string(tenantBody)), http.StatusOK)
+	require.Len(t, integrityHistory(t, s, "acme/pics"), 1, "kept as the tenant's bucket")
+	assert.Equal(t, http.StatusTooManyRequests, verify(admin, "pics", "tenantId=acme").Code, "now scanned by hand")
 }
 
 // verifyFailing is an object manager whose verification of one bucket fails.
@@ -162,4 +173,56 @@ func TestTheScrubberVerifiesEveryBucket(t *testing.T) {
 	cancel()
 	assert.ErrorIs(t, s.runIntegrityScrub(cancelled), context.Canceled)
 	assert.Len(t, integrityHistory(t, s, "plain"), 1, "a scan cut short keeps nothing")
+}
+
+// The scrubber alerts of each object it finds corrupted or missing, and of
+// nothing else: an event in the audit log and a notification.
+func TestTheScrubberAlertsOfWhatIsCorrupted(t *testing.T) {
+	s := newClusterTestNodeWith(t, func(cfg *config.Config) { cfg.Audit.Enable = true })
+	integrityFixture(t, s)
+	ctx := context.Background()
+	fs, ok := s.storageBackend.(*storage.FilesystemBackend)
+	require.True(t, ok)
+	require.NoError(t, os.Remove(filepath.Join(fs.GetRootPath(), filepath.FromSlash(fs.ObjectPath(storage.ObjectRef{Bucket: "acme/pics", Key: "c"})))))
+	var sent []string
+	s.notificationHub.SetEventObserver(func(eventType string) { sent = append(sent, eventType) })
+
+	require.NoError(t, s.runIntegrityScrub(ctx))
+	s.auditManager.Flush()
+	logs, total, err := s.auditManager.GetLogs(ctx, &audit.AuditLogFilters{EventType: audit.EventTypeDataCorruption})
+	require.NoError(t, err)
+	require.Equal(t, 2, total, "one object is corrupted, one is gone")
+	found := map[string]any{}
+	for _, log := range logs {
+		assert.Equal(t, audit.StatusFailed, log.Status)
+		found[log.TenantID+":"+log.ResourceID] = log.Details["status"]
+	}
+	assert.Equal(t, map[string]any{":plain/b": string(object.IntegrityCorrupted), "acme:pics/c": string(object.IntegrityMissing)}, found)
+	assert.Equal(t, []string{"data_corruption", "data_corruption"}, sent)
+}
+
+// A bucket's scans are read by a global administrator, any tenant's, and by
+// the administrator of its tenant; a bucket never scanned has none.
+func TestABucketsScansAreReadByWhoAdministersIt(t *testing.T) {
+	s := newClusterTestNode(t)
+	tenantAdmin := integrityFixture(t, s)
+	admin, err := s.authManager.GetUser(context.Background(), "admin")
+	require.NoError(t, err)
+	member := consoleUserOf(t, s, "acme-member", "acme", auth.RoleUser)
+	require.NoError(t, s.runIntegrityScrub(context.Background()))
+	history := func(user *auth.User, bucket, query string) *httptest.ResponseRecorder {
+		return integrityCall(user, s.handleGetIntegrityStatus, http.MethodGet, query, bucket, "")
+	}
+
+	own := consoleData[[]*LastScanRecord](t, history(tenantAdmin, "pics", ""), http.StatusOK)
+	require.Len(t, own, 1)
+	assert.Equal(t, "acme/pics", own[0].BucketPath)
+	other := consoleData[[]*LastScanRecord](t, history(tenantAdmin, "pics", "tenantId=other"), http.StatusOK)
+	require.Len(t, other, 1, "a tenant's administrator reads its own tenant's")
+	assert.Equal(t, "acme/pics", other[0].BucketPath)
+	assert.Equal(t, "acme/pics", consoleData[[]*LastScanRecord](t, history(admin, "pics", "tenantId=acme"), http.StatusOK)[0].BucketPath)
+	assert.Equal(t, 1, consoleData[[]*LastScanRecord](t, history(admin, "plain", ""), http.StatusOK)[0].Corrupted)
+	assert.Empty(t, consoleData[[]*LastScanRecord](t, history(admin, "never", ""), http.StatusOK))
+	assert.Equal(t, http.StatusUnauthorized, history(nil, "plain", "").Code)
+	assert.Equal(t, http.StatusForbidden, history(member, "pics", "").Code)
 }

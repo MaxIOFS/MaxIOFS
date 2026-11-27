@@ -122,6 +122,8 @@ func (s *Server) runIntegrityScrub(ctx context.Context) error {
 				// Audit event
 				s.logAuditEvent(ctx, &audit.AuditEvent{
 					TenantID:     tenantID,
+					UserID:       "system",
+					Username:     "system",
 					EventType:    audit.EventTypeDataCorruption,
 					ResourceType: audit.ResourceTypeSystem,
 					ResourceID:   fmt.Sprintf("%s/%s", bkt.Name, issue.Key),
