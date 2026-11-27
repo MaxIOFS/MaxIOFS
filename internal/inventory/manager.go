@@ -142,14 +142,13 @@ func (m *Manager) GetConfig(ctx context.Context, bucketName, tenantID string) (*
 func (m *Manager) UpdateConfig(ctx context.Context, config *InventoryConfig) error {
 	config.UpdatedAt = time.Now().Unix()
 
-	// Recalculate next run time if schedule changed
-	if config.NextRunAt == nil || config.LastRunAt != nil {
-		nextRun, err := CalculateNextRunTime(config.Frequency, config.ScheduleTime, config.LastRunAt)
-		if err != nil {
-			return fmt.Errorf("failed to calculate next run time: %w", err)
-		}
-		config.NextRunAt = &nextRun
+	// The next report runs at the schedule last set, changed before the first
+	// report or after one.
+	nextRun, err := CalculateNextRunTime(config.Frequency, config.ScheduleTime, config.LastRunAt)
+	if err != nil {
+		return fmt.Errorf("failed to calculate next run time: %w", err)
 	}
+	config.NextRunAt = &nextRun
 
 	// Serialize included fields to JSON
 	fieldsJSON, err := json.Marshal(config.IncludedFields)

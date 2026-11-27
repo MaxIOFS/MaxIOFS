@@ -74,12 +74,17 @@ func (s *Server) handlePutBucketOwnership(w http.ResponseWriter, r *http.Request
 		s.writeError(w, "objectOwnership must be BucketOwnerEnforced, BucketOwnerPreferred or ObjectWriter", http.StatusBadRequest)
 		return
 	}
+	// ACLs are turned off only once the bucket's ACL grants nothing to others,
+	// as AWS asks; an ACL that cannot be read may.
 	if req.ObjectOwnership == bucket.ObjectOwnershipBucketOwnerEnforced {
-		if stored, err := s.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName); err == nil {
-			if current, ok := stored.(*acl.ACL); ok && !current.OwnerOnly() {
-				s.writeError(w, "The bucket's ACL grants access to others: make it private before turning ACLs off", http.StatusBadRequest)
-				return
-			}
+		stored, err := s.bucketManager.GetBucketACL(r.Context(), tenantID, bucketName)
+		if err != nil && !errors.Is(err, bucket.ErrBucketNotFound) {
+			s.writeError(w, "The bucket's ACL could not be read: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if current, ok := stored.(*acl.ACL); ok && !current.OwnerOnly() {
+			s.writeError(w, "The bucket's ACL grants access to others: make it private before turning ACLs off", http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -94,17 +99,7 @@ func (s *Server) handlePutBucketOwnership(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		EventType:    "bucket_ownership_controls_configured",
-		UserID:       user.ID,
-		Username:     user.Username,
-		TenantID:     tenantID,
-		ResourceType: "bucket",
-		ResourceID:   bucketName,
-		Status:       "success",
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.UserAgent(),
-		Details:      map[string]interface{}{"object_ownership": req.ObjectOwnership},
-	})
+	s.auditBucketSetting(r, user, tenantID, bucketName, "bucket_ownership_controls_configured", audit.ActionUpdate,
+		map[string]interface{}{"object_ownership": req.ObjectOwnership})
 	s.writeJSON(w, map[string]interface{}{"success": true, "objectOwnership": req.ObjectOwnership})
 }

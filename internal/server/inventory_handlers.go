@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxiofs/maxiofs/internal/auth"
@@ -108,9 +109,12 @@ func (s *Server) handlePutBucketInventory(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Validate schedule time format
 	if req.ScheduleTime == "" {
 		req.ScheduleTime = "00:00"
+	}
+	if _, err := time.Parse("15:04", req.ScheduleTime); err != nil {
+		s.writeError(w, "schedule_time must be HH:MM", http.StatusBadRequest)
+		return
 	}
 
 	// Check if configuration already exists

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,19 +123,21 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A bucket that belongs to a tenant may not be given a size quota larger than
-	// the space assigned to that tenant — the tenant quota is the hard ceiling.
+	// No bucket of a tenant, whoever owns it, is given a size quota larger than
+	// the space assigned to the tenant: the tenant quota is the hard ceiling.
 	if req.MaxSizeBytes > 0 {
-		if info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName); err == nil && info != nil &&
-			info.OwnerType == "tenant" && info.OwnerID != "" {
-			if tenant, terr := s.authManager.GetTenant(ctx, info.OwnerID); terr == nil && tenant != nil && tenant.MaxStorageBytes > 0 {
-				if req.MaxSizeBytes > tenant.MaxStorageBytes {
-					s.writeError(w, fmt.Sprintf(
-						"Bucket quota (%d bytes) cannot exceed the tenant's storage quota (%d bytes)",
-						req.MaxSizeBytes, tenant.MaxStorageBytes), http.StatusBadRequest)
-					return
-				}
-			}
+		info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, bucketName)
+		if errors.Is(err, bucket.ErrBucketNotFound) {
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := s.withinTenantStorage(ctx, info.TenantID, req.MaxSizeBytes); err != nil {
+			s.writeRefusal(w, err)
+			return
 		}
 	}
 
@@ -149,7 +152,7 @@ func (s *Server) handlePutBucketQuota(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.bucketManager.SetQuota(ctx, tenantID, bucketName, quota); err != nil {
-		if err == bucket.ErrBucketNotFound {
+		if errors.Is(err, bucket.ErrBucketNotFound) {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 			return
 		}
@@ -210,4 +213,21 @@ func (s *Server) handleDeleteBucketQuota(w http.ResponseWriter, r *http.Request)
 	}).Info("Bucket storage quota removed")
 
 	s.writeJSON(w, map[string]interface{}{"success": true})
+}
+
+// withinTenantStorage refuses a bucket quota larger than the storage of the
+// bucket's tenant: the tenant quota is the hard ceiling.
+func (s *Server) withinTenantStorage(ctx context.Context, tenantID string, maxSizeBytes int64) error {
+	if tenantID == "" {
+		return nil
+	}
+	tenant, err := s.authManager.GetTenant(ctx, tenantID)
+	if err != nil {
+		return errors.New("Failed to retrieve tenant information")
+	}
+	if tenant.MaxStorageBytes > 0 && maxSizeBytes > tenant.MaxStorageBytes {
+		return refused(http.StatusBadRequest, fmt.Sprintf(
+			"Bucket quota (%d bytes) cannot exceed the tenant's storage quota (%d bytes)", maxSizeBytes, tenant.MaxStorageBytes))
+	}
+	return nil
 }

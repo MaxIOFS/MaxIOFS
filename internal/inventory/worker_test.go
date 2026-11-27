@@ -395,13 +395,11 @@ func TestWorker_ProcessInventories_MultipleConfigs(t *testing.T) {
 	err = manager.CreateConfig(ctx, config2)
 	assert.NoError(t, err)
 
-	// Update NextRunAt to make them ready to run (CreateConfig overwrites NextRunAt)
-	config1.NextRunAt = &pastTime
-	config2.NextRunAt = &pastTime
-	err = manager.UpdateConfig(ctx, config1)
-	assert.NoError(t, err)
-	err = manager.UpdateConfig(ctx, config2)
-	assert.NoError(t, err)
+	// Their next run is due: as when its time passes.
+	for _, config := range []*InventoryConfig{config1, config2} {
+		_, err = db.Exec(`UPDATE bucket_inventory_configs SET next_run_at = ? WHERE id = ?`, pastTime, config.ID)
+		assert.NoError(t, err)
+	}
 
 	worker := NewWorker(manager, mockBucketMgr, mockMetadata, mockObjects)
 

@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tenant could be given a status other than active or inactive, or a negative quota of buckets, access keys or storage: they are refused.
 - The security overview (`/api/v1/security/status`) gave a user of no tenant who is not a global administrator the numbers of every tenant: it is refused. For a global administrator it counts the buckets with Object Lock or a policy of every tenant.
 - The security overview never counted a failed sign-in, and came wrapped twice in `data`; a user's record never gave its failed sign-ins or the last one. They are counted and given, in one `data`.
+- The audit log never kept a change made from the console to a bucket's Object Ownership, encryption, public access block or event notifications: each event lacked what was done and was dropped. A change of its default Object Lock retention is recorded too.
+- ACLs were turned off (`BucketOwnerEnforced`) for a bucket whose ACL could not be read, which might grant others access: it is refused.
+- Versioning was suspended from the console on a bucket with Object Lock when the bucket could not be read to tell: it is refused.
+- A global administrator could not revoke a permission given to a tenant on a bucket of no tenant: the tenant it was given to was taken for the bucket's, and the bucket was not found.
+- A bucket of a tenant owned by one of its users could be given a size quota larger than the tenant's storage: no bucket of a tenant can.
+- A bucket inventory's time changed before its first report was ignored: the report ran at the time first set. It runs at the time last set, and a time that is not `HH:MM` is refused with `400`.
 - A user made again from the console with the username of a deleted one took the deleted one's ID, and with it the console sessions the deleted one still had open: a user made gets an ID no user had.
 - Deleting an access key that does not exist answered `500`: it answers `404`.
 - The audit log named the owner of an access key an administrator made as who made it: it names the administrator.

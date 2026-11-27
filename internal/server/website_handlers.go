@@ -28,12 +28,7 @@ func (s *Server) handleGetBucketWebsite(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := currentUser.TenantID
-	isGlobalAdmin := auth.IsAdminUser(ctx) && currentUser.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, currentUser)
 
 	websiteCfg, err := s.bucketManager.GetWebsite(ctx, tenantID, bucketName)
 	if err != nil {
@@ -76,12 +71,7 @@ func (s *Server) handlePutBucketWebsite(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := currentUser.TenantID
-	isGlobalAdmin := auth.IsAdminUser(ctx) && currentUser.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, currentUser)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -147,12 +137,7 @@ func (s *Server) handleDeleteBucketWebsite(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := currentUser.TenantID
-	isGlobalAdmin := auth.IsAdminUser(ctx) && currentUser.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, currentUser)
 
 	if err := s.bucketManager.DeleteWebsite(ctx, tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {

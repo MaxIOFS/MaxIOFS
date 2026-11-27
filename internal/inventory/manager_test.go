@@ -219,8 +219,7 @@ func TestListReadyConfigs(t *testing.T) {
 	err := manager.CreateConfig(ctx, config1)
 	require.NoError(t, err)
 	// Update to set next_run_at in the past
-	config1.NextRunAt = &past
-	err = manager.UpdateConfig(ctx, config1)
+	_, err = db.Exec(`UPDATE bucket_inventory_configs SET next_run_at = ? WHERE id = ?`, past, config1.ID)
 	require.NoError(t, err)
 
 	// Create config that should NOT be ready (next_run_at in future)
@@ -237,8 +236,7 @@ func TestListReadyConfigs(t *testing.T) {
 	err = manager.CreateConfig(ctx, config2)
 	require.NoError(t, err)
 	// Update to set next_run_at in the future
-	config2.NextRunAt = &future
-	err = manager.UpdateConfig(ctx, config2)
+	_, err = db.Exec(`UPDATE bucket_inventory_configs SET next_run_at = ? WHERE id = ?`, future, config2.ID)
 	require.NoError(t, err)
 
 	// Create disabled config (should NOT be ready)
@@ -255,8 +253,7 @@ func TestListReadyConfigs(t *testing.T) {
 	err = manager.CreateConfig(ctx, config3)
 	require.NoError(t, err)
 	// Update to set next_run_at in the past (but it's disabled so won't be ready)
-	config3.NextRunAt = &past
-	err = manager.UpdateConfig(ctx, config3)
+	_, err = db.Exec(`UPDATE bucket_inventory_configs SET next_run_at = ? WHERE id = ?`, past, config3.ID)
 	require.NoError(t, err)
 
 	// List ready configs

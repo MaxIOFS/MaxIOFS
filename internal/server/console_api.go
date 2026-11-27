@@ -1141,12 +1141,7 @@ func (s *Server) handleRecalculateBucketStats(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	if err := s.bucketManager.RecalculateMetrics(r.Context(), tenantID, bucketName); err != nil {
 		if err == bucket.ErrBucketNotFound {
@@ -1173,10 +1168,7 @@ func (s *Server) handleRecalculateBucketStats(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-
-	// Extract user and tenant ID from context
+	bucketName := mux.Vars(r)["bucket"]
 	user, exists := auth.GetUserFromContext(r.Context())
 	if !exists {
 		s.writeError(w, "User not authenticated", http.StatusUnauthorized)
@@ -1185,109 +1177,82 @@ func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionDeleteBucket, "You do not have permission to delete buckets") {
 		return
 	}
-
-	// Check if force delete is requested (only for global admins)
-	forceParam := r.URL.Query().Get("force")
-	force := forceParam == "true"
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-
-	// Get tenantId from query parameter if provided (only global admins can target other tenants)
-	tenantID := user.TenantID
-	queryTenantID := r.URL.Query().Get("tenantId")
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
-
-	// Debug logging
+	force := r.URL.Query().Get("force") == "true"
+	globalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
+	tenantID := consoleBucketTenant(r, user)
 	logrus.WithFields(logrus.Fields{
 		"bucket":        bucketName,
 		"tenantID":      tenantID,
 		"user":          user.Username,
 		"userTenantID":  user.TenantID,
-		"forceParam":    forceParam,
 		"force":         force,
-		"isAdmin":       auth.IsAdminUser(r.Context()),
-		"isGlobalAdmin": isGlobalAdmin,
+		"isGlobalAdmin": globalAdmin,
 		"queryString":   r.URL.RawQuery,
 	}).Info("Delete bucket request received")
 
-	// Force delete only allowed for global admins
-	if force && !isGlobalAdmin {
+	if force && !globalAdmin {
 		s.writeError(w, "Force delete is only allowed for global administrators", http.StatusForbidden)
 		return
 	}
-
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
+	err := s.bucketKeepsItsObjects(r.Context(), tenantID, bucketName, globalAdmin)
+	if err == nil {
+		err = s.deleteConsoleBucket(r.Context(), tenantID, bucketName, user.Username, force)
+	}
 	if err != nil {
-		if err == bucket.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-		} else {
-			s.writeError(w, err.Error(), http.StatusInternalServerError)
-		}
+		s.writeRefusal(w, err)
 		return
 	}
-
-	// Object Lock protection: non-global-admins can never delete Object Lock buckets.
-	if bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled && !isGlobalAdmin {
-		s.writeError(w, "Cannot delete a bucket with Object Lock enabled. Contact an administrator.", http.StatusForbidden)
-		return
-	}
-
-	// COMPLIANCE / legal-hold protection: even global admins and force-delete cannot
-	// bypass active COMPLIANCE retention or legal holds — this is the WORM guarantee.
-	// The objects decide, not the bucket's setting: a metadata store rebuilt from
-	// the files has the retentions and not the setting.
-	{
-		bucketPath := bucketName
-		if tenantID != "" {
-			bucketPath = tenantID + "/" + bucketName
-		}
-		hasCompliance, err := s.objectManager.HasActiveComplianceRetention(r.Context(), bucketPath)
-		if err != nil {
-			s.writeError(w, "Failed to check Object Lock retention status: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if hasCompliance {
-			s.writeError(w,
-				"Cannot delete bucket: one or more objects are protected by active COMPLIANCE retention or legal hold. "+
-					"COMPLIANCE retention cannot be overridden by any user. Wait until all retention periods expire before deleting this bucket.",
-				http.StatusConflict)
-			return
-		}
-	}
-
-	// Use force delete if requested and user is global admin
-	if force && isGlobalAdmin {
-		logrus.WithFields(logrus.Fields{
-			"bucket":   bucketName,
-			"tenantID": tenantID,
-			"user":     user.Username,
-		}).Warn("Force deleting bucket")
-
-		if err := s.bucketManager.ForceDeleteBucket(r.Context(), tenantID, bucketName); err != nil {
-			if err == bucket.ErrBucketNotFound {
-				s.writeError(w, "Bucket not found", http.StatusNotFound)
-			} else {
-				s.writeError(w, err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-	} else {
-		// Normal delete (requires bucket to be empty)
-		if err := s.bucketManager.DeleteBucket(r.Context(), tenantID, bucketName); err != nil {
-			switch err {
-			case bucket.ErrBucketNotFound:
-				s.writeError(w, "Bucket not found", http.StatusNotFound)
-			case bucket.ErrBucketNotEmpty:
-				s.writeError(w, "Bucket is not empty", http.StatusConflict)
-			default:
-				s.writeError(w, err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-	}
-
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// bucketKeepsItsObjects refuses deleting a bucket with Object Lock to anyone
+// but a global administrator, and one whose objects are held by COMPLIANCE
+// retention or a legal hold to anyone, force or not: that is the WORM
+// guarantee. The objects decide, not the bucket's setting: a metadata store
+// rebuilt from the files has the retentions and not the setting.
+func (s *Server) bucketKeepsItsObjects(ctx context.Context, tenantID, name string, globalAdmin bool) error {
+	info, err := s.bucketManager.GetBucketInfo(ctx, tenantID, name)
+	if errors.Is(err, bucket.ErrBucketNotFound) {
+		return refused(http.StatusNotFound, "Bucket not found")
+	}
+	if err != nil {
+		return err
+	}
+	if info.ObjectLock != nil && info.ObjectLock.ObjectLockEnabled && !globalAdmin {
+		return refused(http.StatusForbidden, "Cannot delete a bucket with Object Lock enabled. Contact an administrator.")
+	}
+	bucketPath := name
+	if tenantID != "" {
+		bucketPath = tenantID + "/" + name
+	}
+	held, err := s.objectManager.HasActiveComplianceRetention(ctx, bucketPath)
+	if err != nil {
+		return errors.New("Failed to check Object Lock retention status: " + err.Error())
+	}
+	if held {
+		return refused(http.StatusConflict,
+			"Cannot delete bucket: one or more objects are protected by active COMPLIANCE retention or legal hold. "+
+				"COMPLIANCE retention cannot be overridden by any user. Wait until all retention periods expire before deleting this bucket.")
+	}
+	return nil
+}
+
+// deleteConsoleBucket deletes a bucket: empty, or by force with what it holds.
+func (s *Server) deleteConsoleBucket(ctx context.Context, tenantID, name, username string, force bool) error {
+	var err error
+	if force {
+		logrus.WithFields(logrus.Fields{"bucket": name, "tenantID": tenantID, "user": username}).Warn("Force deleting bucket")
+		err = s.bucketManager.ForceDeleteBucket(ctx, tenantID, name)
+	} else {
+		err = s.bucketManager.DeleteBucket(ctx, tenantID, name)
+	}
+	switch {
+	case errors.Is(err, bucket.ErrBucketNotFound):
+		return refused(http.StatusNotFound, "Bucket not found")
+	case errors.Is(err, bucket.ErrBucketNotEmpty):
+		return refused(http.StatusConflict, "Bucket is not empty")
+	}
+	return err
 }
 
 // Object handlers
@@ -3951,12 +3916,18 @@ type scopedBucketPermissionManager interface {
 	ListBucketPermissionsScoped(ctx context.Context, bucketName, bucketTenantID string) ([]*auth.BucketPermission, error)
 }
 
-func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Request, currentUser *auth.User, bucketName string) (string, bool) {
+// resolveBucketPermissionScope is the tenant of the bucket a permission
+// request names: the caller's, or, for a global administrator, the first of
+// keys the request's query sets.
+func (s *Server) resolveBucketPermissionScope(w http.ResponseWriter, r *http.Request, currentUser *auth.User, bucketName string, keys ...string) (string, bool) {
 	bucketTenantID := currentUser.TenantID
 	if s.isGlobalAdmin(currentUser) {
-		bucketTenantID = r.URL.Query().Get("bucketTenantId")
-		if bucketTenantID == "" {
-			bucketTenantID = r.URL.Query().Get("tenantId")
+		bucketTenantID = ""
+		for _, key := range keys {
+			if value := r.URL.Query().Get(key); value != "" {
+				bucketTenantID = value
+				break
+			}
 		}
 	}
 
@@ -4056,7 +4027,7 @@ func (s *Server) handleListBucketPermissions(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName, "bucketTenantId", "tenantId")
 	if !ok {
 		return
 	}
@@ -4079,7 +4050,7 @@ func (s *Server) handleGrantBucketPermission(w http.ResponseWriter, r *http.Requ
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName, "bucketTenantId", "tenantId")
 	if !ok {
 		return
 	}
@@ -4153,7 +4124,9 @@ func (s *Server) handleRevokeBucketPermission(w http.ResponseWriter, r *http.Req
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
-	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName)
+	// tenantId here names the tenant a permission was given to, not the
+	// bucket's.
+	bucketTenantID, ok := s.resolveBucketPermissionScope(w, r, currentUser, bucketName, "bucketTenantId")
 	if !ok {
 		return
 	}
@@ -5688,17 +5661,8 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check if tenantId is provided in query params (for global admins accessing other tenants' buckets)
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
+	tenantID := consoleBucketTenant(r, user)
 
-	// Global admins can access buckets from any tenant
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
-
-	// Parse request body
 	var req struct {
 		Status string `json:"status"` // "Enabled" or "Suspended"
 	}
@@ -5715,11 +5679,18 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Object Lock (WORM) buckets require versioning to be permanently Enabled.
-	// AWS S3 does not allow suspending versioning on a bucket with Object Lock.
+	// Object Lock (WORM) buckets keep versioning Enabled, as in AWS; one that
+	// cannot be read to tell is not suspended either.
 	if req.Status == "Suspended" {
 		bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
-		if err == nil && bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled {
+		switch {
+		case errors.Is(err, bucket.ErrBucketNotFound):
+			s.writeError(w, "Bucket not found", http.StatusNotFound)
+			return
+		case err != nil:
+			s.writeError(w, err.Error(), http.StatusInternalServerError)
+			return
+		case bucketInfo.ObjectLock != nil && bucketInfo.ObjectLock.ObjectLockEnabled:
 			s.writeError(w, "Object Lock is enabled on this bucket. Versioning cannot be suspended on a bucket with Object Lock (WORM) enabled.", http.StatusConflict)
 			return
 		}
@@ -5732,7 +5703,7 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 
 	// Set versioning configuration
 	if err := s.bucketManager.SetVersioning(r.Context(), tenantID, bucketName, versioningConfig); err != nil {
-		if err == bucket.ErrBucketNotFound {
+		if errors.Is(err, bucket.ErrBucketNotFound) {
 			s.writeError(w, "Bucket not found", http.StatusNotFound)
 			return
 		}
@@ -5744,128 +5715,6 @@ func (s *Server) handlePutBucketVersioning(w http.ResponseWriter, r *http.Reques
 }
 
 // handlePutObjectLockConfiguration handles PUT /buckets/{bucket}/object-lock
-func (s *Server) handlePutObjectLockConfiguration(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	bucketName := vars["bucket"]
-
-	user, exists := auth.GetUserFromContext(r.Context())
-	if !exists {
-		s.writeError(w, "User not found in context", http.StatusUnauthorized)
-		return
-	}
-	if !s.requireConsoleBucketS3Action(w, r, bucketName, auth.ActionPutBucketObjectLockConfiguration,
-		"You do not have permission to configure this bucket") {
-		return
-	}
-
-	tenantID := user.TenantID
-
-	// Parse request body
-	var req struct {
-		Mode  string `json:"mode"`  // GOVERNANCE or COMPLIANCE
-		Days  int    `json:"days"`  // Retention period in days
-		Years int    `json:"years"` // Retention period in years
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	// Validate mode
-	if req.Mode != "GOVERNANCE" && req.Mode != "COMPLIANCE" {
-		s.writeError(w, "Invalid mode. Must be 'GOVERNANCE' or 'COMPLIANCE'", http.StatusBadRequest)
-		return
-	}
-
-	// Validate that either days or years is provided (not both)
-	if (req.Days > 0 && req.Years > 0) || (req.Days == 0 && req.Years == 0) {
-		s.writeError(w, "Must specify either 'days' or 'years', not both", http.StatusBadRequest)
-		return
-	}
-
-	// Get bucket info to verify Object Lock is enabled and get current config
-	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
-	if err != nil {
-		if err == bucket.ErrBucketNotFound {
-			s.writeError(w, "Bucket not found", http.StatusNotFound)
-			return
-		}
-		s.writeError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Verify Object Lock is enabled
-	if bucketInfo.ObjectLock == nil || !bucketInfo.ObjectLock.ObjectLockEnabled {
-		s.writeError(w, "Object Lock is not enabled for this bucket", http.StatusBadRequest)
-		return
-	}
-
-	// Calculate current total days
-	var currentTotalDays int
-	if bucketInfo.ObjectLock.Rule != nil && bucketInfo.ObjectLock.Rule.DefaultRetention != nil {
-		if bucketInfo.ObjectLock.Rule.DefaultRetention.Years != nil {
-			currentTotalDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Years * 365
-		} else if bucketInfo.ObjectLock.Rule.DefaultRetention.Days != nil {
-			currentTotalDays = *bucketInfo.ObjectLock.Rule.DefaultRetention.Days
-		}
-
-		// Verify mode hasn't changed (immutable)
-		if bucketInfo.ObjectLock.Rule.DefaultRetention.Mode != req.Mode {
-			s.writeError(w, fmt.Sprintf("Object Lock mode cannot be changed (current: %s)",
-				bucketInfo.ObjectLock.Rule.DefaultRetention.Mode), http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Calculate new total days
-	newTotalDays := req.Days
-	if req.Years > 0 {
-		newTotalDays = req.Years * 365
-	}
-
-	// Validate that retention period only increases
-	if newTotalDays < currentTotalDays {
-		s.writeError(w, fmt.Sprintf("Retention period can only be increased (current: %d days, requested: %d days)",
-			currentTotalDays, newTotalDays), http.StatusBadRequest)
-		return
-	}
-
-	// Update bucket's Object Lock configuration
-	if bucketInfo.ObjectLock.Rule == nil {
-		bucketInfo.ObjectLock.Rule = &bucket.ObjectLockRule{}
-	}
-	if bucketInfo.ObjectLock.Rule.DefaultRetention == nil {
-		bucketInfo.ObjectLock.Rule.DefaultRetention = &bucket.DefaultRetention{}
-	}
-
-	bucketInfo.ObjectLock.Rule.DefaultRetention.Mode = req.Mode
-	if req.Years > 0 {
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = &req.Years
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = nil
-	} else {
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Days = &req.Days
-		bucketInfo.ObjectLock.Rule.DefaultRetention.Years = nil
-	}
-
-	// Save updated bucket
-	if err := s.bucketManager.UpdateBucket(r.Context(), tenantID, bucketName, bucketInfo); err != nil {
-		s.writeError(w, "Failed to update Object Lock configuration: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Return success
-	s.writeJSON(w, map[string]interface{}{
-		"success": true,
-		"message": "Object Lock configuration updated successfully",
-		"config": map[string]interface{}{
-			"mode":  req.Mode,
-			"days":  req.Days,
-			"years": req.Years,
-		},
-	})
-}
 
 // handleGetObjectLegalHold handles GET /buckets/{bucket}/objects/{object}/legal-hold
 func (s *Server) handleGetObjectLegalHold(w http.ResponseWriter, r *http.Request) {
@@ -6792,16 +6641,7 @@ func (s *Server) handlePutBucketNotification(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Log audit event
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		EventType:    "bucket_notification_configured",
-		UserID:       user.ID,
-		TenantID:     tenantID,
-		ResourceType: "bucket",
-		ResourceID:   bucketName,
-		Status:       "success",
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.UserAgent(),
-	})
+	s.auditBucketSetting(r, user, tenantID, bucketName, "bucket_notification_configured", audit.ActionUpdate, nil)
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
@@ -6843,16 +6683,7 @@ func (s *Server) handleDeleteBucketNotification(w http.ResponseWriter, r *http.R
 	}
 
 	// Log audit event
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		EventType:    "bucket_notification_deleted",
-		UserID:       user.ID,
-		TenantID:     tenantID,
-		ResourceType: "bucket",
-		ResourceID:   bucketName,
-		Status:       "success",
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.UserAgent(),
-	})
+	s.auditBucketSetting(r, user, tenantID, bucketName, "bucket_notification_deleted", audit.ActionDelete, nil)
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
@@ -6875,12 +6706,7 @@ func (s *Server) handleGetBucketEncryption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -6917,12 +6743,7 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	var req struct {
 		Type     string `json:"type"`               // "AES256" or "aws:kms"
@@ -6979,16 +6800,7 @@ func (s *Server) handlePutBucketEncryption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		EventType:    "bucket_encryption_configured",
-		UserID:       user.ID,
-		TenantID:     tenantID,
-		ResourceType: "bucket",
-		ResourceID:   bucketName,
-		Status:       "success",
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.UserAgent(),
-	})
+	s.auditBucketSetting(r, user, tenantID, bucketName, "bucket_encryption_configured", audit.ActionUpdate, nil)
 
 	s.writeJSON(w, map[string]interface{}{
 		"success":    true,
@@ -7013,12 +6825,7 @@ func (s *Server) handleDeleteBucketEncryption(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -7056,12 +6863,7 @@ func (s *Server) handleGetObjectLockConfiguration(w http.ResponseWriter, r *http
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -7099,12 +6901,7 @@ func (s *Server) handleGetPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {
@@ -7140,12 +6937,7 @@ func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	var req bucket.PublicAccessBlock
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -7171,16 +6963,7 @@ func (s *Server) handlePutPublicAccessBlock(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	s.logAuditEvent(r.Context(), &audit.AuditEvent{
-		EventType:    "bucket_public_access_block_configured",
-		UserID:       user.ID,
-		TenantID:     tenantID,
-		ResourceType: "bucket",
-		ResourceID:   bucketName,
-		Status:       "success",
-		IPAddress:    getClientIP(r, s.proxyTrust()),
-		UserAgent:    r.UserAgent(),
-	})
+	s.auditBucketSetting(r, user, tenantID, bucketName, "bucket_public_access_block_configured", audit.ActionUpdate, nil)
 
 	s.writeJSON(w, map[string]interface{}{
 		"success": true,
@@ -7204,12 +6987,7 @@ func (s *Server) handleDeletePublicAccessBlock(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	queryTenantID := r.URL.Query().Get("tenantId")
-	tenantID := user.TenantID
-	isGlobalAdmin := auth.IsAdminUser(r.Context()) && user.TenantID == ""
-	if queryTenantID != "" && isGlobalAdmin {
-		tenantID = queryTenantID
-	}
+	tenantID := consoleBucketTenant(r, user)
 
 	bucketInfo, err := s.bucketManager.GetBucketInfo(r.Context(), tenantID, bucketName)
 	if err != nil {

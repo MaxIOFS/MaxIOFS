@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maxiofs/maxiofs/internal/auth"
+	"github.com/maxiofs/maxiofs/internal/idp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,9 @@ func signInAnswer(s *Server, body, address string) (*httptest.ResponseRecorder, 
 	rec := httptest.NewRecorder()
 	s.handleLogin(rec, req)
 	answer := map[string]any{}
-	_ = json.Unmarshal(rec.Body.Bytes(), &answer)
+	if json.Unmarshal(rec.Body.Bytes(), &answer) != nil {
+		answer = nil // not one JSON document: answered twice
+	}
 	return rec, answer
 }
 
@@ -73,9 +76,22 @@ func TestASignInGivesASessionOnlyToWhoMayHaveOne(t *testing.T) {
 		credentials("nobody"):                     http.StatusUnauthorized,
 		`{"username":"frank","password":"wrong"}`: http.StatusUnauthorized,
 	} {
-		rec, _ := signInAnswer(s, body, "192.0.2.4")
+		rec, answer := signInAnswer(s, body, "192.0.2.4")
 		assert.Equal(t, status, rec.Code, body)
+		assert.NotNil(t, answer, "one answer: %s", rec.Body.String())
 	}
+
+	// An email no user has, while an OAuth provider signs users in, is sent to
+	// its button, and counts as no failed sign-in.
+	require.NoError(t, s.idpManager.CreateProvider(ctx, &idp.IdentityProvider{Name: "SSO", Type: idp.TypeOAuth2, Status: idp.StatusActive,
+		Config: idp.ProviderConfig{OAuth2: &idp.OAuth2Config{Preset: "custom", ClientID: "client", ClientSecret: "secret",
+			AuthURL: "http://127.0.0.1:1/auth", TokenURL: "http://127.0.0.1:1/token", UserInfoURL: "http://127.0.0.1:1/userinfo",
+			RedirectURI: "http://localhost/callback"}}}))
+	rec, answer = signInAnswer(s, `{"username":"someone@corp.test","password":"x"}`, "192.0.2.5")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, true, answer["sso_hint"])
+	rec, _ = signInAnswer(s, `{"username":"nobody-at-all","password":"x"}`, "192.0.2.5")
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "not an email")
 	frank, err := s.authManager.GetUser(ctx, "frank")
 	require.NoError(t, err)
 	assert.Equal(t, 1, frank.FailedLoginAttempts, "a user's record has its failed sign-ins")
